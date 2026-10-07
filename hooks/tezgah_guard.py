@@ -97,3 +97,78 @@ def safe(session_id, fn, *args, **kwargs):
             # while reporting a raise would be the failure it exists to stop.
             pass
         return None
+
+
+def _payload_session():
+    """The session id the host handed this process, best effort: the payload on
+    stdin (every hook, the opencode CLIs) or the JSON argument tezgah-capture
+    takes, else TEZGAH_SESSION. The hook never reached its own decode, so this
+    read consumes nothing anyone else will look at."""
+    import json
+    sources = []
+    try:
+        if sys.stdin is not None and not sys.stdin.isatty():
+            sources.append(sys.stdin.read())
+    except Exception:
+        pass
+    sources += sys.argv[1:]
+    for raw in sources:
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            for key in ("session_id", "sessionID", "sessionId", "conversation_id"):
+                if data.get(key):
+                    return str(data[key])
+    return os.environ.get("TEZGAH_SESSION") or "unknown-session"
+
+
+def attest_session(host, session_id, cwd):
+    """The session-start attestation (`tezgah_attest.run`), imported only here
+    and only when called: a broken attestation module then costs the `attest`
+    row inside `safe()`, never the import of a hook that also gates."""
+    import tezgah_attest
+    return tezgah_attest.run(host, session_id, cwd)
+
+
+def import_crash_mark(session_id):
+    """The mark an import failure leaves for the status line, one per session.
+    Built here from stdlib alone (the same `~/.cache/tezgah` as
+    `tezgah_paths.CACHE`), because the module that failed may be tezgah_paths."""
+    import hashlib
+    return os.path.join(os.path.expanduser("~"), ".cache", "tezgah", "import-crash",
+                        hashlib.sha256(str(session_id).encode()).hexdigest()[:16])
+
+
+def import_failed(exc, code=0):
+    """An entry point whose core imports raised: say so and exit `code`.
+
+    `safe` covers the calls, not the `from tezgah_x import ...` lines above
+    them, so a module that failed to import (a rename, a syntax error a release
+    shipped) ended the hook with a traceback - on omp that disables the gate,
+    the ledger and the status line for the session (the lessons ledger records
+    the rename that crashed every omp hook). A hook fails open (`code` 0) like
+    every other caught fault, so the dead core must be visible elsewhere: one
+    stderr line always, a `crash` row when the ledger's own modules still
+    import, and a mark the status line draws (`import_crash_mark`). A CLI a
+    person or a tool asks for a verdict (`tezgah-gate check`) passes a non-zero
+    `code`: an empty answer from it would read as a pass."""
+    detail = "import: %s: %s" % (type(exc).__name__, str(exc)[:120])
+    sys.stderr.write("tezgah: %s could not import its core (%s); this call ran "
+                     "without tezgah\n"
+                     % (os.path.basename(sys.argv[0] if sys.argv else "hook"), detail))
+    session = _payload_session()
+    try:
+        mark = import_crash_mark(session)
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        with open(mark, "w", encoding="utf-8") as fh:
+            fh.write(detail + "\n")
+    except Exception:
+        pass
+    try:
+        import tezgah_integrity
+        tezgah_integrity.note(session, "crash", detail)
+    except Exception:
+        pass
+    sys.exit(code)

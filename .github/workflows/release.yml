@@ -23,10 +23,18 @@ on:
 permissions: {}
 
 jobs:
+  # CI on the release commit, run here rather than looked up: a lookup of a past
+  # green run races CI, which is how v0.1.2 published while its CI went red.
+  ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
   # The secrets context is not available in a job-level `if`, so a guard there
   # is a workflow-file parse failure and every event dies at 0s - the guards
   # live on the steps, where secrets read fine.
   npm-publish:
+    needs: ci
     permissions:
       contents: read
       id-token: write
@@ -86,6 +94,7 @@ jobs:
           exit 1
 
   brew-formula:
+    needs: ci
     # `gh release upload` below writes the asset with GITHUB_TOKEN; id-token and
     # attestations sign and store the tarball's build provenance.
     permissions:

@@ -61,7 +61,7 @@ import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
-import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
@@ -289,38 +289,105 @@ const REDIRECTION = /^(?=[&<>]*[<>])[&<>]+$/
 const GIT_WRAPPER = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec"])
 
-// unquoted backticks become `;` (hooks/tezgah_integrity._unquoted_backticks)
-function unquotedBackticks(text) {
-  let out = "", quote = null, i = 0
-  while (i < text.length) {
+// What shlex can read (hooks/tezgah_integrity._for_shlex): each `$'...'` (bash's
+// ANSI-C quoting, `\'` included) as the single-quoted word it expands to, and
+// each unquoted backtick pair as the `$( )` it is
+function forShlex(text) {
+  let out = "", quote = null, tick = false, i = 0
+  const n = text.length
+  while (i < n) {
     let ch = text[i]
-    if (ch === "\\" && quote !== "'" && i + 1 < text.length) {
+    if (ch === "\\" && quote !== "'" && i + 1 < n) {
       out += text.slice(i, i + 2); i += 2; continue
     }
     if (quote) { if (ch === quote) quote = null }
-    else if (ch === "'" || ch === '"') quote = ch
-    else if (ch === "`") ch = ";"
+    else if (ch === "$" && text[i + 1] === "'") {
+      let end = i + 2
+      while (end < n && text[end] !== "'") end += text[end] === "\\" ? 2 : 1
+      if (end < n) {
+        const value = text.slice(i + 2, end).replace(/\\(.)/g, "$1")
+        out += "'" + value.replace(/'/g, "'\"'\"'") + "'"
+        i = end + 1
+        continue
+      }
+    } else if (ch === "'" || ch === '"') quote = ch
+    else if (ch === "`") { ch = tick ? ")" : "$("; tick = !tick }
     out += ch
     i++
   }
   return out
 }
 
-// The line's simple commands as word lists: heredoc bodies blanked, a continued
-// line joined, unquoted backticks split, each line read by shellWords - or, when
-// it cannot read it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`.
-function shellSegments(cmd) {
-  const segs = []
-  const text = unquotedBackticks(blankHeredocs(String(cmd || "")).replace(/\\\n/g, " "))
-  for (const line of text.split(/\r\n|\r|\n/)) {
-    const words = shellWords(line, false) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
+// 1 for each character of a heredoc body or its terminator line
+// (hooks/tezgah_integrity._heredoc_bytes): data, never a quote or a comment
+function heredocBytes(text) {
+  const out = new Uint8Array(text.length)
+  if (text.includes("<<")) {
+    for (const h of heredocs(text)) out.fill(1, h[4], h[5] ? h[5][1] : text.length)
+  }
+  return out
+}
+
+// The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
+// inside quotes, each one in a heredoc body, every one inside a double-quoted
+// `$( )`/backtick; a comment dropped to its line end; a quote left open goes
+// back to a split at every newline from its line on.
+function shellLines(text) {
+  const body = heredocBytes(text)
+  let lines = [], cur = "", quote = null, start = true, i = 0, opened = 0, runs = false
+  let dollar = false  // the character before i was a `$` bash read unescaped
+  const n = text.length
+  while (i < n) {
+    const ch = text[i]
+    if (body[i] || ((!quote || runs) && (ch === "\r" || ch === "\n"))) {
+      if (ch === "\r" || ch === "\n") {
+        lines.push(cur)
+        cur = ""; quote = null; start = true; runs = false; dollar = false
+        i += text.slice(i, i + 2) === "\r\n" ? 2 : 1
+      } else { cur += ch; i += 1 }
+      continue
+    }
+    if (quote) {
+      if (ch === "\\" && quote !== "'" && i + 1 < n) {
+        cur += text.slice(i, i + 2); i += 2; continue
+      }
+      if (ch === quote[quote.length - 1]) { quote = null; runs = false }
+      else if (quote === '"' && (ch === "`" || text.startsWith("$(", i))) runs = true
+    } else if (ch === "\\" && i + 1 < n) {
+      cur += text.slice(i, i + 2); i += 2; start = false; dollar = false; continue
+    } else if (ch === "#" && start) {
+      while (i < n && text[i] !== "\r" && text[i] !== "\n") i += 1
+      continue
+    } else if (ch === "'" || ch === '"') {
+      quote = ch === "'" && dollar ? "$'" : ch
+      opened = lines.length
+    }
+    start = !quote && (/\s/.test(ch) || ";&|()<>".includes(ch))
+    dollar = !quote && ch === "$"
+    cur += ch
+    i += 1
+  }
+  lines.push(cur)
+  if (quote) lines = lines.slice(0, opened).concat(lines.slice(opened).join("\n").split(/\r\n|\r|\n/))
+  return lines
+}
+
+// The line's simple commands with the separator that ended each, as
+// hooks/tezgah_integrity._shell_commands reads them: heredoc bodies blanked, a
+// continued line joined, each line read by shellWords - or, when it cannot read
+// it, roughly (ROUGH_WORDS) - and split at a run of `;&|()`. A `$( )` or
+// backtick body is a command of its own, ended by `$)`, and the command around
+// it goes on after its close with a `$()` word in its place.
+function shellCommands(cmd) {
+  const out = []
+  const text = blankHeredocs(String(cmd || "")).replace(/\\\n/g, "  ")
+  for (const line of shellLines(text).map(forShlex)) {
+    const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     // a redirection is not an argument and not a command: its words (the fd
-    // before, the `&` of `2>&1`/`&>`, the target after) are dropped, as
-    // hooks/tezgah_integrity._shell_segments drops them
-    let cur = [], afterRedir = false
+    // before, the `&` of `2>&1`/`&>`, the target after) are dropped
+    let cur = [], subs = [], afterRedir = false
     for (let i = 0; i < words.length; i++) {
       const word = words[i]
-      if (word.startsWith("#") && cur.length) break  // bash: a comment starts a word
       if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
       if (REDIRECTION.test(word)) {
         if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
@@ -332,12 +399,71 @@ function shellSegments(cmd) {
         afterRedir = false
         continue
       }
-      if (word && ";&|()".includes(word[0])) { if (cur.length) segs.push(cur); cur = [] }
-      else cur.push(word)
+      if (!(word && ";&|()".includes(word[0]))) { cur.push(word); continue }
+      for (const piece of word.match(/[()]|[;&|]+/g) || []) {
+        if (piece === "(" && cur.length && cur[cur.length - 1].endsWith("$")) {
+          cur[cur.length - 1] += "()"
+          subs.push([cur, 0])
+          cur = []
+          continue
+        }
+        if (subs.length && piece === "(") subs[subs.length - 1][1] += 1
+        else if (subs.length && piece === ")") {
+          if (!subs[subs.length - 1][1]) {
+            if (cur.length) out.push([cur, "$)"])
+            cur = subs.pop()[0]
+            continue
+          }
+          subs[subs.length - 1][1] -= 1
+        }
+        if (cur.length) out.push([cur, piece])
+        else if (out.length) out[out.length - 1][1] += piece
+        cur = []
+      }
     }
-    if (cur.length) segs.push(cur)
+    for (const seg of [cur, ...subs.reverse().map((s) => s[0])]) {
+      if (seg.length) out.push([seg, "\n"])
+    }
   }
-  return segs
+  if (out.length && out[out.length - 1][1] === "\n") out[out.length - 1][1] = ""
+  return out
+}
+
+function shellSegments(cmd) {
+  return shellCommands(cmd).map((c) => c[0])
+}
+
+// the separators after a check that keep its status the line's
+// (hooks/tezgah_integrity.OWNING_SEP)
+const OWNING_SEP = /^[()]*(?:&&|\|&?)[()]*$/
+
+// True when the line's exit status is not its check's
+// (hooks/tezgah_integrity.status_hidden): a pipe owns it unless the line opens
+// with `set -o pipefail` and has no `||`, or a command after the check does -
+// a `;`, a newline or a trailing `&` - unless that command is `exit $?`. A
+// heredoc body and its terminator are data.
+function statusHidden(cmd) {
+  if (cmd.includes("|") && (cmd.includes("||") ||
+      !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))) return true
+  const body = heredocBytes(cmd)
+  const cmds = shellCommands(cmd.split("").map((ch, k) =>
+    body[k] && ch !== "\n" ? " " : ch).join(""))
+  for (let i = 0; i < cmds.length; i++) {
+    if (!verifyCommand(cmds[i][0].map(quoteWord).join(" "))) continue
+    for (let k = i; k < cmds.length - 1; k++) {
+      if (OWNING_SEP.test(cmds[k][1])) continue
+      const next = cmds[k + 1][0].join(" ")
+      if (next === "exit $?" || next === "exit") break
+      return true
+    }
+  }
+  return cmds.length > 0 && cmds[cmds.length - 1][1].includes("&")
+}
+
+// shlex.quote: a word with nothing a shell would read is itself
+function quoteWord(word) {
+  if (word && /^[\w@%+=:,./-]+$/.test(word)) return word
+  return "'" + word.replace(/'/g, "'\"'\"'") + "'"
 }
 
 function namesHooksKey(setting) {
@@ -432,6 +558,13 @@ const BASH_TOOLS = new Set(["bash", "shell", "command", "exec_command",
 // comes back empty, while a pre-test tight enough to miss nothing would be the
 // second implementation this host exists not to keep.
 const TASK_CLI = /\btezgah-task\b\s+\S/
+// The control rule's shell half (`hooks/tezgah_gate.control_reason`): a line
+// that could change tezgah's own control plane - a program that writes, removes
+// or moves a path, or a redirect, before a name that plane holds; or one of its
+// CLIs with an argument. The rule, its path table and its `~`/`$HOME`/XDG
+// expansion are the core's; this is only the bound on asking, loose the same
+// way TASK_CLI is: a false hit costs one spawn whose answer comes back empty.
+const CONTROL_CMD = /(?:\b(?:touch|rm|rmdir|unlink|shred|truncate|chmod|chown|chgrp|mv|mkdir|tee|cp|ln|install|rsync|dd|sed|perl|git|sh|bash|zsh)\b|>)[\s\S]*(?:tezgah|\.no-|\.husky|\.git\/hooks|\.claude|\.codex|\.cursor|opencode|\.omp|\.local\/share)|\btezgah-(?:gate(?:\.py)?\s+decide|(?:capture|pony|adhd)(?:\.py)?\s+\S)/
 // The same bound for the language rule: the command shapes that dream up an
 // identifier which outlives the session - `git commit` (its message), `git
 // checkout -b`/`-B`/`--branch` and `git switch -c`/`-C`/`--create` (a branch),
@@ -605,16 +738,77 @@ function blankHeredocs(text) {
   return out.join("")
 }
 
-function maskText(text) {
+// a source file's reading (hooks/tezgah_integrity.mask_source): the test-disable
+// scan's, length kept
+function maskSource(text) {
   return blankHeredocs(text).replace(LITERALS, (m) => " ".repeat(m.length))
 }
+
+// A shell line with quotes, comments and heredoc bodies blanked as bash reads
+// them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` (an
+// unescaped `$` only) and `"..."` do, a `\` outside quotes escapes one
+// character, `#` is a comment only at the start of a word, a heredoc body is
+// data, and a quote left open blanks from itself to the end.
+function maskText(raw) {
+  const text = blankHeredocs(String(raw || ""))
+  const body = heredocBytes(text)
+  const out = text.split("")
+  const n = text.length
+  let i = 0, start = true, prev = ""
+  while (i < n) {
+    const ch = text[i]
+    let end
+    if (body[i]) { i += 1; start = true; prev = ""; continue }
+    if (ch === "\\") { i += 2; start = false; prev = ""; continue }
+    if (ch === "'" || ch === '"') {
+      const escapes = ch === '"' || prev === "$"
+      end = i + 1
+      while (end < n && text[end] !== ch) end += escapes && text[end] === "\\" ? 2 : 1
+      end = Math.min(end + 1, n)
+    } else if (ch === "#" && start) {
+      end = text.indexOf("\n", i)
+      if (end < 0) end = n
+    } else {
+      start = /\s/.test(ch) || ";&|()<>".includes(ch)
+      prev = ch
+      i += 1
+      continue
+    }
+    for (let k = i; k < end; k++) if (out[k] !== "\n") out[k] = " "
+    i = end
+    start = false
+    prev = ""
+  }
+  return out.join("")
+}
+
+// mirrors hooks/tezgah_integrity INFO_ARGS / INFO_SUBCOMMAND / FORMAT_WRITE: an
+// information form checks nothing and a formatter's write mode changes the
+// tree, so neither is a check; read on the words after the tool up to the end
+// of that one command
+const INFO_ARGS = /(?:^|\s)(?:--version|--help|--list|--collect-only)(?=\s|$)/
+const INFO_SUBCOMMAND = { make: /^\s*help(?:\s|$)/, just: /^\s*help(?:\s|$)/,
+                          ruff: /^\s*$/ }
+const FORMAT_WRITE = { ruff: /^\s*format\b(?!.*\s--(?:check|diff)\b)|\s--fix\b/,
+                       prettier: /(?:^|\s)(?:--write|-w)(?=\s|$)/,
+                       eslint: /(?:^|\s)--fix\b/ }
+const VERIFY_ALL = new RegExp(VERIFY.source, "gi")
 
 function verifyCommand(cmd) {
   // the masked text, the convention shortcutCommand already follows: a check
   // named inside a quoted string or a heredoc body is text ABOUT a command, not
   // one, and reading it as one records a passing check nobody ran
-  const m = maskText(cmd).match(VERIFY)
-  return m ? m[0] : null
+  const text = maskText(cmd)
+  for (const m of text.matchAll(VERIFY_ALL)) {
+    const words = m[0].trim().split(/\s+/)
+    const tool = words[words.length - 1].toLowerCase()
+    const args = text.slice(m.index + m[0].length).split(/[;&|\n)]/)[0]
+    const sub = INFO_SUBCOMMAND[tool]
+    if (INFO_ARGS.test(args) || (sub && sub.test(args))) continue
+    if (FORMAT_WRITE[tool] && FORMAT_WRITE[tool].test(args)) continue
+    return m[0]
+  }
+  return null
 }
 
 // mirrors hooks/tezgah_integrity._git_skips_hooks: commit's short `-n` (alone or
@@ -721,8 +915,9 @@ function shortcutCommand(cmd, depth = 0) {
       "and commit without it."
   if (verifyCommand(c) && NEUTER.test(c))
     return "Verification neutered: this check is chained with `|| true` / " +
-      "`; true`, so it reports success no matter what it found. Run it plain " +
-      "and read the real exit status."
+      "`; true`, so it reports success no matter what it found. Run it as the " +
+      "line's last command, with nothing after it but `&&`, and read the real " +
+      "exit status."
   if (depth < SHELL_DEPTH) {
     for (const script of shellScripts(cmd)) {
       const reason = shortcutCommand(script, depth + 1)
@@ -758,7 +953,7 @@ async function shortcutEdit(args) {
   if (!base && p) {
     try { base = await readFile(expand(p), "utf8") } catch { base = "" }
   }
-  const added = addedSkips(maskText(newText), maskText(base))
+  const added = addedSkips(maskSource(newText), maskSource(base))
   if (!added.length) return null
   return "Test disable denied: this change adds " +
     [...new Set(added)].join(", ") + ". Making a failing test disappear is not " +
@@ -920,6 +1115,37 @@ const REDACT_MYSQL =
 const REDACT_BEARER = /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi
 const REDACT_TOKEN =
   /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)?[-_]?[A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+// The same families for the refusal a heredoc body meets
+// (hooks/tezgah_integrity.SECRET_PREFIXED): an `sk`/`pk`/`rk` token counts only
+// with its qualifier, since the bare branch above matches identifiers like
+// `pk_users_organization_id`.
+const PREFIXED_TOKEN =
+  /\b(?:sk|pk|rk)[-_](?:live|test|proj|ant|api[0-9]*)[-_][A-Za-z0-9_\-]{16,}|\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[baprs]-[A-Za-z0-9-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_\-]{30,}|\bglpat-[A-Za-z0-9_\-]{20,}|\bnpm_[A-Za-z0-9]{30,}/gi
+// A template or fixture file and a documentation placeholder are exempt, as in
+// hooks/tezgah_gate.secret_edit (SECRET_FIXTURE, SECRET_TEMPLATES, _placeholder).
+const SECRET_FIXTURE = /(?:^|\/)tests?\/(?:.+\/)?fixtures\/|\.example$/i
+const SECRET_TEMPLATES = new Set([".env.example", ".env.sample", ".env.template",
+  ".env.dist", ".env.defaults"])
+const SECRET_PUBLISHED = new Set([
+  "2cafc0970149a84f3b9e62eaf169f36f59907a3b3e31f7b82e68c69cd27f7326"])
+
+function placeholder(token) {
+  if (token.toLowerCase().includes("example")) return true
+  let body = token.split(/[-_]/).pop()
+  if (body === token) body = token.slice(4)
+  if (new Set(body).size <= 1) return true
+  return SECRET_PUBLISHED.has(createHash("sha256").update(token).digest("hex"))
+}
+
+// ponytail: the file on disk is not read as a baseline here, as the Python
+// half does; plan 057 (d) hands this check to the core.
+function landsSecret(body) {
+  const name = String(body.filePath || "").replaceAll("\\", "/")
+  if (SECRET_FIXTURE.test(name) || SECRET_TEMPLATES.has(basename(name).toLowerCase())) {
+    return false
+  }
+  return [...body.content.matchAll(PREFIXED_TOKEN)].some((m) => !placeholder(m[0]))
+}
 
 function redact(text) {
   const mark = (value) => MARKED + value.length + "]"
@@ -975,11 +1201,9 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
     const cmd = String(args?.command || args?.cmd || "")
     if (!verifyCommand(cmd)) kind = "run"
     else {
-      // a pipe owns the status unless the line opens with `set -o pipefail`
-      // and has no `||` (hooks/tezgah_integrity.pipe_hides_status)
-      const hidden = cmd.includes("|") && (cmd.includes("||") ||
-        !/^\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\s*(?:;|&&|\n)/.test(cmd))
-      kind = typeof exit === "number" && !hidden
+      // a pipe or a later command owns the status
+      // (hooks/tezgah_integrity.status_hidden)
+      kind = typeof exit === "number" && !statusHidden(cmd)
         ? (exit === 0 ? "verify_ok" : "verify_fail") : "verify"
     }
   } else if (!source) {
@@ -1026,10 +1250,13 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   }
   // the write's file as one absolute real path, the field the Python race
   // guard compares (hooks/tezgah_integrity._abs_target): `detail` is the host's
-  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6)
-  if (kind === "edit") {
+  // spelling, relative to a cwd the row does not carry (audit CHAT-03 / M-6).
+  // A shell `run` row that redirects or tees into a file carries it too, so a
+  // sibling's shell write is seen like its edit (hooks/tezgah_integrity.note_tool);
+  // one that writes only its own scratch (a temp file, a device) carries none.
+  if (kind === "edit" || kind === "run") {
     const target = absTarget(writtenPath(args), cwd)
-    if (target) row.target = target
+    if (target && !(kind === "run" && scratchTarget(target, cwd))) row.target = target
   }
   await appendRow(sessionID, row)
   // The opt-in taste capture: on the Python hosts note_tool calls
@@ -1083,6 +1310,17 @@ function absTarget(path, cwd) {
       head = parent
     }
   }
+}
+
+// A resolved target that is the session's own scratch: a device, or a file under
+// the system temp dir or /tmp but not inside the cwd
+// (hooks/tezgah_integrity.scratch_target).
+function scratchTarget(target, cwd) {
+  if (target.startsWith("/dev/")) return true
+  const here = absTarget(cwd || process.cwd(), "/")
+  if (target === here || target.startsWith(here + "/")) return false
+  return [absTarget(tmpdir(), "/"), absTarget("/tmp", "/")].some(
+    (root) => target.startsWith(root + "/"))
 }
 
 // sha256 of a file's bytes, the digest the Python half records
@@ -1342,9 +1580,11 @@ async function shellRules(tool, args, sessionID, base, dir) {
     return reason
   }
   // The body a heredoc writes: maskText blanks it, so the text-level scan above
-  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body).
+  // cannot see a key that sits in it (hooks/tezgah_gate.shell_write_body). It is
+  // a file's text, so it is read for the prefixed token families a write tool's
+  // content is (hooks/tezgah_gate.secret_edit), never for name=value.
   const body = shellWriteBody(cmd, dir)
-  if (body && SECRET_TOKEN.test(body.content)) {
+  if (body && landsSecret(body)) {
     await noteDeny(sessionID, "secret", SECRET_DENY, tool, args, base)
     return SECRET_DENY
   }
@@ -1450,9 +1690,11 @@ const MCP_TOOL = /^mcp__/i
 const SUBAGENT_TOOLS = new Set(["task", "agent", "spawn_agent", "subagent"])
 // Matched on the masked text so that quoting curl in a commit message is not a
 // read, and only at a command position so that `grep -n curl hooks/` is not one
-// either. ponytail: `sudo curl` and a program reached through a variable are
-// missed rather than matched by accident, as the Python pattern is.
-const NETWORK_READ = /(?:^|[|;&(])\s*(?:curl|wget|gh\s+api)\b/im
+// either. The forms that count, and the local clone/pull/fetch that does not,
+// are hooks/tezgah_integrity.NETWORK_READ's; the pattern is that one, byte for
+// byte, and tests/test_opencode_plugin.py pins the two to one answer.
+const NETWORK_READ =
+  /(?:^|[|;&(])\s*(?:(?:[A-Za-z_]\w*=\S*|sudo(?:\s+-\S+)*)\s+)*(?:(?:curl|wget|gh\s+(?:api|issue\s+(?:view|list)|pr\s+(?:view|diff|checkout|list)))\b|git(?:\s+(?:-[Cc]\s+\S+|--\S+))*\s+(?:clone\b(?!(?:\s+-\S+)*\s+(?:[./~]|file:))|(?:pull|fetch)(?:\s+-\S+)*\s+(?!file:)(?:[a-z][\w+.-]*:\/\/|[\w.-]+@[\w.-]+:)))/im
 const TIER_PROGRAMS = ["consult", "codegen"]
 const TIER_CALL = /\b(?:consult|codegen)\b([^|;&<>()\n]*)/gi
 // The invocation that reaches a model is the one with an argument: `consult
@@ -1466,11 +1708,9 @@ const TIER_LOCAL_ARGS = ["-h", "--help"]
 const EFFECTFUL = new Set([...BASH_TOOLS, ...WRITE_TOOLS])
 // The shell vocabulary the program-position reader needs, spelled as
 // hooks/tezgah_context has it (_SHELL_WRAPPERS, _SHELL_KEYWORDS, _WRAPPER_ARG,
-// _OPTION_ARG, _SHELL_SEPARATORS, _ASSIGNMENT): a mention of the tool in an
+// _OPTION_ARG, _ASSIGNMENT): a mention of the tool in an
 // argument is not a run of it, and the two halves have to agree on which word a
 // shell line would run.
-const SHELL_SEPARATORS = new Set([";", "&&", "||", "|", "&", "(", ")", "<",
-  ">", ">>"])
 const SHELL_WRAPPERS = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec", "xargs", "bash", "sh", "zsh", "dash", "ksh"])
 const SHELL_KEYWORDS = new Set(["if", "elif", "while", "until", "then", "do",
@@ -1483,19 +1723,16 @@ const WRAPPER_ARG = new Set(["timeout"])
 const OPTION_ARG = new Set(["-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r",
   "-t", "--user", "--group", "--prompt", "--chdir"])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
-const PROGRAM_HEREDOC = /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/
 
 // One shell line's words, as `shlex.shlex(line, posix=True,
 // punctuation_chars=";&|()<>")` with whitespace_split reads them: quotes and
 // escapes are removed, and a run of one punctuation character is a token of its
 // own, so `a&&b` is three words. null is shlex's ValueError - an unterminated
-// quote, or a backslash with nothing to escape - which the Python caller answers
-// by dropping that whole line, so `consult 'q` and `consult q's` reach no
-// program position on either side rather than one.
-// `comments` is shlex's default commenter: a word-initial `#` ends the line.
-// The gate reader turns it off because bash does not end a line at `x=a#b`, and
-// stops at a word-initial `#` itself (shellSegments).
-function shellWords(line, comments = true) {
+// quote, or a backslash with nothing to escape - which shellSegments answers by
+// reading the line roughly (ROUGH_WORDS), as the Python reader does. shlex's
+// commenter is off: bash does not end a line at `x=a#b`, so shellSegments stops
+// at a word-initial `#` itself.
+function shellWords(line) {
   const text = String(line || "")
   const out = []
   let word = ""
@@ -1508,7 +1745,6 @@ function shellWords(line, comments = true) {
   while (i < text.length) {
     const c = text[i]
     if (/\s/.test(c)) { push(); i += 1; continue }
-    if (comments && c === "#" && !word) break
     if (";&|()<>".includes(c)) {
       push()
       let run = c
@@ -1555,7 +1791,7 @@ function shellWords(line, comments = true) {
   return out
 }
 
-// The command positions of one tokenized shell line, in the Python order
+// The command positions of one simple command's words, in the Python order
 // (hooks/tezgah_context._command_words): the word after the program is an
 // argument whatever it looks like, and `bash -c '<line>'` is a command line of
 // its own and not an argument.
@@ -1565,12 +1801,6 @@ function commandWords(words, depth) {
   let skip = 0
   let shellC = false
   for (const word of words) {
-    if (SHELL_SEPARATORS.has(word)) {
-      want = true
-      skip = 0
-      shellC = false
-      continue
-    }
     if (!want) continue
     if (skip && !word.startsWith("-")) { skip -= 1; continue }
     if (word.startsWith("-")) {
@@ -1590,29 +1820,56 @@ function commandWords(words, depth) {
       shellC = false
       continue
     }
-    out.push(basename(word))
+    // a program word holding `$()` is whatever the substitution prints
+    if (!word.includes("$()")) out.push(basename(word))
     want = false
   }
   return out
 }
 
-// Every word a shell line would run as a program, in order, with heredoc bodies
-// skipped as data (hooks/tezgah_context.shell_programs).
-function shellPrograms(command, depth = 0) {
-  const out = []
-  const lines = String(command || "").split(/\r\n|\r|\n/)
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    i += 1
-    const opener = PROGRAM_HEREDOC.exec(line)
-    if (opener) {
-      while (i < lines.length && lines[i].trim() !== opener[2]) i += 1
-      i += 1
-    }
-    const words = shellWords(line)
-    if (words) out.push(...commandWords(words, depth))
+// The `$( )` and backtick spans of text[start:end], outermost only
+// (hooks/tezgah_context._substitutions)
+function substitutions(text, start, end) {
+  const spans = []
+  let i = start
+  while (i < end) {
+    let j
+    if (text.startsWith("$(", i)) {
+      let depth = 0
+      for (j = i + 1; j < end; j++) {
+        depth += text[j] === "(" ? 1 : text[j] === ")" ? -1 : 0
+        if (!depth) break
+      }
+    } else if (text[i] === "`") {
+      j = text.indexOf("`", i + 1)
+      if (j < 0 || j >= end) j = end
+    } else { i += 1; continue }
+    spans.push([i, j + 1])
+    i = j + 1
   }
+  return spans
+}
+
+// Every word a shell line would run as a program, in order
+// (hooks/tezgah_context.shell_programs): a closed heredoc body is data - a
+// quoted tag's whole, an unquoted tag's all but its substitutions.
+function shellPrograms(command, depth = 0) {
+  const s = String(command || "")
+  const text = s.split("")
+  for (const h of heredocs(s)) {
+    if (!h[5]) continue
+    const keep = new Set()
+    if (!h[3]) {
+      for (const [a, b] of substitutions(s, h[4], h[5][0])) {
+        for (let k = a; k < b; k++) keep.add(k)
+      }
+    }
+    for (let k = h[4]; k < h[5][1]; k++) {
+      if (text[k] !== "\n" && !keep.has(k)) text[k] = " "
+    }
+  }
+  const out = []
+  for (const words of shellSegments(text.join(""))) out.push(...commandWords(words, depth))
   return out
 }
 
@@ -1736,11 +1993,13 @@ function real(p) {
 }
 
 // `"roots"` is a list; a string is one root and anything else the default -
-// the reading `tezgah_paths.roots()` does.
+// the reading `tezgah_paths.roots()` does. TEZGAH_ROOTS is split on the
+// platform's PATH delimiter (`;` on Windows, where `C:` holds a colon), as
+// `os.pathsep` splits it there.
 async function roots() {
   let raw = []
   if (process.env.TEZGAH_ROOTS) {
-    raw = process.env.TEZGAH_ROOTS.split(":")
+    raw = process.env.TEZGAH_ROOTS.split(delimiter)
   } else {
     try {
       const cfg = JSON.parse(await readFile(join(CONFIG, "config.json"), "utf8"))
@@ -1753,8 +2012,12 @@ async function roots() {
   return [...new Set(raw.map(expand).filter(Boolean).map(real))]
 }
 
+// `dir` is `root` or below it, in the platform's own path rules: `relative`
+// handles `\` and case-folds drive paths on Windows, and a step out (`..`) or
+// another drive (an absolute answer) is not below.
 function under(dir, root) {
-  return dir === root || dir.startsWith(root.endsWith("/") ? root : root + "/")
+  const rel = relative(root, dir)
+  return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel))
 }
 
 async function rootFor(dir) {
@@ -1763,8 +2026,18 @@ async function rootFor(dir) {
   return null
 }
 
+// Mirrors hooks/tezgah_paths.SWITCHES, the one list of switch and marker names
+// (tests/test_paths.py holds the two equal): a name outside it answers false,
+// so a switch this host invents cannot drift from the one the core reads.
+const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
+  "exec-mode.off", "judge-off", "lang-off", "orchestrate-off",
+  "ponytail-auto.off", "pretooluse-off", "reminder-off", "research-off",
+  "spec-off", "task-off", "triage-off", "verify-off", "workspace-off",
+  "agents-off", "skill-suggest-on", "taste-on", "update-check-off"])
+
 function off(name) {
-  return existsSync(join(CONFIG, name)) || existsSync(join(HOME, ".claude", name))
+  return SWITCHES.has(name) &&
+    (existsSync(join(CONFIG, name)) || existsSync(join(HOME, ".claude", name)))
 }
 
 function slug(p) {
@@ -1837,7 +2110,10 @@ function permissionToolArgs(input) {
   return { tool, args }
 }
 
-async function oncePerSession(sessionID) {  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
+// The mark's name is hooks/tezgah_gate.nudge_mark's: sha1(id)[:16], so a session
+// nudged on either side is spent on both (test_the_nudge_mark_is_one_key_on_both_sides).
+async function oncePerSession(sessionID) {
+  const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
   const dir = join(cacheDir(), "nudged")
   const mark = join(dir, key)
   if (existsSync(mark)) return false
@@ -1984,7 +2260,9 @@ function builderText(event, directory, payload) {
 // enforces its own
 // rules unchanged - a binary that is not there must never break the tool call it
 // guards. What the silence costs is one row, never a refusal.
-async function gateReason(tool, args, dir, sessionID) {
+// `core.answered` says the core did answer: its live `decide` has then kept the
+// snapshot of an allowed write itself, and this file must not keep a second one.
+async function gateReason(tool, args, dir, sessionID, core = {}) {
   const state = {}
   const reason = await collect(
     [GATE_BIN, "decide"], { stdio: ["pipe", "pipe", "ignore"] },
@@ -1995,6 +2273,7 @@ async function gateReason(tool, args, dir, sessionID) {
       return code === 0 ? out.trim() : ""
     })
   if (state.failure) await noteDelegation(sessionID, state.failure)
+  else core.answered = true
   return reason
 }
 
@@ -2102,6 +2381,7 @@ export const Tezgah = async ({ directory }) => {
       // whether the core was asked: its live `decide` writes the call's `began`
       // row on its own allow path, so this file writes one only when it was not
       let asked = false
+      const core = {}
       try {
         if (off("pretooluse-off")) return
         const base = await rootFor(dir)
@@ -2114,7 +2394,18 @@ export const Tezgah = async ({ directory }) => {
         // the shortcut denials are the gate half of the integrity rule, which
         // `verify-off` removes; attribution and explore are other rules and stay
         const shortcuts = !off("verify-off")
-        if (attribution(tool, args) || shellAttribution(args)) {
+        // The control rule is the Python gate's first (hooks/tezgah_gate.decision),
+        // so a shell line CONTROL_CMD says could touch the control plane is put to
+        // the core before any rule here: its answer is the whole gate's, in the
+        // gate's own order, and this file keeps no copy of the path table.
+        const line = BASH_TOOLS.has(tool) ? String(args.command || args.cmd || "") : ""
+        if (line && CONTROL_CMD.test(line)) {
+          asked = true
+          deny = await gateReason(tool, args, dir, sessionID, core)
+        }
+        if (deny) {
+          // the core's own refusal, verbatim
+        } else if (attribution(tool, args) || shellAttribution(args)) {
           deny = ATTRIB_DENY
         } else if (tool === "task" && /explore/i.test(sub)) {
           deny = EXPLORE_DENY
@@ -2132,7 +2423,7 @@ export const Tezgah = async ({ directory }) => {
           deny = shortcuts ? await shortcutEdit(args) : null
           if (!deny) {
             asked = true
-            deny = await gateReason(tool, args, dir, sessionID)
+            deny = await gateReason(tool, args, dir, sessionID, core)
           }
         } else if (shortcuts && BASH_TOOLS.has(tool)) {
           deny = shortcutCommand(args.command || args.cmd || "")
@@ -2143,6 +2434,14 @@ export const Tezgah = async ({ directory }) => {
             const body = shellWriteBody(args.command || args.cmd || "", dir)
             if (body) deny = await shortcutEdit(body)
           }
+        }
+        // A refusal this file decided is counted the way the Python gate counts
+        // its own (hooks/tezgah_gate._deny); one the core answered (`asked`) is
+        // in the ledger already. Without the row, `--report --live` saw the
+        // shortcut refused and nothing recorded.
+        if (deny && !asked) {
+          await noteDeny(sessionID, deny === ATTRIB_DENY ? "attribution"
+            : deny === EXPLORE_DENY ? "explorer" : "shortcut", deny, tool, args, base)
         }
         // Two rules with a shell route, asked of the core in one spawn (TASK_CLI
         // and IDENT_CMD carry which commands are worth asking about, and why
@@ -2163,10 +2462,10 @@ export const Tezgah = async ({ directory }) => {
         // A piped check (hooks/tezgah_integrity.piped_check) is the third: the
         // core decides whether the pipe hides the check's status, and it rides
         // `verify-off` like the other integrity denials.
-        if (!deny && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
+        if (!deny && !asked && cmd && (TASK_CLI.test(cmd) || IDENT_CMD.test(cmd) ||
             (shortcuts && cmd.includes("|") && verifyCommand(cmd)))) {
           asked = true
-          deny = await gateReason(tool, args, dir, sessionID)
+          deny = await gateReason(tool, args, dir, sessionID, core)
         }
         // The credential rule, then the two repeat ceilings, then the nudge: the
         // Python gate's own order (hooks/tezgah_gate.decision), so a call another
@@ -2200,12 +2499,13 @@ export const Tezgah = async ({ directory }) => {
         }
         // Nothing refused this call, so a write is about to land: keep the bytes
         // it is about to change, which is what bin/tezgah-rollback restores by
-        // hand. A refused write changes no file, so it is captured nowhere. The
-        // Python gate keeps its snapshot at this same point, after every deny
-        // check and before the call proceeds.
-        if (!deny && WRITE_TOOLS.has(tool)) {
+        // hand. A refused write changes no file, so it is captured nowhere, and a
+        // call the core answered was captured there (hooks/tezgah_gate.decision,
+        // the same point: after every deny check, before the call proceeds), so
+        // it is captured only once.
+        if (!deny && !core.answered && WRITE_TOOLS.has(tool)) {
           await captureSnapshot(tool, args, dir, sessionID)
-        } else if (!deny && BASH_TOOLS.has(tool)) {
+        } else if (!deny && !core.answered && BASH_TOOLS.has(tool)) {
           // A shell call that writes a file (a redirect or `tee`; writtenPath)
           // takes the same pre-state a write tool's target takes: without it the
           // after-state alone cannot tell a write that landed from a no-op, and
@@ -2270,7 +2570,7 @@ export const Tezgah = async ({ directory }) => {
         if (!output || typeof output !== "object") return
         const env = output.env && typeof output.env === "object" ? output.env : (output.env = {})
         const rs = await roots()
-        if (rs.length) env.TEZGAH_ROOTS = rs.join(":")
+        if (rs.length) env.TEZGAH_ROOTS = rs.join(delimiter)
         env.TEZGAH_HOME = CONFIG
         env.TEZGAH_STATUS_BIN = STATUS_BIN
         if (input && input.sessionID) env.TEZGAH_SESSION = String(input.sessionID)
@@ -2280,12 +2580,16 @@ export const Tezgah = async ({ directory }) => {
     // Keep the contract alive when a long session is compacted: the shared
     // builder's post-compact block, the same text Claude and Codex re-inject
     // there, so the summarizer is steered by the live rules rather than by a
-    // copy kept in this file.
+    // copy kept in this file. The session id rides along: the builder clears
+    // that session's shown lessons and armed paragraphs on compaction, and
+    // restates its pinned user constraints, all keyed on it.
     "experimental.session.compacting": async (input, output) => {
       try {
         if (!output || typeof output !== "object") return
         const context = Array.isArray(output.context) ? output.context : (output.context = [])
-        const text = await builderText("post_compact", dir, {})
+        const sessionID = String(input?.sessionID || "")
+        const text = await builderText("post_compact", dir,
+                                       sessionID ? { session_id: sessionID } : {})
         if (text) context.push(text)
       } catch {}
     },
@@ -2336,6 +2640,12 @@ export const Tezgah = async ({ directory }) => {
         // since the last --install; opencode has no session-start hook to do it
         if (await oncePerSession(sessionID + "|contract")) {
           spawn(pythonBin(), [SETUP_BIN, "--refresh"], { detached: true, stdio: "ignore" }).unref()
+        }
+        // the session-start attestation every hook host runs from its own
+        // session start (hooks/tezgah_attest.py): one `attest` row per session
+        if (await oncePerSession(sessionID + "|attest")) {
+          spawn(pythonBin(), [CONTEXT_BIN, "attest", "opencode", sessionID, dir],
+                { detached: true, stdio: "ignore" }).unref()
         }
         if (!(await oncePerSession(sessionID + "|index"))) return
         spawn(pythonBin(), [INDEX_BIN, dir], { detached: true, stdio: "ignore" }).unref()

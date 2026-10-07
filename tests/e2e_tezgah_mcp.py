@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CI smoke: bin/tezgah-mcp answers its handshake and runs its tools for real.
+"""Smoke: bin/tezgah-mcp answers its handshake and runs its tools for real.
 
 Spawns the server exactly as a host launches it - the interpreter `hosts` rows
 are written with (`tp.python_cmd()`), the checkout's own `bin/tezgah-mcp` - and
@@ -14,8 +14,8 @@ model call for a smoke test, and its delegation is pinned by
 `tests/test_mcp_server.py`.
 
 Exits 0 when the server answers. A machine with no interpreter is a SKIP by
-default, but a FAIL when TEZGAH_E2E_STRICT=1 - which is how CI runs it, so a
-broken surface cannot hide behind a skip.
+default, but a FAIL when TEZGAH_E2E_STRICT=1, so a broken surface cannot hide
+behind a skip. CI does not run it (`.github/workflows/ci.yml`); run it locally.
 
     TEZGAH_E2E_STRICT=1 python3 tests/e2e_tezgah_mcp.py
 """

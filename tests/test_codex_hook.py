@@ -315,6 +315,18 @@ class CodexProvenance(TempHome):
                                  ("external", "subagent",
                                   len(report.encode("utf-8"))))
 
+    def test_an_effect_after_a_report_keeps_its_own_size(self):
+        # the shell call after a delegate inherits the channel on its row, and
+        # keeps its own result size: the byte rule is the report's alone
+        session = "s-cx-after-sub"
+        self.line("spawn_agent", {"prompt": "x"}, session=session,
+                  tool_response="report")
+        self.post("exec_command", {"command": "ls"}, session=session,
+                  tool_response={"exit_code": 0, "output": "a"})
+        row = self.rows(session)[-1]
+        self.assertEqual((row.get("source"), row.get("out_bytes")),
+                         ("subagent", 2))
+
     def test_outside_a_root_nothing_is_shown(self):
         self.assertEqual(self.post("webSearch", {"query": "x"}, cwd=self.home),
                          {})
@@ -420,7 +432,7 @@ class CodexStopGate(TempHome):
         out = self.stop("The header parser is in place.")
         self.assertNotIn("files this turn changed", out.get("systemMessage", ""))
 
-    def test_stop_hook_active_passes(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         self.worked()
         self.assertNotIn("decision", self.stop("Done.", stop_hook_active=True))
 

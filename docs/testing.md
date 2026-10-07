@@ -13,20 +13,20 @@ python3 -m unittest discover -s tests                     # stdlib test suite
 ruff check .                                              # lint; config in pyproject.toml
 ```
 
-[`AGENTS.md`](../AGENTS.md) gives them in that order (`AGENTS.md:18-20`), and
+[`AGENTS.md`](../AGENTS.md) gives them in that order (`AGENTS.md:20-35`), and
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) repeats the same three before a pull
-request (`CONTRIBUTING.md:13-19`).
+request (`CONTRIBUTING.md:15-20`).
 
 | Check | What it catches that the other two do not |
 |---|---|
-| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py:83`). |
+| `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py::SetupBase.setup`). |
 | `unittest` | Behaviour: what a hook answers, what the [gate](glossary.md#gate) denies, what reaches the [ledger](glossary.md#ledger), what a status line renders. |
 | `ruff` | Lint only, with the rule set pinned in `pyproject.toml:12-14` (`E4`, `E7`, `E9`, `F`; `E501` ignored). The pin exists because newer ruff releases ship a broader default and would otherwise change `ruff check .` in CI (`pyproject.toml:10-11`). One pre-existing script is exempted per-file in `pyproject.toml:19-20`. |
 
 `ruff` is not vendored: install it as a uv tool, run `uvx ruff check .` without
 installing it, or use the version CI installs from `requirements-dev.txt:3`
 (`ruff==0.16.7`). There is no other linter and no type checker
-(`AGENTS.md:27`).
+(`AGENTS.md:44-45`).
 
 The clarity ratchet, `bin/tezgah-docs --clarity`, counts four prose rules per
 file in `docs/*.md` and `CHANGELOG.md`. The rules are sentences over 25 words,
@@ -40,8 +40,8 @@ baseline on the next run. Only `--clarity --update` raises it.
 
 A pin is a claim about what ran, not a guarantee about what will. This repository
 has two, and both are about the language rather than about dependencies: the
-floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it on 3.10 and
-3.12 (`.github/workflows/ci.yml:18`). There is no dependency lockfile to pin
+floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it
+(`.github/workflows/ci.yml:24`). There is no dependency lockfile to pin
 because there is no package: tezgah is a set of scripts run in place, and no
 `[project]` or build system is declared (`pyproject.toml:1-2`). The only
 third-party tool the checks name is ruff, at a version in
@@ -57,32 +57,75 @@ conclude from either.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs four jobs:
+`.github/workflows/ci.yml` runs on every push and pull request. `release.yml`
+calls it (`ci.yml:8`) as its `ci` job, so npm and brew publish only after CI
+passed on the release commit. It runs five jobs. No matrix
+cancels its other legs when one fails (`fail-fast: false`).
 
-- `test` (`ci.yml:12-37`) on Python 3.10 and 3.12 - 3.10 is the floor the project
-  supports, and the byte-compile step is what exercises it rather than asserts
-  it: the same three commands, with `-v` on the suite and ruff installed from
-  `requirements-dev.txt` (`ci.yml:30-31`).
-- `apps-e2e` (`ci.yml:39-56`) on Python 3.12 and node 20: one step,
+- `test` (`ci.yml:15-43`) on Python 3.10, 3.12, 3.13 and 3.14. 3.10 is the
+  floor the project supports. The byte-compile step exercises it rather than
+  asserts it. It byte-compiles, runs the suite with `-v`, lints with
+  ruff from `requirements-dev.txt` (`ci.yml:37`), audits the docs citations and
+  runs `TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py`.
+- `test-sharded` (`ci.yml:48-67`) on Python 3.10 and 3.14 with node 20:
+  `python3 tests/impacted.py --all`. It is a shadow that started 2026-10-05.
+  After four weeks it replaces the four-version `test` matrix only if it missed
+  no failure that matrix caught.
+- `apps-e2e` (`ci.yml:69-86`) on Python 3.12 and node 20: one step,
   `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. It completes the
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
   a broken wire cannot hide behind a skip (`e2e_analyze_wiring.py:4-12`).
-- `artifact-install` (`ci.yml:58-95`) on Python 3.10 and 3.12: builds the
+- `artifact-install` (`ci.yml:88-126`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:97-143`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:128-212`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
-  user runs - so it is the only place the Windows claim is proven.
+  user runs - so it is the only place the Windows claim is proven. It then runs
+  the opencode plugin's path tests natively, `tezgah update --dry-run`, the
+  opencode live probe and `--uninstall` from the installed tree. Any residue
+  under the prefix fails it.
 
-`.github/workflows/neuter.yml` runs weekly (and on demand) one job that asks the
-question the suite cannot ask of itself - would a test fail if a guard went?
+`.github/workflows/neuter.yml` runs two jobs weekly (and on demand). The first,
+`neuter`, asks the question the suite cannot ask of itself - would a test fail
+if a guard went?
 `tests/neuter_matrix.py` clones HEAD once per anti-shortcut guard, reverts that
 guard, and runs the gate's test modules; a mutant that still passes is a guard no
-test notices, and an unmutated control that fails voids the run. The guard list is
-hand-written (`MUTANTS`), so a new deny rule is covered once a row names it.
+test notices, and an unmutated control that fails voids the run. The script
+generates the gate half: one `gate-<rule>` mutant per rule `decision` refuses with.
+It reads HEAD with the AST reader of the `--citations` rule check. Each mutant turns
+every `return _deny(...)` of its rule into `pass` at its line span.
+The script generates the Stop half too. Each `return ("<class>", ...)` site of
+`_stop_block`, `_shape_block` and `_evidence_block` gets one `stop-<class>` mutant. Hand-written
+rows cover the guards around those classes: the pass predicate, the empty-run
+read and the "doğrulanmadı" clear. The lost call, the bookkeeping and idle-turn
+fallbacks and the refusal row have rows too. The shortcut half is still
+hand-written (`MUTANTS`), so a new guard there needs a row.
 
-The dsh and omp status-line scripts are not in CI.
+The second, `fuzz-shell`, runs the bash-oracle fuzzer (`tests/fuzz_shell.py`)
+under the ubuntu runner's bash 5.x. Locally, macOS ships bash 3.2. A first step
+fails unless `BASH_VERSINFO` is 5 or later. Then
+`python3 tests/fuzz_shell.py --seed 1 --lines 20000 --strict` reads the lines
+with the core readers. The same command with `--js` reads them with the
+opencode plugin's ports. That step runs even when the core step failed.
+`--strict` turns any disagreement class into exit 1
+(`tests/fuzz_shell.py::main`). So a reader that misreads a bash 5 line fails
+the leg instead of printing a count. `tests/test_packaging.py` pins the job.
+
+The Stop rule's temporal spec (`hooks/tezgah_stopspec.py`, plan 063) has its own
+local script, `tests/stop_spec_eval.py`. `--replay` judges plan 055's replayed
+Stop events with both folds and reads GO 2 only on the events whose selector
+reached the fold. `--shadow-rows` reads the live `stop_spec` rows the same way.
+`--timing` times both folds in-process. `--stop-cost` times the whole
+`stop_reason`, shadow on and off, on copies of the real ledgers. `--mutants`, also reached through
+`tests/neuter_matrix.py --stop-generated`, runs seeded mutants of the formula
+table through the in-process Stop tests of `tests/test_integrity.py`. On any
+suite run, `TEZGAH_STOPSPEC_STRICT=1` fails the test that reached a disagreement.
+
+The plan report (`render_table.py --acceptance --strict`) is not in CI: it reads
+the gitignored `.tezgah/`, so on a runner it reads nothing and cannot fail. Run
+it locally. The dsh and omp status-line scripts, `tests/e2e_tezgah_mcp.py` and
+`tests/e2e_docker_cycle.py` are not in CI either.
 
 ## How the suite is shaped
 
@@ -92,21 +135,21 @@ test built: a throwaway `HOME`, `TEZGAH_ROOTS` under tempfile, `PYTHONPATH` at
 read or written (`tests/support.py:3-5`). Four kinds of test live under `tests/`,
 on top of that support layer.
 
-**Unit tests over a module.** `tests/test_paths.py:15-16` imports
+**Unit tests over a module.** `tests/test_paths.py:17-18` imports
 `hooks/tezgah_paths.py` directly and drives it in-process; where a temp HOME must
 matter it patches the module's own constants with
-`unittest.mock.patch.multiple` (`test_paths.py:134-137`). Reach for this only for
+`unittest.mock.patch.multiple` (`tests/test_paths.py::ConcurrentProbe`). Reach for this only for
 pure logic or for concurrency, which a subprocess cannot express.
 
 **Subprocess tests with a temp HOME.** The default. `TempHome` gives the test a
 fresh `home` and a `roots` dir, `env()`, `make_repo()`, `config()` and `touch()`
-(`support.py:87-113`); the hook or CLI is then run with `run`/`run_json`
-(`support.py:73-84`). `tests/test_codex_hook.py:9-16` is the smallest example.
+(`TempHome`, `tests/support.py::TempHome`); the hook or CLI is then run with `run`
+(`tests/support.py::run`) or `run_json` (`tests/support.py::run_json`). `tests/test_codex_hook.py::CodexHook` is the smallest example.
 
 **Probes.** `tests/_probe_*.py` are tiny scripts that call one function of a
 shared module and print its result as JSON, so the call happens in a process
 whose `HOME` and `TEZGAH_ROOTS` are already the test's. They exist because those
-modules derive paths from `HOME` at import time - `hooks/tezgah_paths.py:18-31`
+modules derive paths from `HOME` at import time - `hooks/tezgah_paths.py:19-32`
 builds `CONFIG`, `CACHE` and `DEFAULT_ROOT` at module level - so importing them
 into the test process would answer about the developer's real machine.
 
@@ -119,39 +162,39 @@ into the test process would answer about the developer's real machine.
 | `tests/_probe_gate.py` | JSON on stdin (`:4-8`) | the shared gate `decision(tool, input, cwd, session_id)`; `capture_log` plants a stub `tezgah_snapshot` in `sys.modules`, so the snapshot call site is pinned whether or not that module has landed |
 
 A probe is invoked through `support.run`/`run_json` with its path constant
-(`support.PROBE_PATHS`, `support.PROBE_CONTEXT`, ... in `support.py:19-23`), e.g.
+(`support.PROBE_PATHS`, `support.PROBE_CONTEXT`, ... in `support.py:21-26`), e.g.
 `run_json([support.PROBE_CONTEXT], {"fn": "health_lines", "cwd": repo},
-env=self.env())` (`test_context.py:82-84`). Nothing in `tests/_probe_*.py` is
+env=self.env())` (`test_context.py::HealthLines.test_armed_but_unused_checklist`). Nothing in `tests/_probe_*.py` is
 collected: the name does not match discovery's `test*.py` pattern and no probe
 defines a `TestCase`.
 
 **End-to-end scripts.** `tests/e2e_*.py` are not collected either
-(`e2e_omp_statusline.py:13-18`) and are run by hand. They exit 0 on `PASS` or
-`SKIP` and 1 only on a real failure (`e2e_dsh_statusline.py:137-140`).
+(`e2e_omp_statusline.py:13-16`) and are run by hand. They exit 0 on `PASS` or
+`SKIP` and 1 only on a real failure (`tests/e2e_dsh_statusline.py::main`).
 
 | Script | Needs | Prints `SKIP` when |
 |---|---|---|
-| `e2e_analyze_wiring.py` | node (`npx`) (`:39-40`) | npx is absent; a server that cannot start is a skip, or a failure under `TEZGAH_E2E_STRICT=1` (`:10-12`) |
+| `e2e_analyze_wiring.py` | node (`npx`) (`tests/e2e_analyze_wiring.py::main`) | npx is absent; a server that cannot start is a skip, or a failure under `TEZGAH_E2E_STRICT=1` (`:10-12`) |
 | `e2e_analyze_web.py` | `TEZGAH_E2E_APPS=1`, npx, a Playwright browser build (`:9-13`) | the opt-in env var, npx, the server start or the browser build is missing |
 | `e2e_analyze_mobile.py` | `TEZGAH_E2E_APPS=1`, npx, a booted simulator or emulator (`:9-14`) | the same, or no running device |
-| `e2e_dsh_statusline.py` | the `dsh` binary, Playwright, a Chromium build, a persisted session (`:90-138`) | any of them is missing (`:93`, `:97`, `:108`, `:118`) |
-| `e2e_omp_statusline.py` | the `omp` binary and the extension `tezgah-setup` installs, plus a pty (`:101-108`) | either is missing (`:103-107`) |
-| `e2e_docker_cycle.py` | a running Docker daemon; the image is `python:3.12-slim` unless `TEZGAH_E2E_DOCKER_IMAGE` says otherwise (`:27-28`) | docker or its daemon is missing (`:53-60`) |
+| `e2e_dsh_statusline.py` | the `dsh` binary, Playwright, a Chromium build, a persisted session (`tests/e2e_dsh_statusline.py::run`) | any of them is missing (`tests/e2e_dsh_statusline.py::run`) |
+| `e2e_omp_statusline.py` | the `omp` binary and the extension `tezgah-setup` installs, plus a pty (`:13-15`) | either is missing (`tests/e2e_omp_statusline.py::run`) |
+| `e2e_docker_cycle.py` | a running Docker daemon; the image is `python:3.12-slim` unless `TEZGAH_E2E_DOCKER_IMAGE` says otherwise (`tests/e2e_docker_cycle.py::IMAGE`) | docker or its daemon is missing (`tests/e2e_docker_cycle.py::main`) |
 
 `SKIP` is the designed answer, not a hideout: these scripts test that a wire or a
 render works, and a missing prerequisite says nothing about the repository. Two
 are opt-in behind `TEZGAH_E2E_APPS=1` because they do real work, so they never run
-by surprise (`e2e_analyze_web.py:33-35`), and the omp script starts the TUI with
+by surprise (`tests/e2e_analyze_web.py::main`), and the omp script starts the TUI with
 no prompt, so the run costs no model call (`e2e_omp_statusline.py:2-4`).
 
 ## The rules a new test must satisfy
 
 **It must fail on a plausible bug.** Where the repo turns a behaviour into a
 string, the pin *is* the contract: the exact status segment
-(`test_statusline.py:8-17`, compared at `:37-43`), a `tezgah-setup --status` row
-label (`test_setup.py:1114-1120`), the opencode router line a skill's trigger
-reaches (`test_setup.py:589-609`), the kill-switch labels whose deletion must
-fail the test rather than silently disarm a rule (`test_context.py:439-441`). An
+(`tests/test_statusline.py::SEGMENT`, compared at `tests/test_statusline.py::Statusline.test_claude_mode_segment`), a `tezgah-setup --status` row
+label (`test_setup.py::StatusNamesTheHostListGap`), the opencode router line a skill's trigger
+reaches (`test_setup.py::SkillRouterTriggers.test_core_skill_lines_carry_their_trigger`), the kill-switch labels whose deletion must
+fail the test rather than silently disarm a rule (`test_context.py::KillSwitchEnforcement`). An
 intentional change updates the pin in the same commit; deleting the test because
 it is now red is the failure mode these pins exist to catch.
 
@@ -159,18 +202,19 @@ it is now red is the failure mode these pins exist to catch.
 reads a file to check a copy of an implementation, or that asserts an internal
 call was forwarded, dies at the first refactor. Where text is asserted it is
 output the user or a host sees. The suite's own comments say the rule twice:
-pin the behaviour, not one phrasing of it (`test_skills.py:79-81`), and pin a
+pin the behaviour, not one phrasing of it (`tests/test_skills.py::SkillStandards.test_the_bootstrap_completes_a_partial_tree_and_never_clobbers_it`), and pin a
 rule on a synthetic input, not only on the shipped pair
-(`test_setup.py:539-542`).
+(`test_setup.py::SkillTriggerLine`).
 
 **Stay deterministic and isolated.** A temp HOME is the mechanism
-(`support.py:3-5`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
+(`support.py:3-5`), and importing `support` gives the test process one too, with
+no `TEZGAH_SESSION` (`support.py:113-126`); `base_env` also points `TEZGAH_CODEGRAPH_BIN` and `TEZGAH_ORX_BIN`
 at paths that do not exist and sets `TEZGAH_CONSULT_CLIS` empty, so the
 machine's own graph binary, orx and agent CLIs cannot leak into an assertion
-(`support.py:49-58`). The installer suite sets
-`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`test_setup.py:57-59`). No test
+(`tests/support.py::base_env`). The installer suite sets
+`TEZGAH_NO_DEPS=1` so `--install` fetches nothing (`tests/test_setup.py::SetupBase.setUp`). No test
 reaches the network: where a provider is needed it is a loopback stub
-(`test_providers.py:106-108`, `test_consult_arena.py:72`).
+(`tests/test_providers.py::Trickle.__init__`, `tests/test_consult_arena.py::ArenaCase.setUp`).
 
 **Run inside the default discovery.** A new test is `tests/test_<thing>.py`, a
 `unittest.TestCase`, and passes under
@@ -183,46 +227,46 @@ a browser or a device) or to a `_probe_*.py` helper the tests call.
 - **No coverage target and no coverage tool.** `requirements-dev.txt` pins ruff
   and nothing else (`requirements-dev.txt:1-3`); no coverage tool is named there
   or in `pyproject.toml`. A line count is not a check.
-- **No fixtures framework.** Stdlib `unittest` only (`CONTRIBUTING.md:26`);
+- **No fixtures framework.** Stdlib `unittest` only (`CONTRIBUTING.md:33`);
   `tests/support.py` is the whole fixture layer, with no `conftest.py`.
 - **No network.** Loopback stubs only, as above.
 - **Two e2e scripts stay opt-in and local**: `e2e_analyze_web.py` and
   `e2e_analyze_mobile.py`, behind `TEZGAH_E2E_APPS=1`, with the wiring handshake
-  as their CI substitute (`AGENTS.md:46-49`).
+  as their CI substitute (`AGENTS.md:108-114`).
 
 ## Adding a test
 
 **For a hook.** Subclass `TempHome`, make a repo, run the adapter with a payload
 and `self.env()`, assert on its JSON output:
 
-1. `from support import TempHome, run_json` and `import support` (`test_codex_hook.py:1-6`).
+1. `from support import TempHome, run_json` and `import support` (`test_codex_hook.py:1-8`).
 2. `repo = self.make_repo()`; seed any state with `self.touch(...)` / `self.config({...})`.
 3. `out, proc = run_json([support.CODEX_HOOK], {"hook_event_name": "Stop", "cwd": repo, "session_id": "s"}, env=self.env())`.
 4. `self.assertEqual(proc.returncode, 0, proc.stderr)` first, then assert the field you changed.
-   Which host lives where: `support.py:24-33` (`CODEX_HOOK`, `CURSOR_HOOK`, `OMP_HOOK`, `STATUSLINE`).
+   Which host lives where: `support.py:31-36` (`CODEX_HOOK`, `CURSOR_HOOK`, `OMP_HOOK`, `STATUSLINE`).
 5. Reading back what the hook wrote? Use the ledger probe, not the file path
-   (`test_codex_hook.py:82-86` uses `support.PROBE_INTEGRITY` with `{"fn": "kinds"}`).
+   (`test_codex_hook.py::CodexEvidence.kinds` uses `support.PROBE_INTEGRITY` with `{"fn": "kinds"}`).
 
 **For a CLI.** Run it with a temp environment and assert on its stdout or on the
 tree it left. A `bin/` CLI is run as a subprocess with `sys.executable` and an
-explicit environment (`test_setup.py:78-85`); `SetupBase` in
-`test_setup.py:41-95` is the worked example for `bin/tezgah-setup` (fake host
+explicit environment (`test_setup.py::SetupBase.setup`); `SetupBase` in
+`tests/test_setup.py::SetupBase` is the worked example for `bin/tezgah-setup` (fake host
 dirs, `TEZGAH_NO_DEPS=1`, stdin always a pipe so the wizard cannot block on a
 real terminal). For a plain CLI,
 `run([support.STATUSLINE], {"cwd": repo}, env=self.envv)` is enough
-(`test_statusline.py:37-39`).
+(`test_statusline.py::Statusline.test_claude_mode_segment`).
 
 **For a status-line change.**
 
 1. Change the [mark](glossary.md#mark) in `hooks/tezgah_context.py` (the shared
    builder) or in the host surface named on [status-line](status-line.md).
-2. Update the pinned segment in `tests/test_statusline.py:8-17` - both the
+2. Update the pinned segment in `tests/test_statusline.py:17-20` - both the
    in-roots and off-roots constants - and re-run
    `python3 -m unittest discover -s tests -p 'test_statusline.py'`.
 3. If the colour or the state changed, extend the `NO_COLOR` / `TEZGAH_STATUS_COLOR`
-   cases (`test_statusline.py:118-134`) rather than adding a new file.
+   cases (`test_statusline.py::Statusline.test_status_color_env_off_strips_ansi`) rather than adding a new file.
 4. The shared builder is covered through the context probe
-   (`test_context.py:82-84`, `:86-96`); a mark that flips on an event belongs there.
+   (`test_context.py::HealthLines`); a mark that flips on an event belongs there.
 5. Only the drawing is left to the real surface, and that is
    `e2e_omp_statusline.py` / `e2e_dsh_statusline.py`, run by hand.
 

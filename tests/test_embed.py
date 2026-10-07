@@ -163,6 +163,20 @@ class Fuse(Case):
             self.assertEqual(te.fuse(q, TEXTS, 3), tezgah_rank.rank(q, TEXTS, 3), q)
             self.assertEqual(te.nearest(q, TEXTS, 3), tezgah_rank.rank(q, TEXTS, 3), q)
 
+    def test_the_cap_reaches_the_lessons_ranking_and_not_the_docs_one(self):
+        # no model installed: both are exactly BM25, and only `fuse` (the
+        # lessons path) is handed the cap
+        texts = ["the note %d about the %s" % (i, w) for i, w in
+                 enumerate(("apple", "berry", "cherry", "grape", "lemon", "mango",
+                            "melon", "olive", "peach", "pear", "plum", "quince"))]
+        texts.append("update this page")
+        q = "update the changelog"
+        self.assertEqual(te.fuse(q, texts, 3, max_df=0.5),
+                         tezgah_rank.rank(q, texts, 3, 0.5))
+        self.assertEqual(te.fuse(q, texts, 3, max_df=0.5), [12])
+        self.assertEqual(te.nearest(q, texts, 3), tezgah_rank.rank(q, texts, 3))
+        self.assertEqual(len(te.nearest(q, texts, 3)), 3)
+
     def test_bm25_keeps_its_order_and_meaning_fills_above_the_floor(self):
         self.install(_wordpiece_sources, dict(_spec("head", "all"), floor=0.5))
         # "red apples" is BM25's only hit; "fruit" (cosine 0.2) and the rest stay out

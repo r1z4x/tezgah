@@ -9,7 +9,8 @@ Small, single-purpose changes are the easiest to accept.
 
 ## Before a pull request
 
-Run the same three checks CI runs:
+Run these checks. CI runs the same kinds of check; `.github/workflows/ci.yml` is
+the list of what it runs, on which Python versions:
 
 ```bash
 python3 -m compileall -q hooks hosts bin statusline.py   # byte-compile every script

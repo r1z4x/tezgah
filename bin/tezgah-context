@@ -18,6 +18,11 @@ JSON - `user_prompt` reads the submitted prompt from it.
                                         a host whose plugin is not Python asks
                                         here instead of guessing from a
                                         substring
+  tezgah-context attest HOST SESSION [DIR]
+                                        the session-start attestation for a
+                                        host with no session-start hook
+                                        (opencode): one `attest` row and the
+                                        drift mark, nothing printed
 
 DIR defaults to the current directory. Prints nothing outside a tezgah root, so
 the host injects whatever it gets and a stale path costs nothing.
@@ -28,7 +33,11 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_context import context_for, shell_kind  # noqa: E402
+from tezgah_guard import attest_session, import_failed  # noqa: E402
+try:
+    from tezgah_context import context_for, shell_kind  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 EVENTS = ("session_start", "user_prompt", "subagent_start", "post_compact")
 
@@ -54,6 +63,13 @@ def main():
                          % ", ".join(EVENTS))
         return 2
     event = args[0]
+    if event == "attest":
+        if len(args) < 3:
+            sys.stderr.write("tezgah-context: attest needs HOST SESSION [DIR]\n")
+            return 2
+        cwd = os.path.realpath(args[3]) if len(args) > 3 else os.getcwd()
+        attest_session(args[1], args[2], cwd)
+        return 0
     if event == "kind":
         # The used-tool kind of one shell command. A host whose plugin is in
         # another language asks here rather than guessing: nothing printed means

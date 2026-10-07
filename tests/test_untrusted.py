@@ -99,9 +99,37 @@ class PostToolUseProvenance(TempHome):
                  ("web_fetch", {"url": "https://x"}, "a web result"),
                  ("web_search", {"query": "x"}, "a web result"),
                  ("mcp__github__get_file", {"path": "x"}, "an MCP server"),
-                 ("Bash", {"command": "curl -s https://x"}, "a network read")]
+                 ("Bash", {"command": "curl -s https://x"}, "a network read"),
+                 # the forms security-06 found unlabelled: an issue or PR body
+                 # is third-party text, a clone is a third party's tree, and
+                 # `sudo` in front of a read does not make it the user's
+                 ("Bash", {"command": "gh issue view 12"}, "a network read"),
+                 ("Bash", {"command": "gh pr view 3 --comments"}, "a network read"),
+                 ("Bash", {"command": "cd /tmp && git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "sudo curl -s https://x"}, "a network read"),
+                 ("Bash", {"command": "sudo -E wget -q https://x"},
+                  "a network read"),
+                 # a PR diff, a checked-out PR and an issue or PR list are a
+                 # third party's text too, and so is a tree pulled from a URL
+                 ("Bash", {"command": "gh pr diff 3"}, "a network read"),
+                 ("Bash", {"command": "gh pr checkout 3"}, "a network read"),
+                 ("Bash", {"command": "gh issue list"}, "a network read"),
+                 ("Bash", {"command": "gh pr list --state open"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C /tmp clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": "GIT_TERMINAL_PROMPT=0 git clone https://x/y"},
+                  "a network read"),
+                 ("Bash", {"command": 'git clone "https://x/y"'}, "a network read"),
+                 ("Bash", {"command": "git pull https://x/y main"},
+                  "a network read"),
+                 ("Bash", {"command": "git fetch git@github.com:o/r.git"},
+                  "a network read"),
+                 ("Bash", {"command": "git -C d pull --rebase ssh://h/r"},
+                  "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 text = self.line(tool, inp, session="s-label-%d" % i)
                 self.assertIn("untrusted content", text)
                 self.assertIn(channel, text)
@@ -117,10 +145,29 @@ class PostToolUseProvenance(TempHome):
         cases = [("Bash", {"command": "pytest -q"}),
                  ("Bash", {"command": 'git commit -m "curl is not a read"'}),
                  ("Bash", {"command": "grep -n curl hooks/"}),
+                 ("Bash", {"command": "gh issue create -t x -b y"}),
+                 ("Bash", {"command": 'git commit -m "git clone and gh pr view"'}),
+                 ("Bash", {"command": "git log --grep clone"}),
+                 ("Bash", {"command": "sudo rm -f /tmp/x"}),
+                 # a clone or pull of a tree on this machine reads nothing from
+                 # outside it
+                 ("Bash", {"command": "git clone ../repo copy"}),
+                 ("Bash", {"command": "git clone --bare /abs/repo"}),
+                 ("Bash", {"command": "git clone ~/src/repo"}),
+                 ("Bash", {"command": "git clone file:///abs/repo"}),
+                 ("Bash", {"command": "git pull . feature"}),
+                 ("Bash", {"command": "git fetch ../other"}),
+                 ("Bash", {"command": "git pull file:///abs/repo"}),
+                 # the repository's own remote is the user's tree: a `git pull
+                 # && pytest` turn must not wear a notice
+                 ("Bash", {"command": "git pull"}),
+                 ("Bash", {"command": "git pull origin main && pytest -q"}),
+                 ("Bash", {"command": "git fetch --all"}),
+                 ("Bash", {"command": "git -c x=y fetch upstream"}),
                  ("Edit", {"file_path": "/tmp/x.py"}),
                  ("Grep", {"pattern": "curl"})]
         for i, (tool, inp) in enumerate(cases):
-            with self.subTest(tool=tool):
+            with self.subTest(tool=tool, inp=inp):
                 self.assertEqual(self.line(tool, inp, session="s-plain-%d" % i), "")
         self.assertEqual([r for r in self.rows("s-plain-0") if r.get("source")], [])
 
@@ -183,6 +230,19 @@ class PostToolUseProvenance(TempHome):
         self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
                          [("external", "mcp"), ("edit", "mcp"), ("run", None)])
 
+    def test_one_sibling_s_web_read_does_not_taint_the_other(self):
+        # security-09: subagents of one Claude session share one ledger, and the
+        # sibling that read the web used to taint every sibling's effects. The
+        # payload's `agent_id` (set only inside a subagent) keys the reader.
+        self.turn("split the work")
+        self.post("WebFetch", {"url": "https://example.com"}, agent_id="a-web")
+        self.assertEqual(self.line("Bash", {"command": "make"},
+                                   agent_id="a-quiet"), "")
+        self.assertIn("already read",
+                      self.line("Bash", {"command": "make"}, agent_id="a-web"))
+        self.assertEqual({r.get("agent") for r in self.rows()
+                          if r["kind"] != "turn"}, {"a-web", "a-quiet"})
+
     def test_a_consult_taints_the_turn_like_any_other_read(self):
         # An answer from the tier is the same kind of read, so the effect after
         # it wears the same notice and its own row carries the channel.
@@ -213,6 +273,78 @@ class PostToolUseProvenance(TempHome):
         self.assertIn("untrusted content", text)
         self.assertIn("an MCP server", text)
         self.assertNotIn("already read", text)
+
+    def test_an_mcp_effect_after_a_web_read_is_noticed_and_labelled(self):
+        # security-06: an MCP effect (an issue opened, a file written by a
+        # server) is an effect like a write tool's, so the turn's web read is
+        # noticed on it; its own result still came from the server, so it keeps
+        # the label and its row the `mcp` channel, which spends the web read.
+        self.post("WebFetch", {"url": "https://x"})
+        text = self.line("mcp__github__create_issue", {"title": "t"})
+        self.assertIn("already read a web result", text)
+        self.assertIn("this result came from an MCP server", text)
+        self.assertEqual([(r["kind"], r.get("source")) for r in self.rows()],
+                         [("external", "web"), ("external", "mcp")])
+
+    def test_the_mcp_effect_class_is_the_shared_definition(self):
+        import tezgah_untrusted as tu
+        for tool in ("mcp__github__create_issue", "mcp__fs_write_file",
+                     "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+        for tool in ("mcp__github__get_file", "mcp__codegraph_explore",
+                     "mcp__github__get_commit", "mcp__github__get_workflow_run",
+                     "mcp__mobile_mcp_mobile_list_elements_on_screen"):
+            self.assertFalse(tu.effectful(tool), tool)
+            self.assertIsNone(ti.mcp_class(tool), tool)
+
+    def test_a_read_word_never_hides_an_effect_in_the_tool_part(self):
+        import tezgah_untrusted as tu
+        # A read verb leads its own clause only; the server segment never decides
+        # (`search`, `fetch_server`), and omp's `mcp__srv_tool` has no server
+        # boundary, so there an effect verb anywhere wins.
+        for tool in ("mcp__x__read_and_write_file", "mcp__github__get_or_create_issue",
+                     "mcp__x__list_and_delete", "mcp__search__create_issue",
+                     "mcp__fetch_server__write_file", "mcp__fetch_server_write_file",
+                     "mcp__github_get_commit"):
+            self.assertTrue(tu.effectful(tool), tool)
+            self.assertIsNotNone(ti.mcp_class(tool), tool)
+
+    def test_the_mcp_class_is_case_sensitive_like_the_host_matcher(self):
+        import tezgah_untrusted as tu
+        # the host matchers (JS RegExp, no flag) never select `Create`, so the
+        # gate must not class it either: both sides read the same names
+        for tool in ("mcp__x__Create_issue", "MCP__x__create_issue"):
+            self.assertIsNone(ti.mcp_class(tool), tool)
+            self.assertFalse(tu.effectful(tool), tool)
+
+    def test_a_run_of_mcp_effects_wears_one_notice_per_untrusted_channel(self):
+        # One notice per untrusted channel: the web read is noticed on the first
+        # MCP effect, the MCP results on the first non-MCP effect after them.
+        # Each MCP row re-arms the `mcp` channel, so without the guard every
+        # click after the first carried the notice. The web read is noticed on
+        # the first MCP effect; the MCP results after it carry their label only.
+        self.post("WebFetch", {"url": "https://x"})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        self.assertIn("already read a web result", self.line(click, {"x": 1}))
+        for tool in (click, click, click, "mcp__github__create_issue"):
+            text = self.line(tool, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
+        # the MCP results are a read of their own: the first non-MCP effect after
+        # them is noticed once, as it was before an MCP call counted as an effect
+        self.assertIn("already read an MCP server",
+                      self.line("Bash", {"command": "make"}))
+        self.assertEqual(self.line("Bash", {"command": "make"}), "")
+
+    def test_four_mobile_clicks_after_an_mcp_read_carry_no_notice(self):
+        # the reported flood: a screen read, then four clicks, each noticed
+        self.line("mcp__mobile_mcp_mobile_list_elements_on_screen", {})
+        click = "mcp__mobile_mcp_mobile_click_on_screen_at_coordinates"
+        for _ in range(4):
+            text = self.line(click, {"x": 1})
+            self.assertNotIn("already read", text)
+            self.assertIn("an MCP server", text)
 
     def test_a_stale_turn_s_read_is_not_this_turn_s(self):
         # The turn marker bounds the read, so a page the *previous* turn fetched
@@ -304,6 +436,9 @@ class PostToolUseProvenance(TempHome):
                                    tool_response=launch), "")
         self.assertEqual(self.line("Edit", {"file_path": "/tmp/x.py"}), "")
         self.assertEqual([r for r in self.rows() if r.get("source")], [])
+        # the launch is measured by the report rule, which finds no report text:
+        # its size is unknown, not the launch object's field count
+        self.assertNotIn("out_bytes", self.rows()[0])
 
     def test_outside_a_root_nothing_is_shown(self):
         out = self.post("WebFetch", {"url": "https://x"}, cwd=self.home)
@@ -416,9 +551,9 @@ class TurnRows(unittest.TestCase):
         parsed = []
         real = ti._parse
 
-        def counting(lines):
+        def counting(lines, path=None):
             parsed.append(len(lines))
-            return real(lines)
+            return real(lines, path)
 
         with mock.patch.object(ti, "_parse", counting):
             rows = ti.turn_rows("s")

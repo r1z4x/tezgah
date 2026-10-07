@@ -5,9 +5,11 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 
+import bash_vectors
 import support
 from support import TempHome, run_json
 
@@ -501,6 +503,38 @@ class Gate(TempHome):
                              session_id="spin-check")
         self.assertIn("Retry ceiling", reason)
 
+    # ---- plan 048 (d): a non-check is no check for any verify_command reader --
+    def test_a_non_check_is_not_neutered_and_not_a_piped_check(self):
+        for command in ("pytest --version || true", "ruff format . || true",
+                        "pytest --version | head -1", "make help | head -3",
+                        "prettier --write . 2>&1 | tail -3"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+        # a real check beside one is still read
+        self.assertIn("neutered", self.decide(
+            "Bash", {"command": "pytest --version; pytest -q || true"}).lower())
+
+    def test_a_non_check_leaves_no_began_check_mark(self):
+        self.decide("Bash", {"command": "pytest --version"}, session_id="marks")
+        self.decide("Bash", {"command": "pytest -q"}, session_id="marks")
+        began = [r for r in self.rows("marks") if r["kind"] == "began"]
+        self.assertEqual([(r["detail"], r.get("check")) for r in began],
+                         [("pytest --version", None), ("pytest -q", 1)])
+
+    def test_a_non_check_has_no_retry_exemption_after_a_write(self):
+        # the exemption is for a check re-run over a changed tree; an
+        # information form reads nothing of the tree, so it keeps the ceiling
+        for _ in range(3):
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": "info", "tool": "Bash",
+                      "input": {"command": "pytest --version"}, "failed": False,
+                      "cwd": self.repo}, env=self.envv)
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": "info", "tool": "Write",
+                  "input": {"file_path": os.path.join(self.repo, "x.py")},
+                  "failed": False, "cwd": self.repo}, env=self.envv)
+        self.assertIn("Retry ceiling", self.decide(
+            "Bash", {"command": "pytest --version"}, session_id="info"))
+
     def test_a_file_uri_is_still_a_file_the_race_guard_reads(self):
         # the skip is the harness's own channels, not every scheme: `file://`
         # names a real target two sessions can race on (review 2026-10-01)
@@ -599,6 +633,18 @@ class Gate(TempHome):
         # the live verb is what a host gates through, and it records
         self.assertIn("Verification bypass", self.check_cli("decide", calls[0]))
         self.assertNotEqual(self.cache_tree(), before)
+
+    def test_the_dry_run_swaps_exactly_its_three_writers(self):
+        # plan 055: the replay corpus must not grow `_dry_decision`'s swap list -
+        # it serves `tezgah-gate check` and the MCP gate check, which promise the
+        # live answer; the replay swaps what it needs in its own process
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(tg._dry_decision), filename="tezgah_gate.py")
+        swapped = [tuple(e.value for e in node.elts) for node in ast.walk(tree)
+                   if isinstance(node, ast.Tuple) and node.elts
+                   and all(isinstance(e, ast.Constant) for e in node.elts)]
+        self.assertEqual(swapped, [("note", "first_nudge", "capture")])
 
     def test_the_flag_value_reader_passes_maxsplit_by_keyword(self):
         # audit QA-3 / L-13: positional maxsplit warns on 3.13+, and a future
@@ -779,6 +825,15 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Bash", {"command": "git commit -m x"},
                                       session_id="order"))
 
+    # ---- gate-01: a prefix the masker misread hid the rule after it ---------
+    def test_a_prefix_bash_reads_as_words_does_not_hide_a_rule(self):
+        for command, marker in (("HUSKY=0 git commit -m y", "bypass"),
+                                ("pytest || true", "neutered"),
+                                ("echo api_key=abc123 > out.txt", "Credential")):
+            for wrap in bash_vectors.GATE01_WRAPS:
+                reason = self.decide("Bash", {"command": wrap % command})
+                self.assertIn(marker, reason or "", wrap % command)
+
     # ---- secret: a credential on its way into a file -----------------------
     def test_a_credential_written_to_a_file_denies(self):
         for command in (
@@ -810,16 +865,130 @@ class Gate(TempHome):
         # and committing a message that mentions the shape is not a write
         self.assertIsNone(self.decide("Bash", {
             "command": 'git add -A && git commit -m "fix api_key= handling"'}))
-        self.assertIsNone(self.decide("Bash", {"command": "git add .env"}))
+
+    def test_git_add_of_a_credential_file_is_refused(self):
+        # plan 057 (a)3, a deliberate flip: this test used to pin `git add .env`
+        # as passing. Staging the file puts every value in it into history; the
+        # file names are tezgah_snapshot.SECRET_FILE's, and the templates that
+        # carry names without values are the carve-out.
+        for command in ("git add .env", "git add src/ .env.local",
+                        "git -C repo add -f config/.env",
+                        "git add deploy/id_rsa", "cd x && git add credentials.json"):
+            reason = self.decide("Bash", {"command": command})
+            self.assertIn("Credential", reason or "", command)
+        for command in ("git add .env.example", "git add .env.sample",
+                        "git add .env.template", "git add .env.dist",
+                        "git add .env.defaults",
+                        "git add -A", "git add src/env.py", "cat .env"):
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
     def test_a_credential_written_by_a_heredoc_is_denied(self):
         # mask() blanks heredoc bodies by design, so the text-level scan cannot
         # see a key that sits in one - measured on the first version of this
-        # rule: this command passed it. The body is read instead.
+        # rule: this command passed it. The body is read instead, for the same
+        # prefixed families a write tool's content is read for.
         reason = self.decide("Bash", {"command":
-            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-abc123\nEOF"})
+            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=%s\nEOF" % self.TOKENS[1]})
         self.assertIsNotNone(reason)
         self.assertIn("Credential", reason)
+
+    # plan 057 (a)1-2: assembled at runtime so this file carries no token whole
+    TOKENS = ("ghp_" + "A1b2C3d4" * 5, "sk-live-" + "a1B2c3D4" * 3)
+
+    def routes(self, line):
+        """The four write routes landing `line` in src/config.py."""
+        return (("Write", {"file_path": "src/config.py", "content": line}),
+                ("Edit", {"file_path": "src/config.py",
+                          "old_string": "API = None\n", "new_string": line}),
+                ("apply_patch", {"patch": "*** Begin Patch\n*** Update File: "
+                                 "src/config.py\n@@\n-API = None\n+%s"
+                                 "*** End Patch" % line}),
+                ("Bash", {"command": "cat > src/config.py <<'EOF'\n%sEOF"
+                          % line}))
+
+    def test_a_prefixed_token_is_refused_on_every_write_route(self):
+        # security-07 / gate-04: the rule ran on the shell alone, so a Write
+        # landing the same key a heredoc was refused for passed
+        for token in self.TOKENS:
+            for tool, inp in self.routes('API = "%s"\n' % token):
+                reason = self.decide(tool, inp)
+                self.assertIn("Credential", reason or "", (tool, token))
+
+    def test_a_credential_read_from_the_environment_passes_on_every_route(self):
+        # name=value is a shell-sink shape: in a file's text it is a program
+        # reading its credential, and the heredoc body agrees with Write on it
+        for tool, inp in self.routes('password = os.environ["DB_PASSWORD"]\n'):
+            self.assertIsNone(self.decide(tool, inp), tool)
+
+    def test_an_identifier_with_a_key_like_prefix_passes_on_every_route(self):
+        # the redactor's bare `sk-`/`pk_` branch matches these; a refusal reads
+        # an `sk`/`pk`/`rk` token only with its qualifier (`sk-live-`, ...)
+        for name in ("pk_users_organization_id", "sk-telemetry-dashboard-refactor"):
+            for tool, inp in self.routes('API = "%s"\n' % name):
+                self.assertIsNone(self.decide(tool, inp), (tool, name))
+            self.assertIsNone(self.decide(
+                "Bash", {"command": "echo %s >> notes.txt" % name}), name)
+
+    def test_an_edit_that_keeps_a_token_already_there_passes(self):
+        # only a token the call brings counts: an edit next to a fixture's key,
+        # or one that removes it, lands nothing new
+        line = 'API = "%s"\n' % self.TOKENS[0]
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": "src/config.py", "old_string": line,
+            "new_string": line + "TIMEOUT = 5\n"}))
+        self.assertIsNone(self.decide("apply_patch", {"patch": (
+            "*** Begin Patch\n*** Update File: src/config.py\n@@\n-%s"
+            "+API = None\n*** End Patch" % line)}))
+        # a whole-file Write is compared with the file on disk, resolved
+        # against the call's cwd: rewriting the fixture keeps its key, a second
+        # key is still the call's own
+        os.makedirs(os.path.join(self.repo, "src"), exist_ok=True)
+        with open(os.path.join(self.repo, "src", "config.py"), "w") as fh:
+            fh.write(line)
+        self.assertIsNone(self.decide("Write", {
+            "file_path": "src/config.py", "content": line + "TIMEOUT = 5\n"}))
+        self.assertIn("Credential", self.decide("Write", {
+            "file_path": "src/config.py",
+            "content": line + 'B = "%s"\n' % self.TOKENS[1]}) or "")
+
+    def test_an_edit_is_judged_on_the_file_it_leaves(self):
+        # review of plan 057: an Edit's baseline was its old_string alone, so a
+        # token the file already carried elsewhere was refused again when the
+        # edit repeated it; the file on disk is the baseline for every dialect
+        os.makedirs(os.path.join(self.repo, "src"), exist_ok=True)
+        with open(os.path.join(self.repo, "src", "config.py"), "w") as fh:
+            fh.write('API = "%s"\nTIMEOUT = 5\n' % self.TOKENS[0])
+        for tool, inp in self.routes('B = "%s"\n' % self.TOKENS[0])[1:3]:
+            self.assertIsNone(self.decide(tool, inp), tool)
+        for tool, inp in self.routes('B = "%s"\n' % self.TOKENS[1])[1:3]:
+            self.assertIn("Credential", self.decide(tool, inp) or "", tool)
+
+    # documented placeholders, assembled so no file carries one whole
+    PLACEHOLDERS = ("AKIA" + "IOSFODNN7EXAMPLE", "AKIA" + "EXAMPLEEXAMPLEEX",
+                    "sk_test_" + "X" * 24, "ghp_" + "x" * 36,
+                    "sk_test_" + "4eC39HqLyjWDarjtT1zdp7dc")
+
+    def test_a_documented_placeholder_passes_on_every_route(self):
+        # review of plan 057: an AWS docs key, a repeated-character stand-in and
+        # Stripe's published test key could be written on no route
+        for token in self.PLACEHOLDERS:
+            for tool, inp in self.routes('API = "%s"\n' % token):
+                self.assertIsNone(self.decide(tool, inp), (tool, token))
+
+    def test_a_fixture_or_template_may_carry_a_token(self):
+        # a template's or a test fixture's token is there to be read, not used;
+        # the same token in any other file is still refused
+        line = "GITHUB_TOKEN=%s\n" % self.TOKENS[0]
+        for path in (".env.example", ".env.sample", ".env.template", ".env.dist",
+                     ".env.defaults", "config/app.example",
+                     "tests/fixtures/auth.env", "tests/unit/fixtures/a.json"):
+            self.assertIsNone(self.decide(
+                "Write", {"file_path": path, "content": line}), path)
+            self.assertIsNone(self.decide("Bash", {
+                "command": "cat > %s <<'EOF'\n%sEOF" % (path, line)}), path)
+        for path in (".env", "src/fixtures.py", "app/settings.example.py"):
+            self.assertIn("Credential", self.decide(
+                "Write", {"file_path": path, "content": line}) or "", path)
 
     def test_a_quoted_heredoc_marker_hides_nothing_from_the_gate(self):
         # review R1: `<<'X'` inside a quoted string or a comment is not a
@@ -917,6 +1086,44 @@ class Gate(TempHome):
             % target)}, session_id="mine")
         self.assertIsNotNone(reason)
         self.assertIn(target, reason)
+
+    def test_a_shell_write_meets_another_sessions_shell_write(self):
+        # plan 057 (a)4-5: the race rule ran for write tools alone and only edit
+        # rows carried a target, so two sessions redirecting into one file never
+        # met. The other session's row is written by the real PostToolUse writer.
+        target = os.path.join(self.repo, "src", "a.py")
+        out, proc = run_json(
+            [support.PROBE_INTEGRITY],
+            {"fn": "note_tool", "session": "other", "tool": "Bash",
+             "input": {"command": "echo x > %s" % target}, "cwd": self.repo},
+            env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for tool, inp in (("Bash", {"command": "printf y > src/a.py"}),
+                          ("Bash", {"command": "printf y | tee src/a.py"}),
+                          ("Edit", {"file_path": target, "old_string": "x",
+                                    "new_string": "y"})):
+            reason = self.decide(tool, inp, session_id="mine")
+            self.assertIn("Concurrent write", reason or "", inp)
+        self.assertIsNone(self.decide("Bash", {"command": "printf y > src/b.py"},
+                                      session_id="mine"))
+
+    def test_a_scratch_file_is_no_shared_work(self):
+        # review of plan 057: shell rows carried scratch targets, so two
+        # sessions writing a common temp name (`/tmp/x`) refused each other
+        for command in ("ls > /tmp/x", "git diff > /tmp/diff.txt"):
+            out, proc = run_json(
+                [support.PROBE_INTEGRITY],
+                {"fn": "note_tool", "session": "other", "tool": "Bash",
+                 "input": {"command": command}, "cwd": self.repo},
+                env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.seed_write("other", "/tmp/x")
+        for command in ("jq . a > /tmp/x", "git diff > /tmp/diff.txt"):
+            self.assertIsNone(self.decide("Bash", {"command": command},
+                                          session_id="mine"), command)
+        self.assertIsNone(self.decide("Write", {"file_path": "/tmp/x",
+                                                "content": "y"},
+                                      session_id="mine"))
 
     # ---- snapshot: the bytes a write is about to change --------------------
     def test_a_write_that_passes_is_captured_and_a_denied_one_is_not(self):
@@ -1055,6 +1262,94 @@ class Gate(TempHome):
             with self.subTest(inp=inp):
                 self.assertEqual(tg.write_paths(inp), want)
 
+    # ---- MCP: an effect tool's payload meets the content rules -------------
+    # Spelled the way the hosts send them: Claude/dsh/Codex `mcp__<server>__<tool>`,
+    # omp `mcp__<server>_<tool>`.
+    MCP_WRITES = ("mcp__filesystem__write_file", "mcp__fs_write_file")
+    TOKEN = "ghp_" + "a" * 36
+
+    def test_an_mcp_write_landing_a_token_is_refused(self):
+        for tool in self.MCP_WRITES:
+            reason = self.decide(tool, {"path": "src/a.py",
+                                        "content": "T = '%s'\n" % self.TOKEN})
+            self.assertIsNotNone(reason, tool)
+            self.assertIn("Credential", reason)
+        # nested the way an edit tool nests it
+        self.assertIsNotNone(self.decide("mcp__filesystem__edit_file", {
+            "path": "a.py", "edits": [{"oldText": "x", "newText": self.TOKEN}]}))
+
+    def test_an_mcp_publish_carrying_a_credit_is_refused(self):
+        reason = self.decide("mcp__github__create_pull_request", {
+            "title": "fix", "body": "change\n\nGenerated with Claude Code"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Attribution", reason)
+
+    def test_an_mcp_write_adding_a_skip_to_a_test_is_refused(self):
+        content = "import pytest\n\n%s\ndef test_a():\n    pass\n" % SKIP_MARK
+        reason = self.decide("mcp__filesystem__write_file",
+                             {"path": "tests/test_zz.py", "content": content})
+        self.assertIsNotNone(reason)
+        self.assertIn("Test disable", reason)
+        self.assertIsNone(self.decide("mcp__filesystem__write_file",
+                                      {"path": "src/zz.py", "content": content}))
+
+    def test_no_mcp_call_is_refused_by_its_verb_class_alone(self):
+        # consent and sink were removed on purpose (docs/gate.md): the class only
+        # decides which content rules read the payload, never a refusal or an ask
+        for tool, inp in (
+                ("mcp__github__create_issue", {"title": "t", "body": "plain"}),
+                ("mcp__filesystem__write_file", {"path": "a.py", "content": "x=1"}),
+                ("mcp__github__merge_pull_request", {"pull_number": 3}),
+                ("mcp__fs_delete_file", {"path": "a.py"}),
+                ("mcp__mobile_mcp_mobile_click_on_screen_at_coordinates",
+                 {"x": 1, "y": 2}),
+                # a read lands nothing, so a token in its query is not a write
+                ("mcp__github__get_file", {"query": self.TOKEN}),
+                # the first verb word decides: `get_commit` reads a commit
+                ("mcp__github__get_commit", {"q": self.TOKEN})):
+            self.assertIsNone(self.decide(tool, inp), tool)
+
+    def test_a_read_word_does_not_let_a_token_through_an_mcp_write(self):
+        for tool in ("mcp__x__read_and_write_file", "mcp__github__get_or_create_issue",
+                     "mcp__x__list_and_delete", "mcp__search__create_issue",
+                     "mcp__fetch_server__write_file"):
+            reason = self.decide(tool, {"body": self.TOKEN})
+            self.assertIsNotNone(reason, tool)
+            self.assertIn("Credential", reason)
+
+    def test_an_identifier_shaped_like_a_key_prefix_is_not_an_mcp_credential(self):
+        # A key, a branch and a slug that start with sk/pk/rk pass `gh` and
+        # Write; on MCP they must pass too. Vendor shapes are what refuses.
+        for word in ("pk_users_organization_id", "sk-telemetry-dashboard-refactor",
+                     "pk-fix-login-redirect-loop", "rk_customer_billing_address"):
+            for tool, inp in (
+                    ("mcp__github__create_issue", {"title": "t", "body": word}),
+                    ("mcp__filesystem__write_file", {"path": "a.py",
+                                                     "content": "k = '%s'\n" % word})):
+                self.assertIsNone(self.decide(tool, inp), (tool, word))
+        for token in ("sk_" + "live_" + "a" * 24, "sk-" + "proj-" + "a" * 24,
+                      "sk-" + "a" * 40, "AKIA" + "B" * 16, "xoxb-" + "1" * 12):
+            reason = self.decide("mcp__github__create_issue", {"body": token})
+            self.assertIsNotNone(reason, token)
+            self.assertIn("Credential", reason)
+
+    def test_the_mcp_payload_walk_is_bounded(self):
+        # audit H-3: a hook past Claude's 5 s budget never refuses anything. The
+        # walk keeps MCP_WALK_MAX characters; a token past them is not read.
+        pad = "x" * ti.MCP_WALK_MAX
+        self.assertIsNotNone(self.decide("mcp__fs_write_file", {
+            "path": "a.py", "content": self.TOKEN + pad}))
+        self.assertIsNone(self.decide("mcp__fs_write_file", {
+            "path": "a.py", "content": pad + self.TOKEN}))
+        deep = self.TOKEN
+        for _ in range(ti.MCP_WALK_DEPTH + 2):
+            deep = [deep]
+        self.assertEqual(ti.mcp_text({"a": deep}), "")
+        start = time.monotonic()
+        text = ti.mcp_text({"items": ["y" * 100] * 200000})
+        self.assertLessEqual(len(text), ti.MCP_WALK_MAX + 1)
+        self.assertLess(time.monotonic() - start, 1.0)
+
     # ---- constraint drift: a long turn re-states the rules -----------------
     # Above the gate's DRIFT_STEPS whatever it is tuned to: this test is about a
     # turn long enough to have lost the prompt that armed the rules, not about
@@ -1144,6 +1439,15 @@ class Gate(TempHome):
     def test_a_git_write_is_effectful_enough(self):
         self.seed_turn("long", self.LONG)
         reason = self.decide("Bash", {"command": 'git commit -m "fix: typo"'},
+                             session_id="long")
+        self.assertIsNotNone(reason)
+        self.assertIn("Long turn", reason)
+
+    def test_an_mcp_effect_earns_the_restatement_and_an_mcp_read_does_not(self):
+        self.seed_turn("long", self.LONG)
+        self.assertIsNone(self.decide("mcp__github__get_file", {"path": "x"},
+                                      session_id="long"))
+        reason = self.decide("mcp__github__create_issue", {"title": "t"},
                              session_id="long")
         self.assertIsNotNone(reason)
         self.assertIn("Long turn", reason)
@@ -1534,14 +1838,49 @@ class TaskGate(TempHome):
             self.assertIsNone(self.decide({"command": command}, tool="Bash"),
                               command)
 
-    def test_a_write_phase_leaves_the_shell_alone(self):
-        # a shell line's targets are not read, so the allowlist cannot be held
-        # against them; the reading phases are the requirement, and in a phase
-        # that writes the shell is not this rule's
+    def test_a_write_phase_holds_a_shell_write_to_the_allowlist(self):
+        # plan 057 (a)4, a deliberate flip: this test pinned that a shell line's
+        # targets were not read. The redirect and `tee` targets are
+        # (tezgah_gate.write_paths), so the allowlist holds them like a write
+        # tool's path; a positional target (`sed -i`, `cp`) is still not read.
         self.plan(phase="implementation", allowed=("app/**",))
-        self.assertIsNone(
-            self.decide({"command": "cat > src/x.py <<'EOF'\nx\nEOF"},
-                        tool="Bash"))
+        for command in ("cat > src/x.py <<'EOF'\nx\nEOF",
+                        "printf x | tee src/x.py", "echo x >> ../outside.py"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("outside the paths", reason or "", command)
+        for command in ("cat > app/x.py <<'EOF'\nx\nEOF",
+                        "pytest -q > /dev/null 2>&1", "sed -i '' 's/a/b/' src/x.py"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+
+    def test_a_write_to_scratch_meets_no_allowlist(self):
+        # review of plan 057: holding a shell redirect to the allowlist refused
+        # the session's own output - `pytest > /tmp/x.log`, the piped-check
+        # rule's own remedy. A temp file or a device is scratch, not the task's
+        # work, on every route; a repo path, build output included, and a path
+        # outside the repo that is not scratch stay held as for a Write.
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.envv["TMPDIR"] = tempfile.gettempdir()
+        for command in ("echo x > /tmp/y", "pytest -q > /tmp/pytest.log 2>&1",
+                        "make 2>&1 | tee /tmp/build.log", "echo x > $TMPDIR/y",
+                        'echo x > "$TMPDIR/y"', "echo x > /dev/stderr"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+        self.assertIsNone(self.write_path("/tmp/commit-msg.txt"))
+        for command in ("python3 -m pytest > build/log.txt",
+                        "echo x >> ../outside.py"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("outside the paths", reason or "", command)
+
+    def test_a_shell_write_into_the_record_is_refused(self):
+        # the record's other file route: a redirect or `tee` into it moves the
+        # phase as surely as a Write does, whatever the allowlist says
+        self.plan(phase="implementation", allowed=(".tezgah/plans/**",))
+        record = ".tezgah/plans/open/017-gate-rule.md"
+        for command in ("printf 'phase: verification' >> %s" % record,
+                        "echo x | tee %s" % record):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("record", reason or "", command)
 
     def test_the_shell_half_goes_with_the_same_switch(self):
         self.plan(phase="discovery")
@@ -1615,10 +1954,19 @@ class TaskGate(TempHome):
                         "python3 /opt/tezgah/bin/tezgah-task phase verification",
                         "tezgah-task allow '**'",
                         "cd /x && bin/tezgah-task stop",
-                        "bin/tezgah-task start 001 --phase implementation"):
+                        "bin/tezgah-task start 001 --phase implementation",
+                        # the script's own file name, through an interpreter or
+                        # not: the CLI is matched by basename, `.py` or none
+                        "python3 bin/tezgah-task.py phase 1 build",
+                        "tezgah-task.py allow 'src/**'"):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("record", reason)
+        # gate-01: a prefix bash reads as plain words does not hide the CLI
+        for wrap in bash_vectors.GATE01_WRAPS:
+            command = wrap % "tezgah-task phase implementation"
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("record", reason or "", command)
 
     def test_recording_a_review_and_closing_a_plan_are_the_sessions(self):
         # neither moves the phase or the allowlist: `review` writes the verdict

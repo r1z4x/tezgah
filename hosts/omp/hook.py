@@ -25,10 +25,13 @@ the same code every other host runs.
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
            (records the evidence the Stop rule reads; `idx` echoed from the
            payload skips the git probe; `label` is the untrusted-content notice
-           for a result that came from outside the user and the workspace, and
-           is absent for every ordinary result)
+           for a result that came from outside the user and the workspace, or
+           the taint notice on the first effect after such a result in a turn,
+           and is absent for every ordinary result)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
+           (with `stop_hook_active` the reply is recorded as an `after_block`
+           row and never blocked a second time)
 
 Every answer that carries the line carries `idx` with it - the glyph of the
 line's idx mark - so the caller can hand it back on the redraws that must not
@@ -49,14 +52,24 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import (  # noqa: E402
-    color_default, command_text, context_for, health_segments, record,
-    render_tiers, shell_kind, skill_read_kind)
-from tezgah_gate import decision  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label, untrusted_source)
-from tezgah_paths import off, root_for  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
+try:
+    from tezgah_context import (  # noqa: E402
+        color_default, command_text, context_for, health_segments, record,
+        render_tiers, shell_kind, skill_read_kind)
+    from tezgah_gate import decision  # noqa: E402
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note, note_tool, stop_reason, untrusted_label,
+        untrusted_source)
+    from tezgah_paths import off, root_for  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
+
+# How many times one stop chain may be refused (hooks/projects-stop.py names the
+# same constant): one, deliberately; raising it is owner decision 11. omp has no
+# subagent-end event: `session_stop` does not fire for task sessions.
+STOP_REASKS = 1
 
 
 def classify(tool, inp):
@@ -143,6 +156,8 @@ def handle(payload):
         # line at omp's user agent dir.
         out = {}
         kind = "subagent_start" if payload.get("subagent") else "session_start"
+        if not payload.get("subagent"):
+            safe(session_id, attest_session, "omp", session_id, cwd)
         if payload.get("subagent") and payload.get("parent"):
             # the child's ledger opens with its parent: the worker's checks land
             # here while the route that sent it is in the parent's ledger, and
@@ -169,27 +184,44 @@ def handle(payload):
         tool = payload.get("tool", "")
         inp = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         failed = payload.get("failed")
-        source = untrusted_source(tool, inp)
+        # Read before this call's row lands, as hooks/projects-posttooluse.py
+        # does: `source` is the row's taint mark and `marks` answers about the
+        # turn the call arrived in. The bridge never sends the result's body, and
+        # `marks` reads a None result as a subagent call that read nothing, so a
+        # non-None stand-in keeps the call-decided subagent label omp always
+        # had. ponytail: a background `task` launch is labelled like a report,
+        # because the bridge sends nothing that tells the two apart. A failed
+        # call made no effect, so it keeps its own channel and earns no notice.
+        own = untrusted_source(tool, inp)
+        if failed is True:
+            source, label = own, untrusted_label(own)
+        else:
+            source, label = safe(session_id, marks, tool, inp, session_id,
+                                 "") or (None, None)
         record(session_id, classify(tool, inp))
         # failed is tri-state on purpose: None means omp reported no outcome,
         # and the ledger then records a check that ran, never one that passed.
-        # `source` is the untrusted channel the result came through, and is left
-        # out of the row for every result that is the user's or the workspace's.
+        # `source` is the untrusted channel the result came through, or the one
+        # an effect inherits from its turn, and is left out of the row for every
+        # other call.
         # `result_len` is the size the bridge measured, never the body, and only
         # an integer counts: a value of any other shape is left unstated so the
         # row cannot claim a size nobody measured.
         size = payload.get("result_len")
-        if source == SUBAGENT_CHANNEL:
+        if own == SUBAGENT_CHANNEL:
             # The bridge measures a result by its top-level length, so a
             # delegate's report - a part list - arrives as a part count (1 on
             # 32174 ledger rows), never as a byte length, and the report's own
             # text is not in the payload. The row states no size rather than
             # claiming a 1-byte report; an absent field means unknown.
             size = None
+        # `empty_run` is the bridge's own reading of the result's text (its
+        # EMPTY_RUN copy), sent as a flag because the body is never sent
         note_tool(session_id, tool, inp,
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,
-                  source=source, cwd=cwd)
+                  source=source, cwd=cwd,
+                  empty_run=payload.get("empty_run") is True)
         if str(tool).lower() == "task" and isinstance(inp.get("tasks"), list):
             # omp names a child's ledger by its task name (`<parent>/<name>.jsonl`)
             # and only this call knows which agent that name runs - `task` when
@@ -205,13 +237,19 @@ def handle(payload):
         out = answered(*status_line(cwd, session_id, payload.get("idx")))
         # The result is the other thing this event carries. A label is not a
         # deny: the bridge puts it in front of the content itself, so the model
-        # reads where the text came from while it reads the text.
-        label = untrusted_label(source)
+        # reads where the text came from - or, on an effect after such a read,
+        # the taint notice - while it reads the result.
         if label:
             out["label"] = label
         return out
     if event == "stop":
-        if payload.get("stop_hook_active") or off("verify-off"):
+        if off("verify-off"):
+            return {}
+        if (1 if payload.get("stop_hook_active") else 0) >= STOP_REASKS:
+            # the reply after a block: recorded, never refused a second time,
+            # under its own guard so a record that fails still answers empty
+            safe(session_id, stop_reason, payload.get("last_assistant_message"),
+                 session_id, cwd=cwd, record_only=True)
             return {}
         reason = stop_reason(payload.get("last_assistant_message"), session_id,
                              cwd=cwd)

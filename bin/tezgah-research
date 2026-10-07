@@ -4,7 +4,7 @@
   tezgah-research init <slug> [--question "..."] [--allow-open "<why>"]
                        [--supersedes <slug>]              scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
-  tezgah-research check [<slug>] [--json] [--strict] [--orx]  the discipline checks
+  tezgah-research check [<slug>] [--json] [--strict] [--orx] [-- <slug>]  the discipline checks
   tezgah-research status                           one line per research line
   tezgah-research --all                            every checkout's lines (git worktrees)
   tezgah-research claim <slug>                     record one claim from stdin
@@ -15,6 +15,10 @@
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
   tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
+  tezgah-research seal <slug> --history-lost --ack "<owner decision>"
+                                                   seal a line concluded before seals existed
+  tezgah-research import <checkout> [<slug>] [--allow-open "<why>"]
+                                                   bring lines from another checkout, with history
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -242,13 +246,16 @@ def cmd_commit(args):
 
 
 def cmd_check(args):
-    as_json = "--json" in args
-    strict = "--strict" in args
-    ask_orx = "--orx" in args
-    rest = [a for a in args if a not in ("--json", "--strict", "--orx")]
+    # after `--` every word is the slug, never a flag (the MCP tool passes it so)
+    sep = args.index("--") if "--" in args else len(args)
+    flags, after = args[:sep], args[sep + 1:]
+    as_json = "--json" in flags
+    strict = "--strict" in flags
+    ask_orx = "--orx" in flags
+    rest = [a for a in flags if a not in ("--json", "--strict", "--orx")] + after
     repo = repo_root(os.getcwd())
     if len(rest) > 1:
-        return misuse("check [<slug>] [--json] [--strict] [--orx]")
+        return misuse("check [<slug>] [--json] [--strict] [--orx] [-- <slug>]")
     known = tr.slugs(repo)
     if rest and rest[0] not in known:
         print("FAIL %s: no such research line (have: %s)"
@@ -637,6 +644,58 @@ def cmd_close(args):
     return 0
 
 
+def cmd_seal(args):
+    """Seal a line concluded before the seal existed, with the owner's
+    `history-lost` verdict (ADR 009); a line concluded or closed now is sealed
+    by `conclude`/`close` itself."""
+    usage = 'seal <slug> --history-lost --ack "<the owner\'s decision>"'
+    if len(args) != 4 or args[1:3] != ["--history-lost", "--ack"]:
+        return misuse(usage)
+    slug, ack = args[0], args[3]
+    repo = repo_root(os.getcwd())
+    if slug not in tr.slugs(repo):
+        return misuse("no such research line: %s" % slug)
+    record, problem = tr.retro_seal(repo, slug, ack, time.strftime("%Y-%m-%d"))
+    if problem:
+        print("FAIL %s: %s" % (slug, problem))
+        return 1
+    rows = record["experiments"]
+    lost = sorted(h for h, row in rows.items() if row.get("order") == tr.HISTORY_LOST)
+    print("sealed %s: %d experiment(s), history lost for %s"
+          % (slug, len(rows), ", ".join(lost) or "none"))
+    return 0
+
+
+def cmd_import(args):
+    """Bring lines from another checkout's `.tezgah` repository with their
+    history; a plain copy is refused."""
+    usage = 'import <checkout> [<slug>] [--allow-open "<reason>"]'
+    rest, allow = list(args), None
+    if "--allow-open" in rest:
+        i = rest.index("--allow-open")
+        if i + 1 >= len(rest) or not rest[i + 1].strip():
+            return misuse("--allow-open needs the reason the line is worth opening")
+        allow = rest[i + 1]
+        rest = rest[:i] + rest[i + 2:]
+    if len(rest) not in (1, 2) or any(a.startswith("-") for a in rest):
+        return misuse(usage)
+    source = os.path.abspath(rest[0])
+    slug = rest[1] if len(rest) == 2 else None
+    if slug is not None and not tr.valid_slug(slug):
+        return misuse("not a research line name: %r" % slug)
+    repo = repo_root(os.getcwd())
+    if tp.ensure_workspace(repo) is None:
+        print("import refused: %s is not a git work tree (or .tezgah could not be "
+              "set up)" % repo)
+        return 1
+    imported, problem = tr.import_line(repo, source, slug, allow,
+                                       time.strftime("%Y-%m-%d"))
+    if problem:
+        print("FAIL import: %s" % problem)
+        return 1
+    print("imported %s from %s" % (", ".join(imported) or "nothing", source))
+    return 0
+
 
 def cmd_all(args):
     if args:
@@ -681,8 +740,12 @@ def main(argv):
         return cmd_migrate_layout(rest)
     if cmd == "close":
         return cmd_close(rest)
+    if cmd == "seal":
+        return cmd_seal(rest)
+    if cmd == "import":
+        return cmd_import(rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
-                  "components, migrate, source, compare, close)" % cmd)
+                  "components, migrate, source, compare, close, seal, import)" % cmd)
 
 
 if __name__ == "__main__":

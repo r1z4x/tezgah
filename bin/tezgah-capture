@@ -25,7 +25,11 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_snapshot import capture  # noqa: E402
+from tezgah_guard import import_failed  # noqa: E402
+try:
+    from tezgah_snapshot import capture  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 USAGE = ('usage: tezgah-capture \'{"tool": "Edit", "input": {"file_path": "a.py"},'
          ' "cwd": "/repo", "session_id": "abc"}\'')

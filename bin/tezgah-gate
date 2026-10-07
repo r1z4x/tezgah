@@ -5,6 +5,9 @@
                        a dry run: nothing is written anywhere
   tezgah-gate decide   the same answer, recorded the way the live gate records
                        it (deny/drift/nudge rows, the pre-write snapshot)
+  tezgah-gate replay   the real ledgers replayed through this gate in a sandbox
+                       HOME, with per-stratum fidelity; `--report` reads labels,
+                       `--sheet` draws the blind label sample (hooks/tezgah_replay.py)
 
 Reads the host's own call as {"tool":..., "input":{...}, "cwd":...,
 "session_id":...} and prints what hooks/tezgah_gate.decision() returns for it,
@@ -17,7 +20,9 @@ dry run against a live session id used to write refusal rows into that
 session's counters (audit CHAT-07 / L-14b).
 
 Exit codes: 0 whether the call passes or is refused - the reason is the output,
-not the status - and 2 for misuse.
+not the status - 2 for misuse, and 3 from `check` when the gate's core cannot
+be imported: an empty answer there would read as a pass (`decide`, opencode's
+hook path, fails open with 0 like every hook).
 """
 import json
 import os
@@ -25,7 +30,14 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_gate import decision  # noqa: E402
+from tezgah_guard import import_failed  # noqa: E402
+try:
+    from tezgah_gate import decision  # noqa: E402
+except Exception as exc:
+    # `check` is asked for a verdict (by a person, or the MCP `gate_check`
+    # tool): an empty answer with exit 0 reads as a pass from a gate that is
+    # not there. `decide` is opencode's hook path and fails open like the rest.
+    import_failed(exc, 3 if sys.argv[1:2] == ["check"] else 0)
 
 
 def misuse(message):
@@ -37,8 +49,11 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
+    if argv[1] == "replay":
+        import tezgah_replay
+        return tezgah_replay.main(argv[2:])
     if argv[1] not in ("check", "decide"):
-        return misuse("unknown command %r (check, decide)" % argv[1])
+        return misuse("unknown command %r (check, decide, replay)" % argv[1])
     if len(argv) > 2:
         return misuse("check reads its call on stdin, not as arguments")
     try:

@@ -249,18 +249,27 @@ class OmpHook(TempHome):
         repo = self.make_repo()
         start = {"event": "session_start", "cwd": repo, "session_id": "s"}
         out, _ = self.event(start)
-        self.assertNotIn("tezgah-explorer", out["context"])
+        self.assertNotIn("tezgah-reviewer", out["context"])
         agents = os.path.join(self.home, ".omp", "agent", "agents")
         os.makedirs(agents)
-        for name in ("tezgah-explorer", "tezgah-orchestrator"):
+        # a retired role's file left behind by an older install is never named
+        for name in ("tezgah-reviewer", "tezgah-orchestrator", "tezgah-explorer",
+                     "tezgah-verifier", "tezgah-researcher"):
             open(os.path.join(agents, name + ".md"), "w").close()
         out, _ = self.event(start)
-        self.assertIn("-> tezgah-explorer", out["context"])
-        # only the files that exist: no reviewer was installed
-        self.assertNotIn("tezgah-reviewer", out["context"])
+        self.assertIn("-> tezgah-reviewer", out["context"])
+        for retired in ("tezgah-explorer", "tezgah-verifier", "tezgah-researcher"):
+            self.assertNotIn(retired, out["context"])
+        # only the files that exist: no tier worker was installed
+        self.assertNotIn("tezgah-cheap", out["context"])
+        # a repo's .no-graph turns the graph off there, so its role is not named
+        self.touch(os.path.join(repo, ".no-graph"))
+        out, _ = self.event(start)
+        self.assertNotIn("-> tezgah-reviewer", out["context"])
+        os.remove(os.path.join(repo, ".no-graph"))
         self.touch(os.path.join(self.home, ".config", "tezgah", "orchestrate-off"))
         out, _ = self.event(start)
-        self.assertNotIn("-> tezgah-explorer", out["context"])
+        self.assertNotIn("-> tezgah-reviewer", out["context"])
 
     def test_status_answers_off_root(self):
         # the status line is the one global signal: tezgah loads as a globally
@@ -423,7 +432,7 @@ class OmpHook(TempHome):
                              "last_assistant_message": "Fixed; doğrulanmadı."})
         self.assertIsNone(out)
 
-    def test_stop_hook_active_short_circuits(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         repo = self.make_repo()
         self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
                     "tool": "bash", "input": {"command": "pytest -q"}})
@@ -515,6 +524,48 @@ class OmpHook(TempHome):
         row = [r for r in self.evidence() if r.get("source")][-1]
         self.assertEqual((row["kind"], row["source"]), ("external", "subagent"))
         self.assertNotIn("out_bytes", row)
+
+    def test_an_effect_after_a_web_read_carries_the_taint_notice(self):
+        # The other hosts mark the first effect a turn makes after an untrusted
+        # read (tezgah_untrusted.marks); omp used to label the read and leave the
+        # effect bare. The notice rides `label`, the effect's row carries the
+        # inherited channel, and the next effect has nothing left to say.
+        repo = self.make_repo()
+        base = {"event": "post_tool_use", "cwd": repo, "session_id": "s-taint",
+                "failed": False}
+        self.event(dict(base, tool="web_fetch", input={"url": "https://x"}))
+        out, proc = self.event(dict(base, tool="bash",
+                                    input={"command": "pytest -q"}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("in a turn that already read a web result", out["label"])
+        self.assertNotIn("untrusted content", out["label"])
+        run_row = [r for r in self.evidence() if r.get("tool") == "bash"][-1]
+        self.assertEqual(run_row.get("source"), "web")
+        again, _ = self.event(dict(base, tool="bash", input={"command": "ls"}))
+        self.assertNotIn("label", again)
+
+    def test_a_subagent_report_keeps_its_label_with_no_result_body(self):
+        # omp's bridge never sends the report's body, and `marks` reads a None
+        # result as "nothing was read" - the hook must keep the subagent label
+        # with or without `result_len`, and the next effect inherits it.
+        repo = self.make_repo()
+        base = {"event": "post_tool_use", "cwd": repo, "session_id": "s-sub2",
+                "failed": False}
+        for extra in ({}, {"result_len": 1}):
+            out, proc = self.event(dict(base, tool="task",
+                                        input={"prompt": "x"}, **extra))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("a subagent's report", out["label"])
+            self.assertIn("untrusted content", out["label"])
+        # the effect inherits the channel, and keeps its own measured size: the
+        # part-count rule is the report's, not every row that carries the channel
+        out, _ = self.event(dict(base, tool="bash", input={"command": "ls"},
+                                 result_len=7))
+        self.assertIn("in a turn that already read a subagent's report",
+                      out["label"])
+        row = [r for r in self.evidence() if r.get("tool") == "bash"][-1]
+        self.assertEqual((row.get("source"), row.get("out_bytes")),
+                         ("subagent", 7))
 
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",

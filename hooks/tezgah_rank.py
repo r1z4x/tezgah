@@ -30,20 +30,42 @@ def words(text):
                                     .translate(FOLD)) if len(w) >= MIN_WORD]
 
 
-def rank(query, texts, k):
+# The lessons path's own filter, passed as `max_df` (`tezgah_context.LESSON_MAX_DF`):
+# a word in most of the ledger ("the", "and" in 41 of 47 lines) ranked lines 9,
+# 7 and 34 for "update the changelog", a prompt no line is about. Function words
+# go first, in both languages the ledger is written in (folded the way `words`
+# folds them); then any term in more than `max_df` of the texts - once there are
+# MIN_CAP_TEXTS of them, because on one or two texts a 50% cap drops every term.
+# The docs fallback passes no cap.
+STOPWORDS = frozenset((
+    "the", "and", "that", "this", "with", "for", "from", "are", "was", "were",
+    "not", "but", "its", "into", "than", "then", "they", "them", "their",
+    "have", "has", "had", "will", "would", "can", "could", "should", "you",
+    "your", "what", "when", "which", "who", "how", "all", "any", "out",
+    "bir", "bunu", "buna", "bunlar", "şunu", "için", "ile", "ama", "gibi",
+    "daha", "çok", "kadar", "veya", "değil", "her", "hem", "olan", "olarak",
+    "sonra", "önce", "ise", "yani", "nasil", "neden"))
+MIN_CAP_TEXTS = 10
+
+
+def rank(query, texts, k, max_df=None):
     """Indices of the `k` texts that score highest for `query`, best first.
 
     Only a text sharing at least one term with the query is returned (score > 0),
-    so an unrelated query gets [] rather than an arbitrary order."""
+    so an unrelated query gets [] rather than an arbitrary order. `max_df` (a
+    fraction) drops STOPWORDS and, on MIN_CAP_TEXTS or more texts, every query
+    term found in more than that share of them."""
     docs = [Counter(words(t)) for t in texts]
     terms = set(words(query))
     if not docs or not terms:
         return []
     avg = sum(sum(d.values()) for d in docs) / len(docs) or 1.0
-    idf = {}
-    for t in terms:
-        df = sum(1 for d in docs if t in d)
-        idf[t] = math.log(1 + (len(docs) - df + 0.5) / (df + 0.5))
+    df = {t: sum(1 for d in docs if t in d) for t in terms}
+    if max_df is not None:
+        terms = {t for t in terms - STOPWORDS
+                 if len(docs) < MIN_CAP_TEXTS or df[t] <= max_df * len(docs)}
+    idf = {t: math.log(1 + (len(docs) - df[t] + 0.5) / (df[t] + 0.5))
+           for t in terms}
     scored = []
     for i, d in enumerate(docs):
         size = sum(d.values())

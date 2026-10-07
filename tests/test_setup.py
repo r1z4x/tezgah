@@ -4,6 +4,7 @@ Every test runs the installer in a throwaway HOME with fake host dirs, so the
 real ~/.claude, ~/.codex, ~/.config/opencode, ~/.cursor and ~/.dsh are never
 touched. TEZGAH_CODEGRAPH_BIN points at nothing so no graph is registered.
 """
+import glob
 import hashlib
 import json
 import os
@@ -59,6 +60,8 @@ class SetupBase(unittest.TestCase):
             # through `omp config`, and the real CLI must never write the
             # machine's config.yml; OmpHost points at a fake that records it
             "TEZGAH_OMP_BIN": os.path.join(self.home, "no-such-omp"),
+            # and claude: `--install` registers the plugin through `claude plugin`
+            "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
             # never let a test hit the network: --install installs missing deps
             # by default, so the suite opts out and the Deps tests exercise it
             "TEZGAH_NO_DEPS": "1",
@@ -129,7 +132,7 @@ class Install(SetupBase):
         self.assertEqual(s["attribution"],
                          {"commit": "", "pr": "", "sessionUrl": False})
         self.assertEqual(s["theme"], "dark")
-        self.assertTrue(os.path.exists(self.path(".claude", "settings.json.tezgah-bak")))
+        self.assertTrue(glob.glob(self.path(".claude", "settings.json.*.tezgah-bak")))
 
         # codex: pre-existing entry survives next to tezgah's
         raw = self.read_text(self.path(".codex", "hooks.json"))
@@ -1091,6 +1094,144 @@ class PluginCopy(SetupBase):
         self.assertFalse(self.current(root),
                          "a copy missing a file the checkout ships was current")
 
+    SYNC_PROBE = (
+        "import importlib.machinery, importlib.util, json, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "def killed(stage, target):\n"
+        "    raise KeyboardInterrupt('killed after staging')\n"
+        "m._swap = killed\n"
+        "try:\n"
+        "    m.sync()\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+        "print(json.dumps(m.plugin_copies()))\n"
+    )
+
+    def test_a_sync_killed_after_staging_leaves_the_copy_whole(self):
+        root = self.synced_copy()
+        os.makedirs(os.path.join(root, ".git"))
+        self.freeze(root, "hooks/tezgah_gate.py")
+        with open(os.path.join(root, "hooks", "tezgah_gate.py")) as fh:
+            before = fh.read()
+        out = subprocess.run([sys.executable, "-c", self.SYNC_PROBE, SETUP],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        # the previous copy is exactly as it was, .git included
+        with open(os.path.join(root, "hooks", "tezgah_gate.py")) as fh:
+            self.assertEqual(fh.read(), before)
+        self.assertTrue(os.path.isdir(os.path.join(root, ".git")))
+        # the staging tree the kill left is beside the cache, never a copy
+        plugins = self.path(".claude", "plugins")
+        stages = [n for n in os.listdir(plugins) if n.startswith(".tezgah-sync-")]
+        self.assertTrue(stages, os.listdir(plugins))
+        self.assertEqual(json.loads(out.stdout.strip().splitlines()[-1]), [root])
+        # the next sync sweeps it and replaces the copy
+        self.assertIn("synced", self.setup("--sync").stdout)
+        self.assertEqual([n for n in os.listdir(plugins)
+                          if n.startswith(".tezgah-sync-")], [])
+        self.assertTrue(self.current(root))
+
+    def test_the_copy_keeps_its_git_across_the_swap(self):
+        root = self.synced_copy()
+        marker = os.path.join(root, ".git", "HEAD")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as fh:
+            fh.write("ref: refs/heads/main\n")
+        self.freeze(root, "hooks/tezgah_gate.py")
+        self.assertIn("synced", self.setup("--sync").stdout)
+        self.assertTrue(self.current(root))
+        self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
+
+    # The kill lands between the two renames: the copy is moved aside, the
+    # stage (holding the copy's .git) is not yet in its place.
+    MID_SWAP_PROBE = (
+        "import importlib.machinery, importlib.util, os, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "real = os.rename\n"
+        "def rename(src, dst):\n"
+        "    if os.path.basename(src).startswith(m.SYNC_STAGE_PREFIX) \\\n"
+        "            and not src.endswith('.git') and dst == sys.argv[2]:\n"
+        "        raise KeyboardInterrupt('killed mid-swap')\n"
+        "    return real(src, dst)\n"
+        "m.os.rename = rename\n"
+        "try:\n"
+        "    m.sync()\n"
+        "except KeyboardInterrupt:\n"
+        "    pass\n"
+    )
+
+    def test_a_sync_killed_mid_swap_is_restored_with_its_git(self):
+        root = self.synced_copy()
+        marker = os.path.join(root, ".git", "HEAD")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as fh:
+            fh.write("ref: refs/heads/main\n")
+        out = subprocess.run([sys.executable, "-c", self.MID_SWAP_PROBE, SETUP, root],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse(os.path.exists(root), "the kill did not land mid-swap")
+        proc = self.setup("--sync")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("restored %s" % root, proc.stdout)
+        self.assertTrue(self.current(root))
+        self.assertEqual(self.read_text(marker), "ref: refs/heads/main\n")
+        plugins = self.path(".claude", "plugins")
+        self.assertEqual([n for n in os.listdir(plugins)
+                          if n.startswith(".tezgah-sync-")], [])
+
+    FAILING_COPY_PROBE = (
+        "import importlib.machinery, importlib.util, sys\n"
+        "loader = importlib.machinery.SourceFileLoader('setup', sys.argv[1])\n"
+        "m = importlib.util.module_from_spec(\n"
+        "    importlib.util.spec_from_loader('setup', loader))\n"
+        "sys.modules['setup'] = m\n"
+        "loader.exec_module(m)\n"
+        "def full(src, dst):\n"
+        "    raise OSError(28, 'No space left on device')\n"
+        "m._copy_normalised = full\n"
+        "sys.exit(m.sync())\n"
+    )
+
+    def test_a_failed_copy_makes_sync_exit_non_zero(self):
+        root = self.synced_copy()
+        out = subprocess.run([sys.executable, "-c", self.FAILING_COPY_PROBE, SETUP],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        self.assertIn("left as it was", out.stdout)
+        self.assertTrue(self.current(root))
+
+    def test_every_synced_file_is_owner_writable_only(self):
+        # a source file the checkout left world-writable (0666) is copied 0644,
+        # and an executable one 0755: the copy is what Claude runs
+        root = self.synced_copy()
+        for dirpath, dirnames, files in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d != ".git"]
+            for name in files:
+                path = os.path.join(dirpath, name)
+                rel = os.path.relpath(path, root)
+                src = os.path.join(REPO, rel)
+                want = (0o755 if os.path.isfile(src) and os.stat(src).st_mode & 0o100
+                        else 0o644)
+                self.assertEqual(os.stat(path).st_mode & 0o777, want, rel)
+
+    def test_a_world_writable_source_is_copied_0644(self):
+        module = setup_module()
+        src = self.path("src.json")
+        with open(src, "w") as fh:
+            fh.write("{}\n")
+        os.chmod(src, 0o666)
+        dst = self.path("stage", "hooks", "hooks.json")
+        module._copy_normalised(src, dst)
+        self.assertEqual(os.stat(dst).st_mode & 0o777, 0o644)
+
     def test_a_stale_copy_is_reported_and_install_refreshes_it(self):
         _root, fingerprint = self.copy()
         self.assertTrue(self.reported().strip().startswith("MISS"),
@@ -1351,7 +1492,7 @@ class Uninstall(SetupBase):
         self.assertNotIn("statusLine", s)
         self.assertNotIn("attribution", s)
         self.assertEqual(s["theme"], "dark")
-        self.assertTrue(os.path.exists(self.path(".claude", "settings.json.tezgah-bak")))
+        self.assertTrue(glob.glob(self.path(".claude", "settings.json.*.tezgah-bak")))
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertFalse(oc.get("instructions"))
 
@@ -1664,8 +1805,18 @@ class LiveReport(SetupBase):
 
 
 
+def contract_blocks():
+    """The policy blocks the hand-kept contract skill mirrors, joined - the
+    test's own reading of them, since the policy keeps no joined constant."""
+    import tezgah_policy as p
+    return "\n\n".join((p.CODEGRAPH_RULE % p.CODEGRAPH_STATIC, p.WORKFLOWS,
+                        p.ORCHESTRATE, p.PONYTAIL, p.ADHD, p.SPEC, p.LESSONS,
+                        p.EXEC, p.CONSULT, p.RESEARCH, p.PRODUCT, p.NO_GRAPH,
+                        p.NO_CONSULT))
+
+
 class ContractParity(unittest.TestCase):
-    """policy.CONTRACT and skills/tezgah-contract/SKILL.md are two hand-kept
+    """The policy blocks and skills/tezgah-contract/SKILL.md are two hand-kept
     copies of the same rules. The sha record in bin/tezgah-setup notices that a
     render changed; this notices that only one of them changed, which is the
     drift that actually happens."""
@@ -1681,12 +1832,26 @@ class ContractParity(unittest.TestCase):
         path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
         with open(path, encoding="utf-8") as fh:
             skill = fh.read()
-        # the contract is a template; the skill writes the placeholders out
-        text = policy.CONTRACT.replace("{ROOT}", "the configured tezgah roots")
+        # the blocks are a template; the skill writes the placeholders out, and
+        # names the reply_lang setting where a render names one of its values
+        text = contract_blocks().replace("{ROOT}", "the configured tezgah roots")
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            text = text.replace(key, words)
         missing = [item for item in self.rules(text) if item not in skill]
         self.assertEqual([], missing,
-                         "these rules exist in policy.CONTRACT but not in the "
+                         "these rules exist in the policy blocks but not in the "
                          "skill: %s" % missing)
+        self.assertIn("`reply_lang`", skill)
+
+    def test_the_cost_report_measures_the_shipped_skill(self):
+        # the joined constant drifted from the skill and still drove the
+        # report's on-demand figure; the policy keeps no join now
+        import tezgah_policy as policy
+        self.assertFalse(hasattr(policy, "CONTRACT"))
+        path = os.path.join(REPO, "skills", "tezgah-contract", "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            size = len(fh.read())
+        self.assertEqual(setup_module().context_budget()[1], size)
 
 
 class GraphRuleBand(SetupBase):
@@ -1701,7 +1866,7 @@ class GraphRuleBand(SetupBase):
     session pays its text only then."""
 
     def test_the_rule_rides_the_task_class_not_the_always_on_band(self):
-        """The rule is rendered into policy.CONTRACT, never into CORE.
+        """The rule is one of the on-demand contract blocks, never in CORE.
 
         The always-on band the installer prints (`core contract (always-on, per
         session)`) is CORE minus the conditional paragraphs, so a rule that
@@ -1710,10 +1875,9 @@ class GraphRuleBand(SetupBase):
         the rendered text, not on a length, because the band's number moves with
         any CORE edit and a pinned number would report that as this rule
         drifting."""
-        import tezgah_policy as policy
         module = setup_module()
         rule = module.CODEGRAPH_RULE % module.CODEGRAPH_STATIC
-        self.assertIn(rule, policy.CONTRACT)
+        self.assertIn(rule, contract_blocks())
         always = module.tezgah_context.always_on_core()
         self.assertNotIn(rule, always)
         # the short CORE paragraph is the same rule's arming stub: it is paid per
@@ -2197,6 +2361,20 @@ class OmpHost(SetupBase):
                         "tool_result", "session_stop", "setWidget", "setStatus"):
             self.assertIn(handler, hook)
 
+    def test_the_bridge_row_is_a_byte_compare_against_a_fresh_render(self):
+        # a keyword test passed a bridge an older tree or a hand edit left
+        # behind, as long as the six handler names were still in it
+        self.install()
+        label = "session, prompt, tool and stop hooks wired"
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, label).strip().startswith("ok"), report)
+        hook = self.path(".omp", "agent", "hooks", "pre", "tezgah-hook.ts")
+        with open(hook, "a") as fh:
+            fh.write("// session_start before_agent_start tool_call session_stop "
+                     "setWidget setStatus\n")
+        report = self.setup("--hosts", "omp").stdout
+        self.assertTrue(self.row(report, label).strip().startswith("MISS"), report)
+
     def test_install_heals_an_argv_as_list_mcp_entry(self):
         path = self.path(".omp", "agent", "mcp.json")
         self.write_json(path, {"mcpServers": {"mobile-mcp": {
@@ -2275,7 +2453,7 @@ class OmpHost(SetupBase):
 class PowershellMatcher(SetupBase):
     """A PowerShell call is a shell call, so every shell rule has to reach it.
 
-    `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py:113-114`),
+    `powershell` is in `BASH_TOOLS` (`hooks/tezgah_integrity.py::BASH_TOOLS`),
     which the secret, shortcut, loop, retry and task-shell rules
     are all keyed on - so refusing one is the design. What decides whether the
     gate sees the call at all is the host's own matcher (Claude's manifest, the
@@ -2283,7 +2461,7 @@ class PowershellMatcher(SetupBase):
     that the PreToolUse side does not is recorded in the ledger and never
     refused, which is the state this class exists to keep out. The spellings
     are the hosts': `PowerShell` on the Claude-family wire and `pwsh` for dsh's
-    own tool package (`tests/test_dsh_hooks.py:107-110`)."""
+    own tool package (`tests/test_dsh_hooks.py::DshToolVocabulary`)."""
 
     # Claude's matcher dialect, which the dsh bridge implements: a pattern made
     # only of these characters is a list of exact names, anything else an
@@ -2309,6 +2487,45 @@ class PowershellMatcher(SetupBase):
                             for m in self.pretool_matchers(path)),
                         "%s: PreToolUse never runs the gate for %s"
                         % (path, tool))
+
+    def test_the_mcp_effect_matchers_are_built_from_the_verb_classes(self):
+        # Plan 019: the literal group stays a list of exact names (a regex
+        # character in it would turn every name into an unanchored pattern, so
+        # `Edit` would select `NotebookEdit`'s neighbours and `task` every
+        # `*task*`). An MCP effect reaches the gate through a group of its own,
+        # spelled from tezgah_integrity.MCP_VERBS so a read-only MCP call (a
+        # code-graph query) spawns no hook. The same pattern is omp's
+        # MCP_EFFECT. No lookahead: the pattern runs under JS and Python alike.
+        import tezgah_integrity as ti
+        verbs = sorted(set().union(*(words for _, words in ti.MCP_VERBS)))
+        want = (r"^mcp__(?:.*[^A-Za-z0-9])?(?:%s)(?:[^A-Za-z0-9].*)?$"
+                % "|".join(verbs))
+        for path in ("hooks/hooks.json", "hosts/dsh/hooks.json"):
+            with self.subTest(path=path):
+                matchers = self.pretool_matchers(path)
+                self.assertRegex(matchers[0], self.LITERAL)
+                self.assertEqual(matchers[1:], [want])
+                for tool in ("mcp__github__create_issue", "mcp__fs_write_file",
+                             "mcp__mobile_mcp_mobile_click_on_screen"):
+                    self.assertTrue(any(self.selects(m, tool) for m in matchers),
+                                    tool)
+                for tool in ("Read", "mcp__codegraph_explore",
+                             "mcp__github__get_file", "mcp__github__updated_at"):
+                    self.assertFalse(any(self.selects(m, tool) for m in matchers),
+                                     tool)
+                # parity: the gate classes a name only if the host spawns it
+                for tool in ("mcp__x__Create_issue", "mcp__x__create_issue",
+                             "mcp__github__get_or_create_issue",
+                             "mcp__fetch_server_write_file", "mcp__github__get_commit",
+                             "mcp__github__get_file", "MCP__x__create_issue"):
+                    if ti.mcp_class(tool) is not None:
+                        self.assertTrue(any(self.selects(m, tool)
+                                            for m in matchers), tool)
+                self.assertIsNone(ti.mcp_class("mcp__x__Create_issue"))
+                self.assertFalse(any(self.selects(m, "mcp__x__Create_issue")
+                                     for m in matchers))
+        with open(os.path.join(REPO, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
+            self.assertIn("const MCP_EFFECT = /%s/;" % want, fh.read())
 
     def test_the_written_omp_hook_gates_the_shell_name(self):
         self.env["TEZGAH_CODEGRAPH_BIN"] = sys.executable  # as OmpHost.install does
@@ -2740,9 +2957,16 @@ class VersionPrefixIsNotContract(SetupBase):
         # on-demand pointer list gained the design contract - the artifact, the
         # derive/check verbs and the skill that owns its shape (+245 B) - which
         # is the pointer the Stop rule's component branch asks a turn to run.
+        # Re-pinned 2026-10-05: the lessons paragraph asks for a rule-first
+        # line, `<rule> - <incident>`, in fewer words (-23 B). Outside this
+        # band the same change costs omp's RULES.md lessons line +40 B (230 ->
+        # 270) and the session lessons block +86 B on this repository's ledger
+        # (1266 -> 1352, the format advisory line). Re-pinned 2026-10-06: the
+        # integrity paragraph quotes PIPED_REMEDY, the piped-check shape that
+        # keeps the exit status, instead of "to a file and read it" (+82 B).
         # The band is here to catch an accidental move, so a deliberate one is
         # recorded.
-        self.assertEqual(9173, band, "the always-on band moved")
+        self.assertEqual(9232, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

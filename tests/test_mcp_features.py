@@ -9,6 +9,7 @@ shape `tests/test_setup.py` uses), so the real ~/.claude, ~/.codex,
 ~/.config/opencode, ~/.cursor, ~/.dsh and ~/.omp are never touched, and none of
 these tests needs the network.
 """
+import glob
 import json
 import os
 import shutil
@@ -72,6 +73,8 @@ class FeaturesBase(unittest.TestCase):
             "LANG": "C.UTF-8",
             "TEZGAH_CODEGRAPH_BIN": os.path.join(self.home, "no-such-codegraph"),
             "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
+            # `--install` registers the Claude plugin through `claude plugin`
+            "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
             # never let a test hit the network: --install installs missing deps
             # by default
             "TEZGAH_NO_DEPS": "1",
@@ -211,14 +214,13 @@ class Selection(FeaturesBase):
             self.assertIn("selected", line)
         self.assertIn("on", self.row_with(proc.stdout, DEVTOOLS, "default"))
 
-    def test_the_two_non_mcp_features_are_registered_in_the_same_table(self):
-        """The mechanism generalises past MCP: the ai-research payload
-        and orx are rows in the same table, listed by the same command."""
+    def test_the_non_mcp_feature_is_registered_in_the_same_table(self):
+        """The mechanism generalises past MCP: orx is a row in the same table,
+        listed by the same command."""
         proc = self.setup("--features")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        for feature in ("ai-research", "orx"):
-            self.assertTrue(self.row_with(proc.stdout, feature, "default"),
-                            "--features listed no row for %s" % feature)
+        self.assertTrue(self.row_with(proc.stdout, "orx", "default"),
+                        "--features listed no row for orx")
         self.assertEqual([r["id"] for r in tezgah_apps.REGISTRY if r["id"] == "orx"],
                          ["orx"])
         # the table is the only place it is described: DEPS' orx row comes from it
@@ -227,6 +229,18 @@ class Selection(FeaturesBase):
         row = next(r for r in tezgah_apps.REGISTRY if r["id"] == "orx")
         self.assertEqual(dep["cmd"], row["dep"]["cmd"])
         self.assertEqual(dep["needs"], row["dep"]["needs"])
+
+    def test_a_config_naming_the_retired_ai_research_row_still_installs(self):
+        """The no-op `ai-research` row is gone; a config.json an older release
+        wrote with it still installs, and the selection keeps the rest."""
+        self.write_json(self.path(".config", "tezgah", "config.json"),
+                        {"roots": [self.path("Projects")], "hosts": ALL.split(","),
+                         "features": ["ai-research", "orx", MOBILE]})
+        self.install()
+        for host in HOST_FILES:
+            self.assertTrue(self.wired(host), "%s lost the selected server" % host)
+        proc = self.setup("--features")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 class DevtoolsSugar(FeaturesBase):
@@ -356,8 +370,9 @@ class Idempotence(FeaturesBase):
                          "an unchanged run laid a backup")
         # the symptom the finding names: a backup that is a copy of its own file
         for path in paths:
-            bak = path + ".tezgah-bak"
-            if os.path.exists(bak):
+            baks = sorted(glob.glob(path + ".*.tezgah-bak"))
+            if baks:
+                bak = baks[-1]
                 self.assertNotEqual(self.read_text(bak), self.read_text(path),
                                     "%s got an identical-bytes backup" % path)
 

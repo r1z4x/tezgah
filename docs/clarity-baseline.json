@@ -6,10 +6,10 @@
     "semicolons": 0
   },
   "docs/README.md": {
-    "long_sentences": 8,
-    "passive": 9,
+    "long_sentences": 6,
+    "passive": 7,
     "replace_words": 1,
-    "semicolons": 5
+    "semicolons": 4
   },
   "docs/architecture.md": {
     "long_sentences": 20,
@@ -18,10 +18,10 @@
     "semicolons": 9
   },
   "docs/contract.md": {
-    "long_sentences": 41,
-    "passive": 27,
+    "long_sentences": 40,
+    "passive": 26,
     "replace_words": 0,
-    "semicolons": 31
+    "semicolons": 30
   },
   "docs/environment.md": {
     "long_sentences": 3,
@@ -30,8 +30,8 @@
     "semicolons": 3
   },
   "docs/evidence.md": {
-    "long_sentences": 112,
-    "passive": 58,
+    "long_sentences": 109,
+    "passive": 57,
     "replace_words": 1,
     "semicolons": 40
   },
@@ -42,28 +42,28 @@
     "semicolons": 11
   },
   "docs/gate.md": {
-    "long_sentences": 69,
-    "passive": 33,
+    "long_sentences": 67,
+    "passive": 32,
     "replace_words": 1,
-    "semicolons": 48
+    "semicolons": 46
   },
   "docs/glossary.md": {
     "long_sentences": 51,
     "passive": 19,
     "replace_words": 0,
-    "semicolons": 15
+    "semicolons": 14
   },
   "docs/hosts.md": {
     "long_sentences": 36,
     "passive": 19,
     "replace_words": 0,
-    "semicolons": 19
+    "semicolons": 18
   },
   "docs/judge.md": {
-    "long_sentences": 29,
+    "long_sentences": 28,
     "passive": 15,
     "replace_words": 0,
-    "semicolons": 18
+    "semicolons": 17
   },
   "docs/layers.md": {
     "long_sentences": 20,
@@ -81,7 +81,7 @@
     "long_sentences": 67,
     "passive": 21,
     "replace_words": 3,
-    "semicolons": 44
+    "semicolons": 42
   },
   "docs/research.md": {
     "long_sentences": 112,
@@ -96,19 +96,19 @@
     "semicolons": 14
   },
   "docs/status-line.md": {
-    "long_sentences": 45,
+    "long_sentences": 44,
     "passive": 19,
     "replace_words": 0,
     "semicolons": 26
   },
   "docs/testing.md": {
-    "long_sentences": 26,
-    "passive": 13,
+    "long_sentences": 24,
+    "passive": 12,
     "replace_words": 0,
     "semicolons": 11
   },
   "docs/vision.md": {
-    "long_sentences": 10,
+    "long_sentences": 9,
     "passive": 7,
     "replace_words": 1,
     "semicolons": 12

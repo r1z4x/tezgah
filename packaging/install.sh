@@ -1,7 +1,7 @@
 #!/bin/sh
 # packaging/install.sh - install tezgah on a machine that has nothing yet.
 #
-#   install.sh [--version V] [--prefix P]
+#   install.sh [--version V] [--prefix P] [--reply-lang tr|en|any]
 #
 # Runs packaging/upgrade.sh (the one place a version is fetched, verified,
 # unpacked and made current), then the installer from the tree it made current.
@@ -12,10 +12,12 @@ set -eu
 REPO=${TEZGAH_REPO:-r1z4x/tezgah}
 VERSION_ARG=
 PREFIX_ARG=
+REPLY_ARG=
 work=
 while [ $# -gt 0 ]; do case $1 in
     --version) [ $# -ge 2 ] || { echo "tezgah: --version needs a value" >&2; exit 2; }; VERSION_ARG=$2; shift 2 ;;
     --prefix)  [ $# -ge 2 ] || { echo "tezgah: --prefix needs a value" >&2; exit 2; }; PREFIX_ARG=$2; shift 2 ;;
+    --reply-lang) [ $# -ge 2 ] || { echo "tezgah: --reply-lang needs a value" >&2; exit 2; }; REPLY_ARG=$2; shift 2 ;;
     -h|--help) sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "tezgah: unknown option $1" >&2; exit 2 ;;
 esac; done
@@ -45,5 +47,10 @@ sh "$up" "$@"
 
 # Called, not exec'd, so the trap above still removes a fetched bootstrapper. The
 # artifact carries the exec bit on bin/tezgah-setup (tests/test_packaging_scripts.py
-# holds it to that), so no interpreter lookup is needed here.
-"$PREFIX/current/bin/tezgah-setup" --install
+# holds it to that), so no interpreter lookup is needed here. --reply-lang rides
+# along because this run is non-interactive: no wizard asks it.
+if [ -n "$REPLY_ARG" ]; then
+    "$PREFIX/current/bin/tezgah-setup" --install --reply-lang "$REPLY_ARG"
+else
+    "$PREFIX/current/bin/tezgah-setup" --install
+fi

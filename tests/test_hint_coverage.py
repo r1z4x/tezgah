@@ -196,6 +196,20 @@ CORPUS = {
     # kept armed on purpose: a sidebar is a rendered surface, so the ask is a UI
     # ask and pays the paragraph - it is not one of the words narrowed above
     "the sidebar of the docs site": {"spec"},
+    # the context-03 probes (decision 006): generic stems qualified, not dropped,
+    # so each code-sense ask arms nothing it does not belong to while the
+    # positive rows above (which feature, bu sayfa, bu tablo, ekranı incele,
+    # adım akışını sadeleştir) still arm
+    "add a feature flag to the parser": set(),
+    "segment fault in the C extension": set(),
+    "tier list of the slow tests": set(),
+    "ekrana bir log satırı yaz": set(),
+    "tabloya yeni bir sütun ekle (sql)": set(),
+    "write a migration for the users table": {"consult"},
+    "bu fonksiyonu sadeleştir": set(),
+    "add pagination to the API": set(),
+    "measure how long the hook takes": set(),
+    "pdf'e sayfa numarası ekle": set(),
 }
 
 

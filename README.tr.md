@@ -46,10 +46,10 @@ değiştirdiğinizde her barındırıcıya aynı şekilde ulaşır.
 - **Araştırma kütüphanesiyle birlikte gelir.** Araştırma görevleri,
   bağlamın küçük kalması için tek tek yüklenen 98 becerilik gömülü
   bir kütüphaneyle OpenResearch üzerinden yürütülür.
-- **Her kuralın bir kapatma anahtarı vardır.** On dört kapatma anahtarı — ve
+- **Her kuralın bir kapatma anahtarı vardır.** On altı kapatma anahtarı — ve
   depo başına işaretler — kuralın metnini oturumdan kaldırır; böylece kural
   yalnızca kapalı görünmez, gerçekten durur.
-- **Harekete geçirebileceğiniz yanıtlar.** Yanıtlar Türkçedir ve sonuçla
+- **Harekete geçirebileceğiniz yanıtlar.** Yanıtlar, başka bir dil seçmediyseniz Türkçedir ve sonuçla
   başlar; bir liste en fazla beş sıralı madde gösterir; bir tahmin tahmin
   olarak adlandırılır; bir hata konum, neden, çözüm olarak okunur.
 
@@ -58,13 +58,39 @@ değiştirdiğinizde her barındırıcıya aynı şekilde ulaşır.
 ## Kurulum
 
 Tek satır, macOS, Linux veya WSL'de (Python 3.10+, `curl`, `tar`). Son sürümü
-indirir, sha256'sını doğrular ve bulduğu her barındırıcıyı kurar:
+indirir, sha256'sını doğrular ve bulduğu her barındırıcıyı kurar (Claude
+Code'u kendi `claude plugin` CLI'ı üzerinden):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.sh | sh
 ```
 
 Ya da npm ile: `npm i -g @r1z4x/tezgah && tezgah --install`.
+
+Ayrıştıramadığı bir barındırıcı yapılandırmasına dokunmaz, değiştirdiği her
+yapılandırmanın tarihli bir `.tezgah-bak` kopyasını tutar ve kurmayı
+planladığı bir barındırıcı kurulamazsa sıfırdan farklı bir kodla çıkar.
+
+### tezgah makinenizde neyi değiştirir
+
+- **Barındırıcı yapılandırması.** Kurulan her barındırıcı tezgah'ın
+  hook'larını, MCP satırlarını ve kendi genel kural dosyasında
+  (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, `~/.omp/agent/RULES.md`)
+  yönetilen bir sözleşme bloğunu alır. Claude Code'un hook'ları `claude plugin`
+  ile kaydedilen bir eklentide gelir; `claude` CLI'ı yoksa Claude kurulmamış
+  kalır ve rapor bunu söyler.
+- **Depolarınızdaki ajan dosyaları.** Yapılandırılan köklerde bir oturum
+  `.claude/agents/`, `.codex/agents/` ve `.opencode/agents/` altına alt ajan
+  dosyaları yazar ve bu dizinleri klonun kendi `.git/info/exclude` dosyasına
+  ekler (`TEZGAH_NO_EXCLUDE=1` bunu durdurur).
+- **Günlük güncelleme denetimi.** Durum satırı yeni bir sürümü günde en fazla
+  bir kez sorar; `~/.config/tezgah/update-check-off` ya da
+  `TEZGAH_UPDATE_CHECK=0` bunu kapatır.
+- **orx.** Kurulum, araştırma görevlerinin yönlendirildiği OpenResearch CLI'ını
+  indirir; `TEZGAH_NO_DEPS=1` bunu atlar.
+- **Yanıt dili.** Yanıtlar varsayılan olarak Türkçedir ve Stop kuralı bunu
+  denetler. `--reply-lang en` İngilizce, `any` ise sizin dilinizi ister;
+  ikisi de denetlenmez: `curl -fsSL … | sh -s -- --reply-lang en`.
 
 Kurulumu kodlama asistanınıza yaptırmak isterseniz bunu omp, Claude Code,
 Codex, Cursor veya opencode'a yapıştırın (istem İngilizce; asistan her dilde

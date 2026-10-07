@@ -299,5 +299,39 @@ class RuleYield(TempHome):
         self.assertIn("plan", [r["rule"] for r in out["rules"]])
 
 
+class DenyRuns(unittest.TestCase):
+    """Plan 055 part 8(a): the denial-budget fold is a report, never a gate."""
+
+    @staticmethod
+    def deny(rule):
+        return {"kind": "deny", "detail": "%s: refused" % rule}
+
+    def test_runs_of_three_per_rule_inside_one_turn(self):
+        turn, began = {"kind": "turn"}, {"kind": "began", "detail": "ls"}
+        rows = [turn, self.deny("drift"), {"kind": "drift", "detail": "25"},
+                self.deny("drift"), self.deny("drift"),       # run of 3: counted
+                began, self.deny("race"), self.deny("race"),  # 2: not a run
+                turn, self.deny("race"),                      # a turn ends it
+                self.deny("piped"), self.deny("piped"), self.deny("loop")]
+        out = ts.deny_runs([rows])
+        self.assertEqual(out["runs"], {"drift": 1})
+        self.assertEqual(out["longest"], {"drift": 3, "race": 2, "piped": 2, "loop": 1})
+        self.assertEqual((out["run_min"], out["session_min"], out["ledgers"]), (3, 20, 1))
+        self.assertEqual(out["sessions_over"], 0)
+
+    def test_sessions_with_twenty_denies(self):
+        busy = [self.deny("drift"), {"kind": "run"}] * 20
+        quiet = [self.deny("drift")] * 19
+        out = ts.deny_runs([busy, quiet])
+        self.assertEqual(out["sessions_over"], 1)
+        self.assertEqual(out["runs"], {"drift": 1})
+
+    def test_the_fold_changes_no_gate_behaviour(self):
+        # the fold is not read by the gate: nothing in tezgah_gate names it
+        with open(os.path.join(support.REPO, "hooks", "tezgah_gate.py"),
+                  encoding="utf-8") as fh:
+            self.assertNotIn("deny_runs", fh.read())
+
+
 if __name__ == "__main__":
     unittest.main()

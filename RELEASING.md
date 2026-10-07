@@ -6,6 +6,14 @@ plugin manifest when it is there and falls back to that heading. The manifest
 itself (`.claude-plugin/plugin.json`, mirrored in
 `.claude-plugin/marketplace.json`) is the maintainer's local, untracked file.
 
+The numbering was reset on 2026-10-04: the repository was re-rooted and the
+public line restarted at 0.1.1 after 0.32.0 (npm served 0.17.0-0.32.0 before
+it). `hooks/tezgah_update.py::RETIRED` makes the update check offer 0.1.x to an
+install still inside 0.2.0-0.32.0. Every install that carries the constant
+treats that range as retired, and removing it later does not reach them. So the
+next line after 0.1.x skips to 0.33.0 or later, never 0.2.0-0.32.0
+(`tests/test_update.py::Reset` fails on a shipped version inside the range).
+
 ## Cut a release
 
 1. Bump `version` in the local manifest's two files together (they are not
@@ -14,15 +22,21 @@ itself (`.claude-plugin/plugin.json`, mirrored in
    `package.json` ships nothing (`tests/test_packaging.py` holds it to step 2).
 2. Add a `## [x.y.z] - YYYY-MM-DD` section to `CHANGELOG.md`, newest first, and
    add the tag link at the bottom.
-3. Run the checks CI runs:
+3. Run the checks. All but the plan report also run in CI. The plan report reads
+   the gitignored `.tezgah/`, so it runs only here:
 
    ```bash
    python3 -m compileall -q hooks hosts bin statusline.py
    python3 tests/impacted.py --all
    ruff check .
    python3 bin/tezgah-docs --citations
+   python3 tests/e2e_packaged_install.py
+   TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
    python3 skills/plan-add/render_table.py --acceptance --strict
    ```
+
+   Publishing waits for CI anyway: `release.yml` runs `ci.yml` as its `ci` job,
+   and `npm-publish` and `brew-formula` start only after it passed.
 
 4. Regenerate the tracked listing a plugin copy is made from and commit it with the
    changelog section - the release tarball has no `.git`, so

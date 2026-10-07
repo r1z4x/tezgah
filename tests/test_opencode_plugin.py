@@ -372,6 +372,25 @@ class OpenCodePlugin(TempHome):
             self.assertIsNone(ti.shortcut_command(command), command)
             self.allowed(self.before("bash", {"command": command}))
 
+    def test_a_prefix_bash_reads_as_words_hides_no_rule_on_either_side(self):
+        # gate-01, mirrored: a URL's `//`, `a#b`, a glob pair and `'x\'` are
+        # words to bash, so the masker must not blank the command after them
+        for command in ("HUSKY=0 git commit -m y", "pytest || true",
+                        "echo api_key=abc123 > out.txt"):
+            for wrap in bash_vectors.GATE01_WRAPS:
+                line = wrap % command
+                self.assertTrue(ti.shortcut_command(line)
+                                or tg.secret_command(line), line)
+                self.denied(self.before("bash", {"command": line}))
+        # a quote left open hides only what follows it, and an apostrophe in a
+        # heredoc body opens no quote (review of plan 054)
+        for line in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                     "curl https://x.io; pytest || true\necho 'oops",
+                     "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                     "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(line), line)
+            self.denied(self.before("bash", {"command": line}))
+
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
         # review F4 (`-S`/`-u` take no separate word), F10 (bash options before
         # `-c`) and F7 (a long option's separate value starting with `-`)
@@ -622,11 +641,12 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(rows[1]["out_bytes"], len("x = 1\n"))
 
         # and a write the plugin refuses is captured nowhere: the deny lands
-        # first, so no copy is spent on a file the refusal never touches
+        # first, so no copy is spent on a file the refusal never touches. The
+        # refusal is the plugin's own, so it writes its own deny row.
         self.denied(self.before("edit", {
             "file_path": target,
             "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"}))
-        self.assertEqual(self.kinds(), ["delegation", "snapshot"])
+        self.assertEqual(self.kinds(), ["delegation", "snapshot", "deny"])
 
     def test_a_capture_that_cannot_run_does_not_block_the_write(self):
         # The CLI is not linked here and there is no python3 to run it with, so
@@ -865,6 +885,16 @@ class OpenCodePlugin(TempHome):
             "payload": {"tool": "bash", "input": args, "cwd": self.repo,
                         "session_id": "s1"}}])
 
+    def test_a_prefix_bash_reads_as_words_does_not_hide_the_cli_from_the_core(self):
+        # gate-01's four wraps in front of the task CLI: the plugin asks the
+        # core, and the core's answer is the refusal on both sides
+        self.gate_bin()
+        for wrap in bash_vectors.GATE01_WRAPS:
+            args = {"command": wrap % "tezgah-task phase implementation"}
+            expected = self.gate("bash", args)
+            self.assertIn("record", expected, args)
+            self.assertEqual(self.denied(self.before("bash", args)), expected)
+
     def test_a_shell_command_that_does_not_name_the_cli_never_asks_the_core(self):
         # One ask per naming command is the whole bound: the pre-test is what
         # keeps a rule about the record from taxing every command in a session
@@ -915,6 +945,20 @@ class OpenCodePlugin(TempHome):
         expected = self.gate("bash", args)
         self.assertIn("active task's own record", expected)
         self.assertEqual(self.denied(self.before("bash", args)), expected)
+
+    def test_a_control_plane_line_is_the_cores_refusal_on_this_host_too(self):
+        # hooks/tezgah_gate.control_reason: the shell half of the control rule
+        # has no JS copy. CONTROL_CMD only decides that a line is worth asking
+        # about, and the refusal is the core's text, character for character.
+        self.gate_bin()
+        for command in ("touch ~/.config/tezgah/verify-off",
+                        "echo {} >> ~/.cache/tezgah/evidence/x.jsonl",
+                        "mv .husky .husky.bak"):
+            with self.subTest(command=command):
+                args = {"command": command}
+                expected = self.gate("bash", args)
+                self.assertIn("Control plane", expected)
+                self.assertEqual(self.denied(self.before("bash", args)), expected)
 
     # ---- the core's own decision for an identifier (the shell route) -------
     def test_a_non_english_identifier_is_refused_with_the_cores_own_reason(self):
@@ -1001,10 +1045,15 @@ class OpenCodePlugin(TempHome):
 
     def test_a_heredoc_that_writes_a_credential_is_refused(self):
         # maskText blanks heredoc bodies, so the text-level scan cannot see a key
-        # that sits in one; the body is what the rule reads
+        # that sits in one; the body is what the rule reads, for the prefixed
+        # token families a write tool's content is read for (plan 057 (a)2), so
+        # a program reading its credential from the environment passes
         error = self.denied(self.before("bash", {"command":
-            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-abc123\nEOF"}))
+            "cat > .env <<'EOF'\nOPENROUTER_API_KEY=sk-live-%s\nEOF"
+            % ("a1B2c3D4" * 3)}))
         self.assertIn("Credential write denied", error)
+        self.allowed(self.before("bash", {"command":
+            "cat > src/db.py <<'EOF'\npassword = os.environ['DB_PASSWORD']\nEOF"}))
 
     def test_the_shell_route_keeps_the_tool_rule_s_own_gates(self):
         # a marker outside a test file disables nothing, and a quoted `>` is not
@@ -1194,9 +1243,45 @@ class OpenCodePlugin(TempHome):
                    exit=0)
         self.assertEqual(self.kinds(), ["verify", "verify_fail", "verify"])
 
+    def test_a_check_followed_by_another_command_records_as_ran_on_both_sides(self):
+        # plan 054 slice 0, mirrored: a `;`, a newline or a trailing `&` hands
+        # the line's status to what follows the check; `&&` keeps it
+        cases = (("pytest -q; echo done", "verify"),
+                 ("pytest -q; echo EXIT=$?", "verify"),
+                 ("pytest -q &", "verify"),
+                 ("pytest -q > log; tail log", "verify"),
+                 ("echo $(pytest -q)", "verify"),
+                 ("pytest -q && echo ok", "verify_ok"),
+                 ("cd x && pytest -q", "verify_ok"),
+                 # review of plan 054: quoted newlines, comments, a heredoc
+                 # body and `exit $?` leave the status with the check
+                 ('pytest -q && echo "a\nb"', "verify_ok"),
+                 ("pytest -k 'a\nb' && echo done", "verify_ok"),
+                 ("pytest -q; # trailing", "verify_ok"),
+                 ("pytest -q\n# comment", "verify_ok"),
+                 ("pytest -q <<EOF\nx\nEOF", "verify_ok"),
+                 ("pytest -q; exit $?", "verify_ok"))
+        for i, (command, kind) in enumerate(cases):
+            self.assertEqual(ti.status_hidden(command), kind == "verify", command)
+            session = "status%d" % i
+            self.after("bash", {"command": command}, exit=0, session=session)
+            self.assertEqual([r["kind"] for r in self.ledger(session)], [kind],
+                             command)
+
     def test_non_check_command_records_run(self):
         self.after("bash", {"command": "ls -la"})
         self.assertIn("run", self.kinds())
+
+    def test_a_non_check_records_run_like_the_core(self):
+        # plan 048 (d), mirrored: an information form and a formatter's write
+        # mode are no check, and this half agrees with verify_command
+        commands = ("pytest --version", "make help", "ruff format .",
+                    "prettier --write .", "pytest --version; pytest -q")
+        for command in commands:
+            self.after("bash", {"command": command}, exit=0)
+        self.assertEqual(self.kinds(), ["run", "run", "run", "run", "verify_ok"])
+        self.assertEqual([bool(ti.verify_command(c)) for c in commands],
+                         [False, False, False, False, True])
 
     def test_edit_records_edit(self):
         self.after("edit", {"filePath": "/tmp/x.py"})
@@ -1416,6 +1501,21 @@ class OpenCodePlugin(TempHome):
                          [ti._abs_target("src/a.py", self.repo),
                           ti._abs_target("new/b.py", self.repo)])
 
+    def test_a_shell_write_row_carries_the_absolute_real_target(self):
+        # plan 057 (a)5: the same field on a `run` row that redirects or tees
+        # into a file, as hooks/tezgah_integrity.note_tool writes it; a command
+        # that writes nothing, or only its own scratch, carries none
+        self.after("bash", {"command": "echo x > out.txt"}, exit=0)
+        self.after("bash", {"command": "printf x | tee log.txt"}, exit=0)
+        self.after("bash", {"command": "ls"}, exit=0)
+        self.after("bash", {"command": "git diff > /tmp/diff.txt"}, exit=0)
+        self.after("bash", {"command": "echo x > /dev/stderr"}, exit=0)
+        rows = self.ledger()
+        self.assertEqual([r["kind"] for r in rows], ["run"] * 5)
+        self.assertEqual([r.get("target") for r in rows],
+                         [ti._abs_target("out.txt", self.repo),
+                          ti._abs_target("log.txt", self.repo), None, None, None])
+
     def test_a_tool_name_no_rule_knows_records_an_unknown_row(self):
         # A fabricated call (or a tool this host added) used to leave no line at
         # all, so the trace could not show it happened. Only the read/search
@@ -1598,6 +1698,34 @@ class OpenCodePlugin(TempHome):
         ("bash", {"command": "wget -q https://example.com -O f"}),
         ("bash", {"command": "gh api repos/x/y"}),
         ("bash", {"command": "cd /tmp && curl -s https://x"}),
+        ("bash", {"command": "gh issue view 12"}),
+        ("bash", {"command": "gh pr view 3 --comments"}),
+        ("bash", {"command": "git clone https://x/y"}),
+        ("bash", {"command": "sudo curl -s https://x"}),
+        ("bash", {"command": "sudo -E wget -q https://x"}),
+        ("bash", {"command": "gh issue create -t x"}),
+        ("bash", {"command": 'git commit -m "git clone x"'}),
+        ("bash", {"command": "gh pr diff 3"}),
+        ("bash", {"command": "gh pr checkout 3"}),
+        ("bash", {"command": "gh issue list"}),
+        ("bash", {"command": "gh pr list --state open"}),
+        ("bash", {"command": "git -C /tmp clone https://x/y"}),
+        ("bash", {"command": "GIT_TERMINAL_PROMPT=0 git clone https://x/y"}),
+        ("bash", {"command": 'git clone "https://x/y"'}),
+        ("bash", {"command": "git pull"}),
+        ("bash", {"command": "git fetch --all"}),
+        ("bash", {"command": "git -c x=y fetch upstream"}),
+        ("bash", {"command": "git clone ../repo copy"}),
+        ("bash", {"command": "git clone --bare /abs/repo"}),
+        ("bash", {"command": "git clone ~/src/repo"}),
+        ("bash", {"command": "git clone file:///abs/repo"}),
+        ("bash", {"command": "git pull . feature"}),
+        ("bash", {"command": "git fetch ../other"}),
+        ("bash", {"command": "git pull file:///abs/repo"}),
+        ("bash", {"command": "git pull origin main && pytest -q"}),
+        ("bash", {"command": "git pull https://x/y main"}),
+        ("bash", {"command": "git fetch git@github.com:o/r.git"}),
+        ("bash", {"command": "git -C d pull --rebase ssh://h/r"}),
         ("bash", {"command": "bin/consult 'bu nasıl çalışıyor'"}),
         ("bash", {"command": "timeout 30 consult --online q"}),
         ("bash", {"command": "sudo -u root consult q"}),
@@ -1614,8 +1742,7 @@ class OpenCodePlugin(TempHome):
         ("bash", {"command": "echo hi  # curl https://x"}),
         ("bash", {"command": "python3 -c 'import consult'"}),
         # a line shlex rejects (unterminated quote, a backslash with nothing to
-        # escape) reaches no program position on either side: the Python caller
-        # drops the whole line, so the JS reader drops it too
+        # escape) is read roughly on both sides, never dropped as if nothing ran
         ("bash", {"command": "consult 'q"}),
         ("bash", {"command": "consult q's"}),
         ("bash", {"command": 'consult "q'}),
@@ -1731,6 +1858,51 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("grep", {"pattern": "FooBar"}))
         self.allowed(self.before("grep", {"pattern": "FooBar"}))
 
+    def decide_cli(self, tool, args, session):
+        """The core's live answer (`decide`, which records), as the plugin asks."""
+        proc = subprocess.run(
+            ["python3", self.gate_bin(), "decide"],
+            input=json.dumps({"tool": tool, "input": args, "cwd": self.repo,
+                              "session_id": session}),
+            capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def test_the_nudge_mark_is_one_key_on_both_sides(self):
+        # plan 057 (d)3: the once-per-session mark is one file per session
+        # whichever side writes it - the Python gate (`first_nudge`) and this
+        # plugin (`oncePerSession`) once keyed it on the raw id and on its sha1,
+        # so a session that crossed the two was nudged twice.
+        self.make_index()
+        grep = {"pattern": "some_identifier"}
+        self.assertTrue(self.decide_cli("Grep", grep, "py-first"))
+        self.allowed(self.before("grep", grep, session="py-first"))
+        self.denied(self.before("grep", grep, session="js-first"))
+        self.assertEqual(self.gate("Grep", grep, session="js-first"), "")
+        self.assertEqual(self.decide_cli("Grep", grep, "js-first"), "")
+
+    def test_a_write_the_core_answered_is_snapshotted_once(self):
+        # plan 057 (d)4: the core's live `decide` keeps the pre-write bytes on
+        # its own allow path (hooks/tezgah_gate.decision), so a call it answered
+        # must not be captured a second time here; one it could not answer
+        # still is (test_a_write_that_is_allowed_is_snapshotted_and_a_denied_one_is_not).
+        support.linked(os.path.join(support.REPO, "bin", "tezgah-capture"),
+                       self.home)
+        self.gate_bin()
+        target = os.path.join(self.repo, "src", "a.py")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as fh:
+            fh.write("x = 1\n")
+        out = os.path.join(self.repo, "out.txt")
+        with open(out, "w") as fh:
+            fh.write("x\n")
+        self.allowed(self.before("edit", {"file_path": target, "old_string":
+                                          "x = 1", "new_string": "x = 2"}))
+        # a shell write the core is asked about (TASK_CLI) is the same call
+        self.allowed(self.before("bash", {"command": "tezgah-task list > out.txt"}))
+        snaps = [r["detail"] for r in self.ledger() if r["kind"] == "snapshot"]
+        self.assertEqual(snaps, [target, out], self.ledger())
+
     # ---- the shared builder (per-prompt arming + post-compact) -------------
     def builder(self, event, payload=None):
         """What bin/tezgah-context prints for an event in this test's HOME."""
@@ -1777,6 +1949,21 @@ class OpenCodePlugin(TempHome):
         self.assertEqual(injected, self.builder("user_prompt", {"prompt": prompt}))
         self.assertNotIn("**Spec before building.**", injected)
 
+    def test_the_first_message_of_a_session_writes_one_attest_row(self):
+        # opencode has no session start: the first message runs the attestation
+        # once, detached, through oncePerSession - a second message adds none
+        import time
+        self.context_bin()
+        self.message("ilk istek")
+        self.message("ikinci istek")
+        deadline = time.time() + 20
+        while time.time() < deadline and "attest" not in self.kinds():
+            time.sleep(0.2)
+        time.sleep(1)  # room for a second, wrongly spawned writer to land
+        attest = [r for r in self.ledger() if r["kind"] == "attest"]
+        self.assertEqual(len(attest), 1, self.ledger())
+        self.assertEqual(attest[0]["host"], "opencode")
+
     def test_a_prompt_pays_the_delta_of_what_moved_since_the_last_turn(self):
         # The builder's per-turn state delta is keyed on the session: it compares
         # the stamp that session's previous turn wrote with the state now. With
@@ -1804,13 +1991,17 @@ class OpenCodePlugin(TempHome):
         # session as if it were this turn's. A re-send of the same submission is
         # the same turn (hooks/tezgah_integrity.note_turn), and a different
         # prompt is a new one.
+        # the first message also spawns the session's attestation, detached, so
+        # its `attest` row lands whenever it lands: only turn markers count here
+        def turns():
+            return [k for k in self.kinds() if k == "turn"]
         self.context_bin()
         self.message("selam")
-        self.assertEqual(self.kinds(), ["turn"], self.ledger())
+        self.assertEqual(turns(), ["turn"], self.ledger())
         self.message("başka bir istek")
-        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
+        self.assertEqual(turns(), ["turn", "turn"], self.ledger())
         self.message("başka bir istek")
-        self.assertEqual(self.kinds(), ["turn", "turn"], self.ledger())
+        self.assertEqual(turns(), ["turn", "turn"], self.ledger())
 
     def test_a_missing_builder_injects_nothing(self):
         # Every path fails open: a host without ~/.config/tezgah/bin still sends
@@ -1826,6 +2017,23 @@ class OpenCodePlugin(TempHome):
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["output"]["context"], [self.builder("post_compact")])
 
+    def test_compacting_passes_the_session_so_the_seen_sets_clear(self):
+        # An armed paragraph is paid once per session and its repeat is one
+        # line; compaction must clear that, and the builder can only find the
+        # session's stamp when the plugin hands it the session id.
+        self.context_bin()
+        prompt = "make it look better"
+        self.assertNotIn("Armed again", self.message(prompt)[-1]["text"])
+        again = self.message(prompt + " please")[-1]["text"]
+        self.assertIn("**Spec before building.** Armed again", again)
+        res = self.drive([{"hook": "experimental.session.compacting",
+                           "input": {"sessionID": "s1"},
+                           "output": {"context": []}}])[0]
+        self.assertTrue(res["ok"], res)
+        after = self.message(prompt + " now")[-1]["text"]
+        self.assertIn("**Spec before building.**", after)
+        self.assertNotIn("Armed again", after)
+
     def test_compacting_is_inert_outside_the_roots(self):
         self.context_bin()
         res = self.drive([{"hook": "experimental.session.compacting",
@@ -1833,6 +2041,80 @@ class OpenCodePlugin(TempHome):
                            "output": {"context": []}}], directory=self.home)[0]
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["output"]["context"], [])
+
+
+# The plugin's node:path import, swapped for `path.win32` in a copy, plus an
+# export of the two root helpers: node picks its path flavour at startup from
+# the real platform, so this is how a POSIX host runs the Windows reading.
+PATH_IMPORT = re.compile(r'^import \{([^}]*)\} from "node:path"$', re.M)
+PATH_PROBE = r"""
+const [plugin, dir, pairs] = process.argv.slice(1);
+const m = await import(require("node:url").pathToFileURL(plugin).href);
+const hooks = await m.Tezgah({ directory: dir });
+const out = { env: {} };
+await hooks["shell.env"]({}, out);
+process.stdout.write(JSON.stringify({
+  roots: await m.roots(), env: out.env.TEZGAH_ROOTS,
+  under: JSON.parse(pairs).map(([d, r]) => m.under(d, r)),
+}));
+"""
+
+
+class PluginPaths(TempHome):
+    """roots(), under() and shell.env read the platform's own separators."""
+
+    def setUp(self):
+        if not NODE:
+            self.skipTest("node not installed")
+        super().setUp()
+
+    def copy(self, win32):
+        with open(support.OPENCODE_PLUGIN) as fh:
+            src = fh.read()
+        names = PATH_IMPORT.search(src)
+        self.assertIsNotNone(names, "the plugin no longer imports from node:path")
+        if win32:
+            src = PATH_IMPORT.sub(
+                lambda m: 'import { win32 as __p } from "node:path"\n'
+                          "const {%s} = __p" % m.group(1), src, count=1)
+        path = os.path.join(self.home, "tezgah-probe.mjs")
+        with open(path, "w") as fh:
+            fh.write(src + "\nexport { roots, under }\n")
+        return path
+
+    def probe(self, win32, roots, directory, pairs):
+        env = self.env(extra={"TEZGAH_ROOTS": roots})
+        work = os.path.join(self.home, "cwd")
+        os.makedirs(work, exist_ok=True)
+        proc = subprocess.run(
+            [NODE, "--input-type=module", "-e",
+             'import { createRequire } from "node:module";'
+             "const require = createRequire(import.meta.url);" + PATH_PROBE,
+             self.copy(win32), directory, json.dumps(pairs)],
+            capture_output=True, text=True, env=env, cwd=work, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_win32_splits_on_semicolon_and_matches_backslash_paths(self):
+        got = self.probe(True, r"C:\r;D:\work", r"C:\r\proj", [
+            [r"C:\r\proj", r"C:\r"], [r"c:\R\proj", r"C:\r"], [r"C:\r", r"C:\r"],
+            [r"C:\rest", r"C:\r"], [r"D:\r\proj", r"C:\r"], [r"C:\r\..x", r"C:\r"],
+            [r"C:\r\..\x", r"C:\r"]])
+        self.assertEqual(got["roots"], [r"C:\r", r"D:\work"])
+        self.assertEqual(got["env"], r"C:\r;D:\work")
+        # below, case-folded below, the root itself, a `..x` name; not a sibling
+        # prefix, another drive or a `..` step out
+        self.assertEqual(got["under"], [True, True, True, False, False, True, False])
+
+    def test_the_native_delimiter_holds_and_a_sibling_prefix_is_not_under(self):
+        """The unswapped plugin: `:` on POSIX, `;` on the windows-latest leg."""
+        root = os.path.realpath(self.roots)
+        other = os.path.join(os.path.realpath(self.home), "Work")
+        got = self.probe(False, os.pathsep.join([self.roots, other]), self.roots, [
+            [root + "/proj", root], [root, root + "/"], [root + "x/proj", root],
+            ["/elsewhere", root]])
+        self.assertEqual(got["env"], os.pathsep.join([root, other]))
+        self.assertEqual(got["under"], [True, True, False, False])
 
 
 if __name__ == "__main__":

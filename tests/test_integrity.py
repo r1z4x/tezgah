@@ -15,6 +15,7 @@ import time
 import unittest
 from unittest import mock
 
+import bash_vectors
 import support
 from support import TempHome, run_json
 
@@ -103,6 +104,26 @@ class ShortcutCommand(unittest.TestCase):
                   "git commit -m-n", "git log -n 3",
                   "git commit --no-verbose -m x", "bash -c 'pytest -q'"):
             self.assertIsNone(ti.shortcut_command(c), c)
+
+    def test_the_shell_line_is_masked_as_bash_reads_it(self):
+        # gate-01: `//`, `a#b`, a `/* */` glob pair, `'x\'` and an escaped
+        # `\$'` are words to bash, so the command after them stays visible
+        for wrap in bash_vectors.GATE01_WRAPS:
+            self.assertIn("HUSKY=0 git commit", ti.mask(wrap % "HUSKY=0 git commit"))
+            self.assertIsNotNone(ti.shortcut_command(wrap % "pytest || true"))
+        # a quote left open hides only what comes after it, and an apostrophe in
+        # a heredoc body opens no quote (review of plan 054)
+        for c in ("curl https://x.io; HUSKY=0 git commit -m x\necho 'oops",
+                  "curl https://x.io; pytest || true\necho 'oops",
+                  "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
+                  "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
+            self.assertIsNotNone(ti.shortcut_command(c), c)
+        # quotes, `$'...'` escapes and a word-initial `#` are still blanked
+        for c in ("git commit -m 'run pytest || true'",
+                  'git commit -m "a \\" pytest || true"',
+                  "echo $'it\\'s pytest || true'", "ls # pytest || true",
+                  "git commit -m 'a\npytest || true'"):
+            self.assertNotIn("pytest", ti.mask(c), c)
 
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
@@ -409,11 +430,59 @@ class PipedCheck(unittest.TestCase):
                   "git commit -m 'run pytest | tail before this'"):
             self.assertIsNone(ti.piped_check(c), c)
 
+    def test_the_remedy_is_one_sentence_quoted_by_every_copy(self):
+        # PIPED_REMEDY is the source: the refusal, the always-on core, its
+        # hookless copy, the contract skill, the gate doc and the rank fixture
+        # quote it, so none of them can drift back to `> log; tail log`
+        import tezgah_policy
+        import test_rank
+
+        def flat(text):
+            return " ".join(text.split())
+
+        def repo_file(*parts):
+            with open(os.path.join(support.REPO, *parts), encoding="utf-8") as fh:
+                return fh.read()
+
+        remedy = flat(ti.PIPED_REMEDY)
+        self.assertIn("separate call", remedy)
+        self.assertIn("set -o pipefail;", remedy)
+        for name, text in (
+                ("refusal", ti.piped_check("pytest | tail")),
+                ("policy core", tc.always_on_core()),
+                ("policy long", tezgah_policy.CORE),
+                ("output style", repo_file("output-styles", "tezgah.md")),
+                ("contract skill", repo_file("skills", "tezgah-contract",
+                                             "SKILL.md")),
+                ("gate doc", repo_file("docs", "gate.md")),
+                ("rank fixture", test_rank.LESSONS[0])):
+            self.assertIn(remedy, flat(text), name)
+
     def test_pipe_hides_status(self):
         self.assertTrue(ti.pipe_hides_status("pytest | tail"))
         self.assertTrue(ti.pipe_hides_status("set -o pipefail; pytest || true"))
         self.assertFalse(ti.pipe_hides_status("set -o pipefail; pytest | tail"))
         self.assertFalse(ti.pipe_hides_status("pytest -q"))
+
+    def test_a_check_owns_the_status_only_when_nothing_after_it_answers(self):
+        # a `;`, a newline or a trailing `&` hands the line's status to what
+        # follows the check (plan 054 slice 0, gate-02)
+        for c in ("pytest; echo done", "pytest; echo EXIT=$?", "pytest &",
+                  "pytest > log; tail log", "pytest -q\necho done",
+                  "(pytest); echo x", "pytest; ruff check ."):
+            self.assertTrue(ti.status_hidden(c), c)
+        for c in ("pytest && echo ok", "cd x && pytest", "cd x; pytest",
+                  "set -o pipefail; pytest | tee log", "pytest;",
+                  "pytest > /tmp/x.log 2>&1", "set -euo pipefail\npytest -q | tail -3",
+                  "ruff check . && pytest", "git commit -m 'pytest; echo x'",
+                  # review of plan 054: quoted newlines, comments, a heredoc
+                  # body and `exit $?` leave the status with the check
+                  'pytest && echo "a\nb"', "pytest -k 'a\nb' && echo done",
+                  "pytest; # trailing", "pytest\n# comment",
+                  "pytest <<EOF\nx\nEOF", "pytest; exit $?",
+                  'pytest; exit "$?"'):
+            self.assertFalse(ti.status_hidden(c), c)
+        self.assertTrue(ti.status_hidden("pytest | tee log"))
 
 
 class ShortcutEdit(unittest.TestCase):
@@ -485,6 +554,54 @@ class ShortcutEdit(unittest.TestCase):
         self.assertIsNone(self.edit(
             old_string="def t():\n    assert x == 1",
             new_string="def t():\n    pass"))
+
+    def test_every_write_dialect_is_read_like_new_string(self):
+        # evidence-04: the rule read old/new_string, content and edits[] only, so
+        # a skip landed through apply_patch's `patch`, str_replace_editor's
+        # `new_str` or its `file_text` passed while `new_string` refused it. Each
+        # body is held to the verdict `new_string` gets: the skip refused, and
+        # the shapes this rule does not read yet (`assert True`, a conftest
+        # `collect_ignore`; plan 065) passed on every route alike.
+        skip = "@pytest.mark." + "skip"
+        cases = (("tests/test_zz.py", skip + "\ndef test_x():\n    assert f()",
+                  True),
+                 ("tests/test_zz.py", "def test_x():\n    assert True", False),
+                 ("tests/conftest.py", "collect_ignore = ['test_slow.py']",
+                  False))
+        for path, body, refused in cases:
+            plus = "".join("+%s\n" % line for line in body.split("\n"))
+            dialects = {
+                "new_string": {"file_path": path, "old_string": "x = 1",
+                               "new_string": body},
+                "new_str": {"path": path, "old_str": "x = 1", "new_str": body},
+                "file_text": {"path": path, "file_text": body},
+                "patch update": {"patch": "*** Begin Patch\n*** Update File: "
+                                 "%s\n@@\n-x = 1\n%s*** End Patch" % (path, plus)},
+                "patch add": {"patch": "*** Begin Patch\n*** Add File: %s\n%s"
+                              "*** End Patch" % (path, plus)},
+            }
+            for name, payload in dialects.items():
+                with self.subTest(path=path, body=body[:20], dialect=name):
+                    self.assertEqual(ti.shortcut_edit(payload) is not None,
+                                     refused)
+
+    def test_a_patch_is_read_file_by_file(self):
+        # the test-path gate is per file: a skip in a patch's non-test file is
+        # not a disabled test, the same skip in its test file is, and a skip the
+        # same hunk removes and re-adds is not a new one
+        skip = "@pytest.mark." + "skip"
+
+        def patch(*files):
+            return {"patch": "*** Begin Patch\n" + "".join(
+                "*** Update File: %s\n@@\n%s" % pair for pair in files)
+                + "*** End Patch"}
+        self.assertIsNone(ti.shortcut_edit(patch(
+            ("src/a.py", "+%s\n" % skip), ("tests/test_a.py", "-a\n+b\n"))))
+        self.assertIsNotNone(ti.shortcut_edit(patch(
+            ("src/a.py", "+b\n"), ("tests/test_a.py", "+%s\n" % skip))))
+        self.assertIsNone(ti.shortcut_edit(patch(
+            ("tests/test_a.py", "-%s\n-def t(): pass\n+%s\n+def u(): pass\n"
+             % (skip, skip)))))
 
 
 class LedgerTail(unittest.TestCase):
@@ -719,10 +836,10 @@ class StopReadBound(unittest.TestCase):
         given = []
         real = ti._parse
 
-        def counting(lines):
+        def counting(lines, path=None):
             lines = lines if isinstance(lines, list) else list(lines)
             given.append(len(lines))
-            return real(lines)
+            return real(lines, path)
 
         with mock.patch.object(ti, "_parse", counting):
             out = fn()
@@ -990,26 +1107,40 @@ class WritersElsewhere(unittest.TestCase):
                             "detail": "/repo/x.py"}])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
 
-    def test_a_damaged_foreign_ledger_costs_only_its_own_rows(self):
+    def test_a_damaged_foreign_ledger_costs_only_its_damaged_line(self):
         # audit GAP-02 / M-7: one `[1,2]` row or one terminated non-JSON line in
         # any recently written ledger raised out of this reader, and the gate's
-        # guard then let every write of every session through unchecked
+        # guard then let every write of every session through unchecked. The
+        # damaged line is skipped now, so the rows beside it still count
         self.write("ok", [self.edit("/repo/x.py")])
         for name, junk in (("list", "[1, 2]\n"), ("torn", "{not json\n")):
             path = os.path.join(self.evidence, ti._slug(name) + ".jsonl")
             with open(path, "w") as fh:
                 fh.write(json.dumps(self.edit("/repo/x.py")) + "\n" + junk)
-        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
-                         [ti._slug("ok")])
+        self.assertEqual(sorted(ti.writers_elsewhere("/repo/x.py", "mine")),
+                         sorted(ti._slug(n) for n in ("ok", "list", "torn")))
 
-    def test_the_own_ledger_still_refuses_a_non_object_row(self):
-        # `_parse`'s documented reading of a committed line that is not a row
-        # holds for the session's own ledger: it raises, and the guard files
-        # the crash row, rather than shrinking the evidence in silence
-        with self.assertRaises(ValueError):
-            ti._parse(['{"kind": "run"}\n', "[1, 2]\n"])
+    def test_the_own_ledger_names_a_non_object_row_instead_of_raising(self):
+        # `_parse` used to raise here, and the guard then failed the Stop rule
+        # open for the turn: the damage was an allow route. The committed line
+        # is now skipped and stands in the answer as a `ledger_damage` row; an
+        # unterminated fragment is still nothing at all
+        rows = ti._parse(['{"kind": "run"}\n', "[1, 2]\n"])
+        self.assertEqual([r["kind"] for r in rows], ["run", ti.DAMAGE_KIND])
         self.assertEqual(ti._parse(['{"kind": "run"}\n', "[1, 2]"]),
                          [{"kind": "run"}])
+
+    def test_a_shell_write_row_is_a_writer(self):
+        # plan 057 (a)5: a shell `run` row that wrote a file carries `target`,
+        # so a sibling's redirect into the file counts like its edit would; a
+        # run row with no target (a command that wrote nothing) names no file
+        now = int(time.time())
+        self.write("shell", [{"kind": "run", "ts": now,
+                              "detail": "echo x > /repo/x.py",
+                              "target": ti._abs_target("/repo/x.py", "/")}])
+        self.write("quiet", [{"kind": "run", "ts": now, "detail": "ls"}])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
+                         [ti._slug("shell")])
 
     def test_another_file_is_not_reported(self):
         self.write("other", [self.edit("/repo/x.py")])
@@ -1276,6 +1407,31 @@ class WriteRowPath(unittest.TestCase):
         self.assertEqual(row["target"],
                          os.path.join(os.path.realpath(repo), "README.md"))
 
+    def test_a_shell_write_records_its_absolute_real_target(self):
+        # plan 057 (a)5: the race guard counts rows with a target, so a shell
+        # `run` row that redirects into a file carries one like an edit row; a
+        # command that writes no file carries none
+        repo = os.path.join(self.dir, "repo")
+        os.makedirs(repo)
+        for command in ("echo x > out.txt", "printf x | tee out.txt"):
+            with self.subTest(command=command):
+                ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                             cwd=repo)
+                row = ti.events("s")[-1]
+                self.assertEqual(row["kind"], "run")
+                self.assertEqual(row["target"], os.path.join(
+                    os.path.realpath(repo), "out.txt"))
+        ti.note_tool("s", "Bash", {"command": "ls"}, failed=False, cwd=repo)
+        self.assertNotIn("target", ti.events("s")[-1])
+        # a temp file or a device is the session's scratch, not shared work: a
+        # common name (`/tmp/x`, `/tmp/diff.txt`) would collide across sessions
+        for command in ("ls > /tmp/x", "git diff > /tmp/diff.txt",
+                        "echo x > /dev/stderr"):
+            with self.subTest(command=command):
+                ti.note_tool("s", "Bash", {"command": command}, failed=False,
+                             cwd=repo)
+                self.assertNotIn("target", ti.events("s")[-1])
+
     def test_every_dialect_records_the_path_the_call_wrote(self):
         # One fixture per dialect: the four spellings a host puts a write's
         # target under, then the one whose paths live in the patch body.
@@ -1365,6 +1521,62 @@ class ChangedFilesNotice(unittest.TestCase):
         path = self.edit("a.py")
         out = ti.changed_files_notice("s", os.path.join(self.dir, "elsewhere"))
         self.assertIn(path, out)
+
+
+class HarnessDrift(unittest.TestCase):
+    """A session start that found tezgah's hook entries drifted leaves a mark
+    (hooks/tezgah_attest.py::run). A claim made in that session carries it as an
+    annotation; the mark never refuses a turn the rule would let through."""
+
+    def setUp(self):
+        import tezgah_attest as ta
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        self.addCleanup(setattr, ta, "drift_mark", ta.drift_mark)
+        mark = os.path.join(self.dir, "drift")
+        ta.drift_mark = lambda session, host: (mark if host == "codex"
+                                               else mark + "-" + host)
+        with open(mark, "w") as fh:
+            fh.write("codex PreToolUse entry removed\n")
+
+    def claims(self):
+        return [r for r in ti.events("s") if r["kind"] == "claim"]
+
+    def test_a_broken_attestation_module_costs_the_note_not_the_rule(self):
+        # sys.modules[name] = None makes `import name` raise ImportError, the
+        # shape of a module that cannot load; the rule must still judge
+        import sys as _sys
+        saved = _sys.modules.get("tezgah_attest")
+        _sys.modules["tezgah_attest"] = None
+        try:
+            ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                         out_bytes=42)
+            self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+        finally:
+            _sys.modules["tezgah_attest"] = saved
+        self.assertEqual(self.claims()[-1]["detail"], "ok")
+        self.assertNotIn("harness", self.claims()[-1])
+
+    def test_a_licensed_claim_is_annotated_and_still_allowed(self):
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=42)
+        self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
+        row = self.claims()[-1]
+        self.assertEqual(row["detail"], "ok")
+        self.assertEqual(row["harness"], "drifted: codex PreToolUse entry removed")
+
+    def test_the_annotation_never_tells_the_model_to_reinstall(self):
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=42)
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIsNone(reason)
+        text = json.dumps(self.claims())
+        for word in ("reinstall", "--install", "tezgah-setup", "re-run"):
+            self.assertNotIn(word, text)
+
+    def test_a_reply_with_no_claim_gets_no_row_and_no_block(self):
+        self.assertIsNone(ti.stop_reason("Bir sonraki adim ne olsun?", "s"))
+        self.assertEqual(self.claims(), [])
 
 
 class StaleEvidence(unittest.TestCase):
@@ -1737,6 +1949,23 @@ class UiEvidence(unittest.TestCase):
                      out_bytes=10)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
+    SNAPSHOT = "tezgah-capture '{\"tool\": \"Edit\", \"session_id\": \"s\"}'"
+
+    def test_the_snapshot_cli_is_not_a_read_of_the_screen(self):
+        # `tezgah-capture` takes a pre-write snapshot of a file (bin/tezgah-capture);
+        # it reads no screen, so it is neither the UI proof nor, through the
+        # proof that discharges a non-UI write, a pass for anything else
+        screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
+        os.makedirs(os.path.dirname(screen), exist_ok=True)
+        self.edit(screen)
+        ti.note_tool("s", "Bash", {"command": self.SNAPSHOT}, out_bytes=10)
+        self.assertIn("UI evidence", ti.stop_reason("Done. All tests pass.", "s"))
+
+    def test_the_snapshot_cli_does_not_discharge_a_non_ui_write(self):
+        self.edit(os.path.join(self.dir, "worker.py"))
+        ti.note_tool("s", "Bash", {"command": self.SNAPSHOT}, out_bytes=10)
+        self.assertIsNotNone(ti.stop_reason("Done. All tests pass.", "s"))
+
     def test_a_turn_that_wrote_no_ui_source_is_unchanged(self):
         # the control: the same shape over a `.py` file - a green unit run is
         # the evidence the UI branch does not apply to
@@ -1906,10 +2135,11 @@ class DesignContractEvidence(unittest.TestCase):
     def test_a_design_check_on_a_later_line_of_the_call_is_a_check(self):
         # a call is often multi-line; the readers matched `^` and `[|;&(]`, so
         # the same checker on the call's own second line was invisible to the
-        # floor while `VERIFY` read the row as a check
+        # floor while `VERIFY` read the row as a check. `&&` keeps pytest's
+        # status the line's: a bare newline would hand it to the second line
         self.edit(self.component)
         self.screen_read()
-        ti.note_tool("s", "Bash", {"command": "pytest -q\n" + self.CHECK},
+        ti.note_tool("s", "Bash", {"command": "pytest -q &&\n" + self.CHECK},
                      failed=False, out_bytes=64)
         self.assertIsNone(ti.stop_reason("Done. All tests pass.", "s"))
 
@@ -2027,16 +2257,78 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual([r["detail"] for r in ti.events_path(self.path,
                                                              tail=2)], ["ls"])
 
-    def test_a_terminated_line_that_lost_its_bytes_is_a_hard_error(self):
-        # the other damage: the newline is there, so the record committed, and a
-        # reader that skipped it would have shrunk the evidence in silence
+    def test_a_terminated_line_that_lost_its_bytes_is_named_once(self):
+        # the other damage: the newline is there, so the record committed. It
+        # used to raise, which failed the Stop rule open; it is skipped now, and
+        # one `ledger_damage` row lands in the damaged file however often the
+        # file is read
         ti.note("s", "run", "ls")
         with open(self.path, "a") as fh:
             fh.write("{broken\n")
-        with self.assertRaises(ValueError):
-            ti.events("s")
-        with self.assertRaises(ValueError):
+        for _ in range(3):
+            self.assertEqual([r["kind"] for r in ti.events("s")][:2],
+                             ["run", ti.DAMAGE_KIND])
             ti.events("s", tail=2)
+        stored = [json.loads(line) for line in self.raw().splitlines()
+                  if line.startswith(b"{\"")]
+        self.assertEqual([r["kind"] for r in stored].count(ti.DAMAGE_KIND), 1)
+
+    def test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered(self):
+        # the case the damage made an allow route: the turn's failed check is
+        # corrupted, so the fold no longer sees `check failed`
+        ti.note("s", "turn", "", key="t1")
+        ti.note("s", "edit", "a.py")
+        ti.note("s", "verify_fail", "pytest -q")
+        data = self.raw()
+        with open(self.path, "wb") as fh:
+            fh.write(data[:-12] + b"\n")
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIsNotNone(reason)
+        self.assertIn("Evidence tampered", reason)
+        claims = [r for r in ti.events("s") if r.get("kind") == "claim"]
+        self.assertEqual(claims[-1]["detail"], "blocked: evidence tampered")
+        # an honest admission claims nothing the damage could carry
+        self.assertNotIn("Evidence tampered",
+                         ti.stop_reason("Done, doğrulanmadı.", "s") or "")
+
+    def test_an_honest_writer_leaves_no_damage(self):
+        # the two ways a write can be cut short - a torn tail, and the unlocked
+        # fallback taken when the lock cannot be had - must not themselves read
+        # as tampering
+        ti.note("s", "run", "ls")
+        self.torn()
+        ti.note("s", "run", "pwd")
+        self.addCleanup(setattr, ti, "LOCK_WAIT", ti.LOCK_WAIT)
+        ti.LOCK_WAIT = 0.0
+        with open(self.path, "a+b") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            ti.note("s", "run", "whoami")
+        self.assertEqual([r["detail"] for r in ti.events("s")],
+                         ["ls", "pwd", "whoami"])
+
+    def test_a_unicode_line_separator_inside_a_row_is_one_row(self):
+        # opencode's JSON.stringify leaves U+2028/U+2029 raw inside a string,
+        # and `str.splitlines` split the row on them: an honest row read as two
+        # damaged ones and the Stop rule blocked an honest turn
+        detail = "a\u2028b\u2029c\x85d"
+        ti.note("s", "run", "ls")
+        with open(self.path, "ab") as fh:  # raw, the way opencode writes it
+            fh.write(json.dumps({"kind": "run", "detail": detail, "v": 2},
+                                ensure_ascii=False).encode("utf-8") + b"\n")
+        for _ in range(2):  # the second read sees any damage row the first wrote
+            self.assertEqual([(r["kind"], r["detail"]) for r in ti.events("s")],
+                             [("run", "ls"), ("run", detail)])
+        self.assertEqual(ti.events("s", tail=1)[0]["detail"], detail)
+
+    def test_a_line_that_is_not_utf_8_counts_as_damage(self):
+        # the strict read raised, and the guard then failed the Stop rule open
+        ti.note("s", "turn", "", key="t1")
+        with open(self.path, "ab") as fh:
+            fh.write(b'{"kind": "verify_ok", "detail": "\xff\xfe"}\n')
+        rows = ti.events("s")
+        self.assertEqual(rows[-1]["kind"], ti.DAMAGE_KIND)
+        reason = ti.stop_reason("Done. All tests pass.", "s")
+        self.assertIn("Evidence tampered", reason or "")
 
     def test_the_next_append_repairs_the_torn_tail_instead_of_burying_it(self):
         # left in place, the fragment is terminated by the row written after it
@@ -2145,7 +2437,14 @@ class StopHook(TempHome):
         return [r for r in out if r.get("kind") == kind]
 
     def claim_rows(self):
-        return [r.get("detail") for r in self.rows("claim")]
+        """The Stop verdict rows, in order: a `claim` for a reply in the claim
+        vocabulary and a `refusal` for a refused reply that claimed nothing
+        (row version 3; tests/test_stop_after_block.py pins the split)."""
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session},
+                          env=self.envv)
+        return [r.get("detail") for r in out
+                if r.get("kind") in ("claim", "refusal")]
 
     def shape_rows(self):
         return [r.get("detail") for r in self.rows("shape")]
@@ -2559,6 +2858,16 @@ class StopHook(TempHome):
         self.seed("Bash", {"command": "set -o pipefail; pytest -q | tail || echo x"})
         self.assertEqual(self.kinds(), ["verify"])
 
+    def test_a_check_followed_by_another_command_records_as_ran(self):
+        for command, kind in (("pytest -q; echo done", "verify"),
+                              ("pytest -q; echo EXIT=$?", "verify"),
+                              ("pytest -q &", "verify"),
+                              ("pytest -q > log; tail log", "verify"),
+                              ("pytest -q && echo ok", "verify_ok"),
+                              ("cd x && pytest -q", "verify_ok")):
+            self.seed("Bash", {"command": command})
+            self.assertEqual(self.kinds()[-1], kind, command)
+
     def test_a_blocked_stop_is_recorded_as_a_false_completion(self):
         self.seed("Edit", {"file_path": "x.py"})
         self.stop("Done. All tests pass.")
@@ -2638,14 +2947,16 @@ class StopHook(TempHome):
         # unfounded state through when it was stated as a description (E2
         # measured 0 of 10 implicit claims refused). The turn's own evidence is
         # the trigger now, so this reply carries no claim word and is still
-        # refused - and the refusal is recorded like any other.
+        # refused - and the refusal is recorded, as a `refusal` and not as a
+        # false completion: the reply claimed nothing (row version 3).
         self.seed("Edit", {"file_path": "x.py"})
         out = self.stop("The parser handles the new field and the wiring is in "
                         "place.")
         self.assertEqual((out or {}).get("decision"), "block")
         self.assertIn("no check ran", (out or {}).get("reason", ""))
         self.assertEqual(self.claim_rows(), ["blocked: no verify_ok"])
-        self.assertEqual(self.counts()["false_completion"], 1)
+        counts = self.counts()
+        self.assertEqual((counts["false_completion"], counts["refusals"]), (0, 1))
 
     def test_a_step_that_failed_is_refused_without_a_claim_word(self):
         # the same rule over a check that ran and failed: "verify_fail" is a step
@@ -2809,7 +3120,7 @@ class StopHook(TempHome):
                           env=dict(self.envv, TEZGAH_NESTED="1"))
         self.assertIsNone(out)
 
-    def test_stop_hook_active_passes(self):
+    def test_the_reply_after_a_block_is_never_blocked_again(self):
         self.seed("Bash", {"command": "ls"})
         self.assertIsNone(self.stop("Done.", stop_hook_active=True))
 
@@ -3259,6 +3570,21 @@ class PostToolUse(TempHome):
         self.assertNotEqual(first["id"], third["id"])
         self.assertEqual(len(first["id"]), 12)
 
+    def test_a_check_whose_output_ran_nothing_is_no_pass(self):
+        # plan 048 (d): the Bash result's stdout says no test ran, so the exit
+        # 0 is a check that ran over nothing; the row also names its repo
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
+                      tool_response={"stdout": "collected 0 items\n\n"
+                                     "== no tests ran in 0.01s ==", "stderr": ""})
+        self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
+                      tool_response={"stdout": "3 passed in 0.1s", "stderr": ""})
+        empty, real = self.rows()
+        self.assertEqual((empty["kind"], empty.get("empty_run")), ("verify", True))
+        self.assertEqual((real["kind"], real.get("empty_run")), ("verify_ok", None))
+        # the session cwd alone is no location (a shell may have moved)
+        self.assertIsNone(real.get("repo"))
+
     def test_a_row_carries_the_outcome_the_result_size_and_the_workspace(self):
         result = "11 passed in 0.2s"
         self.run_hook("PostToolUse", "Bash", {"command": "pytest -q"},
@@ -3298,6 +3624,19 @@ class PostToolUse(TempHome):
         self.assertEqual((row["kind"], row["source"], row["out_bytes"]),
                          ("external", "subagent", len(text.encode("utf-8")) + 2))
         self.assertNotIn("bulgu", json.dumps(row))
+
+    def test_an_effect_after_a_report_keeps_its_own_size(self):
+        # The Bash right after an Agent inherits the subagent channel on its
+        # row, but the report's byte rule is the delegate's own: the shell
+        # result keeps its top-level measure instead of losing it.
+        self.run_hook("PostToolUse", "Agent", {"prompt": "look"},
+                      tool_response={"content": [{"type": "text", "text": "r"}]})
+        result = {"stdout": "x" * 10, "stderr": ""}
+        self.run_hook("PostToolUse", "Bash", {"command": "ls"},
+                      tool_response=result)
+        row = self.rows()[-1]
+        self.assertEqual((row["kind"], row.get("source"), row.get("out_bytes")),
+                         ("run", "subagent", len(result)))
 
     def test_a_piped_check_is_recorded_as_ran(self):
         self.run_hook("PostToolUse", "Bash", {"command": "pytest -q | tail -1"})
@@ -3962,6 +4301,289 @@ class ToolFirings(TempHome):
             proc = support.run([self.cli] + args, env=self.envv)
             self.assertEqual(proc.returncode, 2, args)
             self.assertIn("tezgah-status:", proc.stderr)
+
+
+class StopRuleRest(unittest.TestCase):
+    """Plan 048 parts d, e, f, i: what a pass is, where it ran, when it started,
+    and what a claim word with no work behind it says (REPORT.md §4.2 R04)."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        self.ledger = os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: self.ledger
+        self.repo = self.git_dir("repo")
+        self.target = os.path.join(self.repo, "app.py")
+
+    def git_dir(self, name):
+        path = os.path.realpath(os.path.join(self.dir, name))
+        os.makedirs(os.path.join(path, ".git"))
+        return path
+
+    def reset(self):
+        if os.path.exists(self.ledger):
+            os.remove(self.ledger)
+
+    def edit(self, text="v\n"):
+        tz.capture("Edit", {"file_path": self.target}, self.repo, "s")
+        with open(self.target, "a") as fh:
+            fh.write(text)
+        ti.note_tool("s", "Edit", {"file_path": self.target}, failed=False,
+                     cwd=self.repo)
+
+    def shell(self, command, cwd=None, extra=None, **kw):
+        ti.note_tool("s", "Bash", dict({"command": command}, **(extra or {})),
+                     failed=False, out_bytes=42, cwd=cwd or self.repo, **kw)
+        return ti.events("s")[-1]
+
+    # ---- (d) non-checks ------------------------------------------------------
+    NON_CHECKS = ("pytest --version", "pytest --help", "python3 -m pytest --collect-only",
+                  "make help", "just --list", "tsc --version", "echo ok; ruff --version",
+                  "ruff", "ruff format .", "prettier --write .", "eslint --fix .",
+                  "npx prettier --write src", "ruff check --fix .")
+
+    def test_a_non_check_is_no_pass_and_licenses_no_claim(self):
+        # evidence-01's probe: each of these was allowed to close
+        # "Tamamlandı, tüm testler geçti" after an edit
+        for command in self.NON_CHECKS:
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                row = self.shell(command)
+                self.assertEqual(row["kind"], "run")
+                self.assertFalse(ti.passing_check(row))
+                self.assertIsNone(ti.verify_command(command))
+                self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_real_check_still_licenses_the_claim(self):
+        for command in ("pytest -q", "ruff check .", "ruff format --check .",
+                        "make test", "pytest --version; pytest -q",
+                        "prettier --check ."):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertTrue(ti.passing_check(self.shell(command)))
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_formatter_write_after_a_pass_is_a_change(self):
+        # the formatter rewrote the tree the pass judged; its row carries no
+        # captured target and is a change all the same
+        self.edit()
+        self.shell("pytest -q")
+        row = self.shell("ruff format .")
+        self.assertNotIn("hash", row)
+        self.assertTrue(ti._change_row(row))
+        self.assertIn("Stale evidence", ti.stop_reason(self.CLAIM, "s"))
+        # a chained write records as the check, the documented ceiling
+        self.assertFalse(ti._change_row({"kind": "verify_ok",
+                                         "detail": "ruff format . && pytest"}))
+
+    def test_an_empty_run_is_no_pass(self):
+        for text in ({"stdout": "== test session starts ==\ncollected 0 items\n\n"
+                                "== no tests ran in 0.01s =="},
+                     "\nRan 0 tests in 0.000s\n\nOK\n",
+                     "No tests found, exiting with code 0\n",
+                     "x" * 10000 + "\n=== no tests ran in 0.01s ===\n"):
+            with self.subTest(text=str(text)[:40]):
+                self.assertTrue(ti.ran_nothing(text))
+        for text in ("collected 3 items\n3 passed", "log: no tests ran here",
+                     "Ran 12 tests in 0.1s", None, 7, {"stdout": 3}):
+            self.assertFalse(ti.ran_nothing(text), text)
+        self.edit()
+        row = self.shell("pytest -q", empty_run=ti.ran_nothing("collected 0 items\n"))
+        self.assertEqual((row["kind"], row.get("empty_run")), ("verify", True))
+        self.assertFalse(ti.passing_check(row))
+        # a row that says verify_ok and ran nothing (another writer) is no pass
+        self.assertFalse(ti.passing_check(dict(row, kind="verify_ok", exit=0)))
+        self.assertIn("did work", ti.stop_reason(self.CLAIM, "s"))
+
+    # ---- (e) repository binding ------------------------------------------------
+    def test_a_pass_in_another_repo_does_not_license_this_one(self):
+        other = self.git_dir("other")
+        self.edit()
+        row = self.shell("cd ../other && pytest -q")
+        self.assertEqual(row["repo"], other)
+        reason = ti.stop_reason(self.CLAIM, "s")
+        # the refusal names the real reason, not "no check ran"
+        self.assertIn("another repository", reason)
+        self.assertNotIn("no check ran", reason)
+        self.assertEqual([r.get("cause") for r in ti.events("s")
+                          if r["kind"] == "claim"], ["other repo"])
+
+    def test_the_session_cwd_alone_binds_nothing(self):
+        # a shell may have kept an earlier call's `cd`, so the host's session
+        # cwd is no location: the row carries no repo and binds as before
+        self.edit()
+        self.assertIsNone(self.shell("pytest -q").get("repo"))
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    # review probes (plan 048 e): each location the reader must follow, and
+    # each it cannot read, which binds nothing rather than refusing
+    def test_the_tool_s_own_cwd_or_workdir_is_the_location(self):
+        elsewhere = self.git_dir("main")
+        for key in ("cwd", "workdir"):
+            with self.subTest(key=key):
+                self.reset()
+                self.edit()
+                row = self.shell("pytest -q", cwd=elsewhere, extra={key: self.repo})
+                self.assertEqual(row["repo"], self.repo)
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_cd_behind_a_paren_or_an_assignment_is_followed(self):
+        other = self.git_dir("other")
+        for command in ("(cd ../other && pytest -q)",
+                        "export X=1 && cd ../other && pytest -q",
+                        "X=1; cd ../other; pytest -q"):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertEqual(self.shell(command)["repo"], other)
+                self.assertIn("another repository", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_an_unreadable_location_binds_nothing(self):
+        self.git_dir("other")
+        for command in ('cd "$WT" && pytest -q', "cd `pwd` && pytest -q",
+                        "cd ../missing && pytest -q"):
+            with self.subTest(command=command):
+                self.reset()
+                self.edit()
+                self.assertIsNone(self.shell(command).get("repo"))
+                self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_path_argument_in_another_repo_is_that_repo(self):
+        other = self.git_dir("other")
+        os.makedirs(os.path.join(other, "tests"))
+        self.edit()
+        row = self.shell("pytest %s" % os.path.join(other, "tests"))
+        self.assertEqual(row["repo"], other)
+        self.assertIn("another repository", ti.stop_reason(self.CLAIM, "s"))
+        # paths in two repositories: no single answer, so none
+        self.reset()
+        self.edit()
+        row = self.shell("pytest %s %s" % (os.path.join(other, "tests"), self.target))
+        self.assertIsNone(row.get("repo"))
+
+    def test_an_earlier_cd_does_not_refuse(self):
+        # the host's cwd stays A while the shell moved to B: unknown, so allowed
+        other = self.git_dir("other")
+        self.edit()
+        self.shell("cd %s" % other)
+        self.assertIsNone(self.shell("pytest -q").get("repo"))
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_nested_checkout_counts_as_its_parent_s(self):
+        nested = os.path.join(self.repo, "vendor", "lib")
+        os.makedirs(os.path.join(nested, ".git"))
+        self.target = os.path.join(nested, "x.py")
+        self.edit()
+        self.shell("cd %s && pytest -q" % self.repo)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_pass_in_the_change_s_repo_licenses_it(self):
+        self.edit()
+        self.assertEqual(self.shell("cd %s && pytest -q" % self.repo)["repo"],
+                         self.repo)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_pass_run_from_elsewhere_into_this_repo_licenses_it(self):
+        # a session rooted in one checkout working in another (a worktree)
+        # binds the pass to where it ran, not to the session's cwd
+        elsewhere = self.git_dir("main")
+        self.edit()
+        self.shell("cd %s && pytest -q" % self.repo, cwd=elsewhere)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_row_without_a_repo_binds_to_nothing(self):
+        # not retroactive: a row written before the field, or by a host that
+        # sent no cwd, counts as it did
+        self.edit()
+        ti.note("s", "verify_ok", "pytest -q", exit=0, out_bytes=42)
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    # ---- (f) freshness at the check's start -------------------------------------
+    def test_a_write_that_landed_while_the_check_ran_stales_it(self):
+        began = {"kind": "began", "id": "c1", "tool": "Bash", "check": 1}
+        edit = {"kind": "edit", "detail": "app.py", "changed": True}
+        done = {"kind": "verify_ok", "id": "c1", "exit": 0, "out_bytes": 9,
+                "detail": "pytest -q"}
+        self.assertEqual(ti._stop_block(self.CLAIM, None,
+                                        rows=[began, edit, done])[0],
+                         "stale evidence")
+        # the controls: the write before the check began, and no began row
+        self.assertIsNone(ti._stop_block(self.CLAIM, None,
+                                         rows=[edit, began, done])[0])
+        self.assertIsNone(ti._stop_block(self.CLAIM, None, rows=[edit, done])[0])
+        self.assertEqual(ti._last_pass([began, edit, done]), 0)
+
+    # ---- (i) the question/negation window -------------------------------------
+    def turn_with_unverified_work(self):
+        ti.note_turn("s", "first")
+        self.edit()
+        ti.note_turn("s", "second")
+
+    def test_a_question_or_a_negation_on_the_no_work_path_is_no_claim(self):
+        self.turn_with_unverified_work()
+        for text in ("Testler geçti mi?", "Is it done?", "Not tested yet.",
+                     "I haven't verified it.", "Tamamlandı değil."):
+            with self.subTest(text=text):
+                self.assertEqual(ti.asserted_claims(text), (False, False))
+                self.assertIsNone(ti._stop_block(text, "s", rows=ti.turn_rows("s"))[0])
+        # the controls: the INT-01 claim, and a claim followed by a question
+        for text in (self.CLAIM, "Tamamlandı, push edeyim mi?"):
+            with self.subTest(text=text):
+                self.assertEqual(
+                    ti._stop_block(text, "s", rows=ti.turn_rows("s"))[0],
+                    "no verify_ok")
+
+    def test_the_window_does_not_open_a_turn_that_did_work(self):
+        self.edit()
+        self.assertEqual(ti._stop_block("Testler geçti mi?", "s",
+                                        rows=ti.turn_rows("s"))[0],
+                         "no verify_ok")
+
+
+class StopRuleReviewProbes(unittest.TestCase):
+    """The review of plan 048's first cut: each probe failed on it."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+
+    def test_an_orphan_began_does_not_date_a_fresh_pass(self):
+        # ids are the call's hash: a denied or abandoned `pytest` shares the id
+        # of the later passing one, which must pair with its own began row
+        orphan = {"kind": "began", "id": "c1", "tool": "Bash", "check": 1}
+        edit = {"kind": "edit", "detail": "app.py", "changed": True}
+        began = dict(orphan)
+        done = {"kind": "verify_ok", "id": "c1", "exit": 0, "out_bytes": 9,
+                "detail": "pytest -q"}
+        rows = [orphan, edit, began, done]
+        self.assertEqual(ti._last_pass(rows), 2)
+        self.assertIsNone(ti._stop_block(self.CLAIM, None, rows=rows)[0])
+
+    def test_the_windows_stay_inside_the_claim_s_clause(self):
+        for text in ("Don't worry, it's done.", "Never mind, it's done.",
+                     "It isn't just done, all tests pass.",
+                     "All tests pass so should I open the PR?",
+                     "All tests pass \u2014 should I open the PR?",
+                     "Done (no regressions?)", "Tamamlandı, push edeyim mi?",
+                     "Tamamlandı ama push edeyim mi?"):
+            with self.subTest(text=text):
+                self.assertTrue(any(ti.asserted_claims(text)))
+        for text in ("Testler geçti mi?", "Is it done?", "Not tested yet.",
+                     "I haven't verified it.", "Tamamlandı değil.",
+                     "Is the build green?"):
+            with self.subTest(text=text):
+                self.assertFalse(any(ti.asserted_claims(text)))
+
+    def test_a_question_on_a_no_work_turn_writes_no_claim_row(self):
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(directory, "s.jsonl")
+        self.assertIsNone(ti.stop_reason("Testler geçti mi?", "s"))
+        self.assertEqual([r for r in ti.events("s") if r["kind"] == "claim"], [])
 
 
 if __name__ == "__main__":

@@ -18,13 +18,13 @@ the workspace's own records; every number below names where it came from.
    turn ended in a merge and a push, and the user had to say the question went
    unanswered.)
 2. **Cost is paid once per revision, not once per commit.** Checks have tiers,
-   and the biggest one runs once on the final tree (`hooks/tezgah_policy.py:666-667`). (Measured: 11 serial suite
+   and the biggest one runs once on the final tree (`hooks/tezgah_policy.py::CORE`). (Measured: 11 serial suite
    runs, 106 minutes, 10 of them green confirmations, in one session - the rule
    "run the full suite once, on the final tree" was already written down and
    `AGENTS.md` said "before every commit".)
 3. **A review loop reads every fix.** A round that confirms a defect gets a
    round over the fix. The loop ends when a round confirms none
-   (`hooks/tezgah_agents.py:205`). The same defect family three times means the
+   (`hooks/tezgah_agents.py::_reviewer_body`). The same defect family three times means the
    design changes. (Measured: two of four severe defects in one internal plan came from
    fixes, after round two.)
 4. **Doubt lowers nothing and hides nothing.** An unverifiable check never
@@ -43,15 +43,15 @@ the workspace's own records; every number below names where it came from.
 | edit loop | `tests/impacted.py --run <changed paths>` | 0.1-95 s (integrity+gate: 18 modules, 93.8 s) |
 | pre-commit | that set + compileall + ruff (+ `--citations` when hooks/ or bin/ moved) | +~5 s |
 | pre-merge, once | `tests/impacted.py --all` + the two e2e scripts | 103.5 s (8 shards; 566.9 s serial) |
-| CI | the same, on 3.10 and 3.12 | unchanged |
+| CI | the same, on the matrix in `.github/workflows/ci.yml` | unchanged |
 
-A path the map does not know runs everything (`tests/impacted.py:176`): `tests/support.py`,
+A path the map does not know runs everything (`tests/impacted.py::modules_for`): `tests/support.py`,
 `hooks/tezgah_paths.py` and anything new. `tests/test_impacted.py` refuses a
 change that would silently run nothing.
 
 ## Model routing
 
-Every omp agent gets a **cross-family fallback chain** (`_chain` `hooks/tezgah_models.py:285`, over `funded_families` `hooks/tezgah_models.py:234`): the mode's family first,
+Every omp agent gets a **cross-family fallback chain** (`hooks/tezgah_models.py::_chain`, over `hooks/tezgah_models.py::funded_families`): the mode's family first,
 then every other family this machine holds a credential for. One pin per agent
 made one provider's 429 every subagent's failure, because the account is shared
 with the main thread (measured: 24 of 26 post-routing 429s hit a subagent's first
@@ -68,13 +68,13 @@ not a rule.
 
 ## The research layer
 
-A line carries the user's ask verbatim, a tier (`quick` gets no line at all, `ask_problems` `hooks/tezgah_research.py:4574-4576`), and
+A line carries the user's ask verbatim, a tier (`quick` gets no line at all, `hooks/tezgah_research.py::ask_problems`), and
 one success criterion per part of the ask, written before any experiment. It ends
 with a verdict per criterion; a criterion that is `not-met` is a result, but it is
 recorded, and an unanswered line stays visible in `status` instead of disappearing
 into `done/`. Lines live under `research/open/` and `research/done/`, the way plans do, resolved
-by one reader (`hooks/tezgah_research.py:341`); an unmet criterion keeps a line
-listed as unanswered (`hooks/tezgah_research.py:4591`).
+by one reader (`hooks/tezgah_research.py::line_dir`); an unmet criterion keeps a line
+listed as unanswered (`hooks/tezgah_research.py::unanswered`).
 
 ## What is measured to know this works
 

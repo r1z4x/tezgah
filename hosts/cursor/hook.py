@@ -6,10 +6,12 @@ so this adapter translates them onto the shared tezgah core:
   preToolUse          -> {"permission": "allow"|"deny", "agent_message": ...}
                          (the shared gate: grep-only explorer, first identifier
                          grep nudge, attribution and test-skip on the write tools)
-  beforeMCPExecution  -> {"permission": "allow"} for the code graph, else {}
+  beforeMCPExecution  -> {"permission": "allow"} for the code graph, a deny
+                         from the gate's content rules on an MCP effect, else {}
   subagentStart       -> {"additional_context": <short contract brief>} for the
                          delegate, or deny for a grep-only explorer
-  subagentStop        -> record orch, no followup
+  subagentStop        -> record orch and a record-only `subagent_end` verdict
+                         on its `summary`, no followup
   postToolUse         -> {"additional_context": <provenance | reinforce>}: the
                          untrusted-content label on a result that came from
                          outside the user, the taint notice on an effect made in
@@ -42,14 +44,23 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "hooks"))
-from tezgah_context import (  # noqa: E402
-    command_text, context_for, record, shell_kind, slug, under)
-from tezgah_gate import decision, explored  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note, note_tool, report_bytes, stop_reason)
-from tezgah_paths import cache_dir, off  # noqa: E402
-from tezgah_untrusted import marks  # noqa: E402
+from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
+try:
+    from tezgah_context import (  # noqa: E402
+        command_text, context_for, record, shell_kind, slug, under)
+    from tezgah_gate import decision, explored  # noqa: E402
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note, note_tool, ran_nothing, report_bytes, stop_reason)
+    from tezgah_paths import cache_dir, off  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
+
+# How many times one stop chain may be refused (hooks/projects-stop.py names the
+# same constant): one, deliberately; raising it is owner decision 11. Whether
+# Cursor's `stop` payload carries `stop_hook_active` or only `loop_count` is
+# unverified (no captured payload), so the flag is still what is read.
+STOP_REASKS = 1
 
 ALLOW = {"permission": "allow"}
 # MCP tool names that are a code graph call: codegraph serves every tool as
@@ -266,6 +277,7 @@ def dispatch(payload):
     quiet = off("reminder-off")
 
     if event == "sessionStart":
+        safe(session_id, attest_session, "cursor", session_id, cwd)
         text = context_for("session_start", cwd, payload)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUse":
@@ -287,7 +299,8 @@ def dispatch(payload):
                       failed=call_failed(payload), source=source, cwd=cwd,
                       out_bytes=(report_bytes(payload.get("tool_output"))
                                  if source == SUBAGENT_CHANNEL
-                                 else result_size(payload.get("tool_output"))))
+                                 else result_size(payload.get("tool_output"))),
+                      empty_run=ran_nothing(payload.get("tool_output")))
         reinforce = None
         if (kind in ("graph", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
@@ -332,14 +345,29 @@ def dispatch(payload):
                       {"command": payload.get("command")
                        or (payload.get("tool_input") or {}).get("command", "")},
                       failed=None, out_bytes=result_size(payload.get("output")),
-                      cwd=cwd)
+                      cwd=cwd, empty_run=ran_nothing(payload.get("output")))
         out = {}
     elif event == "beforeMCPExecution":
         if kind:
             record(session_id, kind)
-        # allow the code graph explicitly; defer (no decision) for all other
-        # servers so a user policy is never overridden
-        out = dict(ALLOW) if kind == "graph" else {}
+        # allow the code graph explicitly; every other server's call meets the
+        # gate's content rules under the shared `mcp__<server>__<tool>` name (a
+        # deny), else no decision, so a user policy is never overridden.
+        # Cursor sends `tool_input` as a JSON string.
+        inp = payload.get("tool_input") or {}
+        if isinstance(inp, str):
+            try:
+                inp = json.loads(inp)
+            except ValueError:
+                inp = {}
+        reason = None if kind == "graph" else decision(
+            "mcp__%s__%s" % (payload.get("mcp_server_name") or "",
+                             payload.get("tool_name") or ""),
+            inp if isinstance(inp, dict) else {}, cwd, session_id)
+        if reason:
+            out = {"permission": "deny", "agent_message": reason}
+        else:
+            out = dict(ALLOW) if kind == "graph" else {}
     elif event == "subagentStart":
         if explored(payload.get("subagent_type")):
             out = {"permission": "deny", "user_message": "grep-only explorer blocked; use general-purpose with the code graph tools"}
@@ -360,6 +388,13 @@ def dispatch(payload):
                 out["additional_context"] = brief
     elif event == "subagentStop":
         record(session_id, "orch")
+        # A subagent's end, judged record-only (ADR 011): one `subagent_end`
+        # row from its `summary`, never a follow-up. Under its own guard, so a
+        # record that fails still leaves this event's empty answer.
+        if (payload.get("status") in (None, "completed")
+                and not off("verify-off") and under(cwd)):
+            safe(session_id, stop_reason, payload.get("summary") or "",
+                 session_id, cwd=cwd, subagent=True)
         out = {}
     elif event == "preToolUse":
         tool = payload.get("tool_name", "")
@@ -378,8 +413,8 @@ def dispatch(payload):
         # to check - and `loop_count` is the platform's own cap on follow-ups.
         out = {}
         if (payload.get("status") in (None, "completed")
-                and not payload.get("stop_hook_active") and not off("verify-off")
-                and under(cwd)):
+                and (1 if payload.get("stop_hook_active") else 0) < STOP_REASKS
+                and not off("verify-off") and under(cwd)):
             reason = stop_reason(last_answer(session_id), session_id, cwd=cwd)
             if reason:
                 out = {"decision": "block", "reason": reason}

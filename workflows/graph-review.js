@@ -3,7 +3,7 @@ export const meta = {
   description: 'Review a diff with graph-derived blast radius: scope, dimension fan-out, then adversarial verification of every finding.',
   whenToUse: 'Reviewing uncommitted work, a branch, or a PR when you want findings that survive a skeptic rather than a plausible-sounding list.',
   phases: [
-    { title: 'Scope', detail: 'codegraph affected: changed symbols + transitive callers' },
+    { title: 'Scope', detail: 'git diff + codegraph impact per changed symbol: the blast radius' },
     { title: 'Review', detail: 'one reviewer per dimension, in parallel' },
     { title: 'Verify', detail: 'two refuters per finding, distinct lenses' },
   ],
@@ -13,10 +13,11 @@ const target = (typeof args === 'string' && args) ? args : (args && args.target)
 const MAX_VERIFIED = 4
 
 const GRAPH = `On Claude the MCP server exposes one tool by default: load it with
-ToolSearch("select:mcp__codegraph__codegraph_explore") before the first query. The rest of the surface is
-the CLI: \`codegraph affected <ref>\` gives the changed symbols plus their transitive callers - that blast
-radius is the point, a diff alone hides it - \`codegraph impact <symbol>\` does the same for a symbol,
-\`codegraph callers\` and \`codegraph callees\` walk one hop, \`codegraph node <symbol>\` gives a definition
+ToolSearch("select:mcp__codegraph__codegraph_explore,mcp__plugin_tezgah_codegraph__codegraph_explore")
+before the first query (a plugin install uses the plugin_tezgah_ name). The rest of the surface is the CLI:
+\`codegraph impact <symbol>\` gives a symbol's transitive callers - run it per changed symbol of \`git diff\`;
+that blast radius is the point, a diff alone hides it - \`git diff --name-only <ref> | codegraph affected --stdin\`
+names the test files the changed files reach, \`codegraph callers\` and \`codegraph callees\` walk one hop, \`codegraph node <symbol>\` gives a definition
 with its body, \`codegraph query <text>\` searches symbols. The index is the repo's own
 \`.codegraph/codegraph.db\`. Read files for exact lines.`
 
@@ -27,7 +28,7 @@ const SCOPE = {
     project: { type: 'string' },
     changed_files: { type: 'array', items: { type: 'string' } },
     changed_symbols: { type: 'array', items: { type: 'string' } },
-    impacted_modules: { type: 'array', items: { type: 'string' }, description: 'from codegraph affected, inbound direction' },
+    impacted_modules: { type: 'array', items: { type: 'string' }, description: 'from codegraph impact per changed symbol, inbound direction' },
     blast_radius_note: { type: 'string' },
     diff_summary: { type: 'string' },
   },
@@ -73,18 +74,20 @@ phase('Scope')
 const scope = await agent(
   `Establish the review scope for: ${target}.
 ${GRAPH}
-Run \`codegraph affected <ref>\` when the target is a git ref (a base branch, a commit range)
-or \`codegraph impact <symbol>\` when it is a symbol, to get the changed symbols and their
-transitive callers, plus git diff for the actual lines. When the target is neither -
-"uncommitted changes vs HEAD" - take the changed files from the diff and walk them with
-\`codegraph callers\` yourself. Return the changed files, changed symbols, the
+Take the changed files and lines from \`git diff\` (against the ref when the target is a git ref -
+a base branch, a commit range - or HEAD for "uncommitted changes vs HEAD"), then run
+\`codegraph impact <symbol>\` for each changed symbol (or the one symbol, when the target is a
+symbol) to get their transitive callers. Return the changed files, changed symbols, the
 impacted modules, and one honest sentence on how far the blast radius reaches. No
 opinions on quality yet.`,
   { label: 'scope', schema: SCOPE, effort: 'medium' },
 )
 
-if (!scope || !scope.changed_files || !scope.changed_files.length) {
-  return { target, findings: [], confirmed: [], refuted: [], unverified: [], note: 'no changes detected for this target - nothing to review' }
+if (!scope) {
+  return { target, findings: [], confirmed: [], refuted: [], unverified: [], unknown: ['scope'], note: 'the scope agent failed - nothing was reviewed; unknown, not clean' }
+}
+if (!scope.changed_files || !scope.changed_files.length) {
+  return { target, findings: [], confirmed: [], refuted: [], unverified: [], unknown: [], note: 'no changes detected for this target - nothing to review' }
 }
 log(`${scope.changed_files.length} changed files, impacted modules: ${(scope.impacted_modules || []).join(', ') || 'none reported'}`)
 
@@ -95,7 +98,7 @@ Impacted modules (transitive callers): ${(scope.impacted_modules || []).join(', 
 Diff summary: ${scope.diff_summary || 'read it yourself with git diff'}`
 
 phase('Review')
-const reviews = (await parallel(DIMENSIONS.map(d => () => agent(
+const reviewed = await parallel(DIMENSIONS.map(d => () => agent(
   `Review this change through one lens only: ${d.key}.
 Look for: ${d.ask}
 
@@ -105,11 +108,19 @@ Report only defects in or newly caused by the changed code. A finding needs a co
 inputs or state that produce the wrong result. No style notes, no "consider maybe", no praise. Empty list
 is the correct answer when the lens finds nothing.`,
   { label: `review:${d.key}`, phase: 'Review', schema: FINDINGS, effort: 'high' },
-)))).filter(Boolean)
+)))
+// a failed dimension is unknown, never clean: its silence is not a finding
+const unknown = DIMENSIONS.filter((d, i) => !reviewed[i]).map(d => `review:${d.key}`)
+const reviews = reviewed.filter(Boolean)
 
 const rank = { high: 0, medium: 1, low: 2 }
 const all = reviews.flatMap(r => r.findings || []).sort((a, b) => rank[a.severity] - rank[b.severity])
-if (!all.length) return { target, scope, findings: [], confirmed: [], refuted: [], unverified: [], note: 'all four dimensions came back clean' }
+if (!all.length) {
+  const note = !unknown.length ? 'all four dimensions came back clean'
+    : !reviews.length ? 'every dimension failed - nothing was reviewed; unknown, not clean'
+    : `${unknown.join(', ')} failed - unknown, not clean; the other dimensions found nothing`
+  return { target, scope, findings: [], confirmed: [], refuted: [], unverified: [], unknown, note }
+}
 
 const toVerify = all.slice(0, MAX_VERIFIED)
 if (all.length > toVerify.length) {
@@ -136,18 +147,24 @@ Cite the file:line or tool output that settles it. A finding that cannot be tied
 ))).then(votes => {
   const live = votes.filter(Boolean)
   const kills = live.filter(v => v.refuted)
-  // "survived two refuters" means zero refutations; a 1-1 split is a kill
-  return { finding: f, survived: live.length > 0 && kills.length === 0, votes: live }
+  // "survived two refuters" means zero refutations; a 1-1 split is a kill.
+  // No live vote at all settles nothing: the finding stays unverified.
+  return { finding: f, settled: live.length > 0, survived: live.length > 0 && kills.length === 0, votes: live }
 })))
 
-const confirmed = verified.filter(Boolean).filter(v => v.survived)
-const killed = verified.filter(Boolean).filter(v => !v.survived)
-log(`${confirmed.length} findings survived verification, ${killed.length} refuted`)
+const settled = verified.filter(v => v && v.settled)
+const confirmed = settled.filter(v => v.survived)
+const killed = settled.filter(v => !v.survived)
+const unsettled = verified.filter(v => v && !v.settled)
+for (const v of unsettled) unknown.push(`verify:${v.finding.title}`)
+log(`${confirmed.length} findings survived verification, ${killed.length} refuted, ${unsettled.length} unverified (every refuter failed)`)
 
 return {
   target,
   scope: { changed_files: scope.changed_files, impacted_modules: scope.impacted_modules, blast_radius_note: scope.blast_radius_note },
   confirmed: confirmed.map(v => ({ ...v.finding, verdict: 'CONFIRMED', why_it_held: v.votes.filter(x => !x.refuted).map(x => x.evidence || x.reasoning) })),
   refuted: killed.map(v => ({ title: v.finding.title, refuted_because: v.votes.filter(x => x.refuted).map(x => x.reasoning) })),
-  unverified: all.slice(MAX_VERIFIED).map(f => ({ ...f, verdict: 'UNVERIFIED - budget cap' })),
+  unverified: unsettled.map(v => ({ ...v.finding, verdict: 'UNVERIFIED - every refuter failed' }))
+    .concat(all.slice(MAX_VERIFIED).map(f => ({ ...f, verdict: 'UNVERIFIED - budget cap' }))),
+  unknown,
 }

@@ -55,6 +55,9 @@ def base_env(home, roots=None, extra=None):
         # likewise orx: research routing is off unless a test points it at a real
         # binary, so the machine's own orx cannot leak into the assertions
         "TEZGAH_ORX_BIN": os.path.join(home, "no-such-orx"),
+        # likewise claude: `--install` registers the plugin through `claude
+        # plugin`, and the developer's real CLI must never run from a test
+        "TEZGAH_CLAUDE_BIN": os.path.join(home, "no-such-claude"),
         # likewise the agent CLIs consult can ask: none counts unless a test
         # lists it, so a developer's own omp/claude/codex is not a consult option
         "TEZGAH_CONSULT_CLIS": "",
@@ -105,6 +108,22 @@ def run_json(args, payload=None, env=None, cwd=None):
 FIXTURE_PARENT = ("/var/tmp"
                   if os.path.isdir("/var/tmp") and os.access("/var/tmp", os.W_OK)
                   else None)
+
+# This process too: a test that calls a hook in-process, or hands a child
+# `os.environ`, wrote to the real ~/.cache/tezgah ledger under the session that
+# ran the suite. tezgah_paths fixes HOME and CACHE at import, so this runs before
+# any hooks/ import a test module makes after `import support`.
+_SUITE_HOME = tempfile.TemporaryDirectory(prefix="tezgah-suite-home-", dir=FIXTURE_PARENT,
+                                          ignore_cleanup_errors=True)
+os.environ["HOME"] = _SUITE_HOME.name
+# an in-process install must not reach the developer's real `claude` either
+os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude")
+# A host dir or XDG base the developer exported points at their real config:
+# with CODEX_HOME set, a test that wrote and removed `<CODEX_HOME>/config.toml`
+# deleted the developer's own Codex config (2026-10-06).
+for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA"):
+    os.environ.pop(_name, None)
 
 
 class TempHome(unittest.TestCase):

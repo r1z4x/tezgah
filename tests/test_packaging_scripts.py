@@ -13,6 +13,7 @@ replaced tree stays on disk for a rollback.
 """
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -227,6 +228,46 @@ class Upgrade(Base):
         self.assertEqual(again.returncode, 0, again.stdout)
         self.assertTrue(self.current(prefix, "0.1.1"))
 
+    def test_gh_on_path_checks_the_build_provenance(self):
+        log = os.path.join(self.tmp, "gh-argv")
+        gh = os.path.join(self.tmp, "fake-gh")
+        with open(gh, "w") as fh:
+            fh.write("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %s\n" % log)
+        os.chmod(gh, 0o755)
+        dist = self.dist("0.3.0")
+        done = self.run_script("upgrade.sh", "--version", "0.3.0", "--prefix",
+                               os.path.join(self.tmp, "prefix-gh"),
+                               env={"TEZGAH_DIST": dist, "TEZGAH_GH": gh})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance verified", done.stdout)
+        with open(log) as fh:
+            argv = fh.read().split()
+        self.assertEqual(argv[:2], ["attestation", "verify"])
+        self.assertTrue(argv[2].endswith("tezgah-0.3.0.tar.gz"), argv)
+        self.assertEqual(argv[3:], ["--repo", "r1z4x/tezgah"])
+
+    def test_a_failed_gh_check_is_said_and_the_checksum_stays_the_gate(self):
+        gh = os.path.join(self.tmp, "failing-gh")
+        with open(gh, "w") as fh:
+            fh.write("#!/bin/sh\necho 'no attestations found' >&2\nexit 1\n")
+        os.chmod(gh, 0o755)
+        dist = self.dist("0.3.1")
+        done = self.run_script("upgrade.sh", "--version", "0.3.1", "--prefix",
+                               os.path.join(self.tmp, "prefix-gh-fail"),
+                               env={"TEZGAH_DIST": dist, "TEZGAH_GH": gh})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance not verified", done.stdout)
+        self.assertIn("no attestations found", done.stdout)
+
+    def test_no_gh_prints_a_plain_provenance_not_checked_line(self):
+        dist = self.dist("0.3.2")
+        done = self.run_script("upgrade.sh", "--version", "0.3.2", "--prefix",
+                               os.path.join(self.tmp, "prefix-no-gh"),
+                               env={"TEZGAH_DIST": dist,
+                                    "TEZGAH_GH": os.path.join(self.tmp, "no-such-gh")})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("provenance not checked: gh is not on PATH", done.stdout)
+
     def test_install_sh_runs_the_installer_from_the_flipped_tree(self):
         """install.sh: upgrade.sh, then the installer the flip made current."""
         prefix = os.path.join(self.tmp, "prefix-install")
@@ -236,6 +277,32 @@ class Upgrade(Base):
         self.assertEqual(done.returncode, 0, done.stdout)
         self.assertTrue(self.current(prefix, "0.2.0"))
         self.assertIn("installed --install", done.stdout)
+
+    def test_install_sh_forwards_the_reply_language(self):
+        """The install is non-interactive, so --reply-lang reaches the installer
+        as a flag or not at all."""
+        prefix = os.path.join(self.tmp, "prefix-lang")
+        done = self.run_script("install.sh", "--version", "0.2.0", "--prefix", prefix,
+                               "--reply-lang", "en",
+                               env={"TEZGAH_DIST": self.dist("0.2.0")})
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("installed --install --reply-lang en", done.stdout)
+
+
+class InstallPs1(unittest.TestCase):
+    """packaging/install.ps1 read as text: there is no pwsh on the POSIX dev
+    host, so the windows-latest CI leg is what runs it."""
+
+    def test_the_prefix_reaches_the_installer_and_no_install_skips_it(self):
+        with open(os.path.join(PACKAGING, "install.ps1")) as fh:
+            src = fh.read()
+        self.assertIn("[switch]$NoInstall", src)
+        self.assertIn("if (-not $NoInstall) {", src)
+        # every place the installer is started from the flipped tree
+        calls = re.findall(r"\$setup --install[^}]*", src)
+        self.assertEqual(len(calls), 2, calls)
+        for call in calls:
+            self.assertEqual(call.strip(), "$setup --install --prefix $Prefix")
 
 
 if __name__ == "__main__":

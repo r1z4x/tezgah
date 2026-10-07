@@ -85,6 +85,10 @@ class ArenaCase(unittest.TestCase):
             # lookup to a path that is not there so a case is deterministic on a
             # machine that has omp installed (SessionModel swaps in a fake).
             "TEZGAH_OMP_BIN": os.path.join(os.path.realpath(self.tmp.name), "no-omp"),
+            # No agent CLI of this machine may count as an available member: the
+            # default referee is picked from what is available (CliMembers
+            # lifts this and puts its own fakes on PATH).
+            "TEZGAH_CONSULT_CLIS": "",
         }
 
     def consult(self, *args, stdin=None):
@@ -179,6 +183,40 @@ class RefereeStage(ArenaCase):
         self.assertEqual(p.returncode, 3, p.stdout)
         self.assertEqual(len(Fake.seen), 2)
         self.assertNotIn("referee", p.stdout)
+
+    def test_the_packet_names_no_model_and_its_order_follows_the_seed(self):
+        Fake.answers = {"model-alpha": "first position", "model-beta": "second position"}
+        self.env["CONSULT_SEED"] = "7"
+        packets, outs = [], []
+        for _ in range(2):
+            Fake.seen = []
+            p = self.consult("q?", "--models", "model-alpha,model-beta")
+            self.assertEqual(p.returncode, 0, p.stderr)
+            packets.append(Fake.seen[2]["messages"][1]["content"])
+            outs.append(p.stdout)
+        self.assertEqual(packets[0], packets[1], "one seed gave two orders")
+        for name in ("model-alpha", "model-beta"):
+            self.assertNotIn(name, packets[0])
+        self.assertIn("=== ANSWER 1 ===", packets[0])
+        # the caller is told which label is whose, in the packet's order
+        first = "model-alpha" if packets[0].index("first position") < \
+            packets[0].index("second position") else "model-beta"
+        self.assertIn("answer labels: Answer 1 = %s" % first, outs[0])
+        orders = set()
+        for seed in map(str, range(12)):
+            Fake.seen = []
+            self.env["CONSULT_SEED"] = seed
+            self.consult("q?", "--models", "model-alpha,model-beta")
+            packet = Fake.seen[2]["messages"][1]["content"]
+            orders.add(packet.index("first position") < packet.index("second position"))
+        self.assertEqual(orders, {True, False}, "the order never moved with the seed")
+
+    def test_a_panel_referee_is_named_as_one(self):
+        # an explicit --models run has no member outside its own panel
+        Fake.answers = {"a": "x", "b": "y"}
+        p = self.consult("q?", "--models", "a,b")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("note: the referee a is a panel member", p.stdout)
 
 
 class Failures(ArenaCase):
@@ -389,6 +427,8 @@ class SessionModel(ArenaCase):
 
     def setUp(self):
         super().setUp()
+        # the omp record is this session's own only on omp
+        self.env["OMPCODE"] = "1"
         self.fake_omp("a")
 
     def fake_omp(self, default):
@@ -447,6 +487,18 @@ class SessionModel(ArenaCase):
         self.record("openrouter:a,openrouter:b")
         p = self.consult("q?")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("no session model", p.stdout)
+        self.assertEqual(sorted(self.models()[:2]), ["a", "b"])
+
+    def test_the_omp_record_is_not_read_on_another_host(self):
+        # Claude Code (or Codex, Cursor) on a machine that also has omp: omp's
+        # default model is not this session's, so nothing may be skipped for it
+        del self.env["OMPCODE"]
+        self.env["CLAUDECODE"] = "1"
+        self.record("openrouter:a,openrouter:b")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.omp_runs(), [])
         self.assertIn("no session model", p.stdout)
         self.assertEqual(sorted(self.models()[:2]), ["a", "b"])
 
@@ -530,6 +582,7 @@ class CliMembers(ArenaCase):
         self.bin = os.path.join(self.tmp.name, "fakebin")
         os.makedirs(self.bin)
         self.env["PATH"] = self.bin + ":/usr/bin:/bin"
+        del self.env["TEZGAH_CONSULT_CLIS"]  # PATH holds only the fakes
         self.env["FAKE_LOG"] = os.path.join(self.tmp.name, "cli.log")
         self.config = os.path.join(self.env["HOME"], ".config", "tezgah", "config.json")
 
@@ -624,6 +677,17 @@ class CliMembers(ArenaCase):
         self.assertIn("referee: cli:claude", p.stdout)
         self.assertNotIn("reoffer:", p.stdout)
 
+    def test_with_no_recorded_judge_an_available_member_outside_the_panel_referees(self):
+        self.cli("codex", "claude")
+        self.consult("--use", "cli:codex,openrouter:a")
+        p = self.consult("q?")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        # codex and openrouter:a answered; claude was never in the panel
+        self.assertEqual([r["name"] for r in self.runs()], ["codex", "claude"])
+        self.assertTrue(self.runs()[1]["argv"][-1].startswith(REFEREE))
+        self.assertIn("referee: cli:claude", p.stdout)
+        self.assertNotIn("is a panel member", p.stdout)
+
     def test_a_failed_member_leaves_the_rest_answering(self):
         self.cli("codex", "claude")
         self.env["FAKE_CODEX"] = "fail"
@@ -685,6 +749,9 @@ class UnknownCliModel(ArenaCase):
         self.env["TEZGAH_OMP_BIN"] = os.path.join(self.tmp.name, "omp")
         self.env["FAKE_OMP_LOG"] = os.path.join(self.tmp.name, "omp.log")
         self.env["FAKE_OMP_DEFAULT"] = "a"
+        # an omp session (its record is read only there) with only the fakes on PATH
+        self.env["OMPCODE"] = "1"
+        del self.env["TEZGAH_CONSULT_CLIS"]
 
     def test_a_cli_whose_model_is_unreadable_is_named_unknown_and_still_asked(self):
         p = self.consult("--use", "cli:claude")

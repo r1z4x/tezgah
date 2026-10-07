@@ -43,12 +43,13 @@ edit loop, and never twice on one revision.
 
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.
-- CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.10, 3.12, 3.13
-  and 3.14, so 3.10 is the floor and 3.14 the ceiling; its ubuntu legs also
-  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs
-  the app-MCP handshake below on node 20. The last two are the audits the suite
+- CI runs the same checks on the Python matrix in `.github/workflows/ci.yml`,
+  whose oldest version is the floor and newest the ceiling. Its ubuntu legs also
+  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs the
+  app-MCP handshake below on node 20. The citations audit is the check the suite
   is silent about: a green run says nothing about a citation that moved with a
-  file, or about an open plan's item that never said how it is proven.
+  file. The plan report (`render_table.py --acceptance --strict`) is local only:
+  it reads the gitignored `.tezgah/`, which a CI checkout does not have.
 - The artifact smoke is the one check that leaves the checkout: it builds
   `dist/tezgah-<version>.tar.gz` (`packaging/build.sh`), unpacks it in a temp
   dir and installs from the unpacked tree, so a broken manifest or a path that
@@ -81,6 +82,39 @@ gate's test modules; it fails if a mutant survives or the unmutated control is
 red. It reads HEAD, so commit first. Run it after adding or changing a deny rule
 (and add the rule's row to `MUTANTS`); CI runs it weekly
 (`.github/workflows/neuter.yml`), not per push.
+
+### Shell readers against real bash
+
+`python3 tests/fuzz_shell.py --seed 1 --lines 10000` draws seeded shell lines
+from the hand vectors' grammar and runs each in real `bash` with a stub per
+program word. It prints, per 10^4 lines, each class where `shell_programs` or
+`mask` disagrees with what bash ran. `--js` reads the same lines with the
+opencode plugin's ports (`maskText`, `shellPrograms`, through node and
+`tests/_fuzz_shell_reader.mjs`) and adds a `js-parity:` class wherever a port
+answers differently from the core. `tests/test_fuzz_shell.py` runs 60 lines
+in the normal suite and fails if `mask` or its port blanks a program bash ran,
+or if a port disagrees with the core; `TEZGAH_FUZZ_LINES=10000` widens the
+sample. `--strict` exits 1 on any class; CI runs it weekly under bash 5.x on
+20000 lines, core and `--js` (`fuzz-shell` in `.github/workflows/neuter.yml`).
+
+### Gate latency
+
+`python3 tests/bench_gate_latency.py [--hooks DIR]` times
+`tezgah_gate.decision(..., record=False)` over 200 common calls in a throwaway
+HOME and prints p50/p95 in milliseconds; `--hooks` points it at another
+revision's exported `hooks/` (`git archive <rev> hooks | tar -x -C /tmp/base`).
+
+### Injected bytes per session
+
+`python3 tests/replay_context.py [--base REV] [--head REV] [--json]` replays the
+prompts of the top-level omp and Claude transcripts `bin/tezgah-taste mine`
+reads (read-only) through `tezgah_context.context_for` on two revisions, each
+exported to a path of the same length (`<scratch>/base/tree`,
+`<scratch>/head/tree`: the plugin path is part of the injected text) and run in
+a throwaway HOME against one empty project. It prints n sessions,
+median/p90/total injected bytes per session per revision and the head/base
+ratios. No model call; `tests/test_replay_context.py` runs it on a seeded
+two-session fixture.
 
 ### App-analysis MCP, end to end
 

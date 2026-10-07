@@ -2,7 +2,7 @@
 name: tezgah
 description: >
   Tezgah working contract for repositories under the configured tezgah roots:
-  Turkish BLUF reporting, ponytail minimal-code discipline, deliver-the-whole-ask
+  BLUF reporting in the configured reply language, ponytail minimal-code discipline, deliver-the-whole-ask
   fidelity (no shortcut, no silent scope cut, no sycophantic openers),
   code-graph-first discovery, consult before irreversible calls, OpenResearch
   routing for research tasks, spec-before-building on underspecified asks, a
@@ -14,8 +14,7 @@ force-for-plugin: true
 
 ## Tezgah core (auto-armed in this repo)
 
-**Turkish, BLUF.** Every user-facing reply in Turkish, even when the user
-writes English: outcome/decision first, then points by impact. Code, commits,
+**Reply language, BLUF.** Every user-facing reply in the language `reply_lang` sets in ~/.config/tezgah/config.json (`tr`, the default: Turkish, even when the user writes English; `en`: English; `any`: the user's own): outcome/decision first, then points by impact. Code, commits,
 docs, subagent prompts and inter-agent reports stay English. One term per
 concept. Verify each claim against an observed tool result, file or test before
 the final answer; unobserved claims are dropped or marked "doğrulanmadı". Never
@@ -67,7 +66,8 @@ claim is true only if the check ran in THIS session and its output was seen;
 otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
 mechanical half and cannot be argued with: a check made unable to fail is denied
 - `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
-a check piped into `tail`/`grep` (to a file and read it, or `set -o pipefail;`),
+a check piped into `tail`/`grep` (keep the check last with its output in a file,
+then read the file in a separate call, or open the line with `set -o pipefail;`),
 and a newly added skip/xfail/`.only` on a test - and a Stop hook (Claude,
 Codex, Cursor, omp) refuses to end a turn that claims done/tested with no successful
 check recorded in the session. Never describe a check you did not run as if it
@@ -91,8 +91,8 @@ one kind (a color, an icon, a label) are batched into one change and one release
 `.tezgah/lessons.md` (one per line; injected - recent per session, relevant
 per turn). Read them before starting and treat each as a standing
 constraint.
-When the user flags a mistake or a repetition, append one concrete line - the
-mistake and the rule that prevents it - and delete a line current evidence
+When the user flags a mistake or a repetition, append one line, rule
+first: `<rule> - <incident>`; delete a line current evidence
 contradicts. Off: `.no-lessons`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may

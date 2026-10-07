@@ -9,39 +9,41 @@ every environment variable the installer and the hooks read is
 
 ## Installer flags
 
-The parser's own arguments (`bin/tezgah-setup:4055-4122`); a bare run with no
-argument prints the wizard on a terminal and the report on a pipe (`bin/tezgah-setup:3775-3776`).
-Lines below are of `bin/tezgah-setup`; the early branches (`bin/tezgah-setup:3741-3760`) return
+The parser's own arguments (`bin/tezgah-setup::main`); a bare run with no
+argument prints the wizard on a terminal and the report on a pipe (`bin/tezgah-setup::report`).
+Lines below are of `bin/tezgah-setup`; the early branches (`bin/tezgah-setup::main`) return
 before an install is considered.
 
 | Flag | What it does |
 |---|---|
-| `--install` | Arm the `--hosts` (default: every detected host): writes `~/.config/tezgah/config.json`, the contract hash, the `~/.config/tezgah/bin` symlinks and every host file, then prints the report. Installs the missing optional tools first unless `--no-deps`; third-party host CLIs (cursor-agent, pnpm, dsh) only with `--host-deps`, otherwise their exact install command is printed. Exits 1 when a requested tool is still missing, naming the cause (`installer failed with exit N`, or `exited 0 but not on PATH`) (`bin/tezgah-setup:4234-4236`, `bin/tezgah-setup:4219-4229`, `bin/tezgah-setup:1994-2052`). |
-| `--wizard` | Ask the install questions and write only after the final yes; the other flags supply the defaults, so `--wizard --hosts omp` asks only the rest (`bin/tezgah-setup:3234-3235`, `bin/tezgah-setup:3159-3184`). |
-| `--report` | Print what is armed, per host, and stop (`bin/tezgah-setup:4241-4242`, `bin/tezgah-setup:3028-3106`). |
-| `--report --live` | Proves the hooks run, not only that they are written (audit Phase 1.2). For each host, one synthetic PostToolUse (`true`) goes through that host's own wiring: the command in `~/.codex/hooks.json`, `~/.cursor/hooks.json`, the enabled Claude plugin copy's `hooks/hooks.json` (with `CLAUDE_PLUGIN_ROOT`), the hooks.json named by dsh's `cordis.patch.yml`; the opencode plugin is imported with node the way opencode imports it; the omp extension `.ts` is loaded with node `--experimental-strip-types` after checking it is in omp's `extensions` list. A ledger row for a dedicated `tezgah-live-<pid>-<ms>` session must appear; the event runs against a throwaway root (`TEZGAH_ROOTS`) and every cache file named for that session is deleted afterwards. Rows read `ok live <host>`, `MISS live <host>: <cause>` (no tezgah command in the host file, the command wrote no row, Codex does not trust tezgah's group) or `UNVERIFIED live <host>: <why>` (node missing or older than 22.6, the omp CLI did not answer). It exits 1 when any host is MISS; UNVERIFIED never fails the run and is never shown as ok. No model is called. |
-| `--refresh` | Re-render every always-on contract artifact of the armed hosts - the managed blocks of `CLAUDE.md`, Codex's `AGENTS.md` and omp's `RULES.md`, opencode's contract and skill routers - after a policy edit or a kill switch; prints the paths it refreshed, else `contract is current`. Before the first install there is no hash record, so it changes nothing (`refresh_contract`, `bin/tezgah-setup:1194-1211`). |
-| `--uninstall` | Remove everything tezgah installed — per host the wiring it wrote, plus (a full run) the Claude plugin copy with its registry rows, the generated config state, the kill switches, the caches and the versioned install tree — then verify the removal; nonzero exit while anything tezgah wrote survives (`bin/tezgah-setup:4444-4446`, `bin/tezgah-setup:3134-3216`). |
-| `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setup:3241`, `bin/tezgah-setup:2759-2850`). |
-| `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup:3242`, `bin/tezgah-setup:3701-3759`). |
-| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup:3243`, `bin/tezgah-setup:4154-4156`). It also prints the report's `config.json hosts (...) match the hosts wired (...)` row when the recorded list and the wiring on disk disagree (`hosts_row`), and nothing when they agree: install health is checked here, not only in a full report. |
-| `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](glossary.md#root) it prints `no agents generated` (`bin/tezgah-setup:3244-3245`, `bin/tezgah-setup:4164-4168`). |
-| `--write-manifest` | Regenerate the tracked `MANIFEST` from `git ls-files` and stop — the release step, its only writer, and it says so on a tree with no `.git` rather than writing an empty listing (`bin/tezgah-setup:4326-4343`, `bin/tezgah-setup:4300-4325`). |
-| `--deps` | Install the missing optional tools and stop; with `--install` the install already does it. Like `--install` and `--enable`, it exits 1 when a requested tool is still missing (`bin/tezgah-setup:4157-4159`). |
+| `--install` | Arm the `--hosts` (default: every detected host): writes `~/.config/tezgah/config.json`, the contract hash, the `~/.config/tezgah/bin` symlinks and every host file, then prints the report. Installs the missing optional tools first unless `--no-deps`; third-party host CLIs (cursor-agent, pnpm, dsh) only with `--host-deps`, otherwise their exact install command is printed. Exits 1 when a requested tool is still missing, naming the cause (`installer failed with exit N`, or `exited 0 but not on PATH`) (`bin/tezgah-setup::main`, `bin/tezgah-setup::install_all`, `bin/tezgah-setup::install_deps`). It also exits 1 when a planned host is left unarmed, and names it under `not armed:`. Only the arming rows count: hooks wired, the contract current, and the row a host's own CLI arms where that CLI exists: omp's extension row with an omp CLI, Claude's `plugin copy current` with a `claude` CLI. Codex `hooks trusted` and the provider-key rows stay out, because a correct fresh install leaves them MISS (`ARMING_ROWS`, `arming_miss()`). A host config that does not parse as a JSON object is refused: the run names the file and the parse error, never writes it, and exits 1 (`read_config()`); tezgah's own `config.json` is refused the same way. Claude is registered through its own CLI (`register_claude_plugin()`): the run renders `.claude-plugin/{plugin,marketplace}.json` from the release version into the tree it runs from (untracked; a pair under another marketplace name is kept), runs `claude plugin marketplace add <tree>` (a directory source pinned to that tree) and `claude plugin install tezgah@tezgah-local`, and skips both when any `tezgah@*` row is already in `installed_plugins.json`, because a second row fires every hook twice. `--reply-lang tr|en|any` stores `reply_lang` in `config.json`; without it the stored value stays, and a config with none reads as `tr`. |
+| `--wizard` | Ask the install questions and write only after the final yes; the other flags supply the defaults, so `--wizard --hosts omp` asks only the rest (`bin/tezgah-setup::wizard`). |
+| `--report` | Print what is armed, per host, and stop (`bin/tezgah-setup::main`, `bin/tezgah-setup::report`). |
+| `--report --live` | Proves the hooks run, not only that they are written (audit Phase 1.2). For each host, one synthetic PostToolUse (`true`) goes through that host's own wiring: the command in `~/.codex/hooks.json`, `~/.cursor/hooks.json`, the enabled Claude plugin copy's `hooks/hooks.json` (with `CLAUDE_PLUGIN_ROOT`), the hooks.json named by dsh's `cordis.patch.yml`; the opencode plugin is imported with node the way opencode imports it; the omp extension `.ts` is loaded with node `--experimental-strip-types` after checking it is in omp's `extensions` list. A ledger row for a dedicated `tezgah-live-<pid>-<ms>` session must appear; the event runs against a throwaway root (`TEZGAH_ROOTS`) and every cache file named for that session is deleted afterwards. A second probe per host proves the gate: one PreToolUse for `git commit --no-verify -m x` through the same wiring must come back as that host's deny (Claude, Codex and dsh `permissionDecision: deny`, Cursor `permission: deny`, omp `block: true`, opencode a throw) and leave a `deny` row in the ledger; under `pretooluse-off` or `verify-off` it reads UNVERIFIED and names the switch (`live_probe()`, `LIVE_DENY_COMMAND`). The omp bridge must also match a fresh render byte for byte, from the renderer the install writes with (`omp_bridge()`). Rows read `ok live <host>` / `ok live <host> deny`, `MISS live <host>: <cause>` (no tezgah command in the host file, the command wrote no row, no deny envelope or no deny row, a hand-edited omp bridge, Codex does not trust tezgah's group) or `UNVERIFIED live <host>: <why>` (node missing or older than 22.6, the omp CLI did not answer, a switch that stands the refusal down). It exits 1 when any host is MISS; UNVERIFIED never fails the run and is never shown as ok. No model is called. |
+| `--refresh` | Re-render every always-on contract artifact of the armed hosts - the managed blocks of `CLAUDE.md`, Codex's `AGENTS.md` and omp's `RULES.md`, opencode's contract and skill routers - after a policy edit or a kill switch; prints the paths it refreshed, else `contract is current`. Before the first install there is no hash record, so it changes nothing (`refresh_contract`, `bin/tezgah-setup::refresh_contract`). |
+| `--uninstall` | Remove everything tezgah installed — per host the wiring it wrote, plus (a full run) the Claude plugin copy with its registry rows, the generated config state, the kill switches, the caches and the versioned install tree — then verify the removal; nonzero exit while anything tezgah wrote survives (`bin/tezgah-setup::verify_uninstall`, `bin/tezgah-setup::uninstall`). |
+| `--adopt` | Move pre-tezgah wiring aside instead of deleting it; alone it stops there, with `--install` it runs first (`bin/tezgah-setup::main`, `bin/tezgah-setup::adopt`). |
+| `--sync` | Copy this checkout over every installed Claude plugin [copy](glossary.md#plugin-copy) (`bin/tezgah-setup::sync`). Each copy is built in a staging tree beside the plugin cache and swapped in with two renames, its `.git` carried over, so a failed or killed sync leaves the previous copy whole (`bin/tezgah-setup::_swap`). Every copied file is 0644, or 0755 when the tree marks it executable, whatever mode the source has (`bin/tezgah-setup::_copy_normalised`). |
+| `--hook-entries` | Print, as JSON, the tezgah-owned hook entries this tree arms per armed host - what `tezgah update` asks the new tree for (`bin/tezgah-setup::hook_entries`). |
+| `--status [PATH]` | Print the armed/used checklist for PATH (default cwd) and stop — the same line as `bin/tezgah-status` (`bin/tezgah-setup::main`, `hooks/tezgah_context.py::health_lines`). It also prints the report's `config.json hosts (...) match the hosts wired (...)` row when the recorded list and the wiring on disk disagree (`hosts_row`), and nothing when they agree: install health is checked here, not only in a full report. |
+| `--agents [PATH]` | Regenerate PATH's per-repo subagent set (default cwd); outside a [root](glossary.md#root) it prints `no agents generated` (`bin/tezgah-setup::main`). |
+| `--write-manifest` | Regenerate the tracked `MANIFEST` from `git ls-files` and stop — the release step, its only writer, and it says so on a tree with no `.git` rather than writing an empty listing (`bin/tezgah-setup::write_manifest`, `bin/tezgah-setup::plugin_files`). |
+| `--write-plugin-agents` | Re-render the plugin's tracked `agents/*.md` from the role bodies `hooks/tezgah_agents.py` generates per repo, and stop — the release step that keeps the shipped reviewer from drifting from the generated one; `tests/test_agents.py` fails until it has run (`write_plugin_agents`, `plugin_agents`). |
+| `--deps` | Install the missing optional tools and stop; with `--install` the install already does it. Like `--install` and `--enable`, it exits 1 when a requested tool is still missing (`bin/tezgah-setup::main`). |
 | `--host-deps` | With `--install` or `--deps`, also install the missing third-party host CLIs (cursor-agent, pnpm, dsh). They are opt-in because each one is a vendor `curl \| sh` that uninstall does not take back. Every installer runs with a 600 s timeout, each `curl` with `--max-time 300` and each pipeline under `pipefail`, so a stalled or refused download fails instead of hanging or reading as success (audit M-9). |
-| `--mcp-schemas` | Measure the MCP tool-schema band by asking each registered server (`initialize` + `tools/list`) and stop (`bin/tezgah-setup:4160-4162`, `bin/tezgah-setup:4160-4162`). |
-| `--no-deps` | Skip the optional-tool install; `TEZGAH_NO_DEPS` is the same switch for CI (`bin/tezgah-setup:4074-4076`, `bin/tezgah-setup:4217`). |
-| `--devtools` | Also wire the optional Chrome DevTools MCP (`bin/tezgah-setup:4075-4077`). |
-| `--features` | Print every feature id with its default, its selection and its dependency state; an unmet one names why and the command that would satisfy it (`features_report`, `bin/tezgah-setup:2223-2240`). |
-| `--enable ID[,ID]`, `--disable ID[,ID]` | Select or deselect features and persist the choice in `config.json`. An enable satisfies the named features' dependencies in the same run (an embedding id fetches and converts its model, see [below](#opt-in-embedding-relevance)); a disable runs no installer and removes only a file tezgah made for the row (`select_features`, `bin/tezgah-setup:2259-2304`). |
-| `--dry-run` | Print what the optional-tool install would run, and run none of it (`bin/tezgah-setup:4088-4091`). |
-| `--prefix DIR` | Set the install prefix for this run: where a released artifact unpacks, and the second root a farm link may resolve into along with the checkout. It wins over `TEZGAH_PREFIX`, which wins over `$XDG_DATA_HOME/tezgah`, which wins over `~/.local/share/tezgah` (`bin/tezgah-setup:4093-4095`, `bin/tezgah-setup:4126-4137`, `bin/tezgah-setup:59-65`). |
-| `--upgrade [VERSION]` | Move the install tree to VERSION (default: the newest release): `packaging/upgrade.sh` fetches it, checksum-verifies it, unpacks `<prefix>/<VERSION>` and flips `current`, then the installer re-runs **from the new tree**; `--dry-run` prints every step and runs none (`bin/tezgah-setup:4394-4395`, `bin/tezgah-setup:4232-4234`, `bin/tezgah-setup:4763-4812`). |
-| `update` | `tezgah update [--dry-run]` moves this install to the newest release through the channel it came from, then re-arms the hosts from the new tree. A release prefix goes through `--upgrade`. A Homebrew keg runs `brew upgrade r1z4x/tezgah/tezgah`, an npm tree runs `npm install -g @r1z4x/tezgah@latest`, and a git checkout runs `git pull --ff-only` (`update()`, `hooks/tezgah_update.py`). |
-| `--version` | Print the plugin version and exit (`bin/tezgah-setup:4104-4109`, `:163-178`). |
-| `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`bin/tezgah-setup:4106-4107`, `bin/tezgah-setup:4238`). |
-| `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`bin/tezgah-setup:4108`, `bin/tezgah-setup:3817-3827`, `bin/tezgah-setup:4235`). |
-| `-h`, `--help` | Usage and the list above (`bin/tezgah-setup:3159`). |
+| `--mcp-schemas` | Measure the MCP tool-schema band by asking each registered server (`initialize` + `tools/list`) and stop (`bin/tezgah-setup::main`, `bin/tezgah-setup::mcp_schema_report`). |
+| `--no-deps` | Skip the optional-tool install; `TEZGAH_NO_DEPS` is the same switch for CI (`bin/tezgah-setup::main`, `bin/tezgah-setup::install_deps`). |
+| `--devtools` | Also wire the optional Chrome DevTools MCP (`bin/tezgah-setup::DEVTOOLS_FEATURE`). |
+| `--features` | Print every feature id with its default, its selection and its dependency state; an unmet one names why and the command that would satisfy it (`features_report`, `bin/tezgah-setup::features_report`). |
+| `--enable ID[,ID]`, `--disable ID[,ID]` | Select or deselect features and persist the choice in `config.json`. An enable satisfies the named features' dependencies in the same run (an embedding id fetches and converts its model, see [below](#opt-in-embedding-relevance)); a disable runs no installer and removes only a file tezgah made for the row (`select_features`, `bin/tezgah-setup::select_features`). |
+| `--dry-run` | Print what the optional-tool install would run, and run none of it (`bin/tezgah-setup::install_deps`). |
+| `--prefix DIR` | Set the install prefix for this run: where a released artifact unpacks, and the second root a farm link may resolve into along with the checkout. It wins over `TEZGAH_PREFIX`, which wins over `$XDG_DATA_HOME/tezgah`, which wins over `~/.local/share/tezgah` (`bin/tezgah-setup::main`, `bin/tezgah-setup::INSTALL_PREFIX`). |
+| `--upgrade [VERSION]` | Move the install tree to VERSION (default: the newest release): `packaging/upgrade.sh` fetches it, checksum-verifies it, checks its build provenance with `gh attestation verify` when `gh` is on PATH (and says `provenance not checked` when it is not), unpacks `<prefix>/<VERSION>` and flips `current`, then the installer re-runs **from the new tree** after the hook-entry change is printed; `--dry-run` prints every step and runs none (`bin/tezgah-setup::upgrade`). |
+| `update` | `tezgah update [--dry-run]` moves this install to the newest release through the channel it came from, then re-arms the hosts from the new tree. A release prefix goes through `--upgrade`. A Homebrew keg runs `brew upgrade r1z4x/tezgah/tezgah`, an npm tree runs `npm install -g @r1z4x/tezgah@latest`, and a git checkout runs `git pull --ff-only` (`update()`, `hooks/tezgah_update.py`). Before re-arming it prints every tezgah hook entry the new tree adds, removes or changes, per host. Paths compare with the tree root taken out, so a move to the new release's own path is no change. A real change on a terminal waits for a yes; Enter is no. A piped run goes on without asking (decision 12; `hooks/tezgah_update.py::confirm_rearm`). A no exits 1 after the fetch and says what it left. A checkout or an npm package is replaced in place, and the prefix's `current` already points at the new tree, so there the hooks run the new code and only the changed entries wait. A Homebrew keg is new beside the old one, so hooks wired to the old keg's path run the old code until the re-arm (`NOT_REARMED`, `hooks/tezgah_update.py::NOT_REARMED`). |
+| `--version` | Print the plugin version and exit (`bin/tezgah-setup::main`, `hooks/tezgah_context.py::version`). |
+| `--roots R` | Set the roots for this install, `os.pathsep`-separated. Without `--install` it exits 1: `--roots only means something with --install` (`bin/tezgah-setup::main`). |
+| `--hosts H` | Comma-separated subset of `claude,codex,opencode,cursor,dsh,omp`; an unknown name exits 1 before anything is written, and naming hosts switches off the re-detection that follows a tool install (`bin/tezgah-setup::main`, `bin/tezgah-setup::install_all`). |
+| `-h`, `--help` | Usage and the list above (`bin/tezgah-setup::main`). |
 
 A green `--report` says the wiring is on disk; `--report --live` says it ran. What it cannot cover is the host binary itself: it runs the command the host would run, not the host, so a host that refuses to load its own config (a Claude plugin disabled in the UI after the check, a dsh build whose bridge drops the event) still needs a real session to show.
 
@@ -57,48 +59,59 @@ built by `packaging/build.sh` from the tracked `MANIFEST` plus a generated
 team can stay on one version and a rollback is one tree away: the older version is
 never removed, and going back is
 `ln -sfn <prefix>/<previous> <prefix>/current` (`packaging/upgrade.sh:9-11`,
-`packaging/upgrade.sh:98-117`). The prefix is `~/.local/share/tezgah` unless
-`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:61`),
-and `bin/tezgah-setup --prefix DIR` wins over both (`bin/tezgah-setup:59-65`).
+`packaging/upgrade.sh:118-137`). The prefix is `~/.local/share/tezgah` unless
+`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:63`),
+and `bin/tezgah-setup --prefix DIR` wins over both (`bin/tezgah-setup::INSTALL_PREFIX`).
 A farm link counts as tezgah's when it resolves into the checkout **or** into the
 install root, which is what keeps an upgrade from orphaning the wiring
-(`is_tezgah_link()`, `bin/tezgah-setup:2464-2483`).
+(`is_tezgah_link()`, `bin/tezgah-setup::is_tezgah_link`).
 
 | Step | Command |
 |---|---|
 | first install, POSIX | `curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.sh \| sh -s -- --version <version>` |
-| from a tarball you hold | unpack it, then `sh packaging/install.sh --version <version>` — it finds `upgrade.sh` beside itself (`packaging/install.sh:29-30`) |
+| from a tarball you hold | unpack it, then `sh packaging/install.sh --version <version>` — it finds `upgrade.sh` beside itself (`packaging/install.sh:30-32`) |
 | first install, Windows | `$env:TEZGAH_VERSION = '<version>'; irm https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.ps1 \| iex` |
 | upgrade | `tezgah update` (any channel), `bin/tezgah-setup --upgrade [VERSION]` from the installed tree, or `sh packaging/upgrade.sh --version X.Y.Z` |
 
 `packaging/install.sh` is a bootstrap, never a second implementation: it runs
 `packaging/upgrade.sh` — the one place a version is fetched, checksum-verified,
 unpacked and made current — and then starts `bin/tezgah-setup --install` from the
-tree that just became current (`packaging/install.sh:42-49`). `upgrade.sh`
+tree that just became current (`packaging/install.sh:44-56`). `upgrade.sh`
 compares the digest it fetched against the artifact before unpacking anything and
-stops, printing both, on a mismatch (`packaging/upgrade.sh:86-94`).
+stops, printing both, on a mismatch (`packaging/upgrade.sh:88-96`). It then
+checks the tarball's build provenance with `gh attestation verify` when `gh` is
+on PATH. Without `gh` it prints `provenance not checked`, and a `gh` that cannot
+answer is a warning: the checksum stays the gate.
 `TEZGAH_DIST` points `upgrade.sh` and `install.ps1` at a directory holding
 `tezgah-<version>.tar.gz` + `.sha256` instead of the release URL — the seam that
 installs a locally built artifact with no published release, which is what CI
-uses (`packaging/upgrade.sh:16-18`, `packaging/upgrade.sh:72-76`).
+uses (`packaging/upgrade.sh:17-21`, `packaging/upgrade.sh:74-78`).
 
 Windows goes through `packaging/install.ps1`, which assumes no `sh`, no `python3`
 and no symlink privilege: it unpacks with the `tar.exe` that Windows 10 1803+
 ships, materialises `current` as a directory junction, copies the tree where a
 junction is refused, and starts the installer with the first of `py -3`,
-`python`, `python3` it finds (`packaging/install.ps1:10-23`,
-`packaging/install.ps1:126-150`).
+`python`, `python3` it finds, passing `--prefix` on (`packaging/install.ps1:12-23`,
+`packaging/install.ps1:128-163`). The installer knows both shapes of `current`
+(`bin/tezgah-setup::running_prefix`). A junction answers to
+`os.path.isjunction`, or to its reparse tag below Python 3.12. A copy is the
+running tree at `<prefix>/current` with no `.git`, whose `VERSION` names a
+version tree beside it. A checkout cloned as `current` is not a copy. So
+`tezgah update` finds the release prefix and `--uninstall` removes it.
+`--upgrade` on Windows runs `install.ps1 -NoInstall` in place of
+`packaging/upgrade.sh` and then re-arms from the new tree. A missing `bash` (or
+`powershell`) is a refusal that names it (`bin/tezgah-setup::upgrade`).
 
 An unpacked tree lists itself without git. `plugin_files()` reads `git ls-files`
 in a checkout and falls back to the tracked `MANIFEST` where there is no `.git`; a
 missing or empty manifest answers `None`, which is what makes `--sync` refuse
 instead of emptying a copy it cannot refill (`plugin_files()`,
-`bin/tezgah-setup:4300-4325`). `MANIFEST` is written by `--write-manifest`, its
+`bin/tezgah-setup::plugin_files`). `MANIFEST` is written by `--write-manifest`, its
 only writer, from the same filter the reader applies — `managed()` — so the
-listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup:4275-4299`,
-`write_manifest()`, `bin/tezgah-setup:4326-4343`). The payload also carries
+listing and its reader cannot disagree (`managed()`, `bin/tezgah-setup::managed`,
+`write_manifest()`, `bin/tezgah-setup::write_manifest`). The payload also carries
 `VERSION`, which is what a tree with no `.claude-plugin/` answers from
-(`version()`, `hooks/tezgah_context.py:2475-2502`).
+(`version()`, `hooks/tezgah_context.py::version`).
 
 ## A first install from a checkout
 
@@ -111,9 +124,9 @@ cd ~/Projects/tezgah && bin/tezgah-setup --install
 [README's Install section](../README.md#install). On a terminal the bare
 `bin/tezgah-setup` is the wizard: it asks which hosts, the roots, whether to
 install the missing optional tools (host CLIs only with `--host-deps`) and whether to wire the DevTools MCP, prints
-the plan, and writes only after a yes (`bin/tezgah-setup:3159-3184`). A pre-tezgah setup is
+the plan, and writes only after a yes (`bin/tezgah-setup::wizard`). A pre-tezgah setup is
 named under `predecessor wiring still present` and retired by `--adopt`
-(`bin/tezgah-setup:2759-2850`); narrow it with `--hosts omp`, `--roots ~/work:~/oss`, `--dry-run`.
+(`bin/tezgah-setup::adopt`); narrow it with `--hosts omp`, `--roots ~/work:~/oss`, `--dry-run`.
 
 An install from a checkout is a live symlink into that working tree, so a half-finished edit or a branch switch there crashes the sessions running on it (the `crash` ledger rows of 09-20..09-21 were names removed mid-edit) - do tezgah maintenance in a `git worktree`, never in the installed checkout.
 
@@ -121,14 +134,14 @@ The `~/.config/tezgah/bin` farm carries `tezgah-mcp` and `tezgah-design` beside 
 
 A successful run prints, in order: `dependencies:`, a line per missing optional
 tool with the vendor command it runs — over the network, no sudo
-(`:1209-1249`) — or `all optional tools present` (the run is appended to
-`~/.config/tezgah/install.log`, `bin/tezgah-setup:1421-1428`); `installing for: <hosts>`
-(`bin/tezgah-setup:3213`); the common block — config and roots, the contract sha, one `ok` line
-per `~/.config/tezgah/bin` symlink, the app artifacts dir (`:394-429`);
-`openresearch (orx):`, a line per host orx has a harness for (`bin/tezgah-setup:1355-1378`); one
-`ok` line per link or write inside each host's block (`bin/tezgah-setup:464-1234` — a write that
-met a real file in the way says so instead, `:223-242`); then the report and the
-context budget table (`bin/tezgah-setup:2067-2093`, `bin/tezgah-setup:2456-2466`). Its tail:
+(`bin/tezgah-setup::install_deps`) — or `all optional tools present` (the run is appended to
+`~/.config/tezgah/install.log`, `bin/tezgah-setup::_dep_log`); `installing for: <hosts>`
+(`bin/tezgah-setup::install_all`); the common block — config and roots, the contract sha, one `ok` line
+per `~/.config/tezgah/bin` symlink, the app artifacts dir (`bin/tezgah-setup::install_common`);
+`openresearch (orx):`, a line per host orx has a harness for (`bin/tezgah-setup::install_openresearch`); one
+`ok` line per link or write inside each host's block (`bin/tezgah-setup::INSTALLERS` — a write that
+met a real file in the way says so instead, `bin/tezgah-setup::link`); then the report and the
+context budget table (`bin/tezgah-setup::report`, `bin/tezgah-setup::context_budget_report`). Its tail:
 
 ```text
 omp:
@@ -143,16 +156,16 @@ context budget (always-on text; ~tokens = chars/4):
 prints the checkout, the roots and where they came from (`TEZGAH_ROOTS`, `config`
 or `default`), a common block (config, the code-graph binary, the consult options, a codegen key,
 `orx`, `npx`, the artifacts dir, `git`, the manifest, a stale-contract line), one
-block per host, then the budget (`bin/tezgah-setup:2779-2814`). Each block is
-`host_checks_<host>` (`bin/tezgah-setup:2779-3144`), and those rows are the source of truth for
-"is this host armed" (`AGENTS.md:74-75`) — not the presence of a directory, and
+block per host, then the budget (`bin/tezgah-setup::report`). Each block is
+`host_checks_<host>` (`bin/tezgah-setup::HOST_CHECKS`), and those rows are the source of truth for
+"is this host armed" (`AGENTS.md:136-137`) — not the presence of a directory, and
 not the status line. A row can read ` MISS ` too: claude's `plugin copy current`
 row fails on a machine with no copy at all, because an absent copy is not a
-current one (`bin/tezgah-setup:3682-3700`).
+current one (`bin/tezgah-setup::host_checks_claude`).
 
 `--status [PATH]` answers a different question — which rules are in force in that
 repo — as one line of marks rendered by the same code every status line uses
-(`hooks/tezgah_context.py:2288-2359`, `hooks/tezgah_context.py:2411-2419`). Mark meanings are in
+(`hooks/tezgah_context.py::health_lines`, `hooks/tezgah_context.py::render_line`). Mark meanings are in
 [status-line.md](status-line.md); `bin/tezgah-status` is that checklist with
 `--json`, `--legend` and `--observable=`. It carries the report's host-list row
 too, from the same `hosts_row`, so the mismatch reaches the surface a session
@@ -168,21 +181,24 @@ a host's config, so a wiring row there would belong to a different tool.
 
 The version lives in `.claude-plugin/plugin.json` when that untracked local
 manifest is present, else in the newest `## [x.y.z]` heading of `CHANGELOG.md`
-(`bin/tezgah-setup:207-209`); `.gitignore:18-19` is why it is not in the repository, and
-`RELEASING.md:3-7` is how a release bumps it.
+(`hooks/tezgah_context.py::version`); `.gitignore:16-19` is why it is not in the repository, and
+`RELEASING.md:19-24` is how a release bumps it. A `--install` that registers
+Claude renders the pair into its tree. The version comes from `VERSION` or that
+heading, never from the pair itself. A pair the install rendered follows the
+version when it moves.
 
 An installed version moves with one command, and nothing moves it on tezgah's own
 initiative: a session may not install, upgrade or restart tezgah's own
-installation (`hooks/tezgah_policy.py:783-790`). `bin/tezgah-setup --upgrade
+installation (`hooks/tezgah_policy.py::CORE`). `bin/tezgah-setup --upgrade
 [VERSION]` runs `packaging/upgrade.sh --version V --prefix P`, then re-runs the
 installer **from the new tree** — this process started from the old one, so its
 farm links would point back into it — with the hosts and roots already in
 `config.json`, so the install questions are not asked twice; the previous version
 stays installed, so a rollback is a `current` flip (`upgrade()`,
-`bin/tezgah-setup:4763-4812`). It is the flag's only caller: no other flag
+`bin/tezgah-setup::upgrade`). It is the flag's only caller: no other flag
 upgrades tezgah as a side effect of another. `--upgrade --dry-run` prints the
 fetch, the flip and the re-arm and runs none of the three
-(`bin/tezgah-setup:4232-4234`).
+(`bin/tezgah-setup::upgrade`).
 
 The status line says when a newer release is out. A `↑X.Y.Z` chip sits beside
 the logo, in the version's own group, on every surface (`notice_segments()`,
@@ -194,6 +210,9 @@ at, and it is the only thing that moves the install. The
 `~/.config/tezgah/update-check-off` switch stops both the check and the chip.
 `tezgah` is also a farm link and a Homebrew name, so the command reads the same
 on npm, Homebrew and a checkout.
+An install on the numbering the 2026-10-04 reset retired (0.2.0 to 0.32.0,
+`hooks/tezgah_update.py::RETIRED`) is still offered 0.1.x. Its chip reads
+`↑0.1.x (line reset)`.
 
 After a change to the contract text (`hooks/tezgah_policy.py`,
 `hooks/tezgah_context.py`, `skills/tezgah-contract/SKILL.md`):
@@ -203,11 +222,11 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
   `<sha>  <path>` line per rendered artifact - the managed blocks of
   `CLAUDE.md`, `AGENTS.md` and `RULES.md`, `opencode-contract.md` and the
   `opencode-skills*.md` routers - rather than one hash over the sources
-  (`bin/tezgah-setup:240-269`, `bin/tezgah-setup:796-811`).
+  (`bin/tezgah-setup::record_shas`, `bin/tezgah-setup::contract_artifacts`).
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2331-2335`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2633-2637`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -221,8 +240,8 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
   alone, because they serve every repository (audit L-1).
 - `--sync` copies the checkout over the Claude plugin copy, because Claude Code
   runs `~/.claude/plugins/cache/<owner>/tezgah/<version>/` and never this
-  checkout (`bin/tezgah-setup:3701-3759`); `--install` refreshes a stale copy itself
-  (`bin/tezgah-setup:3761-3767`). Then restart Claude — hooks are read once per session.
+  checkout (`bin/tezgah-setup::sync`); `--install` refreshes a stale copy itself
+  (`bin/tezgah-setup::refresh_plugin_copy`). Then restart Claude — hooks are read once per session.
 
 From the user's side a stale copy looks like this: Claude keeps applying the old
 rules while `--report` shows ` MISS plugin copy current (every copied file
@@ -230,23 +249,23 @@ matches)`. That row compares a sha256 over every tracked file `sync` copies —
 not the version number both trees report, and not a single file: a one-file hash
 cannot see a change to another hook, which is how a gate change once left the
 installed copy running the previous rules while `--install` printed `ok`
-(`bin/tezgah-setup:3682-3700`, `bin/tezgah-setup:3686-3692`). Recognising a copy
-at all is still the presence of one file (`bin/tezgah-setup:3570-3585`).
+(`bin/tezgah-setup::plugin_copy_current`, `bin/tezgah-setup::tree_sha`). Recognising a copy
+at all is still the presence of one file (`bin/tezgah-setup::plugin_copies`).
 
 ## Uninstall and adopt
 
 `--uninstall` removes everything tezgah installed, then proves the removal. The
 run is **full** when it covers every host `config.json` records as armed, and
-**partial** otherwise (`uninstall()`, `bin/tezgah-setup:3134-3216`). Both runs
+**partial** otherwise (`uninstall()`, `bin/tezgah-setup::uninstall`). Both runs
 take the host wiring back - the skill symlinks, hook entries, managed blocks,
 MCP rows and status-line keys each host's own installer wrote
-(`bin/tezgah-setup:2543-2694`), plus the farm links and the generated repo agent
-files (`bin/tezgah-setup:2153-2159`). A link — or an entry the installer
+(`bin/tezgah-setup::UNINSTALLERS`), plus the farm links and the generated repo agent
+files (`bin/tezgah-setup::remove_generated_state`, `bin/tezgah-setup::_marker_agents_files`). A link — or an entry the installer
 materialised where a platform refuses symlinks — counts as tezgah's only when it
 resolves inside this checkout or the install root, so a file you put in the same
-place is kept (`is_tezgah_entry()`, `bin/tezgah-setup:2484-2491`), and
+place is kept (`is_tezgah_entry()`, `bin/tezgah-setup::is_tezgah_entry`), and
 `~/.claude/settings.json` loses only the keys tezgah added
-(`bin/tezgah-setup:2247-2254`).
+(`bin/tezgah-setup::unwire_claude_settings`).
 
 A **full** run also takes everything the wiring was serving from:
 
@@ -254,20 +273,20 @@ A **full** run also takes everything the wiring was serving from:
   `installed_plugins.json` — the tree Claude actually runs and the registry row
   that makes it keep loading both outlived every other removal, which is how an
   uninstalled tezgah kept applying its rules (`remove_plugin_copies()`,
-  `bin/tezgah-setup:2609-2657`). A marketplace row sourced from a tezgah tree
+  `bin/tezgah-setup::remove_plugin_copies`). A marketplace row sourced from a tezgah tree
   goes with them once nothing else installs from it.
 - the `~/.config/tezgah` generated state: config, contract hash, install log,
   materialised ledger, the generated opencode files, and every kill switch —
   the canonical ones with the dir, the legacy `~/.claude` ones by name
-  (`remove_generated_state()`, `bin/tezgah-setup:2685-2728`;
-  `sweep_legacy_switches()`, `bin/tezgah-setup:2658-2674`).
+  (`remove_generated_state()`, `bin/tezgah-setup::remove_generated_state`;
+  `sweep_legacy_switches()`, `bin/tezgah-setup::sweep_legacy_switches`).
 - both state caches (`~/.cache/tezgah` and the sandbox fallback).
 - the versioned install tree: every `<prefix>/<version>` carrying
   `bin/tezgah-setup` plus the `current` flip (`remove_install_tree()`,
-  `bin/tezgah-setup:2729-2782`).
+  `bin/tezgah-setup::remove_install_tree`).
 
-Kept in every run: the user's own files, every `<file>.tezgah-bak` backup
-outside the config dir, `~/.config/tezgah/adopted/` (the only copy of the
+Kept in every run: the user's own files, every `.tezgah-bak` backup
+outside the config dir (the timestamped ones too), `~/.config/tezgah/adopted/` (the only copy of the
 predecessor wiring adopt moved aside), and every repository's `.tezgah/`
 research state. A **partial** run also keeps config.json and the install tree,
 because the hosts still armed read both at runtime, and says so. It also leaves
@@ -275,11 +294,11 @@ the gate armed: only a full run writes `pretooluse-off` while it removes the
 hooks. A partial run used to write it too and never take it back, so the hosts
 still armed lost the whole gate (audit H-2, ENV-01). The orx skill
 shims come from orx's own installer, so they are never listed for removal
-(`bin/tezgah-setup:1730-1757`).
+(`bin/tezgah-setup::install_openresearch`).
 
 Every run ends in a verify pass that re-derives the removal from the filesystem
 alone — one line per claim, and the exit code is 1 while anything tezgah wrote
-survives (`verify_uninstall()`, `bin/tezgah-setup:2793-2900`), so a leftover can
+survives (`verify_uninstall()`, `bin/tezgah-setup::verify_uninstall`), so a leftover can
 never read as a clean uninstall. It ends by naming what needs a restart and, in
 a git checkout whose own `.mcp.json` registers the tezgah MCP server, saying that
 that file is the source tree's dev config, not an install artifact. An npm or
@@ -296,10 +315,10 @@ those files are the thing adopt has to retire), the hook entries in
 projects-harness marker block in a root's `AGENTS.md` — a block that points
 every session at a POLICY.md inside the moved harness, so leaving it is leaving
 a dead pointer — all go to `~/.config/tezgah/adopted/<timestamp>/`
-(`bin/tezgah-setup:2759-2850`). `predecessors()` is what
-the report prints and what adopt retires (`bin/tezgah-setup:3087-3109`). Under the wizard adopt
+(`bin/tezgah-setup::adopt`). `predecessors()` is what
+the report prints and what adopt retires (`bin/tezgah-setup::predecessors`). Under the wizard adopt
 waits for the yes: a declined plan leaves the predecessor wiring exactly where it
-was (`bin/tezgah-setup:3933-3939`).
+was (`bin/tezgah-setup::wizard`).
 
 ## Migrate legacy state: `tezgah-migrate`
 
@@ -307,32 +326,32 @@ Per-project tezgah state lives only under `<repo>/.tezgah/`, ignored by the
 project and versioned by its own private repository at `.tezgah/.git`. Older
 installs left it elsewhere: a `.tezgah/` the project tracked, a root `plans/`,
 `analysis/` or `research/`. `bin/tezgah-migrate` finds those and moves them
-(`bin/tezgah-migrate:216-267`):
+(`bin/tezgah-migrate::make_plan`):
 
 - a tracked `.tezgah/` is untracked with `git rm -r --cached` and stays on disk;
 - a root `plans/` in tezgah plan format (an `open/` or `done/` directory, or a
-  README with the status markers, `bin/tezgah-migrate:119-121`) goes into
+  README with the status markers, `bin/tezgah-migrate::is_plan_tree`) goes into
   `.tezgah/plans/`, `analysis/` into `.tezgah/analysis/`, and `research/` into
   `.tezgah/analysis/imported-research/`; a tracked source is removed from the
   index, an untracked one is moved;
 - project-owned knowledge (`CLAUDE.md`, `AGENTS.md`, nested rule files,
   `docs/research/`, `.claude/agents|skills|commands`, `.agents/`, `skills/`)
   stays where it is and is indexed in `.tezgah/analysis/project-knowledge.md`
-  with its file count and first heading (`bin/tezgah-migrate:142-157`);
+  with its file count and first heading (`bin/tezgah-migrate::knowledge_index`);
 - the workspace is ensured (`/.tezgah/` and `/.codegraph/` in `.gitignore`,
   `git init` in `.tezgah`) and its content committed there as `import from
   project history <short sha>`.
 
 A file whose name already exists at the destination with other content is
 reported as `skip` and left in place; an identical duplicate only loses its
-source (`bin/tezgah-migrate:176-213`).
+source (`bin/tezgah-migrate::plan_move`).
 
 With no `--repo` it walks every repository directly under each configured root
 whose `.git` is a directory, skipping the tezgah checkout
-(`bin/tezgah-migrate:309-323`). It is a dry run by default: one `would` line per
+(`bin/tezgah-migrate::discover`). It is a dry run by default: one `would` line per
 action and a `=` summary per repo. `--apply` first writes every path it will
 touch to `~/.config/tezgah/backups/<repo>-<UTC stamp>.tar.gz`
-(`bin/tezgah-migrate:270-280`), then performs the actions. It never commits in the
+(`bin/tezgah-migrate::write_backup`), then performs the actions. It never commits in the
 project repository and never pushes: the result is an uncommitted change to
 review. A second `--apply` finds nothing to do.
 
@@ -351,10 +370,10 @@ does not hold.
 
 | Invocation | What it does |
 |---|---|
-| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor:138-158`, `:392-395`) |
-| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`:211-221`, `:430-454`); and deletes tezgah's own hook state not modified for `--retention-days` (default 30) - the ledgers under `evidence/`, `turns/`, `sessions/`, `classify.log`, `context-drops.log` and `debug.log`, in the cache and its sandbox fallback - keeping the current session's (`$TEZGAH_SESSION`) files whatever their age (`sweep_state`) |
+| `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor::collect`, `bin/tezgah-doctor::report`) |
+| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`bin/tezgah-doctor::vacuum_db`, `bin/tezgah-doctor::main`); and deletes tezgah's own hook state not modified for `--retention-days` (default 30) - the ledgers under `evidence/`, `turns/`, `sessions/`, `classify.log`, `context-drops.log` and `debug.log`, in the cache and its sandbox fallback - keeping the current session's (`$TEZGAH_SESSION`) files whatever their age (`sweep_state`) |
 | `tezgah-doctor --coverage` | every tracked file the codegraph index does not hold, in two classes — a supported extension the index is missing, and a shebang-only script with no `.py` twin — with the file counts it read, so an empty result cannot read as "everything is covered" |
-| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`:241-260`, `:419-431`) |
+| `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`bin/tezgah-doctor::prune_sessions`, `bin/tezgah-doctor::main`) |
 
 `VACUUM` alone cannot shrink that database — its pages are all live — so
 `--prune-sessions` is the action that actually reclaims space
@@ -371,26 +390,26 @@ report counts a tracked `bin/x` as covered when the index holds `bin/x.py`.
 Phase 1 of a coding-taste learner stores the signals tezgah already receives.
 It learns nothing and injects nothing yet. It stays off until the user arms it
 with a `taste-on` file in `~/.config/tezgah/` (`enabled`,
-`hooks/tezgah_taste.py:37-54`). The off path costs two stats. Armed, it writes
+`hooks/tezgah_taste.py::enabled`). The off path costs two stats. Armed, it writes
 only into a repository that already has a `.tezgah/` directory. A `.no-taste`
-mark turns it off for one repository (`hooks/tezgah_context.py:2075-2076`).
+mark turns it off for one repository (`hooks/tezgah_context.py::repo_marks`).
 A workspace of repo-provided data gets nothing.
 
 Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
-(`_write`, `hooks/tezgah_taste.py:73-81`). A user turn adds a `prompt` row,
-redacted and cut to 2000 characters (`hooks/tezgah_context.py:1606-1610`).
+(`_write`, `hooks/tezgah_taste.py::_write`). A user turn adds a `prompt` row,
+redacted and cut to 2000 characters (`hooks/tezgah_taste.py::note_prompt`).
 A landed write adds an `edit` row with its redacted old and new text, cut to
 4000, under the ledger row's id. Each written file also adds an `after` row.
 It names a snapshot that holds the bytes the write left (`note_write`,
-`hooks/tezgah_taste.py:156-183`, called from `note_tool`,
-`hooks/tezgah_integrity.py:2771-2779`). The after blob shares the snapshot
+`hooks/tezgah_taste.py::note_write`, called from `note_tool`,
+`hooks/tezgah_integrity.py::note_tool`). The after blob shares the snapshot
 store's limits and eviction. Armed, each landed write therefore keeps two blobs,
 and a session rollback reaches about half as far back. The after blob writes no
 ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
-`hooks/tezgah_snapshot.py:243-272`). A file outside the repository gets no
+`hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2037-2046`).
+`hosts/opencode/plugins/tezgah.js:2310-2319`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
@@ -402,10 +421,35 @@ bin/tezgah-taste rate --in mined.jsonl        # preference corrections per writi
 
 `mine` reads the host transcripts already on disk, so it needs no capture. It
 reads omp's top-level session files and Claude's top-level transcripts whose cwd
-is under `--root` (`cmd_mine`, `bin/tezgah-taste:190-218`). `measure` and `rate`
+is under `--root` (`cmd_mine`, `bin/tezgah-taste::cmd_mine`). `measure` and `rate`
 send the sample text to the judge seam's provider ([judge](judge.md)), redacted
-first (`classify`, `bin/tezgah-taste:228-250`). They use a fixed labelling rule
-(`RULE`, `bin/tezgah-taste:48-52`). Without a credential they send nothing.
+first (`classify`, `bin/tezgah-taste::classify`). They use a fixed labelling rule
+(`RULE`, `bin/tezgah-taste::RULE`). Without a credential they send nothing.
+
+## Tidying the lessons ledger
+
+`.tezgah/lessons.md` is the user's file, so tezgah only proposes changes to it.
+
+```sh
+bin/tezgah-lessons                              # proposals for the repo in the cwd
+bin/tezgah-lessons --root DIR --fixture FX.json # plus recall@5 before and after the merges
+```
+
+It prints three kinds of line and writes nothing. `rewrite N` is a rule-first
+text for a line with no ` - ` in its first 120 characters (`rewrite`,
+`bin/tezgah-lessons::rewrite`). `merge A, B` names lines whose word-Jaccard is at
+least 0.2 (`clusters`, `bin/tezgah-lessons::clusters`). `retire N` names a line a gate
+rule or a test already enforces and the `|| enforced_by:` suffix for it
+(`RETIRE`, `bin/tezgah-lessons::RETIRE`). A rewrite is a heuristic over clause
+boundaries, so read it before applying it. With `--fixture`, it remaps the ground
+truth to the merged numbering and exits 1 when the merges would lower recall@5.
+
+The per-turn ranking passes BM25 a cap that the docs fallback does not
+(`LESSON_MAX_DF`, `hooks/tezgah_context.py::LESSON_MAX_DF`). English and Turkish function
+words rank nothing (`STOPWORDS`, `hooks/tezgah_rank.py::STOPWORDS`). On ten lines or
+more, neither does a word in more than half of them. On the private 12-prompt
+fixture over the 47-line ledger, recall@5 went from 0.647 to 0.675 with the cap.
+That is a figure about this ranker on that fixture, not production recall.
 
 ## Opt-in embedding relevance
 
@@ -415,10 +459,10 @@ every title and answer (`title_tr`, `answers_tr`), so a Turkish question meets a
 English page. Two opt-in feature ids add a static embedding model - one vector
 per token, mean-pooled, read by a stdlib reader. The lessons block keeps BM25's
 order and adds a line by meaning only when its cosine reaches the model's floor
-(`fuse`, `hooks/tezgah_embed.py:350-371`). The docs fallback ranks pages by
-meaning alone (`nearest`, `hooks/tezgah_embed.py:374-386`). Both are off by
+(`fuse`, `hooks/tezgah_embed.py::fuse`). The docs fallback ranks pages by
+meaning alone (`nearest`, `hooks/tezgah_embed.py::nearest`). Both are off by
 default and a plain `--install` never fetches one (`feature_deps`,
-`bin/tezgah-setup:2129-2156`).
+`bin/tezgah-setup::feature_deps`).
 
 ```sh
 bin/tezgah-setup --enable embed-mrl    # fetch, convert, verify; then selected
@@ -438,25 +482,25 @@ research line's own figure for `embed-mrl`, 0.13 s, is its median turn on its
 fixture, not this process.
 
 An enable downloads the pinned source files over HTTPS - repository, commit and
-sha256 of each are in `MODELS` (`hooks/tezgah_embed.py:57-80`) - converts them
-with the standard library alone (`convert`, `hooks/tezgah_embed.py:655-687`),
+sha256 of each are in `MODELS` (`hooks/tezgah_embed.py::MODELS`) - converts them
+with the standard library alone (`convert`, `hooks/tezgah_embed.py::convert`),
 checks the result against its own pinned sha256 and only then writes
 `~/.cache/tezgah/embed/<id>.bin`, mode 0600 in a 0700 directory; a mismatch at
-either end writes nothing (`fetch`, `hooks/tezgah_embed.py:705-737`). A fetch
+either end writes nothing (`fetch`, `hooks/tezgah_embed.py::fetch`). A fetch
 killed outright (the installer's timeout, Ctrl-C) skips that cleanup and leaves
 its partial download in a `.fetch-*` directory; the next `--enable` or
 `--disable` of either id deletes those directories (`_sweep`,
-`hooks/tezgah_embed.py:690-702`).
+`hooks/tezgah_embed.py::_sweep`).
 While it runs, each download and each conversion pass prints a progress line -
 `downloaded 212/436 MB 48%`, `quantised 7/13 chunks 53%` - rewritten in place
 on a terminal and printed once per 10% into a log (`_Progress`,
-`hooks/tezgah_embed.py:396-424`).
+`hooks/tezgah_embed.py::_Progress`).
 The conversion is bit-reproducible: the same bytes under Python 3.10 and 3.12 for
 both ids (and 3.9 for `embed-mrl`), and for `embed-mrl` byte-identical vectors to
 the research's numpy export.
 
 At hook time the model is read only when its id is selected and the file is the
-pinned one (`reader`, `hooks/tezgah_embed.py:323-337`); a missing, altered or
+pinned one (`reader`, `hooks/tezgah_embed.py::reader`); a missing, altered or
 unreadable file, or any error, is BM25 exactly as before, and nothing at hook time
 touches the network. With both ids selected, `embed-mrl` is the one read: the
 registry lists it first. A ledger with no line older than the session block's
@@ -486,22 +530,29 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
 | Symptom | First check | Likely cause |
 |---|---|---|
-| A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup:2146-2147`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`bin/tezgah-setup:2576-2595`). codex has no status-line row at all — its surface is hooks, skills and MCP (`bin/tezgah-setup:2466-2487`) |
-| A skill is missing in one host | `ls ~/.codex/skills/*/SKILL.md` (the host's skills dir is in [hosts.md](hosts.md)) | the link was never made: that host was not in the last `--hosts`. `bin/tezgah-setup --install --hosts codex` relinks it. Claude has no skills directory — it reads the plugin copy, so the row to read there is `plugin copy current` (`bin/tezgah-setup:3682-3700`) |
-| A skill link dangles | `ls -lL ~/.omp/agent/skills/*/SKILL.md` | the link resolves to nothing: its source was renamed or removed, or the checkout moved. `skills_linked` asks for a readable `SKILL.md` precisely so this cannot read as linked (`bin/tezgah-setup:129-139`); `--install` relinks from what exists now |
-| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py:1091-1155`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py:46`, `hooks/tezgah_context.py:2068-2082`) |
-| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py:2350-2358`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:21-22`). A line that is empty everywhere is wiring: see the first row |
-| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py:361-372`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py:1132-1134`) |
-| Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setup:3761-3767`, `bin/tezgah-setup:3757`) |
+| A host shows no status line | `bin/tezgah-setup --report --hosts claude`, then `readlink ~/.claude/statusline.py` | that host's own rows read ` MISS `: the `statusline.py` symlink or the `statusLine` key (`bin/tezgah-setup::host_checks_claude`). For omp the row `status line answers` runs `hosts/omp/hook.py`, so it fails whenever the Python half cannot start (`bin/tezgah-setup::host_checks_omp`). codex has no status-line row at all — its surface is hooks, skills and MCP (`bin/tezgah-setup::host_checks_codex`) |
+| A skill is missing in one host | `ls ~/.codex/skills/*/SKILL.md` (the host's skills dir is in [hosts.md](hosts.md)) | the link was never made: that host was not in the last `--hosts`. `bin/tezgah-setup --install --hosts codex` relinks it. Claude has no skills directory — it reads the plugin copy, so the row to read there is `plugin copy current` (`bin/tezgah-setup::host_checks_claude`) |
+| A skill link dangles | `ls -lL ~/.omp/agent/skills/*/SKILL.md` | the link resolves to nothing: its source was renamed or removed, or the checkout moved. `skills_linked` asks for a readable `SKILL.md` precisely so this cannot read as linked (`bin/tezgah-setup::skills_linked`); `--install` relinks from what exists now |
+| A rule still fires after its kill switch | `ls ~/.config/tezgah/*.off`, then `bin/tezgah-context user_prompt . < /dev/null` | the switch was flipped mid-session: the rule leaves the text injected from the next turn on, but text already in the context is not retracted (`hooks/tezgah_context.py::switches`). The static files (`CLAUDE.md`, `AGENTS.md`, `RULES.md`, `opencode-contract.md`) drop a global switch's paragraph only when they are re-rendered, so run `tezgah-setup --refresh` (or `--install`) after flipping one. A per-repo `.no-*` mark does the same job as a switch file for the injected text, but it never edits the global static files (`hooks/tezgah_paths.py::OFF_DIRS`, `hooks/tezgah_context.py::repo_marks`) |
+| The status line is thinner outside the roots | `bin/tezgah-setup --status "$PWD"`, then `bin/tezgah-context session_start .` | by design, mostly: the line is global and only the per-repo `idx` and `plans` marks appear inside a root (`hooks/tezgah_context.py::health_segments`), while the injected contract text is exactly what goes silent off-root (`bin/tezgah-context:27-28`). A line that is empty everywhere is wiring: see the first row |
+| An agent cannot see the graph tools | `bin/tezgah-setup --report` — the common row `codegraph on PATH` and the host's own MCP row; then `which codegraph` | the binary is missing (it is the user's to install; `TEZGAH_CODEGRAPH_BIN` or `config.json`'s `codegraph_bin` can point at it, `hooks/tezgah_paths.py::codegraph_bin`), or the host's MCP row was overwritten and `--install --hosts <host>` rewrites it. `.no-graph` in a repo turns the code-graph rule off there (`hooks/tezgah_context.py::switches`) |
+| Claude keeps applying old rules | `bin/tezgah-setup --report --hosts claude` — the `plugin copy current` row; then `bin/tezgah-setup --sync` | the copy lags HEAD: Claude runs the copy, not the checkout. `--install` refreshes it too; restart Claude after either (`bin/tezgah-setup::install_all`, `bin/tezgah-setup::restart_hint`) |
 
 ## Safety
 
 Reversible and safe to repeat: every link and settings key it writes is
-idempotent and re-created by `--install`; a file it overwrote is kept once as
-`<file>.tezgah-bak` (`:278-285`); `--adopt` moves and prints the destination
-(`bin/tezgah-setup:2759-2850`); `--uninstall` removes only tezgah's own entries — a
+idempotent and re-created by `--install`. A write that changes a file first
+copies it to `<file>.<timestamp>.tezgah-bak`. The oldest of those copies is
+always kept, beside the newest four (`backup()`, `BACKUP_CAP`). The oldest is
+the file before tezgah's first timestamped write, which is tezgah's own content
+for a file tezgah created. On an upgraded install the pre-tezgah copy is the
+bare `<file>.tezgah-bak` an older release wrote, and the cap never prunes it.
+An unchanged write lays no backup. The installer
+never replaces a host config that does not parse (`read_config()`).
+`--adopt` moves and prints the destination
+(`bin/tezgah-setup::adopt`); `--uninstall` removes only tezgah's own entries — a
 symlink resolving into this checkout or the install tree, or an entry the
-installer materialised (`bin/tezgah-setup:2247-2254`, `bin/tezgah-setup:407-412`) — and prints
+installer materialised (`bin/tezgah-setup::materialised_paths`, `bin/tezgah-setup::is_tezgah_entry`) — and prints
 a verify pass whose nonzero exit says when anything survived; a bad write is
 undone with
 `bin/tezgah-rollback <snapshot-id> [--force]`, reaching the pre-write bytes
@@ -509,14 +560,14 @@ through the id on the ledger's snapshot row (`bin/tezgah-rollback:1-13`,
 [evidence.md](evidence.md)).
 
 Not reversible, so do them deliberately: `--sync` deletes the plugin copy's
-contents (bar `.git`) and copies the checkout over it (`bin/tezgah-setup:3721-3756`) — it refuses
-a copy that holds this very checkout (`bin/tezgah-setup:3713-3720`) — and
+contents (bar `.git`) and copies the checkout over it (`bin/tezgah-setup::_swap`) — it refuses
+a copy that holds this very checkout (`bin/tezgah-setup::sync`) — and
 `--prune-sessions` and `--clean` delete session rows and index logs. Two things
 this tool never does. It never force-pushes, rewrites pushed history, deletes a
 repo or branch, applies a migration to a live database, deploys, or touches a
 live account. And it never upgrades itself,
 or its optional tools and config, on its own initiative
-(`hooks/tezgah_policy.py:783-790`).
+(`hooks/tezgah_policy.py::CORE`).
 
 ## Triage: `tezgah-triage` and the `judge-off` switch
 
@@ -528,9 +579,9 @@ one caller no shell row sees, `bin/tezgah-route`, the tier router
 ([models](models.md)), and `bin/tezgah-taste`'s `measure` and `rate`
 ([above](#opt-in-taste-capture)). All five go through the same stdlib-only seam,
 which returns `None` rather than raising because a hook may import it
-(`available()`, `hooks/tezgah_judge.py:163-167`); the request is
+(`available()`, `hooks/tezgah_judge.py::available`); the request is
 one batched call, and the credential resolves per call (`ask()`,
-`hooks/tezgah_judge.py:168-219`; `key()`, `hooks/tezgah_judge.py:103-118`).
+`hooks/tezgah_judge.py::ask`; `key()`, `hooks/tezgah_judge.py::key`).
 
 A transient failure is retried once, and only once: a timeout, a connection error
 or a 5xx gets a second identical request, while a 4xx (a refused credential, a
@@ -545,21 +596,21 @@ the epoch and costs the normal call nothing.
 
 | Invocation | What it does |
 |---|---|
-| `tezgah-triage --select FILE --task "TEXT"` | flattens a `browser_snapshot` result (or the flattened text of one), takes the repeating units the tree marks - a row, a cell, a control on its own, and any line the tree does not mark standing alone (`units()`, `bin/tezgah-triage:204-229`) - asks one Noul per unit in one request, and prints the line ids under the selected units with their original `ref=` values, the unselected count and the characters that may now be skipped (`select()`, `bin/tezgah-triage:249-284`) |
-| `tezgah-triage --states FILE [--component T]` | one judgement per state over a component's subtree - the 13 states the analyze-app contract names (`STATES`, `bin/tezgah-triage:64-68`), each question carrying what counts as shown, with the interactive pair (`focus`, `active`) asked as one three-way Choice (`neither` / `focus` / `pressed`) whose answer decides both rows, because an aria snapshot marks the focused element `[active]` and carries no separate mark for a press - so a state the tree does not show is a finding, and the five an aria snapshot cannot carry at all (default, hover, active, skeleton, long-text) are printed on their own `unmarked:` line instead of being counted as missing (`states()`, `bin/tezgah-triage:308-431`) |
+| `tezgah-triage --select FILE --task "TEXT"` | flattens a `browser_snapshot` result (or the flattened text of one), takes the repeating units the tree marks - a row, a cell, a control on its own, and any line the tree does not mark standing alone (`units()`, `bin/tezgah-triage::units`) - asks one Noul per unit in one request, and prints the line ids under the selected units with their original `ref=` values, the unselected count and the characters that may now be skipped (`select()`, `bin/tezgah-triage::select`) |
+| `tezgah-triage --states FILE [--component T]` | one judgement per state over a component's subtree - the 13 states the analyze-app contract names (`STATES`, `bin/tezgah-triage::STATES`), each question carrying what counts as shown, with the interactive pair (`focus`, `active`) asked as one three-way Choice (`neither` / `focus` / `pressed`) whose answer decides both rows, because an aria snapshot marks the focused element `[active]` and carries no separate mark for a press - so a state the tree does not show is a finding, and the five an aria snapshot cannot carry at all (default, hover, active, skeleton, long-text) are printed on their own `unmarked:` line instead of being counted as missing (`states()`, `bin/tezgah-triage::states`) |
 
 The judgement is an aid, not the finding: it ranks units, the agent reads the
 selected refs and still owns the claim. Its recall was measured this round rather
 than assumed, on two reproduced screens: the unit selection kept 100% of the
 control lines at a 94% read on a 356-line 40-row table and 100% at a 74% read on a
 31-line 20-button screen, against 73.5% at a 26% read for one question per line.
-The threshold those numbers were taken at is `SELECTED_AT` (`bin/tezgah-triage:63-65`),
+The threshold those numbers were taken at is `SELECTED_AT` (`bin/tezgah-triage::SELECTED_AT`),
 and the tool prints the measurement with every run. Exit 1 means no judgement was
 made - no credential, the switch below, or a failed call - and the loop reads the
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py:168-219`) - for the triage that is
+`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py::ask`) - for the triage that is
 the snapshot's own text, so a screen carrying personal data is read by a third
 party, and for the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the
@@ -570,23 +621,23 @@ asks for a judgement, no gate does - while the skill hint asks only with its own
 marker armed, and why the switch below is the off button for the whole path.
 
 The credential resolves from `TYPESAFE_API_KEY`, else from
-`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py:150`), and when
+`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py::credential`), and when
 neither resolves the same questions go to the OpenRouter fallback, whose key rides
 `OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
-(`openrouter_key()`, `hooks/tezgah_judge.py:124`). The file is the channel that
+(`openrouter_key()`, `hooks/tezgah_judge.py::openrouter_key`). The file is the channel that
 matters on a machine exporting the variable from `~/.zshenv`: a hook or a bin tool
 runs in a non-interactive shell, where that export never ran, so the file is what a
 judgement actually resolves. Cost is input tokens alone - $0.042 per
 1M, output billed at $0 - and every run prints the arithmetic it paid; the model
 that answered is printed beside it, because the fallback answers with a chat model
-rather than Jev (`result["model"]`, `bin/tezgah-triage:134`).
+rather than Jev (`result["model"]`, `bin/tezgah-triage::record`).
 
 `judge-off` in `~/.config/tezgah` disarms all of it without touching the callers:
 the snapshot is read the way the loop always read it, and a docs query matching no
 page exits 1 with the message it always printed (`available()`,
-`hooks/tezgah_judge.py:163-167`). A host whose files predate this tool is relinked by
+`hooks/tezgah_judge.py::available`). A host whose files predate this tool is relinked by
 `--install`, which links every `~/.config/tezgah/bin` entry including
-`tezgah-triage` (`bin/tezgah-setup:449-471`).
+`tezgah-triage` (`bin/tezgah-setup::install_common`).
 
 ## Source of truth
 

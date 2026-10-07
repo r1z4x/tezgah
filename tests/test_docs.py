@@ -95,13 +95,15 @@ class DocsLayer(unittest.TestCase):
 
     def test_every_page_states_what_it_documents_and_cites_the_code(self):
         # A page without `## Source of truth` cannot be re-verified after a
-        # change; a page without a single `path:line` is prose nobody can check.
+        # change; a page without a single citation - `path::symbol` or
+        # `path:line` - is prose nobody can check.
         for page in index()["pages"]:
             with self.subTest(page=page["path"]):
                 text = read(os.path.join(support.REPO, page["path"]))
                 self.assertIn("## Source of truth", text)
-                self.assertRegex(text, r"[\w./-]+\.(?:py|js|ts|tsx|json|toml|yml|md):\d",
-                                 "no path:line citation")
+                self.assertRegex(
+                    text, r"(?:bin/[\w.-]+|[\w./-]+\.(?:py|js|ts|tsx|json|toml|yml|md))"
+                          r"(?::\d|::[A-Za-z_])", "no path::symbol or path:line citation")
 
     def anchors(self, text):
         """Every anchor a page carries: the slug of each heading, plus any
@@ -163,19 +165,28 @@ class DocsLayer(unittest.TestCase):
                 return candidate
         return None
 
+    # The bound check's shape: an extension-bearing path, or a `bin/` script,
+    # which has none (`bin/tezgah-setup:843`) and was outside the old pattern.
+    BOUNDED = re.compile(
+        r"(bin/[\w.-]+|[\w./-]+\.(?:py|js|ts|tsx|json|yml|toml|md)):(\d+)(?:-(\d+))?")
+
+    def test_the_bound_check_reads_an_extensionless_bin_citation(self):
+        self.assertEqual(self.BOUNDED.findall("see `bin/tezgah-setup:843-845`"),
+                         [("bin/tezgah-setup", "843", "845")])
+
     def test_every_citation_points_into_a_file_that_has_that_line(self):
-        # A page's promise is `path:line`: the claim is checkable. This is the
-        # half a script can check - the file is there and the line is inside it -
-        # and it is deliberately not more than that: whether the line still shows
-        # the thing the sentence names is a judgement an audit makes, not a
-        # regex, and a test that guessed at it would fail on rewording rather
-        # than on drift.
+        # A page's promise is a citation: the claim is checkable. For `path:line`
+        # this is the half a script can check - the file is there and the line is
+        # inside it - and it is deliberately not more than that: whether the line
+        # still shows the thing the sentence names is a judgement an audit makes,
+        # not a regex, and a test that guessed at it would fail on rewording
+        # rather than on drift. A `path::symbol` has no line to bound; its name is
+        # resolved by `bin/tezgah-docs --citations` (`CitationAudit` below).
         for page in index()["pages"]:
             text = read(os.path.join(support.REPO, page["path"]))
-            cites = re.findall(
-                r"([\w./-]+\.(?:py|js|ts|tsx|json|yml|toml|md)):(\d+)(?:-(\d+))?",
-                text)
-            self.assertTrue(cites, "%s cites no file" % page["path"])
+            cites = self.BOUNDED.findall(text)
+            self.assertTrue(cites or re.search(r"`[\w./-]+::[A-Za-z_]", text),
+                            "%s cites no file" % page["path"])
             for path, start, end in cites:
                 if path.startswith(".tezgah/plans/"):
                     # The plan layer is deliberately local: `.gitignore` keeps
@@ -234,6 +245,19 @@ class RuleLedger(unittest.TestCase):
         module = docs_module()
         self.assertEqual(module.ledger_failures(module.ledger_rows()), [])
 
+    def test_every_stop_class_is_read_the_evidence_half_included(self):
+        # `_evidence_block` returns six of the ten Stop classes; a reader that
+        # skipped it saw four and let a renamed evidence class go unrecorded.
+        import ast
+        module = docs_module()
+        tree = ast.parse(module.source(module.STOP), filename=module.STOP)
+        evidence = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_evidence_block":
+                evidence = module.returned_classes(node)
+        self.assertTrue(evidence, "_evidence_block returns no class")
+        self.assertLessEqual(evidence, module.stop_triggers())
+
     def test_a_rule_with_no_row_is_refused(self):
         module = docs_module()
         rows = module.ledger_rows()
@@ -256,38 +280,237 @@ class RuleLedger(unittest.TestCase):
             "a pin naming a deleted test was not refused: %r" % (failures,))
 
 
+class Inventories(unittest.TestCase):
+    """The lists a page keeps by hand, checked against the code read by AST.
+
+    Each check has a real-tree case (the page holds today) and a doctored one
+    (the check can fail), so deleting the check turns the second red."""
+
+    def test_every_deny_site_of_decision_is_read_with_its_guards(self):
+        sites = docs_module().rule_sites()
+        self.assertEqual(len(sites), 27)  # 3 of them the MCP content rules'
+        order = []
+        for site in sites:
+            if site[0] not in order:
+                order.append(site[0])
+        self.assertEqual(order, [
+            "control", "explorer", "shortcut", "piped", "attribution", "lang", "race",
+            "task", "workspace", "secret", "plan", "order", "loop", "retry",
+            "drift"])
+        by_rule = {s[0]: s for s in sites}
+        self.assertEqual(by_rule["lang"][3], ("lang-off",))
+        self.assertEqual(by_rule["explorer"][3], ())
+        secret = [s for s in sites if s[0] == "secret"]
+        # the shell-text site is guarded by BASH_TOOLS; the MCP content site
+        # (plan 057 (c)) now comes first in decision(), so read by guard, not position
+        self.assertTrue(any("BASH_TOOLS" in s[4] for s in secret), secret)
+        # plan 057 (a)1: the text a write lands is read on every route, a write
+        # tool's as well as a heredoc's, so that site has no shell guard
+        self.assertNotIn("BASH_TOOLS", secret[-1][4])
+        self.assertLess(by_rule["drift"][1], by_rule["drift"][2] + 1)
+
+    def test_a_deny_site_in_a_handler_or_a_case_is_read(self):
+        module = docs_module()
+        text = (
+            "def _deny(session_id, rule, reason):\n    return reason\n\n\n"
+            "def decision(t, session_id=None):\n"
+            "    try:\n        pass\n"
+            "    except ValueError:\n"
+            "        return _deny(session_id, \"caught\", \"r\")\n"
+            "    match t:\n"
+            "        case \"x\":\n"
+            "            return _deny(session_id, \"matched\", \"r\")\n"
+            "    return None\n")
+        self.assertEqual([s[0] for s in module.rule_sites(text)], ["caught", "matched"])
+        self.assertEqual(module.rule_site_failures(text), [])
+
+    def test_a_deny_call_the_reader_cannot_place_is_refused(self):
+        # `out = _deny(...); return out` is a rule with no statement span to
+        # mutate and no place in the order: it must fail, not vanish.
+        module = docs_module()
+        text = ("def decision(t, session_id=None):\n"
+                "    out = _deny(session_id, \"hidden\", \"r\")\n"
+                "    return out\n")
+        failures = module.rule_site_failures(text)
+        self.assertTrue(any("hidden" in f for f in failures), failures)
+        self.assertEqual(module.rule_site_failures(), [])
+
+    def test_the_page_heads_the_rules_in_the_order_decision_checks_them(self):
+        self.assertEqual(docs_module().rule_order_failures(), [])
+
+    def test_a_heading_out_of_order_is_refused(self):
+        module = docs_module()
+        text = read(module.LEDGER)
+        swapped = text.replace("### Piped", "### TMP").replace(
+            "### Shortcut", "### Piped").replace("### TMP", "### Shortcut")
+        failures = module.rule_order_failures(swapped)
+        self.assertTrue(any("order" in f for f in failures), failures)
+
+    def test_a_rule_section_that_does_not_name_its_switch_is_refused(self):
+        module = docs_module()
+        text = read(module.LEDGER).replace("`lang-off`", "the switch")
+        failures = module.rule_order_failures(text)
+        self.assertTrue(any("lang-off" in f for f in failures), failures)
+
+    def test_every_judge_caller_has_a_row_and_the_count_is_right(self):
+        module = docs_module()
+        self.assertIn("bin/tezgah-taste", module.judge_callers())
+        self.assertEqual(module.judge_caller_failures(), [])
+        page = read(module.JUDGE_PAGE).replace("| `bin/tezgah-taste` |", "| taste |")
+        failures = module.judge_caller_failures(page)
+        self.assertTrue(any("bin/tezgah-taste" in f for f in failures), failures)
+
+    def test_the_switches_code_reads_are_the_core_names_plus_the_open_four(self):
+        # ADR 007 leaves these four unclassified: two `off()` names no CORE
+        # paragraph lists and two opt-in markers read with `armed()`. Until the
+        # owner classifies them they are this explicit set, and a fifth name
+        # outside CORE fails the check instead of joining it silently.
+        module = docs_module()
+        self.assertEqual(module.UNCLASSIFIED_SWITCHES, frozenset((
+            "agents-off", "update-check-off", "taste-on", "skill-suggest-on")))
+        self.assertEqual(len(module.core_switches()), 16)
+        self.assertEqual(module.switch_failures(), [])
+        failures = module.switch_failures(core=module.core_switches() - {"lang-off"})
+        self.assertTrue(any("lang-off" in f for f in failures), failures)
+
+
 class CitationAudit(unittest.TestCase):
-    """The `--citations` judgement on a tree that has a `bin/` symlink twin.
+    """The `--citations` judgement, run on a small tree of its own.
 
     Every script under bin/ has a `.py` symlink beside it so tests can import
     it, and both match the `bin/*` glob. The audit (M-11a) measured what that
     did: each bin symbol read as defined in two files, was dropped as
     ambiguous, and `--citations` reported 0 stale citations while 25 were."""
 
-    def test_a_stale_citation_into_a_symlinked_script_is_reported(self):
+    TOOL = ("import os\n\n\ndef first():\n    return 1\n\n\n"
+            "def second():\n    return 2\n")
+
+    def audit(self, files, baseline=None):
+        """(known, flagged, judged, unjudged, invisible) over a tree holding
+        `files` ({relpath: text}) and the bin/tool above with its twin."""
         import tempfile
         module = docs_module()
         with tempfile.TemporaryDirectory() as root:
-            os.makedirs(os.path.join(root, "bin"))
-            os.makedirs(os.path.join(root, "docs"))
-            with open(os.path.join(root, "bin", "tool"), "w",
-                      encoding="utf-8") as fh:
-                fh.write("import os\n\n\ndef first():\n    return 1\n\n\n"
-                         "def second():\n    return 2\n")
+            for rel, text in dict({"bin/tool": self.TOOL}, **files).items():
+                os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+                with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
+                    fh.write(text)
             os.symlink("tool", os.path.join(root, "bin", "tool.py"))
-            with open(os.path.join(root, "docs", "page.md"), "w",
-                      encoding="utf-8") as fh:
-                fh.write("The helper is `first` (`bin/tool:8-9`).\n")
             here = module.HERE
             module.HERE = root
             try:
                 known = module.symbols()
-                flagged, judged, _ = module.citations(known)
+                return (known,) + module.citations(known)
             finally:
                 module.HERE = here
+
+    def test_a_stale_citation_into_a_symlinked_script_is_reported(self):
+        known, flagged, judged, _, _ = self.audit(
+            {"docs/page.md": "The helper is `first` (`bin/tool:8-9`).\n"})
         self.assertEqual(known.get("first"), ("bin/tool", [(4, 7)]))
         self.assertEqual(judged, 1)
         self.assertEqual([f[1] for f in flagged], ["`bin/tool:8-9`"])
+        self.assertEqual(flagged[0][0], "docs/page.md:1")
+
+    def test_a_bare_file_name_is_judged_against_the_one_file_of_that_name(self):
+        _, flagged, judged, unjudged, _ = self.audit({
+            "hooks/x.py": self.TOOL.replace("first", "alpha").replace("second", "beta"),
+            "docs/page.md": "`beta` (`x.py:4-5`) and `alpha` (`x.py:4-5`).\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`x.py:4-5`"])
+        self.assertEqual(sum(unjudged.values()), 0)
+
+    def test_a_symbol_written_after_its_citation_is_read(self):
+        _, flagged, judged, _, _ = self.audit({
+            "docs/page.md": "owned - `bin/tool:8` (`first`), then `bin/tool:8` (`second`)\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`bin/tool:8`"])
+
+    def test_comments_and_docstrings_are_judged_and_fixture_strings_are_not(self):
+        _, flagged, judged, _, _ = self.audit({"hooks/y.py": (
+            '"""Module: `first` (`bin/tool:8-9`)."""\n'
+            "PAGE = \"`first` (`bin/tool:8`)\"\n"
+            "\n\ndef go():\n"
+            "    # `second` (`bin/tool:4`)\n"
+            "    return PAGE\n")})
+        self.assertEqual(judged, 2)
+        self.assertEqual(sorted((f[0], f[1]) for f in flagged),
+                         [("hooks/y.py:1", "`bin/tool:8-9`"),
+                          ("hooks/y.py:6", "`bin/tool:4`")])
+
+    def test_a_citation_the_pattern_cannot_read_is_counted_as_unjudged(self):
+        _, flagged, judged, unjudged, invisible = self.audit({
+            "docs/page.md": "see bin/tool:4 and `first` (`bin/tool:4,8`); "
+                            "not https://example.com:443 nor nothing/here.py:3\n"})
+        self.assertEqual((judged, invisible), (0, 2))
+        self.assertEqual(unjudged, {"docs/page.md": 2})
+
+    def test_a_symbol_anchor_is_judged_by_ast_and_a_missing_one_is_flagged(self):
+        # `path::Class.method` carries no line number, so an edit above the
+        # symbol cannot shift it; what can go wrong is the name, and the AST of
+        # the cited file is what answers it.
+        _, flagged, judged, unjudged, _ = self.audit({
+            "hooks/k.py": ("\n\nclass K:\n    def m(self):\n        def inner():\n"
+                           "            pass\n\n\nLIMIT = 3\n"),
+            "docs/page.md": ("`bin/tool::first`, `hooks/k.py::K.m`, "
+                             "`hooks/k.py::K.m.inner`, `hooks/k.py::LIMIT`, "
+                             "`k.py::K`, `hooks/k.py::m`.\n"
+                             "Gone: `bin/tool::third`, `hooks/k.py::K.n`, "
+                             "`hooks/nope.py::K`.\n")})
+        self.assertEqual(judged, 9)
+        self.assertEqual(sum(unjudged.values()), 0)
+        self.assertEqual([(f[0], f[1]) for f in flagged],
+                         [("docs/page.md:2", "`bin/tool::third`"),
+                          ("docs/page.md:2", "`hooks/k.py::K.n`"),
+                          ("docs/page.md:2", "`hooks/nope.py::K`")])
+
+    def test_a_function_local_def_does_not_stand_in_for_a_gone_symbol(self):
+        # The dotless fallback is for a test pin naming a method of its
+        # TestCase; a def local to a function is not a name a page can cite, so
+        # a deleted top-level `_frozen` must not pass on a same-named helper.
+        _, flagged, judged, _, _ = self.audit({
+            "hooks/m.py": ("def migrate():\n    def _frozen():\n        pass\n\n\n"
+                           "class T:\n    def test_x(self):\n        pass\n"),
+            "docs/page.md": "`hooks/m.py::_frozen` and `hooks/m.py::test_x`.\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`hooks/m.py::_frozen`"])
+
+    def test_a_symbol_anchor_in_a_comment_is_judged(self):
+        _, flagged, judged, _, _ = self.audit({"hooks/y.py": (
+            "# see `bin/tool::second` and `bin/tool::gone`\n"
+            "PAGE = \"`bin/tool::also_gone`\"\n")})
+        self.assertEqual(judged, 2)
+        self.assertEqual([(f[0], f[1]) for f in flagged],
+                         [("hooks/y.py:1", "`bin/tool::gone`")])
+
+    def test_a_symbol_anchor_does_not_move_when_lines_are_inserted_above_it(self):
+        tool = "\n" * 5 + self.TOOL
+        _, flagged, judged, _, _ = self.audit({
+            "bin/tool": tool,
+            "docs/page.md": "`bin/tool::second`, and `second` (`bin/tool:8-9`).\n"})
+        self.assertEqual(judged, 2)
+        self.assertEqual([f[1] for f in flagged], ["`bin/tool:8-9`"])
+
+    def test_a_count_that_moved_either_way_is_drift(self):
+        # Over: a new unjudged citation. Under: one was fixed, and a baseline
+        # left high would let the next new one in silently, so it fails too
+        # until `--citations --update` writes the lower count down.
+        module = docs_module()
+        unjudged = {"docs/a.md": 3, "docs/b.md": 1}
+        self.assertEqual(module.ratchet_drift(unjudged, {"docs/a.md": {"unjudged": 3}}),
+                         [("docs/b.md", 1, 0)])
+        self.assertEqual(module.ratchet_drift({"docs/a.md": 2},
+                                              {"docs/a.md": {"unjudged": 3}}),
+                         [("docs/a.md", 2, 3)])
+        self.assertEqual(module.ratchet_drift({}, {"docs/gone.md": {"unjudged": 1}}),
+                         [("docs/gone.md", 0, 1)])
+        self.assertEqual(module.ratchet_drift({"docs/a.md": 3},
+                                              {"docs/a.md": {"unjudged": 3}}), [])
+
+    def test_the_real_tree_holds_its_unjudged_baseline_exactly(self):
+        module = docs_module()
+        _, _, unjudged, _ = module.citations(module.symbols())
+        self.assertEqual(module.ratchet_drift(unjudged, module.ratchet_baseline()), [])
 
 
 if __name__ == "__main__":

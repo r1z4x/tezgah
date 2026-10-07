@@ -9,7 +9,10 @@ page instead of guessing and a script can assert the layer is intact.
   tezgah-docs --json [QUERY]  the matching entries as JSON
   tezgah-docs --read QUERY    print the first matching page in full
   tezgah-docs --citations     the citations that no longer show what they name,
-                              and the rule ledger's rows that no longer hold
+                              the files with more unjudged citations than
+                              docs/citations-baseline.json, the rule ledger's rows
+                              and the code-derived inventories that no longer hold
+                              (`--citations --update` rewrites the baseline)
   tezgah-docs --clarity       the clarity ratchet: per-file prose rule counts
                               against docs/clarity-baseline.json; 1 when a file
                               exceeds it (`--clarity --update` rewrites it)
@@ -30,11 +33,14 @@ unreadable - the pages are ranked by shared words instead (BM25,
 overruled. Exit codes: 0 with matches, 1 with none, 2 usage.
 """
 import ast
+import bisect
 import glob
+import io
 import json
 import os
 import re
 import sys
+import tokenize
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
@@ -85,8 +91,12 @@ def matches(query):
 # citation that names a symbol whose body the range must lie in - and that case
 # is where the drift actually lands, because the numbers were written against a
 # revision of the file and nothing regenerates them when lines move under them.
-# A report, not a gate: `bin/tezgah-docs --citations` prints what it can judge
-# and counts what it cannot, for a re-run after any change to a cited module.
+# A gate, not only a report: CI runs `bin/tezgah-docs --citations` and `main()`
+# exits 1 on a citation outside its symbol, on a file with more unjudged
+# citations than `docs/citations-baseline.json` allows, and on a ledger or
+# inventory row that does not hold. It reads docs/*.md and the comments and
+# docstrings of the Python code files; a string literal (a test's fixture, a
+# captured output) is data, not a citation, and is not read.
 
 CODE_FILES = ("hooks/*.py", "bin/*", "statusline.py", "hosts/*/*.py",
               "hosts/*/*.ts.in", "hosts/*/plugins/*.js", "tests/*.py")
@@ -95,6 +105,80 @@ TOP = re.compile(r"^(?:def|class)\s+(\w+)|^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)
 RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
 CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
                   r"|`(:(\d+)(?:-(\d+))?)`")
+# The symbol written after the citation instead of before it, the way a table
+# cell reads: `hooks/tezgah_policy.py:634-853` (`CORE`).
+AFTER = re.compile(r"\s*\(`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`\)")
+# Any `path:line`, backticked or not: what CITE does not match of these (a
+# bare token, a comma list `x.py:12,40`) is counted as unjudged, so a citation
+# written in a shape the audit cannot read is still a number someone sees.
+# Scanned as one token run and then shape-checked: the shape alternation as
+# the scanner (nested `+` under a look-behind) cost a third of a second a pass.
+LOOSE = re.compile(r"(?<![\w./:-])([\w./-]*\w):(\d+)(?:-(\d+))?(?!\w)")
+LOOSE_SHAPE = re.compile(r"(?:[\w.-]+/)+[\w.-]*\w|[\w-]+\.\w+")
+
+
+def loose(text):
+    """The LOOSE matches whose path has a file's shape (a `/`, or `name.ext`)."""
+    return (m for m in LOOSE.finditer(text) if LOOSE_SHAPE.fullmatch(m.group(1)))
+
+
+# A symbol anchor, `path::name` or `path::Class.method`: no line number, so an
+# edit above or inside the symbol cannot move it. What can still go stale is the
+# name, and the AST of the cited file answers that: a name it does not define
+# is flagged like a line outside its symbol.
+SYMCITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+)::"
+                     r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)`")
+
+
+def qualnames(path):
+    """{dotted name: (start, end, method)} for every def and class of a Python
+    file, nested ones as `Class.method` / `outer.inner`, and its module-level
+    assignments; `method` is True for a def whose direct parent is a class.
+    None for a file that does not parse as Python."""
+    try:
+        tree = ast.parse(source(path))
+    except (SyntaxError, ValueError, UnicodeDecodeError):
+        return None
+    out = {}
+
+    def walk(body, prefix, in_class=False):
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = prefix + node.name
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                out.setdefault(name, (start, node.end_lineno,
+                                      in_class and not isinstance(node, ast.ClassDef)))
+                walk(node.body, name + ".", isinstance(node, ast.ClassDef))
+                continue
+            if not prefix and isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for target in getattr(node, "targets", None) or [node.target]:
+                    if isinstance(target, ast.Name):
+                        out.setdefault(target.id, (node.lineno, node.end_lineno, False))
+            for field in ("body", "orelse", "finalbody"):
+                walk(getattr(node, field, None) or [], prefix, in_class)
+            for handler in getattr(node, "handlers", None) or []:
+                walk(handler.body, prefix, in_class)
+
+    walk(tree.body, "")
+    return out
+
+
+def anchor_span(names, qual):
+    """The (start, end, method) `qual` names in a qualnames() table, or None. A
+    name without a dot may also be the one method of that name, the way a test
+    pin names `test_x` inside its TestCase class; a def local to a function
+    never stands in, or a deleted top-level symbol would pass on a helper."""
+    if qual in names:
+        return names[qual]
+    if "." not in qual:
+        hits = [span for name, span in names.items()
+                if span[2] and name.rsplit(".", 1)[-1] == qual]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+CITATION_BASELINE = os.path.join("docs", "citations-baseline.json")
 
 
 def code_symbols(path):
@@ -117,49 +201,139 @@ def code_symbols(path):
     return out
 
 
-def symbols():
-    """{name: (path, [(start, end)])} over every code file, for the names
-    exactly one file defines: an ambiguous name is skipped, not guessed at.
-
-    A symlink is skipped: every bin/ script has a `.py` twin pointing at it so
-    tests can import it, and counting both made every bin symbol "ambiguous" -
-    the audit (M-11a) measured 0 stale citations reported while 25 were."""
-    seen = {}
+def code_files():
+    """Every file CODE_FILES globs, relative to HERE, symlinks left out: every
+    bin/ script has a `.py` twin pointing at it so tests can import it, and
+    counting both made every bin symbol "ambiguous" - the audit (M-11a)
+    measured 0 stale citations reported while 25 were."""
+    out = []
     for pattern in CODE_FILES:
         for path in sorted(glob.glob(os.path.join(HERE, pattern))):
-            if not os.path.isfile(path) or os.path.islink(path):
-                continue
-            for name, spans in code_symbols(path).items():
-                seen.setdefault(name, []).append(
-                    (os.path.relpath(path, HERE), spans))
+            if os.path.isfile(path) and not os.path.islink(path):
+                out.append(os.path.relpath(path, HERE))
+    return out
+
+
+def symbols():
+    """{name: (path, [(start, end)])} over every code file, for the names
+    exactly one file defines: an ambiguous name is skipped, not guessed at."""
+    seen = {}
+    for rel in code_files():
+        for name, spans in code_symbols(os.path.join(HERE, rel)).items():
+            seen.setdefault(name, []).append((rel, spans))
     return {name: only[0] for name, only in seen.items() if len(only) == 1}
 
 
+def is_python(path):
+    """True for a `.py` file or a script whose first line names python."""
+    if path.endswith(".py"):
+        return True
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return "python" in fh.readline()
+
+
+def comment_text(path):
+    """A Python file's comments and docstrings at their own offsets, every other
+    non-blank character turned into NUL, or None for a file that is not Python.
+
+    The offsets are kept so a match's line is the file's line, and the code is
+    NUL rather than blank so a symbol in one comment block never pairs with a
+    citation in the next one across the code between them. A docstring is a
+    string that is a statement of its own; a string inside an expression is a
+    value (a fixture, a captured output) and is blanked with the code. A file
+    holding no citation-shaped token at all is "": no comment of it could hold
+    one either, so it is neither tokenized nor masked."""
+    if not is_python(path):
+        return None
+    text = source(path)
+    if not (CITE.search(text) or SYMCITE.search(text) or next(loose(text), None)):
+        return ""
+    masked = re.sub(r"\S", "\0", text)
+    starts = [0]
+    for line in text.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return None
+
+    def span(tok, skip=0):
+        return (starts[tok.start[0] - 1] + tok.start[1] + skip,
+                starts[tok.end[0] - 1] + tok.end[1])
+
+    lead = (tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENCODING)
+    real = [t for t in tokens if t.type not in (tokenize.NL, tokenize.COMMENT)]
+    kept = [span(t, 1) for t in tokens if t.type == tokenize.COMMENT]
+    kept += [span(t) for k, t in enumerate(real)
+             if t.type == tokenize.STRING and (k == 0 or real[k - 1].type in lead)
+             and k + 1 < len(real)
+             and real[k + 1].type in (tokenize.NEWLINE, tokenize.ENDMARKER)]
+    parts, at = [], 0
+    for lo, hi in sorted(kept):
+        parts += [masked[at:lo], text[lo:hi]]
+        at = hi
+    return "".join(parts) + masked[at:]
+
+
+def sources():
+    """(relpath, text) for every page under docs/ and every Python code file's
+    comments and docstrings (`comment_text`)."""
+    for path in sorted(glob.glob(os.path.join(HERE, "docs", "*.md"))):
+        yield os.path.relpath(path, HERE), source(path)
+    for rel in code_files():
+        text = comment_text(os.path.join(HERE, rel))
+        if text is not None:
+            yield rel, text
+
+
 def citations(known):
-    """(flagged, judged, unjudged): the citations whose named symbol does not
-    contain the cited range, how many were judgeable, and how many were not.
+    """(flagged, judged, unjudged, invisible): the citations whose named symbol
+    does not contain the cited range, as (`file:line`, token, symbol file, low,
+    high), and the symbol anchors naming no symbol, as (`file:line`, token,
+    cited file, 0, 0); how many were judgeable; {file: count} of the ones that
+    were not; and how many of those CITE could not read at all (`LOOSE`).
 
     A citation that writes its own path is judged against the symbol in that
     file alone: a sentence naming `note_tool` beside `hooks/x.py:12` means the
     `note_tool` in `hooks/x.py`, so a same-named symbol elsewhere is not the
-    thing being cited and the row is left unjudged rather than misjudged."""
-    flagged, judged, unjudged = [], 0, 0
-    for path in sorted(glob.glob(os.path.join(HERE, "docs", "*.md"))):
-        text = open(path, encoding="utf-8").read()
+    thing being cited and the row is left unjudged rather than misjudged. A bare
+    file name (`tezgah_gate.py:12`) is that path when exactly one code file has
+    the name, and unjudged otherwise. A symbol anchor (`SYMCITE`) is always
+    judged: against the qualnames() of the file it names."""
+    names = {}
+    for rel in code_files():
+        names.setdefault(os.path.basename(rel), []).append(rel)
+
+    def resolve(path):
+        if "/" in path:
+            return path
+        found = names.get(path, ())
+        return found[0] if len(found) == 1 else None
+
+    flagged, judged, unjudged, invisible, tables = [], 0, {}, 0, {}
+    for rel, text in sources():
+        read = []
         for m in CITE.finditer(text):
-            pre = text[:m.start()].rstrip().rstrip("(").rstrip().rstrip(",")
+            read.append(m.span())
+            # RUN is anchored at the end and five names fit in far fewer than
+            # 600 characters: slicing the whole page per citation was the cost.
+            pre = text[max(0, m.start() - 600):m.start()].rstrip().rstrip("(") \
+                .rstrip().rstrip(",")
             run = RUN.search(pre.rstrip()) if pre.rstrip().endswith("`") else None
+            named = re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`",
+                               run.group(1)) if run else []
+            after = AFTER.match(text, m.end())
+            if not named and after:
+                named = [after.group(1)]
+            cited = resolve(m.group(1)) if m.group(1) else None
             spans, where = [], None
-            for name in re.findall(r"`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`",
-                                   run.group(1)) if run else []:
+            for name in named:
                 hit = known.get(name)
-                if not hit:
-                    continue
-                if m.group(1) and hit[0] != m.group(1):
+                if not hit or (m.group(1) and hit[0] != cited):
                     continue
                 where, spans = hit[0], spans + hit[1]
             if not spans:
-                unjudged += 1
+                unjudged[rel] = unjudged.get(rel, 0) + 1
                 continue
             lo = int(m.group(2) or m.group(5))
             hi = int(m.group(3) or m.group(6) or lo)
@@ -167,9 +341,46 @@ def citations(known):
             judged += 1
             if lo >= low and hi <= high:
                 continue
-            flagged.append((os.path.relpath(path, HERE), m.group(0),
-                            where, low, high))
-    return flagged, judged, unjudged
+            line = text.count("\n", 0, m.start()) + 1
+            flagged.append(("%s:%d" % (rel, line), m.group(0), where, low, high))
+        for m in SYMCITE.finditer(text):
+            judged += 1
+            path = resolve(m.group(1))
+            full = os.path.join(HERE, path) if path else None
+            if full and os.path.isfile(full):
+                if path not in tables:
+                    tables[path] = qualnames(full) or {}
+                if anchor_span(tables[path], m.group(2)):
+                    continue
+            line = text.count("\n", 0, m.start()) + 1
+            flagged.append(("%s:%d" % (rel, line), m.group(0), path or m.group(1), 0, 0))
+        starts = [a for a, _ in read]
+        for m in loose(text):
+            k = bisect.bisect_right(starts, m.start()) - 1
+            if k >= 0 and m.end() <= read[k][1]:
+                continue
+            path = resolve(m.group(1))
+            if path and os.path.isfile(os.path.join(HERE, path)):
+                invisible += 1
+                unjudged[rel] = unjudged.get(rel, 0) + 1
+    return flagged, judged, unjudged, invisible
+
+
+def ratchet_baseline():
+    """The committed {file: {"unjudged": n}} the ratchet compares against."""
+    return tezgah_clarity.load(os.path.join(HERE, CITATION_BASELINE))
+
+
+def ratchet_drift(unjudged, baseline):
+    """[(file, count, allowed)] for each file whose unjudged count is not its
+    baseline (absent: 0). Over is a new citation nobody can judge; under is a
+    fixed one whose lower count was not written down, which would let the next
+    new one in silently. Read-only: CI runs `--citations` on a checkout, so the
+    baseline moves only by `--citations --update`, never as a side effect."""
+    allowed = {rel: row.get("unjudged", 0) for rel, row in baseline.items()}
+    return [(rel, unjudged.get(rel, 0), allowed.get(rel, 0))
+            for rel in sorted(set(unjudged) | set(allowed))
+            if unjudged.get(rel, 0) != allowed.get(rel, 0)]
 
 
 # --- the rule ledger --------------------------------------------------------
@@ -177,8 +388,8 @@ def citations(known):
 # prose spread through docs/gate.md: the rule name in the section, the incident
 # in a sentence inside it. The table under that page's `## Rule provenance` is
 # that record moved to where a machine reads it - one row per refused rule, with
-# the incident that produced it, where that incident is written down, the test
-# that guards it, and the commit it first appeared in. This check is the
+# the incident that produced it, where that incident is written down, and the
+# test that guards it. This check is the
 # citation audit's sibling and rides the same `--citations` pass, because both
 # answer "is what the page promises still true" and both are re-run after a
 # change to the module a page documents.
@@ -187,19 +398,19 @@ def citations(known):
 # the gate can still produce that has no row (a rule landed, or was renamed,
 # with no incident and no case written down), and a row whose `pin` names a test
 # that does not exist (the case was deleted or renamed and the row goes on
-# naming it). Unlike the citation audit this is a gate and not a report: the
-# ledger is small and every row is checkable, so a wrong one is a failure.
+# naming it). Like the rest of the pass this is a gate: the ledger is small and
+# every row is checkable, so a wrong one is a failure.
 #
 # The rule names are read off the source rather than restated here, the way the
 # audit reads a symbol: the gate's rules are the `_deny(session_id, "<rule>",
 # ...)` calls in hooks/tezgah_gate.py, and the Stop rule's triggers are the
-# classes `_stop_block` returns - including the four `_shape_block` hands back,
-# which is why that function is read too.
+# classes `_stop_block` returns - including the four `_shape_block` and the six
+# `_evidence_block` hand back, which is why those two functions are read too.
 
 GATE = os.path.join(HERE, "hooks", "tezgah_gate.py")
 STOP = os.path.join(HERE, "hooks", "tezgah_integrity.py")
 LEDGER = os.path.join(HERE, "docs", "gate.md")
-LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin", "since")
+LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin")
 
 
 def source(path):
@@ -224,9 +435,9 @@ def returned_classes(node):
     return out
 
 
-def gate_rules():
+def gate_rules(text=None):
     """The rule names `_deny` writes into the ledger, read off the source."""
-    tree = ast.parse(source(GATE))
+    tree = ast.parse(source(GATE) if text is None else text, filename=GATE)
     out = set()
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Call)
@@ -239,23 +450,30 @@ def gate_rules():
 
 
 def stop_triggers():
-    """The classes `_stop_block` can return, the shape half included."""
+    """The classes `_stop_block` can return, the shape and evidence halves
+    included."""
     tree = ast.parse(source(STOP))
     out = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name in (
-                "_stop_block", "_shape_block"):
+                "_stop_block", "_shape_block", "_evidence_block"):
             out |= returned_classes(node)
     return out
 
 
 def ledger_rows():
-    """The rule-provenance rows in docs/gate.md, as {column: value} dicts.
+    """The rule-provenance rows in docs/gate.md, as {column: value} dicts."""
+    return table_rows(LEDGER, LEDGER_COLUMNS)
+
+
+def table_rows(path, columns):
+    """The rows of the table in `path` whose header is `columns`, as {column:
+    value} dicts, or [] when the page is missing.
 
     The header row is the table's own signature, so no other table on the page
     is read; a cell written as a code span (`` `explorer` ``) loses its backticks here."""
     try:
-        with open(LEDGER, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
     except OSError:
         return []
@@ -265,12 +483,12 @@ def ledger_rows():
             header = False
             continue
         cells = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
-        if tuple(cells) == LEDGER_COLUMNS:
+        if tuple(cells) == columns:
             header = True
             continue
         if not header or all(c and set(c) <= set("-") for c in cells):
             continue
-        rows.append(dict(zip(LEDGER_COLUMNS, cells)))
+        rows.append(dict(zip(columns, cells)))
     return rows
 
 
@@ -303,6 +521,480 @@ def ledger_failures(rows):
             out.append("row `%s` names no test that exists: %s"
                        % (row["rule"], row["pin"]))
     return out
+
+
+# --- the inventories --------------------------------------------------------
+# Three lists a page keeps by hand, each read off the code by AST rather than
+# restated in a literal here (one definition per concept): the gate's rules in
+# the order `decision` checks them, the programs that call the judge seam, and
+# the kill switches the code reads. They ride the `--citations` pass for the
+# ledger's reason: each answers "is what the page promises still true".
+
+JUDGE_PAGE = os.path.join(HERE, "docs", "judge.md")
+CONTRACT_SKILL = os.path.join(HERE, "skills", "tezgah-contract", "SKILL.md")
+SETUP = os.path.join(HERE, "bin", "tezgah-setup")
+NUMBERS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
+           "eight", "nine", "ten")
+# ADR 007 (2026-10-05) leaves these unclassified: two `off()` names the CORE
+# kill-switch paragraph does not list and two opt-in markers read with
+# `armed()`. Until the owner decides whether they are rule switches the check
+# pins CORE against the code and carries these as the one explicit exception.
+UNCLASSIFIED_SWITCHES = frozenset((
+    "agents-off", "update-check-off", "taste-on", "skill-suggest-on"))
+
+
+def rule_sites(text=None):
+    """[(rule, first line, last line, switches, tool classes)] for every
+    `return _deny(session_id, "<rule>", ...)` statement in `decision`, in source
+    order. A switch is an enclosing `if not off("<name>")` guard, a tool class
+    an enclosing `t in <NAME>` test; the line span is the statement's own, which
+    is what tests/neuter_matrix.py replaces to revert the rule (it passes HEAD's
+    `text`, the tree it mutates)."""
+    tree = ast.parse(source(GATE) if text is None else text, filename=GATE)
+    body = next(n for n in tree.body
+                if isinstance(n, ast.FunctionDef) and n.name == "decision").body
+    out = []
+
+    def guards(test):
+        switches, tools = [], []
+        for node in ast.walk(test):
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not) \
+                    and isinstance(node.operand, ast.Call) \
+                    and getattr(node.operand.func, "id", "") == "off":
+                switches.append(node.operand.args[0].value)
+            if isinstance(node, ast.Compare) and getattr(node.left, "id", "") == "t" \
+                    and isinstance(node.ops[0], ast.In):
+                tools += [n.id for n in ast.walk(node.comparators[0])
+                          if isinstance(n, ast.Name)]
+        return switches, tools
+
+    def walk(stmts, switches, tools):
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                more, classes = guards(stmt.test)
+                walk(stmt.body, switches + more, tools + classes)
+                walk(stmt.orelse, switches, tools)
+            elif isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Call) \
+                    and getattr(stmt.value.func, "id", "") == "_deny":
+                out.append((stmt.value.args[1].value, stmt.lineno, stmt.end_lineno,
+                            tuple(dict.fromkeys(switches)),
+                            tuple(dict.fromkeys(tools))))
+            else:
+                for field in ("body", "orelse", "finalbody", "handlers", "cases"):
+                    walk(getattr(stmt, field, []), switches, tools)
+    walk(body, [], [])
+    return out
+
+
+def rule_site_failures(text=None):
+    """A rule `_deny` names that `rule_sites` cannot place - a call outside a
+    `return _deny(...)` statement (`out = _deny(...); return out`) or outside
+    `decision` - has no line span for the neuter matrix and no place in the
+    rule order, so it is refused here instead of vanishing from both."""
+    placed = {site[0] for site in rule_sites(text)}
+    return ["rule `%s` is denied somewhere `rule_sites` cannot read: return "
+            "`_deny(...)` directly inside `decision`" % name
+            for name in sorted(gate_rules(text) - placed)]
+
+
+def sections(text, parent, level="### "):
+    """[(heading, body)] of the `level` headings under the `## <parent>` one."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line.startswith("## " + parent)
+        elif inside and line.startswith(level):
+            out.append((line[len(level):], []))
+        elif inside and out:
+            out[-1][1].append(line)
+    return [(head, "\n".join(body)) for head, body in out]
+
+
+def rule_order_failures(text=None):
+    """The ways docs/gate.md's rule list disagrees with `decision`: a rule with
+    no `###` heading, headings in another order than the rules' first deny
+    sites, and a rule section that does not name a switch guarding it. A
+    heading is matched to the rule its first word starts with (`Language` is
+    `lang`); one that matches none (`Nudge`, no `_deny`) is not a rule."""
+    sites = rule_sites()
+    order, switches = [], {}
+    for rule, _lo, _hi, guard, _tools in sites:
+        if rule not in order:
+            order.append(rule)
+        switches.setdefault(rule, set()).update(guard)
+    headed = []
+    for head, body in sections(source(LEDGER) if text is None else text,
+                               "The rules, in the order"):
+        word = head.split()[0].lower() if head.split() else ""
+        rule = next((r for r in order if word.startswith(r)), None)
+        if rule:
+            headed.append((rule, body))
+    out = ["rule `%s` has no `###` heading in docs/gate.md's rule list" % r
+           for r in order if r not in [h for h, _ in headed]]
+    if [h for h, _ in headed] != [r for r in order if r in dict(headed)]:
+        out.append("docs/gate.md heads the rules in the order %s; `decision` "
+                   "checks them in the order %s"
+                   % (", ".join(h for h, _ in headed), ", ".join(order)))
+    for rule, body in headed:
+        for name in sorted(switches[rule]):
+            if "`%s`" % name not in body:
+                out.append("docs/gate.md's `%s` section does not name its switch "
+                           "`%s`" % (rule, name))
+    return out
+
+
+_PROGRAMS = {}
+
+
+def python_programs():
+    """The Python programs under hooks/ and bin/ that call `off`, `armed` or the
+    judge seam - the only ones the two checks below read - relative to HERE,
+    each with its parsed tree; parsed once per HERE."""
+    if HERE not in _PROGRAMS:
+        out = []
+        for rel in code_files():
+            path = os.path.join(HERE, rel)
+            if not rel.startswith(("hooks/", "bin/")) or not is_python(path):
+                continue
+            text = source(path)
+            if "off(" in text or "armed(" in text or "tezgah_judge" in text:
+                out.append((rel, ast.parse(text, filename=path)))
+        _PROGRAMS[HERE] = out
+    return _PROGRAMS[HERE]
+
+
+def judge_callers():
+    """The programs that reach `tezgah_judge.ask` (called, or handed on as the
+    route's `ask`), sorted."""
+    return sorted(rel for rel, tree in python_programs()
+                  if "tezgah_judge" in source(os.path.join(HERE, rel))
+                  and any(isinstance(n, ast.Attribute) and n.attr == "ask"
+                          and getattr(n.value, "id", "") == "tezgah_judge"
+                          for n in ast.walk(tree)))
+
+
+def judge_caller_failures(text=None):
+    """docs/judge.md against `judge_callers()`: the callers table names every
+    program, and the count in the page title and the table heading is right."""
+    text = source(JUDGE_PAGE) if text is None else text
+    callers = judge_callers()
+    word = NUMBERS[len(callers)] if len(callers) < len(NUMBERS) else str(len(callers))
+    table = re.search(r"^## The (\w+) callers\n(.*?)(?=^## )", text, re.M | re.S)
+    if not table:
+        return ["docs/judge.md has no `## The <n> callers` section"]
+    out = ["docs/judge.md's callers table has no row for `%s`" % rel
+           for rel in callers if "| `%s` |" % rel not in table.group(2)]
+    if table.group(1) != word:
+        out.append("docs/judge.md heads %s callers; %s programs call the seam"
+                   % (table.group(1), word))
+    if "its %s callers" % word not in text.splitlines()[0]:
+        out.append("docs/judge.md's title does not say its %s callers" % word)
+    return out
+
+
+def code_switches():
+    """({off names}, {armed names}): the first argument of every `off(...)` and
+    `armed(...)` call under hooks/ and bin/, a module-level string constant
+    (`armed(ARM)`) resolved to its value."""
+    found = {"off": set(), "armed": set()}
+    for _rel, tree in python_programs():
+        consts = {t.id: n.value.value for n in tree.body if isinstance(n, ast.Assign)
+                  and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)
+                  for t in n.targets if isinstance(t, ast.Name)}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not node.args:
+                continue
+            name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            arg = node.args[0]
+            value = arg.value if isinstance(arg, ast.Constant) else consts.get(
+                getattr(arg, "id", None))
+            if name in found and isinstance(value, str):
+                found[name].add(value)
+    return found["off"], found["armed"]
+
+
+def switch_names(text):
+    """The `-off`/`.off` names a kill-switch paragraph spells in backticks."""
+    return {n for n in re.findall(r"`([^`\s]+)`", text) if n.endswith(("-off", ".off"))}
+
+
+def core_switches():
+    """The switches CORE's `**Kill switches:**` paragraph names."""
+    import tezgah_policy
+    core = tezgah_policy.CORE
+    return switch_names(core[core.index("**Kill switches:**"):].split("\n\n")[0])
+
+
+def switch_failures(core=None):
+    """The kill-switch inventory against the code: every CORE name is read by
+    an `off()` call, every name the code reads is CORE or one of the
+    UNCLASSIFIED_SWITCHES, the contract skill lists CORE exactly, and
+    bin/tezgah-setup's OFF_SWITCH_NAMES (what an uninstall sweeps) is every
+    `off()` name."""
+    core = core_switches() if core is None else core
+    off, armed = code_switches()
+    out = ["CORE names `%s`, which no `off()` call reads" % n for n in sorted(core - off)]
+    out += ["the code reads `%s`, which neither CORE nor the unclassified set names"
+            % n for n in sorted((off | armed) - core - UNCLASSIFIED_SWITCHES)]
+    out += ["the unclassified switch `%s` is no longer read by the code" % n
+            for n in sorted(UNCLASSIFIED_SWITCHES - off - armed)]
+    skill = source(CONTRACT_SKILL)
+    block = skill[skill.index("## Kill switches"):].split("\n## ")[0]
+    if switch_names(block) != core:
+        out.append("skills/tezgah-contract/SKILL.md lists %s; CORE lists %s"
+                   % (sorted(switch_names(block)), sorted(core)))
+    tree = ast.parse(source(SETUP), filename=SETUP)
+    names = next((ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+                  and getattr(n.targets[0], "id", "") == "OFF_SWITCH_NAMES"), ())
+    if set(names) != off:
+        out.append("bin/tezgah-setup's OFF_SWITCH_NAMES lacks %s and adds %s"
+                   % (sorted(off - set(names)), sorted(set(names) - off)))
+    return out
+
+
+# --- the enforcement matrix -------------------------------------------------
+# Every always-on CORE rule against what enforces it: a gate rule or a Stop
+# class that refuses, a report-only shape flag that only records, or none. A
+# link is read off the code wherever the code states one - an enforcer named
+# like the rule's CORE_RULES key, or guarded by a switch whose `switches()`
+# branch drops the rule's paragraph - and HAND_LINKS carries the few it cannot
+# state. Each enforcer also carries its guards, the enclosing `if` tests that
+# can switch it off, so a rule whose every refusal vanishes while its text stays
+# reads `partial` rather than `enforced`. A rule with no refusing enforcer, or
+# one whose enforcers cover only part of it, has a row in docs/contract.md's
+# table saying why (or "no decision").
+
+CONTEXT = os.path.join(HERE, "hooks", "tezgah_context.py")
+STOP_HOOK = os.path.join(HERE, "hooks", "projects-stop.py")
+CONTRACT_PAGE = os.path.join(HERE, "docs", "contract.md")
+PROSE_ONLY_COLUMNS = ("rule", "decision")
+# `explorer` refuses a grep-only subagent and names the code-graph tools
+# (EXPLORE_DENY) under no switch; `retry` is the loop rule's "three attempts is
+# the ceiling" (RETRY_CEILING) but sits under `verify-off`, which drops only the
+# integrity paragraph; `placating opener` enforces the Deliver paragraph's
+# "Never placate" under the output-shape rule's switch; the shape flags
+# (`flag:*`) measure the shape `_shape_block` enforces for the output rule, but
+# are recorded on every judged reply, under the Stop hook's switch only.
+HAND_LINKS = {"gate:explorer": "graph", "gate:retry": "loop",
+              "stop:placating opener": "fidelity", "flag:*": "adhd"}
+
+
+def _function(path, name):
+    """The top-level `def name` of the Python file at `path`."""
+    tree = ast.parse(source(path), filename=path)
+    return next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+
+
+def _switch_words(node):
+    """The switches a guard expression reads: `off("<name>")` calls and
+    `"<mark>" in marks` tests."""
+    out = []
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "off" and n.args \
+                and isinstance(n.args[0], ast.Constant):
+            out.append(n.args[0].value)
+        elif isinstance(n, ast.Compare) and isinstance(n.left, ast.Constant) \
+                and isinstance(n.left.value, str):
+            out.append(n.left.value)
+    return out
+
+
+def switch_drops():
+    """{switch or repo mark: {CORE_RULES key}}, read off
+    `tezgah_context.switches`: each `if` branch's switches and the keys its
+    body `drop.add`s."""
+    out = {}
+    for node in ast.walk(_function(CONTEXT, "switches")):
+        if isinstance(node, ast.If):
+            keys = {c.args[0].value for s in node.body for c in ast.walk(s)
+                    if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "add"}
+            for name in _switch_words(node.test):
+                out.setdefault(name, set()).update(keys)
+    return out
+
+
+def core_rules(core=None):
+    """[(key, label)] for every CORE paragraph opening with a bold head, in
+    order, the kill-switch list left out. The label is the policy text's own;
+    the key is its `tezgah_context.CORE_RULES` id (None when that table lacks it)."""
+    import tezgah_policy
+    core = tezgah_policy.CORE if core is None else core
+    table = next(n.value for n in ast.parse(source(CONTEXT), filename=CONTEXT).body
+                 if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "CORE_RULES")
+    keys = {label: key for key, label in ast.literal_eval(table)}
+    out = []
+    for para in core.split("\n\n"):
+        m = re.match(r"\s*(\*\*(.+?)\*\*)", para)
+        if m and not m.group(2).startswith("Kill switches"):
+            out.append((keys.get(m.group(1)), m.group(2)))
+    return out
+
+
+def _guarded_returns(func, funcs, pick):
+    """[(name, switches, conditions)] for every `return` in `func` that `pick`
+    names, with what its enclosing `if` tests guard it by. A conjunct of a test
+    that reads a switch (`_switch_words`, or a call to a function in `funcs`
+    that reads one: `_adhd_armed`) is a switch guard; a conjunct that names no
+    argument or local of `func` is a condition on the environment (`reply_lang()
+    == "tr"`); a conjunct reading the call's own data is the trigger itself and
+    is not a guard. The switch a whole hook checks first (`pretooluse-off`, the
+    Stop hook's `verify-off`) is outside these functions and is not counted."""
+    own = {a.arg for a in func.args.args + func.args.kwonlyargs} | {
+        n.id for n in ast.walk(func) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    out = []
+
+    def split(test):
+        parts = test.values if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And) \
+            else [test]
+        switches, conditions = [], []
+        for part in parts:
+            words = _switch_words(part) + [
+                w for n in ast.walk(part) if isinstance(n, ast.Call)
+                and getattr(n.func, "id", "") in funcs for w in _switch_words(funcs[n.func.id])]
+            if words:
+                switches += words
+            elif not any(isinstance(n, ast.Name) and n.id in own for n in ast.walk(part)):
+                conditions.append(ast.unparse(part))
+        return switches, conditions
+
+    def walk(stmts, switches, conditions):
+        for stmt in stmts:
+            if isinstance(stmt, ast.If):
+                more, extra = split(stmt.test)
+                walk(stmt.body, switches + more, conditions + extra)
+                walk(stmt.orelse, switches, conditions)
+            elif isinstance(stmt, ast.Return):
+                out.extend((name, tuple(dict.fromkeys(switches)),
+                            tuple(dict.fromkeys(conditions))) for name in pick(stmt))
+            else:
+                for field in ("body", "orelse", "finalbody", "handlers"):
+                    walk(getattr(stmt, field, []), switches, conditions)
+    walk(func.body, [], [])
+    return out
+
+
+def stop_sites():
+    """[(class, switches, conditions)] for every class `_shape_block`,
+    `_stop_block` and `_evidence_block` return (`_guarded_returns`)."""
+    tree = ast.parse(source(STOP), filename=STOP)
+    funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    return [site for name in ("_shape_block", "_stop_block", "_evidence_block")
+            for site in _guarded_returns(funcs[name], funcs,
+                                         lambda r: sorted(returned_classes(r)))]
+
+
+def gate_sites():
+    """[(rule, switches, conditions)] for every `return _deny(...)` in
+    `decision` (`_guarded_returns`)."""
+    def pick(ret):
+        call = ret.value
+        return [call.args[1].value] if isinstance(call, ast.Call) \
+            and getattr(call.func, "id", "") == "_deny" else []
+    return _guarded_returns(_function(GATE, "decision"), {}, pick)
+
+
+def enforcer_links():
+    """{enforcer id: {"rules", "switches", "conditions"}} for every gate rule
+    (`gate:<rule>`), Stop class (`stop:<class>`) and report-only shape flag
+    (`flag:<flag>`), in that order: the CORE_RULES keys it is linked to, and the
+    guards every one of its sites shares. A Stop class with no switch of its own
+    is linked through the Stop hook's switch; a flag rides only that switch."""
+    drops = switch_drops()
+    keys = {key for key, _ in core_rules()}
+    found = {}
+
+    def link(eid, name, switches, conditions, via):
+        row = found.get(eid)
+        if row is None:
+            row = found[eid] = {"rules": set(), "switches": switches,
+                                "conditions": conditions}
+        row["switches"] = tuple(s for s in row["switches"] if s in switches)
+        row["conditions"] = tuple(c for c in row["conditions"] if c in conditions)
+        row["rules"].update({name} & keys)
+        for s in via:
+            row["rules"] |= drops.get(s, set())
+    for rule, switches, conditions in gate_sites():
+        link("gate:" + rule, rule, switches, conditions, switches)
+    hook = [w for n in ast.walk(_function(STOP_HOOK, "main")) if isinstance(n, ast.If)
+            for w in _switch_words(n.test)]
+    for cls, switches, conditions in stop_sites():
+        link("stop:" + cls, cls, switches, conditions, switches or hook)
+    for c in ast.walk(_function(STOP, "shape_flags")):
+        if isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "append":
+            link("flag:" + c.args[0].value, None, (), (), ())
+    for eid, row in found.items():
+        hand = HAND_LINKS.get(eid) or HAND_LINKS.get(eid.split(":")[0] + ":*")
+        row["rules"].update({hand} if hand else set())
+    return found
+
+
+def prose_only_rows():
+    """The record in docs/contract.md, as {rule, decision} dicts: why a rule has
+    no refusing enforcer, or which part of it no enforcer covers."""
+    return table_rows(CONTRACT_PAGE, PROSE_ONLY_COLUMNS)
+
+
+def enforcers(core=None, record=None, links=None):
+    """[{rule, label, status, enforcers, guards, decision}], one per always-on
+    CORE rule in policy order. `status` is `enforced`, `partial` (every refusing
+    enforcer has a guard that can remove it while the rule's text stays, or the
+    record names a part no enforcer covers), `records` (only shape flags, which
+    refuse nothing) or `prose-only`; `guards` maps each enforcer to its switches
+    and conditions; `decision` is the record's row (None without one)."""
+    record = prose_only_rows() if record is None else record
+    decisions = {r["rule"]: r["decision"] for r in record}
+    links = enforcer_links() if links is None else links
+    drops = switch_drops()
+    rows = []
+    for key, label in core_rules(core):
+        ids = [eid for eid, row in links.items() if key in row["rules"]]
+        refusing = [eid for eid in ids if not eid.startswith("flag:")]
+        conditional = all(
+            links[eid]["conditions"] or any(key not in drops.get(s, set())
+                                            for s in links[eid]["switches"])
+            for eid in refusing)
+        decision = decisions.get(key)
+        status = ("prose-only" if not ids else "records" if not refusing
+                  else "partial" if conditional or decision is not None else "enforced")
+        rows.append({"rule": key, "label": label, "status": status, "enforcers": ids,
+                     "guards": {eid: list(links[eid]["switches"] + links[eid]["conditions"])
+                                for eid in ids},
+                     "decision": decision})
+    return rows
+
+
+def enforcer_failures(core=None, record=None, links=None):
+    """The ways the matrix is not whole: a CORE rule that nothing refuses on
+    (no enforcer, or shape flags only) with no row in the record, and a row
+    naming no CORE rule."""
+    record = prose_only_rows() if record is None else record
+    rows = enforcers(core, record, links)
+    out = ["CORE rule `%s` (%s) is %s and has no row in docs/contract.md"
+           % (row["rule"], row["label"], "recorded only by %s" % ", ".join(row["enforcers"])
+              if row["status"] == "records" else "enforced by nothing")
+           for row in rows if row["status"] in ("records", "prose-only")
+           and row["decision"] is None]
+    named = {row["rule"] for row in rows}
+    out += ["record row `%s` names no CORE rule" % r["rule"]
+            for r in record if r["rule"] not in named]
+    return out
+
+
+def enforcement_report():
+    """The matrix as `tezgah-status --enforcers` prints it: the rows, the
+    enforcers tied to no CORE rule, and the failures."""
+    return {"rows": enforcers(),
+            "unattached": sorted(e for e, row in enforcer_links().items() if not row["rules"]),
+            "failures": enforcer_failures()}
+
+
+INVENTORY_CHECKS = (rule_site_failures, rule_order_failures, judge_caller_failures,
+                    switch_failures, enforcer_failures)
+
+
+def inventory_failures():
+    """Every inventory check above, one list."""
+    return [f for check in INVENTORY_CHECKS for f in check()]
 
 
 NONE = "none"
@@ -433,26 +1125,46 @@ def main(argv):
         sys.stderr.write("tezgah-docs: unknown option(s): %s (try --help)\n"
                          % ", ".join(sorted(unknown)))
         return 2
-    if "--update" in flags and "--clarity" not in flags:
-        sys.stderr.write("tezgah-docs: --update needs --clarity\n")
+    if "--update" in flags and not flags & {"--clarity", "--citations"}:
+        sys.stderr.write("tezgah-docs: --update needs --clarity or --citations\n")
         return 2
     if "--clarity" in flags:
         return tezgah_clarity.report(HERE, update="--update" in flags)
     if "--citations" in flags:
-        flagged, judged, unjudged = citations(symbols())
+        flagged, judged, unjudged, invisible = citations(symbols())
         for where, token, symbol_in, low, high in flagged:
+            if not low:
+                print("%s  %s -> %s defines no such symbol" % (where, token, symbol_in))
+                continue
             print("%s  %s -> the symbol it names lives at %s:%d-%d"
                   % (where, token, symbol_in, low, high))
-        print("citations: %d judged (%d outside the symbol they name), "
-              "%d not judgeable (no single symbol named beside them)"
-              % (judged, len(flagged), unjudged))
+        print("citations: %d judged (%d outside the symbol they name or naming none), "
+              "%d not judgeable (no single symbol named beside them; %d of them "
+              "in a shape the audit cannot read)"
+              % (judged, len(flagged), sum(unjudged.values()), invisible))
+        if "--update" in flags:
+            tezgah_clarity.save(os.path.join(HERE, CITATION_BASELINE), {
+                rel: {"unjudged": n} for rel, n in unjudged.items() if n})
+            print("citations: baseline rewritten (%s)" % CITATION_BASELINE)
+            over = []
+        else:
+            over = ratchet_drift(unjudged, ratchet_baseline())
+        for rel, count, allowed in over:
+            print("citations: %s has %d unjudged, baseline %d - %s"
+                  % (rel, count, allowed,
+                     "name the symbol beside each new citation" if count > allowed
+                     else "run `bin/tezgah-docs --citations --update` to write the "
+                          "lower count down"))
         ledger = ledger_failures(ledger_rows())
         for problem in ledger:
             print("rule ledger: %s" % problem)
         if ledger:
             print("rule ledger: %d row(s) of the provenance table do not hold"
                   % len(ledger))
-        return 1 if flagged or ledger else 0
+        inventory = inventory_failures()
+        for problem in inventory:
+            print("inventory: %s" % problem)
+        return 1 if flagged or over or ledger or inventory else 0
     query = " ".join(words).strip()
     found = matches(query) if query else entries()
     if not found:

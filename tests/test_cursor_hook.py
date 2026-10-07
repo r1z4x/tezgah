@@ -349,6 +349,24 @@ class CursorProvenance(TempHome):
         self.assertEqual((row["kind"], row["source"], row["out_bytes"]),
                          ("external", "subagent", len(report.encode("utf-8"))))
 
+    def test_before_mcp_execution_refuses_a_write_by_its_content(self):
+        # Cursor's own MCP gate: `tool_input` arrives as a JSON string, the tool
+        # under its server's name. A token in the content is refused; a clean
+        # write and the code graph keep their answers (defer / allow).
+        token = "ghp_" + "a" * 36
+        out = self.call("write_file", json.dumps({"path": "a.py",
+                                                  "content": token}),
+                        event="beforeMCPExecution", mcp_server_name="fs")
+        self.assertEqual(out["permission"], "deny")
+        self.assertIn("Credential", out["agent_message"])
+        self.assertEqual(self.call("write_file", {"path": "a.py", "content": "x"},
+                                   event="beforeMCPExecution",
+                                   mcp_server_name="fs"), {})
+        self.assertEqual(self.call("callers", {"query": "x"},
+                                   event="beforeMCPExecution",
+                                   mcp_server_name="codegraph"),
+                         {"permission": "allow"})
+
     def test_outside_a_root_nothing_is_shown(self):
         self.assertEqual(
             self.context("get_file", {"path": "x"}, mcp_server_name="github",
@@ -465,8 +483,8 @@ class CrossHostStopAgreement(TempHome):
     is driven through its own adapter in its own payload shape; a passing run
     must license the claim on all four and a failing one must refuse it on all
     four. dsh is left out on purpose: its bridge drops the outcome
-    (`TEZGAH_CALL_OUTCOME=none` in hosts/dsh/hooks.json), so every check there
-    is one that ran and the claim is always refused."""
+    (`TEZGAH_CALL_OUTCOME=none` in hosts/dsh/hooks.json), so no check there
+    can show a pass, and dsh wires no Stop rule at all."""
 
     CLAIM = "Tamamlandı, tüm testler geçti."
     CHECK = {"command": "python3 -m pytest -q"}

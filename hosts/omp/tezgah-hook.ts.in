@@ -263,10 +263,17 @@ function skillRead(tool: string, args: any): boolean {
 
 // The gate is only consulted for the tools the shared rule knows: the refusal
 // of the grep-only explorer (task/agent), the anti-shortcut and attribution
-// checks (bash), and the test-skip check (the edit/write names).
+// checks (bash), and the test-skip check (the edit/write names). An MCP tool is
+// consulted when its name carries an effect verb (MCP_EFFECT, see `tool_call`).
 const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
   "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
   "search_replace", "powershell", "pwsh"];
+
+// The effect verbs of tezgah_integrity.MCP_VERBS, as one pattern: a read-only
+// MCP call (a code-graph query) reaches no content rule, so it pays no spawn.
+// tests/test_setup.py holds this pattern, hooks/hooks.json and
+// hosts/dsh/hooks.json equal to the verb classes.
+const MCP_EFFECT = /^mcp__(?:.*[^A-Za-z0-9])?(?:append|cancel|clear|click|close|comment|commit|copy|create|delete|deploy|drag|edit|email|evaluate|exec|execute|fill|insert|install|kill|launch|merge|message|mkdir|move|navigate|notify|patch|pause|post|press|print|publish|push|put|release|remove|rename|replace|reply|resume|review|run|save|send|set|share|skip|start|stop|submit|swipe|tag|tap|terminate|type|uninstall|update|upload|write)(?:[^A-Za-z0-9].*)?$/;
 
 // The provenance label omp puts in front of a result that came from outside the
 // user and the workspace. The handler's return value replaces the tool result
@@ -282,6 +289,20 @@ function labelled(content: any, label: string): any {
     return [part, { type: "text", text: content }];
   }
   return undefined;
+}
+
+// A check's own output saying it ran nothing: the same literal as
+// hooks/tezgah_integrity.py `EMPTY_RUN` (tests/test_omp_extension.py pins the
+// two equal), read here because the bridge sends the hook a size and never the
+// body. Read on the result's last EMPTY_RUN_TAIL characters, like the core.
+const EMPTY_RUN = /^[=\s]*(?:collected 0 items|no tests ran|ran 0 tests|no tests found)\b/im;
+const EMPTY_RUN_TAIL = 4096;
+function emptyRun(content: any): boolean {
+  const text = typeof content === "string" ? content
+    : Array.isArray(content)
+      ? content.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("\n")
+      : "";
+  return EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL));
 }
 
 // The hook's failure is the one state the bridge can see and the hook cannot
@@ -612,7 +633,12 @@ export default function tezgahOmp(pi: any): void {
 
   pi.on("tool_call", async (event: any, ctx: any) => {
     const tool = String(event?.toolName ?? event?.name ?? "");
-    if (!GATED.includes(tool.toLowerCase())) return undefined;
+    // An MCP tool is named per server (`mcp__<server>_<tool>`), so no exact
+    // list can hold it: an effect verb in the name reaches the gate, whose
+    // content rules read its payload (tezgah_integrity.mcp_class).
+    if (!GATED.includes(tool.toLowerCase()) && !MCP_EFFECT.test(tool)) {
+      return undefined;
+    }
     const res = ask({ event: "pre_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? event?.args ?? {},
                       session_id: sessionOf(ctx) });
@@ -639,12 +665,15 @@ export default function tezgahOmp(pi: any): void {
     // onto the hook's stdin, which is exactly the copy the writer's rule bans. A
     // string is its own length, a part list is its count, and anything else is
     // left unstated rather than guessed - an absent field is not a field of 0.
+    // The one thing read from the body is the empty-run flag (`emptyRun`), and
+    // only the flag crosses: the body still never does.
     const content = event?.content;
     const resultLen = typeof content === "string" ? content.length
       : Array.isArray(content) ? content.length : undefined;
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? {}, failed, idx: idxGlyph,
-                      session_id: sessionOf(ctx), result_len: resultLen });
+                      session_id: sessionOf(ctx), result_len: resultLen,
+                      empty_run: emptyRun(content) || undefined });
     if (hookError) return markBroken(ctx);
     show(ctx, res);
     // A result that came from outside the user and the workspace is labelled in

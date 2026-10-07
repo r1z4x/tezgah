@@ -79,7 +79,7 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 `bin/tezgah-research` in the checkout):
 
 ```sh
-~/.config/tezgah/bin/tezgah-research init my-line --question "does X hold under Y?"
+~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?"
 ~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
 ~/.config/tezgah/bin/tezgah-research check    # 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research check --strict   # the unprovable becomes a refusal
@@ -88,6 +88,7 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 ~/.config/tezgah/bin/tezgah-research claim my-line   # one JSON object on stdin
 ~/.config/tezgah/bin/tezgah-research migrate my-line [--dry-run]
 ~/.config/tezgah/bin/tezgah-research source my-line <hypothesis> --run <orxRunId> [--command "<cmd>"]
+~/.config/tezgah/bin/tezgah-research import <other-checkout> my-line   # move a line with its history
 ```
 
 `claim` reads that object from stdin and appends it as one line: exit 0,
@@ -118,8 +119,9 @@ rather than inventing one. `--dry-run` prints the same report and writes nothing
 `source` files one run as the experiment's receipt: it runs `orx logs <runId>`,
 writes the log to `experiments/<hypothesis>/raw/<runId>.log`, and appends the row
 `{"source": "orx:<runId>", "log": "raw/<runId>.log"}`. The experiment must already
-have its `protocol.md`, so a receipt cannot be filed against a plan that was
-never committed. Without orx it exits 2 and says so, and it writes nothing at all
+have its `protocol.md` on disk; `source` does not check that it is committed, so
+commit the protocol first yourself. Even then the order rule proves commit order,
+not run order. Without orx it exits 2 and says so, and it writes nothing at all
 when the run cannot be read.
 
 `check` enforces the rules a session tends to skip: `protocol.md` committed
@@ -505,8 +507,11 @@ question without it, and `check` refuses a line sharing another's
 
 A line that cannot finish is closed on purpose: `tezgah-research close <slug>
 --limit "<what is left and why>"` concludes it, writes the reasons it was still open
-into `state.json` `closed` and `log.md`, and stops it counting as open. `init
---allow-open` is refused while an open line has `check` errors.
+into `state.json` `closed` and `log.md`, seals its experiments' file hashes
+(`order_seal`), and stops it counting as open; `conclude` seals the same
+way, and an edit after the seal fails `check`. `init --allow-open` is refused
+while an open line has `check` errors. A line moves to another checkout with
+`import`, never as a copy: a copy loses the order proof.
 
 Finally, a `## Patterns` bullet names what it generalises from - a claim id, a
 `literature/` note or a run - because a pattern is the one finding a reader carries

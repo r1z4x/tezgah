@@ -347,14 +347,15 @@ def _cosines(model, query, texts, groups):
             for g in (groups or [[t] for t in texts])]
 
 
-def fuse(query, texts, k, groups=None):
+def fuse(query, texts, k, groups=None, max_df=None):
     """Indices of the `k` texts most about `query`, best first: the lessons ranking.
 
     BM25's own order first - with no usable model this is exactly
-    `tezgah_rank.rank(query, texts, k)` - then the texts BM25 missed, by cosine,
-    each only when it reaches the model's `floor` (a model with none fills
-    unconditionally), so a prompt about nothing gets nothing."""
-    words = tezgah_rank.rank(query, texts, len(texts))
+    `tezgah_rank.rank(query, texts, k, max_df)`, `max_df` being the lessons
+    path's cap - then the texts BM25 missed, by cosine, each only when it reaches
+    the model's `floor` (a model with none fills unconditionally), so a prompt
+    about nothing gets nothing."""
+    words = tezgah_rank.rank(query, texts, len(texts), max_df)
     model = reader()
     if model is None:
         return words[:k]

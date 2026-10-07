@@ -127,12 +127,6 @@ def _probe_orx():
     return _tp("orx_bin")()
 
 
-def _probe_ai_research():
-    """The payload a research task reads, by its entry point."""
-    d = _tp("ai_research_dir")()
-    return d if os.path.isfile(os.path.join(d, "SKILL.md")) else None
-
-
 # The fetch-and-convert step of an embedding row, run by the installer as its
 # `cmd`, and the probe that answers whether the pinned file is in place.
 _EMBED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tezgah_embed.py")
@@ -203,21 +197,8 @@ REGISTRY = (
              # unattended vendor installer to name here.
              "cmd": None,
              "why": "node, which npx runs the server through"}},
-    # Not a server: the vendored domain library a research task reaches. Its row
-    # is here so the table, not a second private list, says whether it is on.
-    {"id": "ai-research",
-     "name": "ai-research",
-     "why": "the vendored domain library a research task reads",
-     "command": None,
-     "env": None,
-     "default": True,
-     "dep": {"name": "ai-research", "probe": _probe_ai_research, "needs": (),
-             # It ships inside the package; the only writer is the release-time
-             # `bin/tezgah-import-ai-research`, which needs a source clone.
-             "cmd": None,
-             "why": "the payload, present in the plugin that is running"}},
-    # Not a server either: the OpenResearch CLI the research routing shells out
-    # to. Same dep record the installer's DEPS table carries for it.
+    # Not a server: the OpenResearch CLI the research routing shells out to.
+    # Same dep record the installer's DEPS table carries for it.
     {"id": "orx",
      "name": "orx",
      "why": "research routing (OpenResearch)",

@@ -19,26 +19,31 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from tezgah_context import record, shell_kind  # noqa: E402
-from tezgah_guard import safe  # noqa: E402
-from tezgah_integrity import (  # noqa: E402
-    SUBAGENT_CHANNEL, note_tool, report_bytes, untrusted_source)
-from tezgah_paths import root_for  # noqa: E402
-from tezgah_untrusted import marks  # noqa: E402
+from tezgah_guard import import_failed, safe  # noqa: E402
+try:
+    from tezgah_context import (GRAPH_TOOL_MARK, record, shell_kind,  # noqa: E402
+                                skill_read_kind)
+    from tezgah_integrity import (  # noqa: E402
+        SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
+    from tezgah_paths import root_for  # noqa: E402
+    from tezgah_untrusted import marks  # noqa: E402
+except Exception as exc:
+    import_failed(exc)
 
 # The tool-use kinds this hook can see, for the status line's used marks. Claude
 # reads them from its transcript and ignores this store, but dsh runs this same
 # file with no transcript of its own - the store is the only channel its Web
 # status line has, so without this its consult/graph marks could never light.
-# codegraph's MCP tools arrive namespaced (`mcp__codegraph__codegraph_explore`),
-# so the server name is what identifies the call, whatever the tool is.
-GRAPH_TOOL_MARK = "codegraph"
+# A Claude Skill call is recorded too: the skill-fitness report reads it back.
 
 
 def used_kind(tool, inp):
     """The used-tool kind one PostToolUse call earns, or None."""
     if GRAPH_TOOL_MARK in str(tool).lower():
         return "graph"
+    skill = skill_read_kind(tool, inp)
+    if skill:
+        return skill
     return shell_kind(inp.get("command") or inp.get("cmd") or "")
 
 
@@ -77,6 +82,10 @@ def main():
     inp = p.get("tool_input") or {}
     session_id = p.get("session_id")
     result = p.get("tool_response", p.get("tool_result"))
+    # Claude sets `agent_id` only on a call a subagent made (its hook reference,
+    # common input fields). The row carries it, and the taint reader keys on it,
+    # so one sibling's web read does not mark another sibling's effects.
+    agent = p.get("agent_id") if isinstance(p.get("agent_id"), str) else None
     # A failure has no result and made no effect, and both lines assert one
     # ("this result came from ..."), so only PostToolUse shows them. The channel
     # is a property of the call either way, so the row keeps it on both events.
@@ -86,7 +95,7 @@ def main():
         # a crash in `marks` costs both halves of the provenance rather than the
         # envelope: no source on the row, no notice to the model
         source, notice = safe(session_id, marks, tool, inp, session_id,
-                              result) or (None, None)
+                              result, agent) or (None, None)
     else:
         source, notice = untrusted_source(tool, inp), None
     safe(session_id, record, session_id, used_kind(tool, inp))
@@ -118,11 +127,18 @@ def main():
     safe(session_id, note_tool, session_id, tool, inp,
          failed=failed,
          interrupted=interrupted,
-         out_bytes=(report_bytes(result) if source == SUBAGENT_CHANNEL
+         # the report's byte rule is the delegate call's own: an effect that
+         # only inherits the subagent channel keeps its top-level measure
+         out_bytes=(report_bytes(result)
+                    if untrusted_source(tool, inp) == SUBAGENT_CHANNEL
                     else result_size(result)),
          error=p.get("error"),
          cwd=cwd,
-         source=source)
+         source=source,
+         # the Bash result's own stdout/stderr, read on a bounded tail for the
+         # empty-run contract (tezgah_integrity.EMPTY_RUN)
+         empty_run=ran_nothing(result),
+         agent=agent)
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

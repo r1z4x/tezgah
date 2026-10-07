@@ -72,15 +72,18 @@ class OmpOverrides(unittest.TestCase):
     def test_the_anthropic_mode_carries_effort_and_the_frontier_row(self):
         out = self.overrides("anthropic", funded=("anthropic",))
         self.assertEqual(out["tezgah-cheap"], "anthropic/claude-opus-5-5:low")
-        self.assertEqual(out["tezgah-explorer"], "anthropic/claude-opus-5-5:medium")
+        self.assertEqual(out["scout"], "anthropic/claude-opus-5-5:medium")
         # the frontier agents are written too: a session that started on a
         # weaker model must not drag security-sensitive work down with it
-        for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
+        for agent in ("tezgah-frontier", "tezgah-reviewer"):
             self.assertEqual(out[agent], "anthropic/claude-opus-5-5:high")
+        # the retired roles are no longer generated, so no override names them
+        for agent in ("tezgah-explorer", "tezgah-researcher", "tezgah-verifier"):
+            self.assertNotIn(agent, out)
 
     def test_any_mode_writes_the_frontier_row_through_openrouter(self):
         out = self.overrides("any", funded=("any",))
-        for agent in ("tezgah-frontier", "tezgah-reviewer", "tezgah-researcher"):
+        for agent in ("tezgah-frontier", "tezgah-reviewer"):
             self.assertEqual(out[agent], "openrouter/anthropic/claude-opus-5.5:high")
 
     def test_the_frontier_row_is_concrete_on_every_family(self):
@@ -327,7 +330,7 @@ class OmpOverrides(unittest.TestCase):
         # funded provider is z.ai routes without a hand-edited override
         out = self.overrides("zai", funded=("zai",))
         self.assertEqual(out["tezgah-cheap"], "zai/glm-5.3-flash")
-        self.assertEqual(out["tezgah-explorer"], "zai/glm-5.3-flash")
+        self.assertEqual(out["scout"], "zai/glm-5.3-flash")
         self.assertEqual(out["tezgah-standard"], "zai/glm-5.3")
         self.assertEqual(out["tezgah-frontier"], "zai/glm-5.3")
         self.assertEqual(tm.omp_role_overrides("zai"),
@@ -482,6 +485,61 @@ class OmpOverrides(unittest.TestCase):
         for brief in elsewhere:
             self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
 
+    # The red-team fixture (REPORT.md R08 part 11): 8 high-stakes briefs the
+    # pattern matched none of, and 4 controls naming the new terms' near misses.
+    HIGH_STAKES = ["Rotate the SSH private key",
+                   "Drop the users table",
+                   "Fix the bearer token check",
+                   "Update the TLS certificate pinning",
+                   "Change file permissions and sudoers",
+                   "Delete old rows from the production database",
+                   "Force-push the rewritten history to main",
+                   "Store the user's GitHub PAT"]
+    CONTROLS = ["Add a dropdown to the settings page",
+                "Count the tokens in each prompt",
+                "Fix the pattern matcher in the docs router",
+                "Delete the unused import in bin/consult"]
+    # Ordinary briefs a loose term over-routed (review of add7e74): pinned here
+    # only where the tightened pattern leaves them unmatched.
+    NEAR_MISSES = ["Ask Pat to review the copy",
+                   "List the pats in the fixture"]
+
+    def test_a_name_or_a_plural_is_not_a_personal_access_token(self):
+        for brief in self.NEAR_MISSES:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
+        for brief in ("Store the user's GitHub PAT", "Rotate the personal access token"):
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
+
+    def test_the_override_routes_every_high_stakes_brief_and_no_control(self):
+        for brief in self.HIGH_STAKES:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
+        for brief in self.CONTROLS:
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "cheap", brief)
+
+    def test_the_code_verifier_s_four_extra_misses_are_caught_too(self):
+        for brief in ("Fix the login token refresh",
+                      "Rewrite git history with filter-repo",
+                      "Truncate the events table",
+                      "Rotate the private key"):
+            self.assertEqual(tm.route(brief, "mechanical")["tier"], "frontier", brief)
+
+    def test_a_judged_route_names_who_answered_and_keeps_via(self):
+        def ask(state, questions):
+            out = judge("standard")(state, questions)
+            out.update(model="glm-5.3-flash", provider="openrouter")
+            return out
+        out = tm.route("Add a --json flag", "code", ask=ask)
+        self.assertEqual(out["judge"], "openrouter/glm-5.3-flash")
+        detail = tm.route_detail(out, "code")
+        fields = tm.route_fields({"kind": "route", "detail": detail})
+        self.assertEqual(fields["via"], "jev")
+        self.assertEqual(fields["judge"], "openrouter/glm-5.3-flash")
+
+    def test_an_unjudged_route_says_no_judge_answered(self):
+        for out in (tm.route("Drop the users table"), tm.route("Bump it", "mechanical")):
+            fields = tm.route_fields({"kind": "route", "detail": tm.route_detail(out)})
+            self.assertEqual(fields["judge"], "-")
+
     def test_a_malformed_judgement_never_raises(self):
         broken = [None, {"answers": {"tier": "standard"}},
                   {"answers": {"tier": {"choice": ["standard"]}}},
@@ -589,9 +647,43 @@ class Cli(unittest.TestCase):
         home = tempfile.mkdtemp()
         os.makedirs(os.path.join(home, "tezgah"))
         open(os.path.join(home, "tezgah", "judge-off"), "w").close()
-        env = dict(os.environ, XDG_CONFIG_HOME=home, **extra)
+        # this module does not import `support`, so it sandboxes the child
+        # itself: no real HOME (the ledger lives under it), and no session but
+        # the one a test passes
+        env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home)
+        env.pop("TEZGAH_SESSION", None)
+        env.update(extra)
         return subprocess.run([sys.executable, os.path.join(REPO, "bin", "tezgah-route")]
                               + list(args), capture_output=True, text=True, env=env)
+
+    def test_a_route_run_reaches_neither_the_real_home_nor_the_session(self):
+        # 36 rows in the live route ledger came from this class: the child
+        # inherited the real HOME and the running session's TEZGAH_SESSION
+        with mock.patch.dict(os.environ, {"TEZGAH_SESSION": "r02-probe",
+                                          "HOME": "/real-home"}), \
+                mock.patch.object(subprocess, "run") as run:
+            self.run_route("x")
+        env = run.call_args.kwargs["env"]
+        self.assertNotIn("TEZGAH_SESSION", env)
+        self.assertNotEqual(env["HOME"], "/real-home")
+        self.assertTrue(env["HOME"].startswith(env["XDG_CONFIG_HOME"]))
+
+    def test_importing_support_sandboxes_the_process(self):
+        # set before any hooks/ import: tezgah_paths fixes HOME and CACHE then
+        # A host dir the developer exported (Orca exports CODEX_HOME) is the real
+        # config: a test that writes and removes `<CODEX_HOME>/config.toml` deleted
+        # the developer's own Codex config on 2026-10-06.
+        real = ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+                "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA")
+        code = ("import os, support; print(os.environ['HOME']); "
+                "print(sorted(n for n in %r if n in os.environ))" % (real,))
+        env = dict(os.environ, HOME="/real-home", **{n: "/real-home/" + n for n in real})
+        p = subprocess.run([sys.executable, "-c", code], cwd=os.path.join(REPO, "tests"),
+                           env=env, capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        home, left = p.stdout.splitlines()
+        self.assertNotEqual(home, "/real-home")
+        self.assertEqual(left, "[]")
 
     def test_judge_off_routes_by_rule_and_phase(self):
         p = self.run_route("Migrate the ledger rows", "--json")
@@ -622,7 +714,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(tm.route_fields(rows[0]),
                          {"tier": "frontier", "agent": "tezgah-frontier", "via": "rule",
                           "static": "standard", "model": "claude-opus-5-5:high",
-                          "override": "-"})
+                          "override": "-", "judge": "-"})
 
     def test_report_joins_a_route_to_its_child_session_s_first_check(self):
         home = tempfile.mkdtemp()

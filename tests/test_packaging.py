@@ -250,5 +250,57 @@ class PublishedVersion(unittest.TestCase):
             newest = re.search(r"^## \[(\d+\.\d+\.\d+)\]", fh.read(), re.M).group(1)
         self.assertEqual(package, newest)
 
+
+class ReleaseWaitsForCi(unittest.TestCase):
+    """v0.1.2 reached npm and brew while its own CI run went red (release run
+    37228979635 beside CI run 37228979769, same commit): publishing runs CI as a
+    called workflow and both publish jobs wait for it."""
+
+    @staticmethod
+    def workflow(name):
+        with open(os.path.join(REPO, ".github", "workflows", name),
+                  encoding="utf-8") as fh:
+            return fh.read()
+
+    @staticmethod
+    def jobs(text):
+        """{job: its block}, for the two-space-indented keys under `jobs:`."""
+        import re
+        body = text.split("\njobs:\n", 1)[1]
+        parts = re.split(r"^  ([A-Za-z0-9_-]+):\n", body, flags=re.M)
+        return dict(zip(parts[1::2], parts[2::2]))
+
+    def test_ci_is_callable_and_both_publish_jobs_need_it(self):
+        import re
+        on = self.workflow("ci.yml").split("\njobs:\n", 1)[0]
+        self.assertRegex(on, r"(?m)^  workflow_call:")
+        jobs = self.jobs(self.workflow("release.yml"))
+        self.assertRegex(jobs.get("ci", ""),
+                         r"(?m)^    uses: \./\.github/workflows/ci\.yml\s*$")
+        for job in ("npm-publish", "brew-formula"):
+            self.assertTrue(re.search(r"(?m)^    needs: \[?ci\]?\s*$",
+                                      jobs.get(job, "")), job)
+
+    def test_no_ci_matrix_cancels_its_other_legs(self):
+        # the default fail-fast cancelled 3.13 in run 37228979769
+        for name, block in self.jobs(self.workflow("ci.yml")).items():
+            if "matrix:" in block:
+                self.assertIn("fail-fast: false", block, name)
+
+    def test_no_ci_step_reads_the_gitignored_workspace(self):
+        # `.tezgah/` is gitignored, so a CI step over it reads nothing and
+        # cannot fail: it was presented as a check it never was
+        self.assertNotIn("--acceptance --strict", self.workflow("ci.yml"))
+
+    def test_the_weekly_bash5_fuzz_leg_fails_on_any_class(self):
+        # plan 054: the fuzzer was only ever run under macOS bash 3.2
+        block = self.jobs(self.workflow("neuter.yml")).get("fuzz-shell", "")
+        self.assertRegex(block, r"(?m)^    runs-on: ubuntu-")
+        self.assertIn('"${BASH_VERSINFO[0]}" -ge 5', block)
+        for leg in ("", " --js"):
+            self.assertIn("python3 tests/fuzz_shell.py --seed 1 --lines 20000"
+                          "%s --strict\n" % leg, block)
+
+
 if __name__ == "__main__":
     unittest.main()

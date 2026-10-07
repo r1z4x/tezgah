@@ -10,23 +10,24 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
 
 import tezgah_embed
 import tezgah_research
-from tezgah_integrity import (_path as _ledger_path, changed_files, cut,
-                              last_check, note, note_compaction, note_turn,
-                              scratch_evidence)
+from tezgah_guard import import_crash_mark
+from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
+                              _shell_segments,
+                              changed_files, cut, last_check, note,
+                              note_compaction, note_turn, redact, scratch_evidence)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
-                           open_lines_note, pony_level_line)
-from tezgah_paths import (CACHE, ai_research_dir, cache_dir, codegraph_bin,
-                          consult_options, ensure_workspace, fallback_cache,
-                          have_judge_key, off, orx_bin, pony_level, root_for,
-                          roots, tool, workspace, workspace_from_repo,
-                          worktrees, writable_dir)
+                           REPLY_LANG_TEXT, open_lines_note, pony_level_line)
+from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir,
+                          cache_dir, codegraph_bin, consult_options,
+                          ensure_workspace, fallback_cache, have_judge_key, off,
+                          orx_bin, pony_level, reply_lang, root_for, roots, tool,
+                          workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -87,6 +88,19 @@ def _ui_ask(word):
             % (obj, word, word, obj, UI_QUALITY))
 
 
+# The Turkish surfaces a simplify ask names before its verb (Turkish puts the
+# object first): "adım akışını sadeleştir" is a UI ask, "bu fonksiyonu
+# sadeleştir" is a refactor. Each takes its case suffix through \w*.
+TR_UI_OBJECTS = (r"akış|adım|ekran|sayfa|arayüz|form|menü|buton|düğme|panel|"
+                 r"tasarım|görünüm|kart|bileşen|sekme|pencere")
+
+
+def _tr_ui_ask(word):
+    """`word` after a Turkish UI surface in the same phrase - `_ui_ask`'s
+    object-first half, for the language whose object comes first."""
+    return (r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (TR_UI_OBJECTS, word))
+
+
 PROMPT_HINTS = (
     ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
              r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
@@ -94,7 +108,10 @@ PROMPT_HINTS = (
              r"güzel görün\w*|daha iyi (ol|görün)\w*|kullanıcı dostu|"
              r"modern görün\w*|şık (ol|görün)\w*|profesyonel görün\w*|"
              r"temiz (bir )?(arayüz|görün)\w*|anlaşılır\w*|"
-             r"kullanılabilirlik\w*|basitleştir\w*|sadeleştir\w*|"
+             # simplify is qualified by the surface it is about: "bu fonksiyonu
+             # sadeleştir" is a refactor, "adım akışını sadeleştir" a UI ask
+             r"kullanılabilirlik\w*|"
+             + _tr_ui_ask(r"basitleştir\w*|sadeleştir\w*") + r"|"
              r"yeniden tasarla\w*|baştan tasarla\w*|"
              # UI work said as work. The class fired on a quality adjective
              # alone, so "refactor the components" or "the hover state is wrong"
@@ -150,7 +167,11 @@ PROMPT_HINTS = (
              r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
              r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
              + _ui_ask(r"badges?") + r"|"
-             r"breadcrumbs?|pagination|tab ?bar|steppers?|spinners?|"
+             # pagination is qualified like the craft nouns above: "add
+             # pagination to the API" is an endpoint, "the data table pagination
+             # is wrong" a rendered surface
+             r"breadcrumbs?|" + _ui_ask(r"pagination") + r"|tab ?bar|steppers?|"
+             r"spinners?|"
              + _ui_ask(r"skeletons?") + r"|"
              r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
              r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
@@ -214,7 +235,11 @@ PROMPT_HINTS = (
                  r"lit(erature)?[ -]review|kaynak tarama\w*|referans tarama\w*|"
                  r"evaluat(e|ing) (whether|the (librar|technique|approach|tool|"
                  r"option|alternative))|(yöntem|yaklaşım|kütüphane|varyant|"
-                 r"seçenek)\w* karşılaştır\w*|measure\w*|ölçüm\w*|deneysel\w*|"
+                 r"seçenek)\w* karşılaştır\w*|"
+                 # a timing ask is not a study: "measure how long the hook
+                 # takes" is a stopwatch, "measure the effect of X" a study
+                 r"measure(?! how (?:long|fast|much time)| the (?:time|duration|"
+                 r"latency|speed|runtime))\w*|ölçüm\w*|deneysel\w*|"
                  r"deneyler\w*|makale\w*|veri (seti|kümesi)|post[ -]?mortem|"
                  r"error budget|incident (review|report)|olay sonrası (analiz|"
                  r"değerlendirme)\w*|hata bütçe\w*|is (this|that|it) (actually )?"
@@ -228,7 +253,12 @@ PROMPT_HINTS = (
     # production/productivity/productive explicitly - those are code words that
     # merely share the prefix, and matching them would arm product analysis on a
     # deploy question.
-    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|feature\w*|roadmap|"
+    # The generic stems are qualified, never dropped (decision 006): each keeps
+    # its product sense and loses the code sense a lookahead names - a feature
+    # flag, a segment fault, a tier list, writing to the screen, a SQL table, a
+    # page number - so the frozen corpus keeps its rows.
+    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|"
+                r"feature(?!s?[ -](?:flags?|toggles?|gates?|branch\w*))\w*|roadmap|"
                 r"yol harita\w*|backlog|prd|north star|kuzey yıldız\w*|jtbd|"
                 r"retention|churn|onboarding|aktivasyon\w*|cohort|funnel|"
                 r"dönüşüm\w*|conversion rate|pricing|fiyatlandır\w*|"
@@ -242,9 +272,9 @@ PROMPT_HINTS = (
                 r"activations?\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|"
                 r"roadmaps?|priorit(y|ies)|adoption|benimsen\w*|"
                 r"conversion (rate|funnel|drop\w*)|packaging|monetiz\w*|"
-                r"price\w*|tier\w*|positioning|value proposition|"
+                r"price\w*|tier(?!s?[ -]lists?)\w*|positioning|value proposition|"
                 r"konumlandır\w*|\bicp\b|ideal customer profile|persona\w*|"
-                r"segment\w*|segmentasyon\w*|hedef kitle\w*|"
+                r"segment(?!(?:ation)?[ -]faults?)\w*|segmentasyon\w*|hedef kitle\w*|"
                 r"(customer|user|product|problem|kullanıcı|müşteri) discovery|"
                 r"keşif (görüşme|çalışma)\w*|opportunity (tree|solution|space|"
                 r"score)|fırsat\w*|\bnps\b|net promoter|\bcsat\b|satisfaction|"
@@ -253,18 +283,21 @@ PROMPT_HINTS = (
                 r"şikayet\w*|competitor\w*|competitive (analysis|landscape|"
                 r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
                 r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
-                r"özellik\w*|sayfa\w*|"
+                r"özellik\w*|sayfa(?! numara)\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads
                 # keep the code senses out: "ekran kartı" is a GPU, "adım sayısı"
                 # is a count, "format" is not a form.
-                r"ekran(?! kart)\w*|arayüz\w*|arama kutu\w*|filtre\w*|tablo\w*|"
+                r"ekran(?! kart)(?!a\b[^.!?\n]{0,40}\b(?:yaz|bas)\w*)\w*|arayüz\w*|"
+                r"arama kutu\w*|filtre\w*|"
+                r"tablo(?![^.!?\n]{0,60}\b(?:sütun|kolon|sql|index|indeks)\w*)\w*|"
                 r"wizard|adım(?! sayı)\w*|crud|kullanıcı liste\w*|"
                 r"form(u|un|da|daki|lar|ları|unu)\w*|"
                 r"form (validation|field|error|label)|data table|step flow|"
                 r"search (dropdown|box)|form validation|user management|"
-                r"(admin|users?) (panel|screen|page|table|list))\b"),
+                r"(admin|users?) (panel|screen|page|list)|"
+                + _ui_ask(r"(?:admin|users?) table") + r")\b"),
     ("graph", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
             r"blast radius|where is|where's|definition of|who invokes|"
             r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
@@ -310,7 +343,7 @@ ACTIVE_ROOT = [""]
 # exactly its own paragraph from the injected text; the label is the contract,
 # so tests pin every one and a label edit fails loudly instead of silently.
 CORE_RULES = (
-    ("exec", "**Turkish, BLUF.**"),
+    ("exec", "**{REPLY_LANG}, BLUF.**"),
     ("ponytail", "**Ponytail (minimal code).**"),
     ("adhd", "**Output shape: ADHD-friendly.**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
@@ -333,17 +366,16 @@ CORE_RULES = (
 # PROMPT_REMINDER with its whitespace collapsed. A kill switch drops its clause
 # here as it drops its paragraph from CORE; a test pins every clause to the
 # reminder text, so an edit there fails loudly instead of leaving the clause in.
+# Spec, graph and research have no clause: their paragraph rides the turn whose
+# prompt arms it, so a clause restated them on every other turn too. Consult
+# keeps its short clause, because a terse irreversible ask ("push it to main",
+# "prod veritabanını sil") arms no paragraph and no gate enforces the rule.
 REMINDER_CLAUSES = (
-    ("exec", "reply Turkish, BLUF, "),
+    ("exec", "{REPLY_SHORT}, BLUF, "),
     ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
     ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
-    ("spec", "underspecified/quality asks -> write a checkable spec with a named "
-             "standard, never guess; "),
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
-    ("graph", '"who calls X"/"what breaks" -> `codegraph callers` / '
-              "`codegraph affected`, not grep alone; "),
     ("consult", "consult before irreversible calls; "),
-    ("research", "research -> orx/OpenResearch, not ad-hoc; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
                              r'unverified "done"; ')),
 )
@@ -372,9 +404,12 @@ def prompt_reminder(drop=()):
 
 
 def render(text, root=""):
-    """Fill the path placeholders with stable, existing paths."""
+    """Fill the path placeholders with stable, existing paths, and the reply
+    language placeholders with the words config.json's `reply_lang` names."""
     if not text:
         return text
+    for key, words in REPLY_LANG_TEXT[reply_lang()].items():
+        text = text.replace(key, words)
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
@@ -416,6 +451,14 @@ SKILL_MARKS = {"ponytail": "pony", "i-have-adhd": "adhd"}
 # it back (`skill_fitness`).
 SKILL_KIND = "skill:"
 READ_TOOL_NAMES = ("read", "read_file", "readfile", "view_file")
+# Claude loads a skill through its Skill tool (`{"skill": "<name>"}`, a plugin
+# skill as `tezgah:<name>`), never through a read of the file.
+SKILL_TOOL_NAME = "skill"
+# codegraph's MCP tools arrive namespaced - `mcp__codegraph__<tool>` from a
+# checkout's own server, `mcp__plugin_tezgah_codegraph__<tool>` from the plugin -
+# so the server name is what identifies a graph call, whatever the tool is. One
+# constant for the PostToolUse store and Claude's status line.
+GRAPH_TOOL_MARK = "codegraph"
 
 _SKILLS = {}
 
@@ -468,7 +511,13 @@ def skill_read_kind(tool, inp):
     its legend are exactly what they were, while `skill_fitness` can say which
     skills a session actually opened. The name has to be a shipped skill (a
     directory under `skills/` with a SKILL.md): `skill://other` earns nothing, as
-    it always did."""
+    it always did. Claude's Skill tool call is the same load and earns the same
+    kind."""
+    if str(tool or "").strip().lower() == SKILL_TOOL_NAME:
+        name = str(inp.get("skill") or "").split(":")[-1] if isinstance(inp, dict) else ""
+        if name in SKILL_MARKS:
+            return SKILL_MARKS[name]
+        return SKILL_KIND + name if name and name in shipped_skills() else None
     if str(tool or "").strip().lower() not in READ_TOOL_NAMES:
         return None
     path = ""
@@ -835,10 +884,71 @@ def resume_state(root, session_id):
 # text and a second pair of literals would drift out of step with it.
 LESSON_LINES = 5
 LESSON_CHARS = 200
+# A lesson is written rule first: `<imperative rule> - <incident>`. One
+# separator, read by the format advisory (`lessons`) and the tidy CLI
+# (`bin/tezgah-lessons`), and quoted by the policy text, so the shape a writer is
+# told and the shape the reader looks for cannot drift. The advisory wants it
+# within LESSON_SEPARATOR_BY characters, so a rule-first line's rule survives the
+# LESSON_CHARS cut whole.
+LESSON_SEPARATOR = " - "
+LESSON_SEPARATOR_BY = 120
+# The per-turn ranking's cap (`tezgah_rank.rank`'s `max_df`): a word in more than
+# half the ledger names no lesson. Lessons only; the docs fallback is uncapped.
+LESSON_MAX_DF = 0.5
+# A line a gate rule or a test already enforces ends `|| enforced_by: <slug|test>`
+# and leaves the injected pool while that enforcer is armed: a gate rule slug from
+# `tezgah_gate.DENY_RULES`, or a test named from the repository root
+# (`tests.test_research.Unfinished`) that this repository still defines. An
+# unknown name keeps the line.
+ENFORCED = re.compile(r"\s*\|\|\s*enforced_by:\s*(\S+)\s*$")
 
 
-def _lesson_lines(root):
-    """The lesson ledger as entries: one per line, markdown bullets stripped."""
+# The top-level class and function names of a test module, per (path, mtime,
+# size): a ledger's retired lines name one module many times, and parsing a
+# large test file once per line would cost every session start.
+_TEST_NAMES = {}
+
+
+def _test_names(path):
+    """The names `unittest` can load from `path` as `module.NAME`: its top-level
+    classes and functions, by `ast`, so a nested def or a `class X:` inside a
+    string is not one. Empty when the file is missing or does not parse."""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size)
+        if key not in _TEST_NAMES:
+            import ast  # lazy: only a line retired by a test pays for it
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                tree = ast.parse(fh.read(), filename=path)
+            _TEST_NAMES[key] = frozenset(
+                n.name for n in tree.body
+                if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)))
+        return _TEST_NAMES[key]
+    except (OSError, SyntaxError, ValueError):
+        return frozenset()
+
+
+def _enforced(value, root):
+    """Whether the enforcer a retired lesson names is armed now: a test only
+    while `<root>/tests/test_x.py` still defines it at top level, a gate rule
+    only while neither its own switch nor `pretooluse-off` is set."""
+    test = re.match(r"tests\.(test_\w+)\.(\w+)$", value)
+    if test:
+        return test.group(2) in _test_names(
+            os.path.join(root, "tests", test.group(1) + ".py"))
+    from tezgah_gate import DENY_RULES  # lazy: only a retired line pays for it
+    if value not in DENY_RULES or off("pretooluse-off"):
+        return False
+    return not (DENY_RULES[value] and off(DENY_RULES[value]))
+
+
+def _lesson_lines(root, retired=None):
+    """The lesson ledger as entries: one per line, markdown bullets stripped.
+
+    The one reader, so the session block, the per-turn block and the digest
+    agree on what is a lesson: a line whose enforcer is armed (ENFORCED) is left
+    out and appended to `retired` when given; one whose enforcer is off comes
+    back without its suffix."""
     try:
         with open(os.path.join(root, ".tezgah", "lessons.md"), encoding="utf-8",
                   errors="replace") as fh:
@@ -851,7 +961,13 @@ def _lesson_lines(root):
         if not s or s.startswith("#"):
             continue
         # a ledger written with markdown bullets must not render as "- - ..."
-        out.append(re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s))
+        s = re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", s)
+        m = ENFORCED.search(s)
+        if m and _enforced(m.group(1), root):
+            if retired is not None:
+                retired.append(s)
+            continue
+        out.append(s[:m.start()] if m else s)
     return out
 
 
@@ -879,13 +995,26 @@ def lessons(root):
 
     One lesson per line, most recent last. Only the last MAX are injected so the
     block stays bounded no matter how long the ledger grows; blank lines and
-    `#` headings are skipped so the file can carry a human header."""
-    lines = _lesson_lines(root)
+    `#` headings are skipped so the file can carry a human header. Two advisory
+    lines ride it, never a refusal: how many lines an enforcer retired, and how
+    many shown lines do not open with their rule (structural: no
+    LESSON_SEPARATOR in the first LESSON_SEPARATOR_BY characters, because a
+    lexical imperative test misses a Turkish negative imperative)."""
+    retired = []
+    lines = _lesson_lines(root, retired)
     if not lines:
         return ""
     recent = _lesson_shown(lines)
     more = ("\n(+%d older, see .tezgah/lessons.md)" % (len(lines) - len(recent))
             if len(lines) > len(recent) else "")
+    if retired:
+        more += ("\n(%d lesson%s enforced by a gate rule or a test, so not "
+                 "injected)" % (len(retired), "" if len(retired) == 1 else "s"))
+    late = sum(not 0 <= ln.find(LESSON_SEPARATOR) < LESSON_SEPARATOR_BY
+               for ln in lines[-LESSON_LINES:])
+    if late:
+        more += ("\n(%d of the lines above do not open with their rule; run "
+                 "`tezgah-lessons` for rewrites)" % late)
     return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
             + "\n".join("- " + ln for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
@@ -905,21 +1034,29 @@ def lesson_key(line):
     return hashlib.sha1(line.encode("utf-8", "replace")).hexdigest()[:8]
 
 
+def note_lesson(session_id, key, block):
+    """The `lesson` ledger row: one lesson that reached the model, by key, from
+    the session block or the per-turn one. Not proof the gate ran (NOT_TOOL_HOOK)."""
+    note(session_id, "lesson", key=key, block=block)
+
+
 def relevant_lessons(root, prompt, seen):
     """(block, keys): the older lessons this prompt is about, as a context block,
     and the keys to remember them by; ("", []) when none qualify.
 
-    A candidate shares a word with the prompt (`tezgah_rank`; with the opt-in
-    embedding on, also a line whose meaning clears the model's floor,
-    `tezgah_embed.fuse`), is not among the last LESSON_LINES the session block
-    carries, and is not in `seen` (keys already shown). A ledger with no line
-    older than that block returns before ranking: loading and verifying the model
-    cost 35 ms of every prompt there and could not change the answer."""
+    A candidate shares a word with the prompt (`tezgah_rank`, capped at
+    LESSON_MAX_DF; with the opt-in embedding on, also a line whose meaning
+    clears the model's floor, `tezgah_embed.fuse`), is not among the last
+    LESSON_LINES the session block carries, and is not in `seen` (keys already
+    shown). A ledger with no line older than that block returns before ranking:
+    loading and verifying the model cost 35 ms of every prompt there and could
+    not change the answer."""
     lines = _lesson_lines(root)
     older = len(lines) - LESSON_LINES
     if older <= 0:
         return "", []
-    picked = [i for i in tezgah_embed.fuse(prompt, lines, len(lines))
+    picked = [i for i in tezgah_embed.fuse(prompt, lines, len(lines),
+                                           max_df=LESSON_MAX_DF)
               if i < older and lesson_key(lines[i]) not in seen][:RELEVANT_LESSONS]
     if not picked:
         return "", []
@@ -991,12 +1128,35 @@ def write_stamp(session_id, root, stamp):
         pass
 
 
-def forget_lessons(session_id):
-    """Drop the lesson keys this session was shown, keeping the rest of the
-    stamp: the next turn's delta still compares against the same state."""
+def forget_seen(session_id):
+    """Drop what this session was shown once - the lesson keys and the armed
+    paragraphs - keeping the rest of the stamp: the next turn's delta still
+    compares against the same state, and the next matching prompt pays the full
+    paragraph again, because the compacted context no longer holds it."""
     stamp = read_stamp(session_id)
-    if stamp and stamp.get("lessons_seen"):
-        write_stamp(session_id, stamp["root"], dict(stamp, lessons_seen=[]))
+    if stamp and (stamp.get("lessons_seen") or stamp.get("armed_seen")):
+        write_stamp(session_id, stamp["root"],
+                    dict(stamp, lessons_seen=[], armed_seen={}))
+
+
+# An armed paragraph is paid in full once per session and its later matches pay
+# one line (`armed_again`); compaction forgets it (`forget_seen`). Cursor and dsh
+# send no compaction signal, and a paragraph read early in a long session fades,
+# so the full text comes back on the first match this many turns after it was
+# last shown, on every host - the per-turn hook is told no host name. ponytail:
+# a fixed count, not a measured decay curve; no transcript says when a paragraph
+# stops being followed.
+ARMED_RESURFACE = 20
+
+
+def armed_again(key):
+    """The one line a matching prompt pays for a paragraph this session was
+    already shown. The research rule keeps its `{OPEN_LINES}` slot: the open
+    lines are a fact about the repo now, not rule text the session holds."""
+    label = dict(CORE_RULES)[key]
+    return ("%s Armed again: the full rule was given earlier this session and "
+            "is in the `tezgah-contract` skill.%s"
+            % (label, "{OPEN_LINES}" if key == "research" else ""))
 
 
 def state_delta(root, previous, stamp=None):
@@ -1046,7 +1206,7 @@ def constraint_notice(cwd, session_id):
     line = state_delta(repo_root(cwd), read_stamp(session_id))
     if line:
         return line
-    return " ".join(subagent_core(core_for(cwd)[0]).split())
+    return " ".join(render(subagent_core(core_for(cwd)[0])).split())
 
 
 def classify_prompt(text):
@@ -1175,14 +1335,28 @@ def always_on_core():
     return "\n\n".join(always).strip() + "\n\n" + POINTERS.strip()
 
 
+# How many opening sentences of a rule the subagent brief keeps, where the
+# operative clause is not the first one: the reply-language rule's second
+# sentence is the one a delegate acts on (subagent prompts and inter-agent
+# reports stay English), the lessons rule's first sentence only says the file
+# exists - its second is the instruction - and the session-scope rule's second
+# is its prohibition (never install, upgrade or kill anything for tezgah). A
+# count, not text: the clause itself is always cut from CORE, the one
+# definition. A sentence ends at a full stop and any whitespace, a line break
+# included.
+BRIEF_SENTENCES = {"exec": 2, "scope": 2, "lessons": 2}
+
+
 def subagent_core(core=None):
     """The invariants as a labelled brief, for a delegated agent.
 
     A subagent is a fresh context that must know every rule exists, but it does
     not need the long-form rationale the main thread pays for once: each rule
-    keeps its bold label and its opening clause, and the full text stays one hop
-    away in the `tezgah-contract` skill. The brief is built from CORE_RULES, so
-    it can neither drop a rule nor invent one, and a test asserts exactly that.
+    keeps its bold label and its opening sentences - one, or the count
+    BRIEF_SENTENCES names where the operative clause is not the first sentence -
+    and the full text stays one hop away in the `tezgah-contract` skill. The
+    brief is built from CORE_RULES and cut from CORE's own text, so it can
+    neither drop a rule nor invent one, and a test asserts exactly that.
 
     Two always-on blocks are not `CORE_RULES` paragraphs and so cannot come out
     of that loop: the on-demand-rules pointer and the kill-switch list. Both are
@@ -1203,7 +1377,8 @@ def subagent_core(core=None):
         if block is None:
             continue
         body = block.split("**", 2)[2].strip()
-        first = body.split(". ", 1)[0].strip()
+        cut_at = BRIEF_SENTENCES.get(key, 1)
+        first = ". ".join(re.split(r"\.\s+", body)[:cut_at]).strip()
         if first and not first.endswith((".", ":")):
             first += "."
         short.append("%s %s" % (label, first) if first else label)
@@ -1233,55 +1408,82 @@ def session_of(payload):
 # --- the byte budget: bloat as a measured decision ---------------------------
 # Every block below is individually capped (lessons 5, plans 3), but the sum was
 # bounded by nothing and no decision about it was recorded, so growth showed up
-# as a feeling. Each budget sits at ~1.5x the largest text that event was
-# measured to build in this repository - session_start 7830 B, post_compact
-# 7830 B, user_prompt 4004 B with all four conditional rules armed, and
-# subagent_start, which is the one budget the short form can outgrow: the brief
-# is 3837 B cut from an 8390 B core, and the fixture this file's budget test
-# builds (a lessons line and a plan line, whose paths ride the text, so a macOS
-# temp HOME makes it longer than /tmp does) measured 4523 B - so it never fires
-# on a healthy repo and always fires before a pathological one (a lessons ledger
-# that grew past its 5x200 B cap, or an armed set past its own) reaches the model.
-# The budget moves with the core, because a core rule is a rule every event that
-# carries the core pays for: held at 4000 B this rule's own 282 B dropped
-# `consult`, and held at 4400 B while the core grew 111 B it dropped `consult`
-# again - bloat paid for with a rule, which is the failure this bound exists to
-# prevent. A budget in bytes, not tokens: this file has no tokenizer and a wrong
-# estimate would be worse than a bound.
+# as a feeling. Measured on 2026-10-06 in a one-commit fixture repo (temp HOME,
+# no lessons or plans, codegraph, orx and consult absent so their availability
+# lines ride along): the always-on core is 9160 B, session_start 10066 B,
+# post_compact 9754 B, the subagent brief 4263 B and subagent_start 5122-5152 B
+# (the temp path rides it); a user_prompt that arms all five conditional rules
+# is 7503 B on its first turn and 1501 B on a repeat (`armed_again`). The
+# 12000 B session budgets still sit
+# above their text with lessons and plans riding; the user_prompt budget is
+# below a first all-five turn on purpose - an armed paragraph is never dropped,
+# so that turn gives up the droppable blocks and says so, and every later turn
+# of the session pays one line per paragraph instead. subagent_start is the one
+# budget the short form can outgrow, and the budget moves with the core, because
+# a core rule is a rule every event that carries the core pays for: held at
+# 4000 B this rule's own 282 B dropped `consult`, held at 4400 B a 111 B core
+# growth dropped it again, and at 5000 B the brief's operative clauses (the
+# inter-agent language and the lessons instruction, plan 056) would have - bloat
+# paid for with a rule, which is the failure this bound exists to prevent. A
+# budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
+# would be worse than a bound.
 CONTEXT_BUDGET = {"session_start": 12000, "post_compact": 12000,
-                  "subagent_start": 5000, "user_prompt": 6000}
+                  "subagent_start": 5500, "user_prompt": 6000}
 DEFAULT_BUDGET = 12000
 # The blocks in the order they are given up when the budget is exceeded, lowest
-# value first: text another surface already carries (the plan table
-# lives in the plan-status skill, the sibling checkouts in `tezgah-research
-# --all`, the lessons file is on disk - the per-turn relevant lessons with it, and
-# a dropped one is not marked seen, so a later turn may still carry it - the
-# generated-subagent note is a one-time fact), then the tooling-availability
-# lines, then the live state lines - the stale-graph glance, then the resume
+# value first: text another surface already carries (the plan table lives in the
+# plan-status skill, the sibling checkouts in `tezgah-research --all`, the
+# lessons file is on disk, the generated-subagent note is a one-time fact); the
+# per-turn skill hint - a suggestion of which skill to read first, never an
+# instruction, so it yields to the relevant lessons after it - and those lessons,
+# which first shrink to their first lesson (SHRINK); only the lessons a turn
+# still shows are marked seen, so a later turn may still carry the rest. Then
+# the tooling-availability lines, then the live state lines - the stale-graph
+# glance, then the resume
 # block, which outlives every status and availability line because it is the only
 # one that says what THIS session was doing (a `git log` and a ledger read are
 # turns the session would otherwise spend) but still yields to a rule - then the
 # scratch-path warning, which is about evidence the turn may already have claimed
 # - then the active task's phase, which outlives both because a phase is what
 # stops a refused write before it happens - then the delta, and the skill pointer
-# last. A key absent from this tuple is never dropped: the always-on core and
-# the per-turn reminder ARE the rules, and a budget that could spend them would
-# turn bloat into rule loss - which is the failure the budget exists to prevent,
-# not one it may cause.
-DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn", "plans",
-              "subagents", "steer", "consult", "research", "research_broken",
-              "graph", "offnote", "orchestrate", "index", "resume", "scratch",
-              "task", "delta", "pointer")
+# last. A key absent from this tuple is never dropped: the always-on core, the
+# per-turn reminder and an armed paragraph ARE the rules, and a budget that could
+# spend them would turn bloat into rule loss - which is the failure the budget
+# exists to prevent, not one it may cause.
+DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
+              "plans", "subagents", "steer", "consult", "research",
+              "research_broken", "graph", "offnote", "orchestrate", "index",
+              "resume", "scratch", "task", "delta", "pointer")
 
 
-def _drop_note(event, limit, dropped, size):
+def _first_item(text):
+    """A list block cut to its first `- ` item, its header and trailer kept; None
+    when it has fewer than two items, so there is nothing to shrink."""
+    rows = text.split("\n")
+    items = [i for i, row in enumerate(rows) if row.startswith("- ")]
+    if len(items) < 2:
+        return None
+    return "\n".join(rows[:items[0] + 1] + rows[items[-1] + 1:])
+
+
+# The shrink-before-drop stage: a key here is first cut to the smaller text its
+# function returns, and dropped only when that is still over the budget. One
+# relevant lesson is worth more than none, and the budget used to choose between
+# all three and nothing.
+SHRINK = {"lessons_turn": _first_item}
+
+
+def _drop_note(event, limit, dropped, size, truncated=()):
     """One line naming what the budget gave up, and the order it went in: a drop
     is a decision, so the turn carries it instead of losing it in silence. When
     even that was not enough the note says so and who is left, rather than
     reporting a trim that never reached the limit."""
-    note = ("(Context budget for %s: dropped %s - lowest value first; the "
+    gave = (["shortened %s by %d B" % d for d in truncated]
+            + (["dropped " + ", ".join("%s (%d B)" % d for d in dropped)]
+               if dropped else []))
+    note = ("(Context budget for %s: %s - lowest value first; the "
             "dropped text is still on disk and this drop is logged to %s"
-            % (event, ", ".join("%s (%d B)" % d for d in dropped),
+            % (event, "; ".join(gave),
                os.path.join(cache_dir(), "context-drops.log")))
     if size > limit:
         note += ("; still %d B against the %d B budget, because what remains is "
@@ -1289,16 +1491,17 @@ def _drop_note(event, limit, dropped, size):
     return note + ")"
 
 
-def log_drop(event, limit, dropped):
+def log_drop(event, limit, dropped, kind="omitted"):
     """Record the budget decision: what went, from what, at what size. Truncated
     the way classify.log is, so the log cannot grow without bound itself. The
-    row's kind is `omitted` - a whole block given up - in the vocabulary a
-    context record uses beside `truncated` and `compacted`."""
+    row's kind is `omitted` - a whole block given up - or `truncated` - a block
+    shrunk (SHRINK), by the bytes it lost - in the vocabulary a context record
+    uses beside `compacted`."""
     path = os.path.join(cache_dir(), "context-drops.log")
     try:
         with open(path, "a", encoding="utf-8") as fh:
-            fh.write("%d kind=omitted event=%s limit=%d dropped=%s\n"
-                     % (int(time.time()), event, limit,
+            fh.write("%d kind=%s event=%s limit=%d dropped=%s\n"
+                     % (int(time.time()), kind, event, limit,
                         ",".join("%s:%d" % d for d in dropped)))
         if os.path.getsize(path) > 65536:
             with open(path, encoding="utf-8") as fh:
@@ -1312,16 +1515,17 @@ def log_drop(event, limit, dropped):
 def budgeted(event, parts):
     """Join this event's (key, text) blocks under the event's byte budget.
 
-    Over budget, whole blocks are given up in DROP_ORDER (lowest value first)
-    until the blocks fit. The note that says what went is appended after that
-    count rather than inside it: it exists only when a drop happened, and the
-    sentence explaining a trim must not be able to force another one - so a
-    trimmed turn returns at most `limit` bytes of blocks plus the ~250 B note.
+    Over budget, blocks are given up in DROP_ORDER (lowest value first) until
+    the blocks fit; a key in SHRINK is first shrunk and dropped only when the
+    shrunk text still does not fit. The note that says what went is appended
+    after that count rather than inside it: it exists only when a trim happened,
+    and the sentence explaining a trim must not be able to force another one - so
+    a trimmed turn returns at most `limit` bytes of blocks plus the ~250 B note.
     `parts` is consumed; callers build it for one event. Every droppable key gone
     and the blocks still over (the protected core alone is bigger than the limit)
     is reported by the note, not hidden."""
     limit = CONTEXT_BUDGET.get(event, DEFAULT_BUDGET)
-    dropped = []
+    dropped, truncated = [], []
 
     def content():
         return "\n\n".join(t for _key, t in parts if t)
@@ -1331,14 +1535,25 @@ def budgeted(event, parts):
             break
         for i, (k, text) in enumerate(parts):
             if k == key and text:
+                small = SHRINK[k](text) if k in SHRINK else None
+                if small:
+                    parts[i] = (k, small)
+                    if len(content().encode()) <= limit:
+                        truncated.append((k, len(text.encode())
+                                          - len(small.encode())))
+                        break
                 dropped.append((k, len(text.encode())))
                 del parts[i]
                 break
     text = content()
-    if not dropped:
+    if not dropped and not truncated:
         return text
-    log_drop(event, limit, dropped)
-    return text + "\n" + _drop_note(event, limit, dropped, len(text.encode()))
+    if truncated:
+        log_drop(event, limit, truncated, "truncated")
+    if dropped:
+        log_drop(event, limit, dropped)
+    return text + "\n" + _drop_note(event, limit, dropped, len(text.encode()),
+                                    truncated)
 
 
 # The one line a turn gets when the session's whole evidence base is its own
@@ -1362,21 +1577,22 @@ SCRATCH_CHARS = 120
 # What the prompt hook can observe is the host's own transcript (Claude and
 # Codex hand `transcript_path` to every hook) and this session's ledger: gated
 # tool calls in the transcript since the session's first turn marker, and not
-# one row from the tool hooks over the same span, is a gate that is not
-# running. Only a bounded tail of the transcript is read, the ledger is scanned
-# as bytes, and a session whose transcript holds no tool call never fires.
+# one row from the gate over the same span, is a gate that is not running. Only
+# a bounded tail of the transcript is read, the ledger is scanned as bytes, and
+# a session whose transcript holds no tool call never fires.
 GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
-# The tool names whose calls the PostToolUse hooks record: Claude's matcher
-# (hooks/hooks.json) and Codex's shell, the one tool its PostToolUse is known to
-# fire for. A tool no hook records (Read, Grep) is not counted, so its absence
-# from the ledger is never read as a disarmed gate.
+# The tool names whose every allowed call leaves a PreToolUse row (`began`,
+# tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
+# Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
+# tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
+# call) is not counted, so its absence from the ledger is never read as a
+# disarmed gate.
 GATED_TOOLS = re.compile(r"(?i)^(?:bash|powershell|pwsh|edit|write|multiedit|"
-                         r"notebookedit|webfetch|websearch|agent|task|"
-                         r"exec_command|shell|mcp__.+)$")
+                         r"notebookedit|exec_command|shell|apply_patch)$")
 GATE_INACTIVE = (
     "tezgah gate inactive on this host: %d gated tool call(s) since this "
-    "session's first turn and not one row from the tool hooks, so the shortcut "
+    "session's first turn and not one row from the gate, so the shortcut "
     "denials and the Stop check are not running. Say so before claiming a check "
     "passed, and ask the user to run `tezgah-setup --report`.")
 
@@ -1429,15 +1645,24 @@ def _transcript_calls(path, since):
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
-# turn marker and judge row, the Stop hook's claim and shape rows, compaction,
-# the subagent mark (SubagentStart writes it too) and the guard's crash row
-# (any hook). Every other kind - deny, nudge, drift, run, edit, verify*, ... -
-# can only come from PreToolUse or PostToolUse, so one is proof the gate ran.
-# Excluding, not listing: a kind the tool hooks gain later still counts. A row
+# turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
+# refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
+# compaction, the subagent mark (SubagentStart writes it too), the guard's crash
+# row (any hook), the damage row any reader writes and the session start's
+# attest row. Every other kind - deny, nudge, began, snapshot, ... - can only
+# come from a tool hook.
+# Excluding, not listing: a kind the gate gains later still counts. A row
 # from `deny` carries no `tool` field, and a session whose every gated call the
 # gate refused read as disarmed (review S3).
-NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"shape", b"compact",
-                           b"orch", b"crash", b"route", b"spawned"))
+NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
+                           b"after_block", b"subagent_end", b"stop_spec",
+                           b"shape", b"compact", b"orch", b"crash", b"route",
+                           b"spawned", b"lesson", b"disarm", b"ledger_damage",
+                           b"attest"))
+# The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
+# not that the gate saw it - a PostToolUse hook keeps writing them while a
+# broken PreToolUse hook lets every call through - so they are no proof either.
+POST_TOOL_ROWS = frozenset(k.encode() for k in STEP_KINDS + ("external", "unknown"))
 
 
 def _ledger_lines(path):
@@ -1465,6 +1690,7 @@ def _ledger_since(session_id):
     def tool_row(raw, since):
         k, t = kind.search(raw), stamp.search(raw)
         return bool(k and k.group(1) not in NOT_TOOL_HOOK
+                    and k.group(1) not in POST_TOOL_ROWS
                     and t and int(t.group(1)) >= since)
     for raw in lines:
         if b'"turn"' not in raw:
@@ -1489,19 +1715,61 @@ def _gate_mark(session_id):
     return os.path.join(cache_dir(), "gate-inactive", slug(str(session_id)))
 
 
+def _switch_baseline(session_id):
+    return os.path.join(cache_dir(), "switches", slug(str(session_id)) + ".json")
+
+
+def disarmed(session_id):
+    """The switches armed since this session's first prompt and still armed,
+    each written once as a `disarm` row the prompt it is first seen on.
+
+    The baseline is what was armed at the first prompt this session made: a
+    switch the user set before the session is their standing choice, and one
+    that appears mid-session is the shape the control rule exists to refuse
+    (tezgah_gate.control_reason), so it is put on the record and on the status
+    line whoever set it. The baseline lives in the cache the control rule
+    protects. ponytail: a switch armed at the start, lifted and armed again is
+    not seen; the baseline is a set, not a history."""
+    now = sorted(n for n in SWITCHES if off(n))
+    path = _switch_baseline(session_id)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        start, seen = list(state["start"]), list(state["seen"])
+    except (OSError, ValueError, KeyError, TypeError):
+        start, seen = now, []
+    moved = [n for n in now if n not in start]
+    for name in moved:
+        if name not in seen:
+            note(session_id, "disarm", name)
+            seen.append(name)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"start": start, "seen": seen}, fh)
+    except OSError:
+        pass
+    return moved
+
+
 def gate_inactive(session_id, payload):
     """The disarmed-gate line for this prompt, or "" - and the status mark
-    `health_segments` reads, written or cleared to match."""
+    `health_segments` reads, written or cleared to match. A switch armed since
+    the session's first prompt (`disarmed`) sets the same mark: either way the
+    rules the other marks name are not all being enforced."""
     p = payload if isinstance(payload, dict) else {}
-    if not session_id or not p.get("transcript_path"):
+    moved = disarmed(session_id) if session_id else []
+    if not session_id or not (p.get("transcript_path") or moved):
         return ""
-    since, rows = _ledger_since(session_id)
-    calls = 0 if since is None or rows else _transcript_calls(
-        p.get("transcript_path"), since)
+    calls = 0
+    if p.get("transcript_path"):
+        since, rows = _ledger_since(session_id)
+        calls = 0 if since is None or rows else _transcript_calls(
+            p.get("transcript_path"), since)
     inactive = calls >= GATE_MIN_CALLS
     mark = _gate_mark(session_id)
     try:
-        if inactive:
+        if inactive or moved:
             os.makedirs(os.path.dirname(mark), exist_ok=True)
             open(mark, "w", encoding="utf-8").close()
         elif os.path.exists(mark):
@@ -1523,23 +1791,133 @@ POINTER_LINE = ("Deep orchestration, codegen, consult detail and the exact "
 POINTER_NEEDLE = "tezgah-contract"
 
 
-def constraint_lines(root):
-    """The fixed sentences tezgah injects whose survival a compaction record
-    counts, as (label, needle) pairs: the pointer line every block ends on, and
-    the active plan's id when the repo keeps an open plan.
+# A constraint the user issued in a prompt - "don't touch hooks.json", "ask
+# before pushing", "README'ye dokunma" - is the instruction a compaction summary
+# loses first, and nothing counted it. The recogniser is a closed set of
+# imperative shapes, deterministic and stdlib: a prohibition verb with its
+# object, an ask-first clause, and the Turkish `dokunma`/`sormadan` forms. It is
+# precise rather than complete - a constraint said any other way is not pinned -
+# because a pinned line is paid on every compaction, and a clause read as a
+# constraint that the user never meant is a rule the session did not get from
+# the user. tests/constraint-fixtures.md holds the real prompts it was measured
+# on, its false positives listed.
+CONSTRAINT_SHAPES = re.compile(
+    r"(?i)\b(?:(?:do not|don'?t|never)\s+(?:touch|modify|edit|change|delete|"
+    r"remove|rename|push|commit|merge|deploy|publish|release)\s+"
+    r"(?:(?:the|any|my|this|that|to|a|an)\s+)?[`\"“]?"
+    r"(?P<obj>[\w~@/-](?:[\w./@~-]*[\w@~/-])?)"
+    r"|ask\s+(?:me\s+)?(?:first\s+)?before\s+(?P<ask>\w+)"
+    r"|(?P<tr>[\w./@~-]+?)(?:'\w+)?\s+(?:sakın\s+)?dokunma(?:yın|yınız)?\b"
+    r"(?!\s+(?:hedef|alan|olay|duyar)\w*)"
+    r"|(?:bana\s+)?sormadan\s+(?P<trask>\w+)\s+(?:etme|yapma)\w*)")
+# Pasted material is not the user's constraint: a shape that starts inside a
+# quoted span, inline code, a fenced block or a `>` quote line is skipped (a
+# quoted object after an unquoted shape stays the user's), and a prompt
+# longer than CONSTRAINT_PROMPT_MAX is not read at all. The bound is the 99th
+# percentile of 1,452 real prompts (12,120 chars); every longer prompt in that
+# set was a pasted log, transcript or generated brief, and one 388k-char agent
+# log alone matched six clauses of another agent's reasoning. ponytail: a long
+# prompt the user did write loses its constraints - the cost of a length rule.
+CONSTRAINT_PROMPT_MAX = 12000
+QUOTED = re.compile(r"```.*?```|`[^`\n]*`|\"[^\"\n]{0,200}\"|“[^”\n]{0,200}”"
+                    r"|^\s*>.*$", re.S | re.M)
+SENTENCE_END = re.compile(r"[.!?;:](?=\s|$)|\n")
+NEEDLE_STOP = frozenset("while in on at without until unless and or for to with "
+                        "before after from into of but ve veya ile".split())
+QUOTE_MARKS = re.compile(r"[`\"“”]")
+NEEDLE_WORDS = 3
+CONSTRAINT_CHARS = 120
+CONSTRAINTS_MAX = 5
 
-    Both come from the same source the block renders - `POINTER_LINE` and the
+
+def user_constraints(prompt):
+    """The constraint clauses a prompt issues, redacted and cut, in order and
+    once each. A clause runs from the shape to the end of its sentence - from the
+    sentence's start for the Turkish forms, whose object comes first. The stamp
+    keeps the clause, never the prompt."""
+    text = prompt or ""
+    if len(text) > CONSTRAINT_PROMPT_MAX:
+        return []
+    quoted = [q.span() for q in QUOTED.finditer(text)]
+    out = []
+    for m in CONSTRAINT_SHAPES.finditer(text):
+        if any(a <= m.start() < b for a, b in quoted):
+            continue
+        start = (max((e.end() for e in SENTENCE_END.finditer(text, 0, m.start())),
+                     default=0) if m.group("tr") else m.start())
+        end = SENTENCE_END.search(text, m.end())
+        clause = " ".join(text[start:end.start() if end else len(text)].split())
+        clause = cut(redact(clause.strip("-*• ")), CONSTRAINT_CHARS)
+        if clause not in out:
+            out.append(clause)
+    return out
+
+
+def constraint_needle(clause):
+    """The fragment of a constraint a summary keeps when it kept the constraint:
+    the object phrase - up to NEEDLE_WORDS words, stopped at a preposition, a
+    conjunction or a closing mark - with quote marks dropped and a Turkish case
+    suffix cut (`config'e`). A summary paraphrases the verb ("asked not to
+    modify") but names the object."""
+    m = CONSTRAINT_SHAPES.search(clause)
+    if not m:
+        return clause
+
+    def phrase(words):
+        kept = []
+        for word in words:
+            bare = QUOTE_MARKS.sub("", word).strip(",;:)(")
+            if not bare or bare.lower() in NEEDLE_STOP or not re.search(r"\w", bare):
+                break
+            kept.append(bare)
+            if len(kept) == NEEDLE_WORDS or bare != word:
+                break
+        return kept
+    if m.group("obj"):
+        needle = " ".join(phrase(clause[m.start("obj"):].split()))
+    elif m.group("tr"):
+        before = phrase(reversed(clause[:m.end("tr")].split()))
+        needle = " ".join(reversed(before)).split("'")[0]
+    else:
+        needle = m.group("ask") or m.group("trask")
+    return needle or clause
+
+
+def constraint_lines(root, session_id=None):
+    """The fixed sentences tezgah injects whose survival a compaction record
+    counts, as (label, needle) pairs: the pointer line every block ends on, the
+    active plan's id when the repo keeps an open plan, and each constraint the
+    user issued this session (`user_constraints`, kept in the turn stamp).
+
+    All come from the same source the block renders - `POINTER_LINE`, the
     active plan's own front matter (`_plan_row`, the reader `open_plans` builds
-    its line from) - so the count cannot drift from the injected text, and each
-    needle is the fragment a summary keeps when it kept the constraint. An id is
-    short enough to hit by accident, which is why the row carries both numbers
-    and the label rather than a verdict."""
+    its line from), the stamp the pinned block is built from - so the count
+    cannot drift from the injected text, and each needle is the fragment a
+    summary keeps when it kept the constraint. An id is short enough to hit by
+    accident, which is why the row carries both numbers and the label rather
+    than a verdict."""
     out = [("pointer", POINTER_NEEDLE)]
     plan, _mine = _active_plan(root)
     row = _plan_row(plan) if plan else None
     if row and row[0]:
         out.append(("plan", row[0]))
+    out += [("user", constraint_needle(c)) for c in pinned_constraints(session_id)]
     return out
+
+
+def pinned_constraints(session_id):
+    """The user constraints this session's turn stamp holds, oldest first."""
+    got = (read_stamp(session_id) or {}).get("constraints")
+    return [c for c in got if isinstance(c, str)] if isinstance(got, list) else []
+
+
+def pinned_block(session_id):
+    """The block that carries the user's constraints across a compaction, or
+    "" when the session issued none."""
+    rows = pinned_constraints(session_id)
+    return ("User constraints issued earlier this session (still in force "
+            "unless the user lifted them):\n" + "\n".join("- " + c for c in rows)
+            if rows else "")
 
 
 def remember_compaction(cwd, root, payload):
@@ -1555,7 +1933,7 @@ def remember_compaction(cwd, root, payload):
     summary = payload.get("compact_summary")
     if not isinstance(summary, str) or not summary:
         return
-    lines = constraint_lines(root)
+    lines = constraint_lines(root, session_of(payload))
     note_compaction(session_of(payload), summary, payload.get("trigger"),
                     found=sum(1 for _label, needle in lines if needle in summary),
                     expected=len(lines), workspace=root_for(cwd))
@@ -1581,12 +1959,13 @@ def context_for(event, cwd, payload=None, with_core=True):
     # the row is written whether or not a host delivers the block this builds.
     if event == "post_compact":
         remember_compaction(cwd, root, payload)
-    # The compacted context no longer holds the lessons earlier turns were shown,
-    # so the session forgets having shown them; a host that delivers the
-    # compaction as SessionStart(source=compact) and not PostCompact is covered.
+    # The compacted context no longer holds the lessons and armed paragraphs
+    # earlier turns were shown, so the session forgets having shown them; a host
+    # that delivers the compaction as SessionStart(source=compact) and not
+    # PostCompact is covered.
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
-        forget_lessons(session_of(payload))
+        forget_seen(session_of(payload))
     core, disabled = core_for(cwd)
     # A disabled rule is also removed from the on-demand skill's reach, because
     # the skill is loaded separately and would otherwise re-enable it.
@@ -1621,11 +2000,25 @@ def context_for(event, cwd, payload=None, with_core=True):
         parts = [("reminder", render(prompt_reminder(dropped_switches(cwd))))]
         if gate:
             parts.append(("gate", gate))
+        # The previous turn's stamp, read before the armed paragraphs: they are
+        # paid in full once per session and the stamp says which were.
+        previous = read_stamp(session_id)
+        same = (previous or {}).get("root") == root
+        turn_no = (int((previous or {}).get("turn") or 0) if same else 0) + 1
+        armed_seen = dict((previous or {}).get("armed_seen") or {}) if same else {}
         if prompt:
             _always, conditional, _dis = core_split(cwd)
             matched = classify_prompt(prompt)
-            armed = [conditional[k] for k in CONDITIONAL_KEYS
-                     if k in conditional and k in matched]
+            armed = []
+            for k in CONDITIONAL_KEYS:
+                if k not in conditional or k not in matched:
+                    continue
+                shown = armed_seen.get(k)
+                if isinstance(shown, int) and turn_no - shown < ARMED_RESURFACE:
+                    armed.append(armed_again(k))
+                else:
+                    armed.append(conditional[k])
+                    armed_seen[k] = turn_no
             audit_classification(matched, len(prompt))
             if armed:
                 # The open-line sentence is the research rule's one per-repo
@@ -1633,7 +2026,8 @@ def context_for(event, cwd, payload=None, with_core=True):
                 # only this frame knows (`render` is given no repo, and a static
                 # host file could not carry one). Filled before `render` so the
                 # `{RESEARCH_BIN}` the note itself names is filled with it, and
-                # only here: a conditional paragraph reaches no static file.
+                # only here: a conditional paragraph reaches no static file. The
+                # one-line repeat carries it too: it is a fact, not rule text.
                 parts.append(("armed", render("\n\n".join(armed).replace(
                     "{OPEN_LINES}", open_lines_note(root)))))
         else:
@@ -1654,14 +2048,14 @@ def context_for(event, cwd, payload=None, with_core=True):
         # is behind that move - a comparison that used to end in a status glyph
         # the model never reads.
         stamp = state_stamp(root)
-        previous = read_stamp(session_id)
         delta = state_delta(root, previous, stamp)
         if delta:
             parts.append(("delta", delta))
         # The older lessons this prompt is about, each once per session: the
-        # keys shown so far ride the session's turn stamp, and only a block that
-        # survived the budget adds to them. Repository-provided lessons are data,
-        # so they get the one notice instead, once per session (key "provided").
+        # keys shown so far ride the session's turn stamp, and only a lesson
+        # the budget left in the text adds to them (it may shrink the block to
+        # its first lesson, SHRINK). Repository-provided lessons are data, so
+        # they get the one notice instead, once per session (key "provided").
         seen = list((previous or {}).get("lessons_seen") or []) \
             if (previous or {}).get("root") == root else []
         relevant, keys = "", []
@@ -1694,9 +2088,22 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("offnote", "(off this session: %s)"
                           % ", ".join(disabled)))
         text = budgeted(event, parts)
-        if relevant and relevant in text:
-            seen += keys
-        write_stamp(session_id, root, dict(stamp, lessons_seen=seen))
+        items = [ln for ln in relevant.split("\n") if ln.startswith("- ")]
+        shown = ([k for k, ln in zip(keys, items) if ln in text] if items
+                 else keys if relevant and relevant in text else [])
+        seen += shown
+        for key in shown:
+            if key != "provided":
+                note_lesson(session_id, key, "turn")
+        # The constraints the user issued, oldest first and capped: only the
+        # matched clauses ride the stamp, never the prompt (`user_constraints`).
+        pinned = list((previous or {}).get("constraints") or []) if same else []
+        for clause in user_constraints(prompt):
+            if clause not in pinned:
+                pinned.append(clause)
+        write_stamp(session_id, root, dict(
+            stamp, lessons_seen=seen, armed_seen=armed_seen, turn=turn_no,
+            constraints=pinned[-CONSTRAINTS_MAX:]))
         return text
 
     # session_start / post_compact / subagent_start: the compact always-on core
@@ -1706,6 +2113,7 @@ def context_for(event, cwd, payload=None, with_core=True):
     parts = ([("brief", subagent_core(core))] if event == "subagent_start"
              else [("core", core)]) if with_core else []
     _, marks = repo_marks(cwd)
+    injected = []  # the session block's lessons, when it carries them
     if ".no-graph" in marks:
         parts.append(("graph", "Graph: disabled for this repo (.no-graph), so use "
                                "grep/find and say the answer came from text "
@@ -1751,6 +2159,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.
         resume = resume_state(root, session_of(payload))
+        # The user's own constraints, restated where a compaction or a resume
+        # would lose them; the compaction record counts the same clauses.
+        pinned = pinned_block(session_of(payload))
+        if pinned:
+            parts.append(("constraints", pinned))
         if resume:
             parts.append(("resume", resume))
         # Asked once, and only when there is a block to judge: one index read.
@@ -1783,6 +2196,7 @@ def context_for(event, cwd, payload=None, with_core=True):
             if past:
                 parts.append(("lessons", repo_provided(".tezgah/lessons.md")
                               if provided() else past))
+                injected = [] if provided() else _lesson_lines(root)[-LESSON_LINES:]
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]
@@ -1808,7 +2222,13 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "Full rules: the `tezgah-contract` skill."))
     else:
         parts.append(("pointer", POINTER_LINE))
-    return budgeted(event, [(key, render(text.strip())) for key, text in parts])
+    text = budgeted(event, [(key, render(text.strip())) for key, text in parts])
+    # One `lesson` row per session-block lesson the budget kept (the per-turn
+    # block writes its own above): what reached the model, by key.
+    for ln in injected:
+        if "\n- " + cut(ln, LESSON_CHARS) + "\n" in text:
+            note_lesson(session_of(payload), lesson_key(ln), "session")
+    return text
 
 
 # A tool name that only appears as an ARGUMENT is not a use of that tool: the
@@ -1817,8 +2237,10 @@ def context_for(event, cwd, payload=None, with_core=True):
 # the words that stand between the shell and the program have to be understood:
 # a wrapper (`sudo env X=1 consult q`), a keyword (`if consult q`), a wrapper's
 # own argument (`timeout 30 consult q`), a shell running a command string
-# (`bash -c 'consult q'`) and a heredoc body (data, not commands). A line it
-# cannot parse contributes nothing - under-reporting beats claiming a tool ran.
+# (`bash -c 'consult q'`) and a heredoc body (data, not commands). The line is
+# split by the gate's own reader (`tezgah_integrity._shell_segments`): a `#`
+# inside a word is text, a redirect target is not a program, and a line shlex
+# cannot read is read roughly rather than dropped as if nothing ran.
 _SHELL_WRAPPERS = frozenset((
     "sudo", "env", "nohup", "time", "timeout", "command", "exec", "xargs",
     "bash", "sh", "zsh", "dash", "ksh",
@@ -1832,47 +2254,60 @@ _WRAPPER_ARG = frozenset(("timeout",))
 # not the program: `sudo -u root consult q`
 _OPTION_ARG = frozenset(("-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r", "-t",
                          "--user", "--group", "--prompt", "--chdir"))
-_SHELL_SEPARATORS = (";", "&&", "||", "|", "&", "(", ")", "<", ">", ">>")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# A heredoc opener. The delimiter has to look like a word, so arithmetic such as
-# `$((1<<2))` is not mistaken for one.
-_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _substitutions(text, start, end):
+    """The `$( )` and backtick spans of text[start:end], outermost only."""
+    i = start
+    while i < end:
+        if text.startswith("$(", i):
+            depth, j = 0, i + 1
+            while j < end:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                if not depth:
+                    break
+                j += 1
+        elif text[i] == "`":
+            j = text.find("`", i + 1, end)
+            j = end if j < 0 else j
+        else:
+            i += 1
+            continue
+        yield i, j + 1
+        i = j + 1
 
 
 def shell_programs(command, _depth=0):
-    """Every word a shell line would run as a program, in order."""
-    out = []
-    lines = str(command or "").splitlines()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        i += 1
-        opener = _HEREDOC.search(line)
-        if opener:
-            # the body is data, not commands: skip to the delimiter line
-            while i < len(lines) and lines[i].strip() != opener.group(2):
-                i += 1
-            i += 1
-        try:
-            lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
-            lex.whitespace_split = True
-            words = list(lex)
-        except ValueError:
+    """Every word a shell line would run as a program, in order. A closed
+    heredoc body is data: a quoted tag's whole, an unquoted tag's all but its
+    `$( )` and backtick substitutions, which bash runs. The deny readers keep an
+    unquoted body visible whole."""
+    command = str(command or "")
+    text = list(command)
+    for h in _heredocs(command):
+        if not h[5]:
             continue
+        keep = set()
+        if not h[3]:
+            for a, b in _substitutions(command, h[4], h[5][0]):
+                keep.update(range(a, b))
+        for k in range(h[4], h[5][1]):
+            if text[k] != "\n" and k not in keep:
+                text[k] = " "
+    out = []
+    for words in _shell_segments("".join(text)):
         out += _command_words(words, _depth)
     return out
 
 
 def _command_words(words, depth):
-    """The command positions of one tokenized shell line."""
+    """The command positions of one simple command's words."""
     out = []
     want = True
     skip = 0
     shell_c = False
     for word in words:
-        if word in _SHELL_SEPARATORS:
-            want, skip, shell_c = True, 0, False
-            continue
         if not want:
             continue
         if skip and not word.startswith("-"):
@@ -1894,7 +2329,10 @@ def _command_words(words, depth):
             out += shell_programs(word, depth + 1)
             want, shell_c = False, False
             continue
-        out.append(os.path.basename(word))
+        # a program word holding `$()` is whatever the substitution prints:
+        # the substitution's own command is named, the printed word is not
+        if "$()" not in word:
+            out.append(os.path.basename(word))
         want = False
     return out
 
@@ -2072,8 +2510,7 @@ def repo_marks(cwd):
     base = root_for(cwd)
     p = os.path.realpath(cwd)
     while base and p.startswith(base):
-        for f in (".no-ponytail", ".no-adhd", ".no-graph", ".no-lessons",
-                  ".no-taste"):
+        for f in REPO_MARKS:
             if os.path.exists(os.path.join(p, f)):
                 marks.add(f)
         if p == base:
@@ -2111,7 +2548,12 @@ def _index_mark(cwd, base):
         if p == base:
             break
         p = os.path.dirname(p)
-    from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    try:
+        from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
+    except Exception:
+        # the gate module cannot load: the comparison cannot be made, and the
+        # line must still draw - it is where the `crash` mark says so
+        return "?"
     slug = index_slug(cwd, base)
     if not slug:
         return "✗"
@@ -2336,6 +2778,24 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     if session_id and os.path.exists(_gate_mark(session_id)):
         segs.append({"key": "gate", "state": "off", "glyph": GLYPHS["off"],
                      "text": "gate", "group": 0})
+    # Shown when this session's start found tezgah's own hook entries changed
+    # since install (hooks/tezgah_attest.py::run): the line says the harness
+    # drifted and nothing more; what drifted is in the session's attest row.
+    # Imported here, not at the top: a broken attestation module costs this
+    # mark, never the gate that imports this module.
+    try:
+        import tezgah_attest
+        drifted = bool(session_id and tezgah_attest.mark_text(session_id))
+    except Exception:
+        drifted = False
+    if drifted:
+        segs.append({"key": "drift", "state": "off", "glyph": GLYPHS["off"],
+                     "text": "drift", "group": 0})
+    # A hook of this session could not import its core (tezgah_guard.
+    # import_failed): it failed open, so what it guards did not run.
+    if session_id and os.path.exists(import_crash_mark(session_id)):
+        segs.append({"key": "crash", "state": "off", "glyph": GLYPHS["off"],
+                     "text": "crash", "group": 0})
     for name, on, meas in flags:
         if not on:
             state = "off"
@@ -2472,12 +2932,15 @@ PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASE = re.compile(r"^## \[(\d+\.\d+\.\d+)\]")
 
 
-def version():
-    """The version this install is, or None when nothing here carries one."""
+def version(manifest=True):
+    """The version this install is, or None when nothing here carries one.
+
+    `manifest=False` skips the plugin manifest: the installer renders that file
+    from this answer, so it asks the release files underneath it."""
     plugin_json = os.path.join(PLUGIN_ROOT, ".claude-plugin", "plugin.json")
     try:
         with open(plugin_json, encoding="utf-8") as fh:
-            got = json.load(fh).get("version")
+            got = json.load(fh).get("version") if manifest else None
         if got:
             return str(got)
     except Exception:

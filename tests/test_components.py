@@ -221,7 +221,8 @@ class Switches(TempHome):
         for c in rows():
             if c["label"] not in rules:
                 continue
-            label = rules[c["label"]]
+            # rendered: the exec label carries the reply_lang placeholder
+            label = context.render(rules[c["label"]])
             surface = "user_prompt" if c["label"] in conditional else "session_start"
             self.assertIn(label, before[surface],
                           "%s: %s is missing before any switch was set"

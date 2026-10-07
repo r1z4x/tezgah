@@ -101,11 +101,32 @@ def write_cache(data):
         return False
 
 
+# The numbering retired by the 2026-10-04 re-root, which restarted the public
+# line at 0.1.x: npm published 0.17.0 through 0.32.0 before it (`npm view
+# @r1z4x/tezgah time`), and 0.2.0 is where the earlier, unpublished numbering is
+# taken to start. An install inside it compares higher than every public release.
+# ponytail: a version inside the range is taken as retired, so an install that
+# carries this constant is never offered a public release inside it. Removing it
+# later cannot reach the 0.1.x installs already in the field: the line after
+# 0.1.x skips to 0.33.0 or later (pinned in tests/test_update.py::Reset).
+RETIRED = ((0, 2, 0), (0, 32, 0))
+
+
+def retired(version):
+    """True when `version` is on the retired pre-reset line."""
+    got = parse(version)
+    return bool(got) and RETIRED[0] <= got <= RETIRED[1]
+
+
 def newer(current, data=None):
-    """The cached latest release when it is newer than `current`, else None."""
+    """The cached latest release when it is newer than `current`, else None. A
+    public release is newer than any retired version, and a retired latest is
+    never offered."""
     data = read_cache() if data is None else data
     latest, mine = parse(data.get("latest")), parse(current)
-    if latest and mine and latest > mine:
+    if not latest or not mine or retired(data.get("latest")):
+        return None
+    if latest > mine or retired(current):
         return "%d.%d.%d" % latest
     return None
 
@@ -155,8 +176,10 @@ def notice_segments(current):
         latest = newer(current, data)
         if not latest:
             return []
+        # a retired install's ↑ points at a lower number, so it says why
         return [{"key": "update", "state": "ready", "glyph": "",
-                 "text": ARROW + latest, "version": latest, "group": -1}]
+                 "text": ARROW + latest + (" (line reset)" if retired(current) else ""),
+                 "version": latest, "group": -1}]
     except Exception:
         return []
 
@@ -254,7 +277,93 @@ def rearm_command(setup, cfg):
     return argv
 
 
-def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None):
+def installed_entries(hosts):
+    """{host: {entry: text}} - the tezgah-owned hook entries on disk now, read
+    before the fetch moves the tree (`hooks/tezgah_attest.py::registration`)."""
+    import tezgah_attest
+    return {h: tezgah_attest.registration(h)[0] or {} for h in hosts}
+
+
+# An absolute path up to a tree's `hosts/` or `hooks/` dir: the tree root, which
+# names the release (`.../Cellar/tezgah/<version>/libexec`, `<prefix>/<version>`)
+# and so differs between two releases whose hook entries are the same.
+TREE_ROOT = re.compile(r"/[^\s\"'`]*?(?=/(?:hosts|hooks)/)")
+
+# What answering no leaves, per channel: the fetch has run, only the hook
+# registration waits. Printed with the refusal, so the user knows what is live.
+NOT_REARMED = {
+    "git": "the checkout is pulled; the hooks already run its new code from "
+           "the same path, and only the entries above stay as they were",
+    "npm": "the global package is replaced in place; the hooks already run its "
+           "new code, and only the entries above stay as they were",
+    "brew": "the new keg sits beside the old one; hooks wired to the old keg's "
+            "path keep running the old code until you re-arm (a `brew cleanup` "
+            "that removes the old keg leaves them pointing at nothing)",
+    "prefix": "`current` points at the new tree; hooks wired through it run the "
+              "new code, and only the entries above stay as they were",
+}
+
+
+def _same_tree(text):
+    return TREE_ROOT.sub("<tree>", text or "")
+
+
+def hook_change(old, new):
+    """The lines that name each hook entry re-arming adds, removes or changes,
+    per host, with a unified diff of a changed entry; [] when nothing moves.
+    The tree root is compared as `<tree>`: every release lives at its own path,
+    and a path that moved with the release is not a hook change."""
+    import difflib
+    lines = []
+    for host in sorted(set(old) | set(new)):
+        before = {k: _same_tree(v) for k, v in (old.get(host) or {}).items()}
+        after = {k: _same_tree(v) for k, v in (new.get(host) or {}).items()}
+        for name in sorted(set(before) | set(after)):
+            if before.get(name) == after.get(name):
+                continue
+            verb = ("adds" if name not in before else "removes" if name not in after
+                    else "changes")
+            lines.append("  %s: re-arming %s the %s entry" % (host, verb, name))
+            if verb == "changes":
+                lines += ["    " + ln.rstrip("\n") for ln in difflib.unified_diff(
+                    before[name].splitlines(), after[name].splitlines(),
+                    "installed", "new release", lineterm="", n=1)]
+    return lines
+
+
+def confirm_rearm(old, setup, run=subprocess.run, tty=None, ask=input):
+    """Print what re-arming from `setup` changes in the hook entries and say
+    whether to go on (decision 12): the change is printed on every update; a
+    yes is waited for only when stdin is a terminal and something changes, so a
+    piped or scheduled update keeps working unattended. A tree that cannot list
+    its entries (a release older than `--hook-entries`) is re-armed as before,
+    and the line says the change was not shown."""
+    try:
+        proc = run([sys.executable, setup, "--hook-entries"],
+                   capture_output=True, text=True)
+        new = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        new = None
+    if not isinstance(new, dict):
+        print("  hook entries: the new tree cannot list them, so the change is "
+              "not shown")
+        return True
+    lines = hook_change(old, {h: new.get(h) or {} for h in old})
+    print("  hook entries: %s" % ("re-arming changes these:" if lines
+                                  else "unchanged"))
+    for line in lines:
+        print(line)
+    if not lines or not (sys.stdin.isatty() if tty is None else tty):
+        return True
+    try:
+        return ask("  re-arm with these hook entries? [y/N] ").strip().lower() \
+            in ("y", "yes")
+    except EOFError:
+        return False
+
+
+def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None,
+           tty=None, ask=input):
     """Move this install to the newest release and re-arm it; the exit code.
 
     `upgrade` is bin/tezgah-setup's own release-prefix path (fetch, verify,
@@ -262,7 +371,9 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
     already has. Every other channel prints its two commands before running
     them, and `dry_run` stops after the printing. The channel's tool is
     resolved through PATH first (`shutil.which` honours PATHEXT, so Windows'
-    `npm.cmd` is found), so a missing one is a message and not a traceback."""
+    `npm.cmd` is found), so a missing one is a message and not a traceback.
+    Between the two, the change in tezgah's hook entries is printed and, on a
+    terminal, confirmed (`confirm_rearm`)."""
     import shutil
     which = which or shutil.which
     kind = channel(here, prefix)
@@ -280,7 +391,8 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
         return 127
     fetch = [tool] + fetch[1:]
     npm_root = npm_global_root(tool, run) if kind == "npm" else ""
-    rearm = rearm_command(launcher(kind, here, npm_root), tp.config())
+    cfg = tp.config()
+    rearm = rearm_command(launcher(kind, here, npm_root), cfg)
     print("update (%s): %s" % (kind, " ".join(fetch)))
     if npm_root and not (os.path.realpath(here) + os.sep).startswith(
             os.path.realpath(npm_root) + os.sep):
@@ -290,7 +402,12 @@ def update(here, prefix, upgrade, dry_run=False, run=subprocess.run, which=None)
     if dry_run:
         print("  --dry-run: nothing fetched, nothing re-armed")
         return 0
+    old = installed_entries(cfg.get("hosts") or [])
     for step, argv in (("fetch", fetch), ("re-arm", rearm)):
+        if step == "re-arm" and not confirm_rearm(old, rearm[1], run, tty, ask):
+            print("tezgah update: fetched, not re-armed: %s. Re-arm later with `%s`"
+                  % (NOT_REARMED[kind], " ".join(rearm)))
+            return 1
         try:
             code = run(argv).returncode
         except OSError as exc:

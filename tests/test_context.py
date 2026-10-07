@@ -642,6 +642,29 @@ class UsedToolKind(unittest.TestCase):
                 ("echo hi\nconsult q", "consult")):
             self.assertEqual(self.kind(command), want, command)
 
+    def test_the_line_is_read_as_bash_reads_it(self):
+        # gate-08: a `#` inside a word is text, a redirect target is not a
+        # program, and a line shlex cannot read is read roughly, not dropped
+        self.assertEqual(self.kind("echo a#b; consult 'q'"), "consult")
+        self.assertEqual(self.kind("echo $'it\\'s'; consult q"), "consult")
+        self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
+                         ["pytest", "tail"])
+
+    def test_the_fuzzers_three_program_classes_are_closed(self):
+        # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a
+        # `$( )` or backtick close stay its command's arguments, and an unquoted
+        # heredoc body runs its substitutions while a quoted one runs nothing;
+        # a substitution runs before the command it is an argument of
+        programs = self.tc.shell_programs
+        for command, want in (
+                ("cat $'it\\'s a1' `b1` x # m1", ["b1", "cat"]),
+                ("p0 &> r2 > r1 | ls; cat $'it\\'s a1'", ["p0", "ls", "cat"]),
+                ("cat lib/*/ $(c1 x) https://example.com/u1 && p1",
+                 ["c1", "cat", "p1"]),
+                ("cat <<E\nh1 body\n$(h2)\nE", ["cat", "h2"]),
+                ("cat <<'E'\nh3 body\n$(h4)\nE", ["cat"])):
+            self.assertEqual(programs(command), want, command)
+
     def test_the_layers_own_cli_is_a_research_run(self):
         # `tezgah-research` reads and writes the research workspace, so a run of
         # it is a research run; before this it was classified as nothing, and the
@@ -850,10 +873,28 @@ class KillSwitchEnforcement(TempHome):
     # per REMINDER_CLAUSES key; the repo marks sit at the repo root while the
     # prompt comes from a subdirectory, the walk-up `repo_marks` does.
     REMINDER_SWITCHES = {
-        "exec": "exec-mode.off", "spec": "spec-off", "consult": "consult-off",
-        "research": "research-off", "integrity": "verify-off",
+        "exec": "exec-mode.off", "integrity": "verify-off",
         "adhd": ".no-adhd", "ponytail": ".no-ponytail",
-        "lessons": ".no-lessons", "graph": ".no-graph"}
+        "lessons": ".no-lessons", "consult": "consult-off"}
+
+    def test_the_reminder_leaves_the_conditional_rules_to_their_armed_turn(self):
+        # spec, graph and research ride the turn whose prompt arms them; a
+        # clause restating them on every turn was paid twice. Consult keeps its
+        # short clause: a terse irreversible turn ("push it to main", "prod
+        # veritabanını sil") arms nothing and no gate enforces the rule
+        out = self.prompt(self.make_repo(), "x")
+        for gone in ("checkable spec", "codegraph callers", "orx/OpenResearch"):
+            self.assertNotIn(gone, out)
+        self.assertIn("consult before irreversible calls", out)
+        for terse in ("push it to main", "prod veritabanını sil",
+                      "force push the branch"):
+            self.assertNotIn("consult", self.tc_classify(terse), terse)
+
+    @staticmethod
+    def tc_classify(prompt):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        return tc.classify_prompt(prompt)
 
     @staticmethod
     def clause_marker(clause):
@@ -865,7 +906,9 @@ class KillSwitchEnforcement(TempHome):
         import tezgah_context as tc  # noqa: E402
         out = self.prompt(self.make_repo(), "x")
         for _key, clause in tc.REMINDER_CLAUSES:
-            self.assertIn(self.clause_marker(clause), out)
+            # a string clause is rendered: the exec one names the reply language
+            self.assertIn(self.clause_marker(
+                clause if hasattr(clause, "sub") else tc.render(clause)), out)
 
     def test_verify_off_drops_the_no_verify_claim_from_the_reminder(self):
         repo = self.make_repo()
@@ -1478,12 +1521,12 @@ class ResumeBlock(ChildCall):
         self.assertEqual("", self.block(repo))
         self.assertNotIn("## Session so far", self.session(repo))
 
-    def test_a_damaged_ledger_line_costs_the_bullets_and_not_the_block(self):
-        # `_parse` raises on a line that is terminated but does not parse, on
-        # purpose. That raise escaping the hook would drop the WHOLE injection -
-        # core, plans, lessons, pointer - for a session whose ledger holds one
-        # bad line, so the two ledger reads behind the resume block are guarded:
-        # the block loses its two ledger bullets and keeps the rest.
+    def test_a_damaged_ledger_line_costs_the_line_and_not_the_block(self):
+        # A line that is terminated but does not parse used to make `_parse`
+        # raise, and the guarded reads behind the resume block then dropped both
+        # ledger bullets. `_parse` now skips the line and records it as
+        # `ledger_damage` (the Stop rule reads that as "evidence tampered"), so
+        # the block keeps its bullets from the rows beside the damage.
         repo = self.repo()
         self.plan(repo)
         self.commit(repo, "first")
@@ -1499,8 +1542,8 @@ class ResumeBlock(ChildCall):
         self.assertIn("## Session so far", out)          # the block survives
         self.assertIn("commits on", out)
         self.assertIn("plan 021-thing:", out)
-        self.assertNotIn("last check", out)              # the bullets the
-        self.assertNotIn("changed this turn", out)       # damaged read owed
+        self.assertIn("last check", out)                 # the rows beside
+        self.assertIn("changed this turn", out)          # the damage still read
         self.assertIn("tezgah-contract` skill", out)     # and the core too
 
     def test_an_open_plan_the_branch_does_not_own_is_named_as_open(self):
@@ -1659,12 +1702,52 @@ class GateLiveness(ChildCall):
         self.prompt()
         self.claude_tools(3)
         self.prompt()                      # disarmed: the mark is written
-        self.child("import json, tezgah_integrity as ti\n"
-                   "ti.note_tool('g1', 'Bash', {'command': 'ls'})\n"
-                   "print('null')\n")
+        self.child("import json, tezgah_gate as tg\n"
+                   "tg.decision('Bash', {'command': 'ls'}, %r, 'g1')\n"
+                   "print('null')\n" % self.repo)
         out = self.prompt()
         self.assertNotIn("tezgah gate inactive", out)
         self.assertNotIn("gate", [s["key"] for s in self.segments()])
+
+    def test_a_switch_armed_mid_session_leaves_one_row_and_the_mark(self):
+        # A switch set before the session is the user's standing choice; one
+        # that appears after the first prompt is the tamper shape the control
+        # rule refuses, so whoever set it, it is on the record once and on the
+        # status line for as long as it stays.
+        self.touch(os.path.join(self.home, ".config", "tezgah", "spec-off"))
+        self.prompt()
+        self.assertNotIn("gate", [s["key"] for s in self.segments()])
+        self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
+        self.prompt()
+        self.prompt()
+        rows = self.child("import json, tezgah_integrity as ti\n"
+                          "print(json.dumps(ti.events('g1')))\n")
+        self.assertEqual([r["detail"] for r in rows if r["kind"] == "disarm"],
+                         ["verify-off"])
+        self.assertIn("gate", [s["key"] for s in self.segments()])
+
+    def test_post_tool_use_rows_are_not_proof(self):
+        # a PostToolUse hook keeps writing its rows while a broken PreToolUse
+        # hook lets every call through: they say the host ran the call, not
+        # that the gate saw it
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "[ti.note_tool('g1', 'Bash', {'command': 'ls'}) for _ in range(3)]\n"
+                   "ti.note_tool('g1', 'Edit', {'file_path': 'a.py'})\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+        self.assertIn("gate", [s["key"] for s in self.segments()])
+
+    def test_an_import_crash_mark_draws_the_crash_segment(self):
+        self.child("import json, os, tezgah_guard as g\n"
+                   "p = g.import_crash_mark('g1')\n"
+                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+                   "open(p, 'w').write('import: SyntaxError: x')\n"
+                   "print('null')\n")
+        crash = [s for s in self.segments() if s["key"] == "crash"]
+        self.assertEqual(crash, [{"key": "crash", "state": "off", "glyph": "\u2717",
+                                  "text": "crash", "group": 0}])
 
     def test_calls_the_gate_denied_are_proof_the_gate_ran(self):
         # Review S3: a deny row carries no `tool` field, and a session whose
@@ -1698,6 +1781,28 @@ class GateLiveness(ChildCall):
         self.claude_tools(3)
         self.assertIn("tezgah gate inactive", self.prompt())
 
+    def test_an_attest_row_after_a_compact_is_not_proof(self):
+        # SessionStart fires again after a compaction and writes its attest
+        # row there; a row from the session start says nothing about the gate
+        self.prompt()
+        self.child("import json, tezgah_integrity as ti\n"
+                   "ti.note('g1', 'compact', 'auto')\n"
+                   "ti.note('g1', 'attest', 'ok', host='claude')\n"
+                   "print('null')\n")
+        self.claude_tools(3)
+        self.assertIn("tezgah gate inactive", self.prompt())
+        self.assertIn("gate", [s["key"] for s in self.segments()])
+
+    def test_a_drift_mark_draws_the_drift_segment(self):
+        self.child("import json, os, tezgah_attest as ta\n"
+                   "p = ta.drift_mark('g1', 'codex')\n"
+                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+                   "open(p, 'w').write('codex PreToolUse entry removed')\n"
+                   "print('null')\n")
+        drift = [s for s in self.segments() if s["key"] == "drift"]
+        self.assertEqual(drift, [{"key": "drift", "state": "off", "glyph": "\u2717",
+                                  "text": "drift", "group": 0}])
+
     def test_a_tool_row_in_the_fallback_ledger_counts(self):
         # Each hook resolves cache_dir() in its own process: a tool hook that
         # could not write ~/.cache leaves its rows under the temp fallback, and
@@ -1707,7 +1812,7 @@ class GateLiveness(ChildCall):
         self.child("import json, os, tezgah_integrity as ti\n"
                    "p = os.path.join(%r, 'evidence', ti._slug('g1') + '.jsonl')\n"
                    "os.makedirs(os.path.dirname(p))\n"
-                   "ti.note_path(p, 'run', 'ls')\n"
+                   "ti.note_path(p, 'began', 'ls')\n"
                    "print('null')\n" % fallback)
         self.claude_tools(3)
         out = self.child(
@@ -2221,6 +2326,25 @@ class PostToolUseUsedKind(TempHome):
         # call green
         self.assertEqual(self.kinds("mcp__tezgah__search", {"query": "x"}), [])
 
+    def test_a_plugin_namespaced_codegraph_call_marks_the_graph(self):
+        self.assertEqual(self.kinds("mcp__plugin_tezgah_codegraph__codegraph_impact",
+                                    {"symbol": "x"}), ["graph"])
+
+    def test_a_claude_skill_call_records_the_skill_it_loaded(self):
+        # Claude loads a skill through its Skill tool, never a Read, so a load
+        # left no row and skill_fitness counted every Claude session as opening
+        # nothing. A plugin skill arrives as `tezgah:<name>`.
+        self.assertEqual(self.kinds("Skill", {"skill": "tezgah:harness"}, session="k1"),
+                         ["skill:harness"])
+        self.assertEqual(self.kinds("Skill", {"skill": "ponytail"}, session="k2"),
+                         ["pony"])
+        self.assertEqual(self.kinds("Skill", {"skill": "not-shipped"}, session="k3"), [])
+
+    def test_claudes_post_tool_use_matcher_carries_the_skill_tool(self):
+        with open(os.path.join(support.REPO, "hooks", "hooks.json")) as fh:
+            hooks = json.load(fh)["hooks"]["PostToolUse"]
+        self.assertTrue(any("Skill" in h["matcher"].split("|") for h in hooks))
+
 
 class StatusCli(TempHome):
     """bin/tezgah-status must light up the used marks from the session id."""
@@ -2485,6 +2609,29 @@ class SubagentBrief(unittest.TestCase):
                 continue
             self.assertIn(label, brief, "missing from the subagent brief: %s" % key)
 
+    def test_the_brief_keeps_each_rules_operative_clause_cut_from_core(self):
+        # the first-sentence cut lost "inter-agent reports stay English" and
+        # left the lessons rule a statement with no instruction; the kept
+        # sentences are counted (BRIEF_SENTENCES), never hand-written, so each
+        # one is a verbatim run of CORE with its whitespace collapsed
+        tc = self.tc
+        brief = tc.render(tc.subagent_core())
+        flat = " ".join(brief.split())
+        self.assertIn("subagent prompts and inter-agent reports stay English", flat)
+        self.assertIn("Read them before starting and treat each as a standing "
+                      "constraint", flat)
+        self.assertIn("Never install, upgrade, restart or kill anything for "
+                      "tezgah", flat)
+        core = " ".join(tc.render(tc.always_on_core()).split())
+        self.assertTrue(set(tc.BRIEF_SENTENCES) <= {k for k, _ in tc.CORE_RULES})
+        self.assertTrue(all(isinstance(n, int) for n in tc.BRIEF_SENTENCES.values()))
+        for line in brief.split("\n**")[1:]:
+            if line.startswith(("Contract.", "On-demand", "Kill switches")):
+                continue
+            body = " ".join(line.split("**", 1)[1].split())
+            self.assertIn(body.rstrip("."), core)
+        self.assertLess(len(brief.encode()), 5000)
+
     def test_the_brief_is_shorter_and_leaves_the_detail_on_demand(self):
         core = self.tc.always_on_core()
         brief = self.tc.subagent_core(core)
@@ -2510,9 +2657,14 @@ class OutputStyleMirrorsCore(unittest.TestCase):
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, os.path.join(repo, "hooks"))
         import tezgah_context as tc  # noqa: E402
+        import tezgah_policy as policy  # noqa: E402
         with open(os.path.join(repo, "output-styles", "tezgah.md")) as fh:
             body = fh.read().split("---", 2)[2]
-        self.assertIn(tc.always_on_core().strip(), body)
+        # no install renders the style, so it names the reply_lang setting
+        core = tc.always_on_core()
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            core = core.replace(key, words)
+        self.assertIn(core.strip(), body)
         for label in self.CONDITIONAL:
             self.assertNotIn(label, body)
 
@@ -2726,6 +2878,12 @@ class SubagentBriefHeader(unittest.TestCase):
         self.assertTrue(names, "the kill-switch paragraph names no switch")
         for name in names:
             self.assertIn(name, self.brief)
+        # The always-on text names the 16 CORE switches and none of the four the
+        # owner has not classified (`UNCLASSIFIED_SWITCHES`, bin/tezgah-docs).
+        switches = [n for n in names if n.endswith(("-off", ".off"))]
+        self.assertEqual(len(switches), 16, switches)
+        for name in ("agents-off", "update-check-off", "taste-on", "skill-suggest-on"):
+            self.assertNotIn("`%s`" % name, paragraphs[0])
 
 
 class LessonsDigestIsTheShownText(ChildCall):
