@@ -55,11 +55,13 @@ ARMS_FILE = ROOT / "arms.json"
 LAB = Path(os.environ["ARMBENCH_LAB"]).resolve() if os.environ.get("ARMBENCH_LAB") else None
 RUN_ROOT = (LAB / "runs") if LAB else (ROOT / ".runs")
 # What a run's environment keeps from the operator's: the shell basics and the
-# one provider key the host needs. Everything else - the host-dir variables a
-# path resolver reads, another provider's key, the operator's tezgah bin - is
-# dropped, so an arm reads its own HOME and nothing else.
+# provider keys the host needs (OpenRouter, and DeepSeek's own API: amendment
+# A9 of plan 062 E1; omp lists no `deepseek/...` model without its key).
+# Everything else - the host-dir variables a path resolver reads, another
+# provider's key, the operator's tezgah bin - is dropped, so an arm reads its
+# own HOME and nothing else.
 KEEP_ENV = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "USER", "LOGNAME",
-            "SHELL", "OPENROUTER_API_KEY")
+            "SHELL", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY")
 # The text the omp bridge injects when its python half failed (hosts/omp/tezgah-hook.ts.in
 # failureNotice): a hook failure turns "full" into something less, silently.
 HOOK_FAILED = "tezgah: its omp hook failed"
@@ -364,10 +366,11 @@ def served_models(text: str) -> list[str]:
 
 
 # Amendment A5 (plan 062 E1): a provider error is not an outcome. OpenRouter's
-# key limit answers 403 "Key limit exceeded"; insufficient credit answers 402.
+# key limit answers 403 "Key limit exceeded"; insufficient credit answers 402,
+# and DeepSeek's empty balance 402 "Insufficient Balance" (A9).
 # A 429 rate limit and a context-length overflow also say "limit exceeded" and
 # are no spend limit, so neither stops the block.
-QUOTA = re.compile(r"key limit|insufficient credit|quota", re.I)
+QUOTA = re.compile(r"key limit|insufficient (credit|balance)|quota", re.I)
 QUOTA_RC = 4
 
 
@@ -1347,8 +1350,25 @@ def false_completion(rows: list[dict]) -> tuple[int, int, int]:
     return (len(failed), len(labelled), len(claiming))
 
 
+def split_model(rows: list[dict], model: str | None) -> tuple[list[dict], list[dict]]:
+    """(rows run with `model`, the rest): a row another model produced is reported
+    beside the rates, never inside them (plan 062 E1 amendments A1, A9)."""
+    if not model:
+        return rows, []
+    return ([r for r in rows if r.get("model") == model],
+            [r for r in rows if r.get("model") != model])
+
+
 def cmd_report(args) -> int:
     rows = [json.loads(line) for line in Path(args.results).read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows, other = split_model(rows, args.model)
+    if other:
+        print("Rows of another model than %s, beside the rates and not in them:" % args.model)
+        for r in other:
+            print("  %-16s %-26s r%-2s model %s served %s pass %s clean %s cost %s"
+                  % (r["arm"], r["task"], r["repeat"], r.get("model"), r.get("served_models"),
+                     r.get("pass"), r.get("clean_pass"), (r.get("usage") or {}).get("cost")))
+        print()
     by_arm: dict[str, list[dict]] = {}
     for row in rows:
         by_arm.setdefault(row["arm"], []).append(row)
@@ -1750,6 +1770,8 @@ def main() -> int:
 
     p = sub.add_parser("report", help="aggregate a results file")
     p.add_argument("--results", default=str(ROOT / "results.jsonl"))
+    p.add_argument("--model", default=None,
+                   help="rate only rows run with this model; list the rest beside the rates")
     p.set_defaults(func=cmd_report)
 
     args = parser.parse_args()

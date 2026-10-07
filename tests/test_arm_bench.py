@@ -310,6 +310,39 @@ class ProviderError(unittest.TestCase):
             self.assertEqual(bench.existing_cells(out, "p1-bare", "g01", "m"), {4})
 
 
+class DeepSeekProvider(unittest.TestCase):
+    """Amendment A9 (plan 062 E1): the rest of E1 runs on DeepSeek's own API.
+    omp lists `deepseek/...` models only when DEEPSEEK_API_KEY is in its
+    environment, DeepSeek answers an empty balance with 402 "Insufficient
+    Balance", and the one row the OpenRouter route served is reported beside
+    the rates, not inside them."""
+
+    def test_a_lab_run_keeps_the_deepseek_key(self):
+        saved = dict(os.environ)
+        try:
+            os.environ["DEEPSEEK_API_KEY"] = "k-test"
+            os.environ["ANTHROPIC_API_KEY"] = "other"
+            env = bench.isolated_env(Path("/tmp/h"), {})
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        self.assertEqual(env.get("DEEPSEEK_API_KEY"), "k-test")
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+
+    def test_an_empty_deepseek_balance_stops_the_block(self):
+        self.assertTrue(bench.is_quota({"status": 402, "message": "402 Insufficient Balance"}))
+        self.assertTrue(bench.is_quota({"status": None, "message": "Insufficient Balance"}))
+
+    def test_rows_of_another_model_are_set_aside(self):
+        rows = [{"arm": "p1-bare", "repeat": 1, "model": "openrouter/m"},
+                {"arm": "p1-bare", "repeat": 1, "model": "deepseek/m"},
+                {"arm": "p1-full", "repeat": 1, "model": "deepseek/m"}]
+        kept, other = bench.split_model(rows, "deepseek/m")
+        self.assertEqual(kept, rows[1:])
+        self.assertEqual(other, rows[:1])
+        self.assertEqual(bench.split_model(rows, None), (rows, []))
+
+
 class BlockStopsOnQuota(unittest.TestCase):
     """block.py starts no new run after a run exits with QUOTA_RC, and counts the
     spend of excluded runs against the cap."""
