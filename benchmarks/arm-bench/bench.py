@@ -365,7 +365,9 @@ def served_models(text: str) -> list[str]:
 
 # Amendment A5 (plan 062 E1): a provider error is not an outcome. OpenRouter's
 # key limit answers 403 "Key limit exceeded"; insufficient credit answers 402.
-QUOTA = re.compile(r"key limit|limit exceeded|insufficient credit|quota", re.I)
+# A 429 rate limit and a context-length overflow also say "limit exceeded" and
+# are no spend limit, so neither stops the block.
+QUOTA = re.compile(r"key limit|insufficient credit|quota", re.I)
 QUOTA_RC = 4
 
 
@@ -378,7 +380,10 @@ def provider_errors(text: str) -> list[dict]:
 
 def is_quota(error: dict) -> bool:
     """A spend limit, so every later run fails the same way: the block stops."""
-    return error.get("status") == 402 or bool(QUOTA.search(error.get("message") or ""))
+    message = error.get("message") or ""
+    if error.get("status") == 429 or "context length" in message.lower():
+        return False
+    return error.get("status") == 402 or bool(QUOTA.search(message))
 
 
 def excluded_path(out: Path) -> Path:
@@ -1052,10 +1057,11 @@ def arm_prompt_texts() -> dict[str, str]:
     return out
 
 
-def leak_check(tids: list[str]) -> list[str]:
+def leak_check(tids: list[str], texts: dict[str, str] | None = None) -> list[str]:
     """Lesson 43: no arm prompt may name a task's hidden mutation. Prints one
-    line per leak (arm, task, the identifier) and a summary; returns the leaks."""
-    texts = arm_prompt_texts()
+    line per leak (arm, task, the identifier) and a summary; returns the leaks.
+    `texts` defaults to the arms' own prompt texts (arm_prompt_texts)."""
+    texts = arm_prompt_texts() if texts is None else texts
     leaks = []
     for tid in tids:
         tokens = ground_truth_tokens(task_dir(tid))

@@ -4741,6 +4741,8 @@ MANIFEST = "MANIFEST"
 # task trees and arm HOMEs have no business in a host plugin tree or a release.
 # `benchmarks/codegraph-bench/` stays: bin/tezgah-doctor loads its probe.
 ARM_BENCH = "benchmarks/arm-bench"
+# Its test module imports the lab, so it ships only where the lab does.
+ARM_BENCH_TEST = "tests/test_arm_bench.py"
 
 
 def managed(rel):
@@ -4763,7 +4765,7 @@ def managed(rel):
     gets its own render from `sync()` anyway. Listed, it rode the MANIFEST into
     the release tarball and pointed an opened release tree at a path that is
     not there (audit L-12, SEC-12)."""
-    return (bool(rel) and rel not in (".tezgah", ARM_BENCH)
+    return (bool(rel) and rel not in (".tezgah", ARM_BENCH, ARM_BENCH_TEST)
             and not rel.startswith((".tezgah/", ARM_BENCH + "/"))
             and rel != MANIFEST and rel != MCP_JSON
             and not rel.endswith(".tezgah-bak") and "__pycache__" not in rel)

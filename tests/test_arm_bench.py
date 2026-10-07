@@ -69,13 +69,17 @@ class ShippedLab(unittest.TestCase):
         self.assertFalse(mod.managed("benchmarks/arm-bench/bench.py"))
         self.assertFalse(mod.managed("benchmarks/arm-bench/tasks/g01-x/meta.json"))
         self.assertFalse(mod.managed("benchmarks/arm-bench"))
+        # this module imports the lab, so it cannot ship where the lab does not
+        self.assertFalse(mod.managed("tests/test_arm_bench.py"))
         self.assertTrue(mod.managed("benchmarks/codegraph-bench/probe.py"))
         self.assertTrue(mod.managed("benchmarks/arm-bench-notes.md"))
+        self.assertTrue(mod.managed("tests/test_packaging.py"))
 
     def test_the_manifest_lists_no_lab_file(self):
         with open(os.path.join(REPO, "MANIFEST"), encoding="utf-8") as fh:
             listed = fh.read().splitlines()
         self.assertFalse([f for f in listed if f.startswith("benchmarks/arm-bench/")])
+        self.assertNotIn("tests/test_arm_bench.py", listed)
 
 
 class UnlockStrip(unittest.TestCase):
@@ -277,6 +281,20 @@ class ProviderError(unittest.TestCase):
         self.assertFalse(bench.is_quota({"status": 429, "message": "429 Rate limit, retry"}))
         self.assertTrue(bench.is_quota({"status": 402, "message": "Insufficient credits"}))
 
+    def test_openrouter_wordings_stop_the_block_only_on_a_spend_limit(self):
+        # OpenRouter's own wordings: a per-minute rate limit and a context-length
+        # overflow both say "limit exceeded" and neither is a spend limit
+        self.assertFalse(bench.is_quota(
+            {"status": 429, "message": "429 Rate limit exceeded: free-models-per-min."}))
+        self.assertFalse(bench.is_quota(
+            {"status": 400, "message": "This endpoint's maximum context length is 163840 "
+                                       "tokens. However, you requested about 170000 tokens. "
+                                       "Please reduce the length (limit exceeded)."}))
+        self.assertFalse(bench.is_quota({"status": 429, "message": "quota per minute"}))
+        self.assertTrue(bench.is_quota(
+            {"status": 403, "message": "403 Key limit exceeded (total limit)"}))
+        self.assertTrue(bench.is_quota({"status": 402, "message": ""}))
+
     def test_an_errored_run_is_logged_beside_the_results_and_its_cell_stays_open(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "results.jsonl"
@@ -389,6 +407,43 @@ class LeakCheck(unittest.TestCase):
 
     def test_the_shipped_arms_leak_nothing(self):
         self.assertEqual(bench.leak_check(bench.task_ids()), [])
+
+    def test_the_injected_contract_names_no_hidden_identifier(self):
+        # without ARMBENCH_LAB the shipped-arms check reads no RULES.md, so the
+        # text every armed HOME injects is checked here directly
+        texts = {"CORE": tezgah_policy.CORE, "PROMPT_REMINDER": tezgah_policy.PROMPT_REMINDER}
+        self.assertEqual(bench.leak_check(bench.task_ids(), texts), [])
+
+    def test_the_check_sees_a_leak_in_given_texts(self):
+        tid, tokens = next((t, s) for t in bench.task_ids()
+                           if (s := bench.ground_truth_tokens(bench.task_dir(t))))
+        token = sorted(tokens)[0]
+        self.assertTrue(bench.leak_check([tid], {"CORE": "use %s here" % token}))
+
+
+class TemplateRecord(unittest.TestCase):
+    """Amendment A7 (plan 062 E1): every armed HOME carries the MCP servers the
+    installer renders and bare carries none; the template record names them."""
+
+    def test_an_armed_home_records_its_mcp_servers_and_config(self):
+        import homes
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".omp" / "agent").mkdir(parents=True)
+            mcp = home / ".omp" / "agent" / "mcp.json"
+            mcp.write_text(json.dumps({"mcpServers": {"tezgah": {}, "codegraph": {}}}))
+            (home / ".config" / "tezgah").mkdir(parents=True)
+            config = home / ".config" / "tezgah" / "config.json"
+            config.write_text("{}")
+            self.assertEqual(homes.template_record(home), {
+                "mcp_sha256": homes.sha(mcp), "mcp_servers": ["codegraph", "tezgah"],
+                "config_sha256": homes.sha(config)})
+
+    def test_a_bare_home_records_none(self):
+        import homes
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(homes.template_record(Path(tmp)), {
+                "mcp_sha256": None, "mcp_servers": [], "config_sha256": None})
 
 
 if __name__ == "__main__":

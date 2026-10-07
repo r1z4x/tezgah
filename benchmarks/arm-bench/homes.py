@@ -22,7 +22,10 @@ not whatever the checkout holds when a run starts.
 
 `DIR/homes/MANIFEST.json` records the commit, each arm's RULES.md sha256, the
 unlocks left in each arm's injected text (0 for p1-noswitch, by construction
-checked here) and the switch files each template holds.
+checked here), the switch files each template holds, and (amendment A7) the
+sha256 of its `.omp/agent/mcp.json` and `.config/tezgah/config.json` with the
+MCP server names: the installer renders the operator's MCP servers into every
+armed HOME, bare holds none, so the contrast includes them.
 """
 from __future__ import annotations
 
@@ -116,6 +119,15 @@ def switches(home: Path, src: Path) -> list[str]:
     return found
 
 
+def template_record(home: Path) -> dict:
+    """The MCP servers and tezgah config an arm's HOME carries (amendment A7)."""
+    mcp = home / ".omp" / "agent" / "mcp.json"
+    config = home / ".config" / "tezgah" / "config.json"
+    servers = sorted(json.loads(mcp.read_text()).get("mcpServers") or {}) if mcp.is_file() else []
+    return {"mcp_sha256": sha(mcp) if mcp.is_file() else None, "mcp_servers": servers,
+            "config_sha256": sha(config) if config.is_file() else None}
+
+
 def cmd_deploy(args) -> int:
     lab = Path(args.lab).resolve()
     if REPO in lab.parents or lab == REPO:
@@ -154,6 +166,7 @@ def cmd_deploy(args) -> int:
         entry["rules_sha256"] = sha(rules) if rules.is_file() else None
         entry["rules_unlocks"] = injected_unlocks(home, src)
         entry["switches"] = switches(home, src)
+        entry.update(template_record(home))
         manifest["arms"][arm] = entry
         print("%-17s rules=%s unlocks=%d switches=%s"
               % (arm, (entry["rules_sha256"] or "none")[:12], entry["rules_unlocks"],
