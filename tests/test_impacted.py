@@ -117,6 +117,20 @@ class TheMap(unittest.TestCase):
     def test_an_unknown_path_is_the_full_suite(self):
         self.assertIsNone(self.modules("some/other/file.txt"))
 
+    def test_a_host_file_maps_to_the_modules_that_run_it_not_the_suite(self):
+        # measured 2026-10-07: `hook.py`/`tezgah.js` matched by basename and
+        # stem pulled 78-85 of 90 modules for one host file
+        total = len(impacted.test_modules())
+        for path, owner in (("hosts/codex/hook.py", "test_codex_hook.py"),
+                            ("hosts/opencode/plugins/tezgah.js",
+                             "test_opencode_plugin.py")):
+            mods = self.modules(path)
+            self.assertIn(owner, mods or [], path)
+            self.assertLess(len(mods), total // 4, (path, mods))
+        # a join split over two lines still names the file
+        self.assertIn("test_index.py",
+                      self.modules("hosts/opencode/plugins/tezgah.js"))
+
     def test_a_new_hooks_module_falls_back_to_the_full_suite(self):
         # the guard the plan asked for: a hooks module added without a mapping
         # or a test module of its own must not map to an empty set

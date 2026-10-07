@@ -6,17 +6,20 @@
     python3 tests/impacted.py --list hooks/...    # print the set, run nothing
     python3 tests/impacted.py --all               # the full suite, sharded
 
-Changed paths map to test modules (tests/test_<name>.py) by four rules, in order:
+Changed paths map to test modules (tests/test_<name>.py) by five rules, in order:
 
   1. the owner: `hooks/tezgah_X.py` -> `test_X.py` when that module exists.
   2. importers: any test module whose source (or a `tests/_probe_*.py` helper)
      names `tezgah_X`.
-  3. entry points: `bin/<prog>`, `hooks/projects-*.py`, `hosts/<host>/**`,
-     `statusline.py`, `skills/<skill>/**` map to every test module whose source
-     names that path or its basename.
+  3. entry points: `bin/<prog>`, `hooks/projects-*.py`, `statusline.py`,
+     `skills/<skill>/**` map to every test module whose source names that path
+     or its basename.
   4. `OVERRIDES` below: the hand-known edges the static scan cannot see, e.g.
      `tezgah_integrity`/`tezgah_gate` are also exercised through the codex,
      cursor and dsh hook tests and through the opencode plugin.
+  5. any other path (`hosts/**`, `packaging/**`, config files): the modules
+     that name the path itself, its `os.path.join` spelling or the
+     tests/support.py constant built from it - never its basename alone.
 
 `tests/support.py`, `tests/_probe_*.py` and any path no rule maps are the fail
 safe: the FULL suite runs. A docs-only change maps to the docs modules only.
@@ -81,7 +84,7 @@ def _tests_mentioning(needle, cache):
     hits = []
     for module in test_modules():
         src = cache.setdefault(module, _read(os.path.join(TESTS, module)))
-        if needle in src:
+        if (needle.search(src) if hasattr(needle, "search") else needle in src):
             hits.append(module)
     return hits
 
@@ -167,8 +170,7 @@ def modules_for(path, cache):
             # here unnoticed
             return None
         return sorted(hits) or None
-    if path.startswith(("hooks/", "hosts/", "bin/", "skills/")) \
-            or path == "statusline.py":
+    if path.startswith(("hooks/", "bin/", "skills/")) or path == "statusline.py":
         hits = set(_tests_mentioning(name, cache)) | set(
             _tests_mentioning(stem, cache))
         if path.startswith("bin/tezgah-setup"):
@@ -178,7 +180,36 @@ def modules_for(path, cache):
             if hook_stem in path:
                 hits |= {"test_%s.py" % e for e in extras}
         return sorted(hits) or None
-    return None  # an unmapped path: the fail-safe
+    # any other path (hosts/, packaging/, config): the modules that name it
+    # (`_path_needles`). Not its basename or stem: `hook.py`, `hooks.json`,
+    # `tezgah.js` are in nearly every module, and that rule mapped one host
+    # file to 75-85 of 90 (measured 2026-10-07). The map's own test names paths
+    # as data, so it is not a hit; a path no module names is the fail-safe.
+    needles = _path_needles(path)
+    if path.startswith("packaging/"):
+        needles.append(name)  # install.sh, build.sh: specific enough
+    hits = set()
+    for needle in needles:
+        hits |= set(_tests_mentioning(needle, cache))
+    hits.discard("test_impacted.py")
+    return sorted(hits) or None
+
+
+def _path_needles(path):
+    """How a test module names the repo path `path`: the path itself, the
+    `os.path.join` spelling of its last two parts across any line breaks
+    (`"codex",\\n "hook.py"`, which also reads an installed copy of the file),
+    and the tests/support.py constant built from the whole spelling
+    (`CODEX_HOOK`)."""
+    parts = path.split("/")
+    joined = ", ".join('"%s"' % part for part in parts)
+    needles = [path, re.compile(r",\s*".join('"%s"' % re.escape(part)
+                                              for part in parts[-2:]))]
+    for line in _read(os.path.join(TESTS, "support.py")).splitlines():
+        const = re.match(r"^([A-Z_]+)\s*=\s*os\.path\.join\(REPO,\s*(.+)\)\s*$", line)
+        if const and const.group(2) == joined:
+            needles.append(const.group(1))
+    return needles
 
 
 def changed_paths(ref):
