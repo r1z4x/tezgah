@@ -718,6 +718,17 @@ exemption bar not measurable. `replay --report --labels <file> ...` reads one la
   same label. Under 0.6 the report says the labels cannot gate a rule.
 
 With no labels file the report calls these figures unverifiable instead of printing zeros.
+With one rater's file it prints no rate either. The rates need two raters' agreed labels, and
+one rater's totals would show the other rater those labels.
+
+`replay --label-model --prompt <file>` is rater 2 when that rater is a model. It sends each sheet
+row to the judge seam (`hooks/tezgah_judge.py`) as one `choice` question and writes
+`labels-model.jsonl` beside the sheet. It redacts the row's text first (`ti.redact`), and it runs
+only when TypeSafe answers. The prompt file holds each set's instructions and criteria. A reply
+with no label from those criteria leaves its row unlabelled. A second run asks only the unlabelled
+rows. Every run prints the input tokens and their cost. The sheet rows leave the machine for
+`api.typesafe.ai`. The key and the corpus stay on it. Kappa against a model rater
+measures human-model agreement, not inter-rater reliability.
 
 ## Source of truth
 
