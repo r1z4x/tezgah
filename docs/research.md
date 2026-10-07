@@ -65,7 +65,7 @@ nothing recorded the ask and `close --limit` accepted any string.
 `state.json` `rules` is the line's format version. `init` writes `RULES`, the
 newest set (`hooks/tezgah_research.py::RULES`). Each set keeps its own gate. Rules 2
 are the standards rules. Rules 3 add the ask contract. Rules 4 add the protocol
-sections below. A bump never weakens an older set.
+sections below. Rules 5 add the scope lock. A bump never weakens an older set.
 
 A `rules` above `RULES` means a later tezgah wrote the line. `check` then reports
 one error that names both numbers and reads nothing else. The writers refuse the
@@ -110,14 +110,49 @@ it. The rules come from the gortex/SoL-Pi adoption's ideas 3 and 4 and from the
 layer audit's P2 probe (`_check_protocol_sections`, `_token_claim_problem`).
 Older lines keep the word rule.
 
+## Scope lock (rules 5)
+
+The owner reported on 2026-10-07 that research turned every question into
+metrics. It also grew past the ask, stayed shallow, and drifted off topic. The
+rule text pushed each of these. The injected rule sent every research task to
+orx's experiment tree. The skill locked a metric at bootstrap. `check` refused a
+line past `bootstrap` without one. An analysis owed three compared variants. The
+ideation moves had no fence. Rules 5 lock a line to its question:
+
+- `init --in "<covered>" --out "<left alone>"` (repeatable) write `state.json`
+  `scope`. The in-scope items are `S1`, `S2`, ... in order. `--method
+  qualitative|measured` writes `method`. `scope_problems`
+  (`hooks/tezgah_research.py::scope_problems`) names an empty `scope.in`, an
+  empty `scope.out` and a missing method. `check` refuses them past `bootstrap`
+  and warns at it.
+- A claim's `trace` names the in-scope item it answers (`S<n>` or the item's
+  text). `claim_problems` and `_check_claims` both call `trace_problem`
+  (`hooks/tezgah_research.py::trace_problem`). The writer and the checker refuse
+  the same off-topic claim.
+- A `qualitative` line owes no metric. `_check_evaluation`
+  (`hooks/tezgah_research.py::_check_evaluation`) skips it. `_check_scope`
+  refuses one that records `results.jsonl`. A measured question says `measured`
+  and locks its evaluation first.
+- An `analysis` deliverable owes no variants (`deliverable_problems` takes the
+  line's rules). A design, plan or code still does. Older lines keep three.
+
+The session reads the same lock in the research rule
+(`hooks/tezgah_policy.py::RESEARCH` and the paragraph `**Research: route it to
+OpenResearch.**`). Restate the question verbatim. Name what is in and out of
+scope. Drop a finding that answers nothing asked. Pick the method from the
+question. Answer a plain factual question in the reply from primary sources, with
+no line. Cite each finding's source with a confidence. The host-subagent fallback
+gets the question, its scope and its method in its brief. The research skill's
+"Scope and method" section is the long form.
+
 ## One line, one directory
 
 | Path | Holds |
 |---|---|
-| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py::PHASES`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`hooks/tezgah_research.py::derived_phase`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
+| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, `method` and `scope` (rules 5, see "Scope lock"), the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py::PHASES`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`hooks/tezgah_research.py::derived_phase`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
 | `log.md` | the decision log, newest last: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | the four sections every line answers, named by `FINDINGS_SECTIONS` (`hooks/tezgah_research.py::FINDINGS_SECTIONS`) |
-| `claims.jsonl` | one JSON object per row: `statement`, `falsification`, `proof`, `provenance`, `status`, `kind`, `scope` (what the claim's numbers were measured on, which may not be wider than the rows it rests on), and `supersedes` when the row replaces an earlier claim |
+| `claims.jsonl` | one JSON object per row: `statement`, `falsification`, `proof`, `provenance`, `status`, `kind`, `trace` (the in-scope item, rules 5), `scope` (what the claim's numbers were measured on, which may not be wider than the rows it rests on), and `supersedes` when the row replaces an earlier claim |
 | `predictions.jsonl` | one JSON object per row: `commit` (a 40-character sha the row is bound to), `claim` (an id the line holds, or empty when the prediction stands alone), `metric`, `value_before`, `value_after`, `falsifier`, `components` (the keys of the components the change touches, read from `hooks/tezgah_components.py`), and `granted_by` when a human granted what the frozen paths below forbid |
 | `experiments/<hypothesis>/protocol.md` | what the change is, what it predicts, what result would falsify it, why - committed before the run |
 | `experiments/<hypothesis>/results.jsonl` | the rows the run produced, one JSON object per non-blank line, each carrying a non-empty `source` and, once declared, a `scope` of `real`, `fixture` or `derived`, and - when that scope is `fixture` - a `fixture` description of what was generated |

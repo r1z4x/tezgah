@@ -176,6 +176,8 @@ class Workspace(TempHome):
         state["evaluation"].update({"metric": "p95", "baseline": "the bare build",
                                     "locked_at": "2026-01-01"})
         state["deliverable"] = {"kind": "finding"}
+        state["method"] = "measured"
+        state["scope"] = {"in": ["the change's effect"], "out": ["other changes"]}
         if rules is not None:
             state["rules"] = rules
         self.write(os.path.join(base, "state.json"), json.dumps(state))
@@ -308,7 +310,8 @@ CLAIM = {"id": "c1", "statement": "the cache cuts p95",
          "status": "supported", "provenance": "ai-executed",
          "kind": "evidence",
          "falsification": "p95 does not drop",
-         "proof": "to_human/report.md (p95 -12% over 7 runs)"}
+         "proof": "to_human/report.md (p95 -12% over 7 runs)",
+         "trace": ["S1"]}
 
 # A report with everything a delivered line's report is read for: what the
 # evidence does not show, and the four validity threats by name.
@@ -338,14 +341,16 @@ class Init(Workspace):
                          sorted(os.path.join(base, n) for n in
                                 ("state.json", "log.md", "findings.md",
                                  "claims.jsonl")))
-        # a fresh line is structurally clean, and the two warnings it carries are
-        # the honest state of a line that has not locked its evaluation yet
+        # a fresh line is structurally clean, and the warnings it carries are the
+        # honest state of a line that has not locked its evaluation, its scope or
+        # its method yet
         self.assertEqual(self.errors(repo, "probe"), [])
         self.assertEqual(tr.check(repo, "probe")["probe"]["warnings"],
                          ["state.json evaluation locks no metric, baseline, "
                           "locked_at: a criterion chosen after seeing the results "
-                          "is not a criterion",
-                          "no claims recorded yet"])
+                          "is not a criterion"] + tr.scope_problems(state)
+                         + ["no claims recorded yet"])
+        self.assertEqual(len(tr.scope_problems(state)), 3)
 
     def test_init_never_overwrites(self):
         repo = self.repo()
@@ -1158,7 +1163,7 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.PROTOCOL_RULES)
+        self.assertEqual(tr.RULES, tr.SCOPE_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
@@ -1395,7 +1400,8 @@ class ClaimAppend(Workspace):
                  "status": "supported", "provenance": "ai-executed",
                  "kind": "evidence",
                  "falsification": "p95 does not drop",
-                 "proof": "to_human/report.md (p95 -12% over 7 runs)"}
+                 "proof": "to_human/report.md (p95 -12% over 7 runs)",
+                 "trace": ["S1"]}
         claim.update(over)
         return claim
 
@@ -3412,7 +3418,8 @@ class Migrate(Workspace):
         self.write(os.path.join(tr.line_dir(repo, "q"), "claims.jsonl"),
                    json.dumps({"id": "c1", "statement": "s", "status": "supported",
                                "provenance": "ai-executed", "falsification": "f",
-                               "proof": "literature/1707-x.md; bin/tezgah-status"})
+                               "proof": "literature/1707-x.md; bin/tezgah-status",
+                               "trace": "S1"})
                    + "\n")
         lines, problems = tr.migrate(repo, "q")
         # the claim is the one this test is about; migrate also indexes the note
@@ -3435,7 +3442,7 @@ class Migrate(Workspace):
                    json.dumps({"id": "c1", "statement": "s", "status": "supported",
                                "provenance": "ai-executed", "falsification": "f",
                                "proof": "experiments/h1/results.jsonl and "
-                                        "bin/tezgah-status"}) + "\n")
+                                        "bin/tezgah-status", "trace": "S1"}) + "\n")
         lines, problems = tr.migrate(repo, "q")
         self.assertEqual(lines, ["claim c1: kind evidence"])
         self.assertFalse(hit("no kind derived", problems), problems)
@@ -5481,6 +5488,107 @@ class SerialTwins(Workspace):
         self.deliver_at(repo, "a", "docs/design.md")
         self.deliver_at(repo, "b", "docs/../docs/design.md")
         self.assertEqual(tr.serial_twins(repo, "b", tr.line_state(repo, "b")), ["a"])
+
+
+class ScopeLock(Workspace):
+    """Rules 5: a line is locked to the question the user asked. It names what is
+    in and out of scope, picks its method from the question (a qualitative ask
+    owes no metric; a measured one still does), every claim traces to an
+    in-scope item, and an analysis is answered once instead of as three variants.
+    The owner's report: research turned every question into metrics, grew past
+    the ask, and wandered into topics nobody asked about."""
+
+    def state(self, repo, **fields):
+        path = os.path.join(tr.line_dir(repo, "q"), "state.json")
+        state = json.loads(read(path))
+        state.update(fields)
+        self.write(path, json.dumps(state))
+        return state
+
+    def test_init_writes_the_scope_and_the_method(self):
+        repo = self.repo()
+        tr.init(repo, "q", question="what does X say?", ask="what does X say?",
+                method="qualitative", scope_in=["X's stated rule"],
+                scope_out=["Y"])
+        state = tr.line_state(repo, "q")
+        self.assertEqual(state["rules"], tr.SCOPE_RULES)
+        self.assertEqual(state["method"], "qualitative")
+        self.assertEqual(state["scope"], {"in": ["X's stated rule"], "out": ["Y"]})
+
+    def test_the_cli_takes_the_scope_and_the_method(self):
+        repo = self.repo()
+        proc = self.cli(repo, "init", "q", "--ask", "what does X say?",
+                        "--method", "qualitative", "--in", "X's rule",
+                        "--in", "its exceptions", "--out", "Y")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        state = tr.line_state(repo, "q")
+        self.assertEqual(state["scope"]["in"], ["X's rule", "its exceptions"])
+        bad = self.cli(repo, "init", "r", "--ask", "a", "--method", "vibes",
+                       "--allow-open", "test")
+        self.assertEqual(bad.returncode, 2, bad.stdout)
+
+    def test_a_line_past_bootstrap_with_no_scope_or_method_is_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, scope={"in": [], "out": []}, method="")
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit("scope", errors), errors)
+        self.assertTrue(hit("method", errors), errors)
+
+    def test_a_qualitative_line_owes_no_metric(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, method="qualitative",
+                   evaluation={"metric": "", "baseline": "", "locked_at": ""})
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit("locks no", errors), errors)
+
+    def test_a_measured_line_still_owes_its_metric(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, method="measured",
+                   evaluation={"metric": "", "baseline": "", "locked_at": ""})
+        self.assertTrue(hit("locks no", self.errors(repo, git=False)))
+
+    def test_a_qualitative_line_that_records_results_is_refused(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.state(repo, method="qualitative")
+        self.protocol(repo)
+        self.results(repo)
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit("qualitative", errors), errors)
+
+    def test_a_claim_outside_the_scope_is_refused_by_writer_and_checker(self):
+        repo = self.repo()
+        base = self.line(repo)
+        stray = dict(CLAIM, trace=["something else"])
+        _id, problems = tr.append_claim(repo, "q", stray)
+        self.assertTrue(hit("in-scope", problems), problems)
+        self.assertFalse(os.path.getsize(os.path.join(base, "claims.jsonl")))
+        self.claims(repo, stray)
+        self.assertTrue(hit("in-scope", self.errors(repo, git=False)))
+        for trace in (["S1"], ["the change's effect"]):
+            ok = dict(CLAIM, trace=trace)
+            self.assertFalse(hit("in-scope", tr.claim_problems(ok, base, repo)))
+            self.claims(repo, ok)
+            self.assertFalse(hit("in-scope", self.errors(repo, git=False)))
+
+    def test_an_older_line_keeps_its_rules(self):
+        repo = self.repo()
+        base = self.line(repo, phase="inner", rules=tr.PROTOCOL_RULES)
+        self.state(repo, scope=None, method=None)
+        self.claims(repo, dict(CLAIM, trace=None))
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit("in-scope", errors), errors)
+        self.assertFalse(hit("method", errors), errors)
+        self.assertEqual(tr.deliverable_problems(
+            {"kind": "analysis"}, tr.PROTOCOL_RULES)[1], 3)
+        self.assertTrue(base)
+
+    def test_an_analysis_is_answered_once_not_as_three_variants(self):
+        self.assertEqual(tr.deliverable_problems({"kind": "analysis"})[1], 0)
+        self.assertEqual(tr.deliverable_problems({"kind": "design"})[1], 3)
 
 
 if __name__ == "__main__":

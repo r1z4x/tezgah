@@ -22,11 +22,44 @@ evidence survives the session that produced it: the state on disk, the protocol
 committed before the run, the claims with their falsification criteria, and the
 review that decided what the evidence actually supports.
 
+## Scope and method: answer the question asked
+
+Three ways a line goes wrong before any rule below can catch it: it turns a
+question into metrics, it grows past what was asked, and it wanders into a topic
+nobody asked about. So before anything else:
+
+1. **Restate the question verbatim** (`--ask "<the user's words>"`) and write
+   what is in scope and what is out (`--in "<covered>"` per item, `--out "<left
+   alone>"` per item; state.json `scope`). The in-scope items are `S1`, `S2`, ...
+   in order. Nothing is added to the list the user did not ask for.
+2. **Pick the method from the question.** A qualitative, conceptual or reference
+   question - "what does X say", "how does Y work", "which sources support Z" - is
+   `--method qualitative`: a source review, no metric, no experiment, no orx
+   experiment tree. A question whose answer is a number or a comparison of
+   numbers is `--method measured`, and only then does the evaluation lock, the
+   protocol and the experiment tree below apply. `check` refuses a qualitative
+   line that records results, and a rules-5 line past `bootstrap` with no scope or
+   method.
+3. **A plain factual or reference question gets no line** (`--tier quick` is
+   refused): answer it in the reply from the primary source, cited, with its
+   confidence.
+4. **Every finding traces to an in-scope item.** A claim's `trace` names its
+   `S<n>` (or the item's text); `claim` and `check` refuse one that names none. A
+   finding that answers nothing asked is dropped; a tangent worth having is one
+   line under `## Open questions` for the user to pick, never a section of the
+   report.
+5. **Depth is the primary source, not breadth.** Read the spec, the paper, the
+   code or the vendor's own documentation itself, cite it in the finding, and
+   state a confidence (high, medium or low, and the reason). A summary of other
+   summaries, or a finding with no source, is not an answer.
+
 ## The engine: OpenResearch
 
 Execution goes through the `orx` CLI when it is installed, never ad-hoc
-scripting, and its cardinal rules are not style preferences - breaking one
-silently invalidates the run:
+scripting. A qualitative line uses its literature commands (`orx discover`,
+`orx paper`, the `orx skill lit-review` module). A measured line also uses its
+experiment tree, and there its cardinal rules are not style preferences -
+breaking one silently invalidates the run:
 
 - never edit a node once a run has answered it; branch a child instead,
 - the run command and environment are a fixed contract identical on every node,
@@ -34,7 +67,8 @@ silently invalidates the run:
 - grow the experiment tree downward, not sideways.
 
 Load its manual before driving it: `orx skill`, then the module for the step
-(`orx skill experiment-tree`, `orx skill lit-review`, `orx skill evidence`).
+(`orx skill lit-review` for sources; `orx skill experiment-tree` and
+`orx skill evidence` for a measured line).
 Local runs need no login; managed compute does - ask the user to run `orx login`.
 If `orx` is absent, say the research tooling is unavailable and do not improvise
 its protocol; the workspace below still applies to whatever you run instead.
@@ -48,10 +82,10 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 
 | Path | What it holds |
 |---|---|
-| `state.json` | the question, phase, direction, the locked evaluation (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
+| `state.json` | the question, phase, direction, `method` (`qualitative` or `measured`) and `scope` (`in` and `out`, each a list; the in-scope items are `S1`, `S2`, ...), the locked evaluation of a measured line (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
-| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
+| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `trace` (the in-scope item it answers, `S<n>`, required from rules 5), `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
 | `experiments/<hypothesis>/` | `protocol.md`, `results.jsonl` (one JSON object per row, each carrying its `source`, its `scope` - what the numbers were measured on - and, when that scope is `fixture`, the `fixture` description of the input that was generated), `analysis.md`, and `raw/<runId>.log` for a run read back from the engine |
 | `literature/` | one file per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` - every file under it, at any depth and of any extension, is a source the index names |
 | `decisions/<id>/` | one comparison of the deliverable's variants: `criteria.json`, `variants.jsonl`, `comparison.jsonl` and `decision.md` - see "Variants" below |
@@ -79,7 +113,8 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 `bin/tezgah-research` in the checkout):
 
 ```sh
-~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?"
+~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?" \
+    --method measured --in "X under Y" --out "X under Z"
 ~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
 ~/.config/tezgah/bin/tezgah-research check    # open lines + done/ seals; 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research check --all-lines   # every line in full, done/ included
@@ -220,9 +255,11 @@ rules the domain library enforces on a compiled artifact apply here:
 
 **Bootstrap.** Search the literature with more than one source - `orx discover
 keyword|embedding|openalex "<query>"` first, `orx paper <id>` to read one (the
-`orx skill lit-review` module is the procedure) - save every source
-to `literature/` as you go, identify the gap, form testable hypotheses (see
-Ideation below), and lock the evaluation before running anything: the metric, the
+`orx skill lit-review` module is the procedure) - for the in-scope items only,
+and save every source to `literature/` as you go. A qualitative line stops here
+and answers from those sources. A measured line identifies the gap, forms
+testable hypotheses about the in-scope items (see Ideation below), and locks the
+evaluation before running anything: the metric, the
 baseline, the threshold. Write it into `state.json` and commit it before the first
 results row - a criterion chosen after seeing results is not a criterion, and
 `check` refuses a line whose first commit holding a metric and a baseline does not
@@ -377,7 +414,9 @@ Pick the move that matches the state you are in:
 | "the run is stuck" | name the hidden constraint and drop it (see below) |
 | "the results are surprising" | re-derive the assumption they break, then go back to the literature |
 
-- **Diverge first**: list candidate mechanisms and framings without judging them.
+- **Diverge first**: list candidate mechanisms and framings without judging them,
+  every one of them about an in-scope item - a framing of a different question is
+  an Open question for the user, not a candidate.
 - **Expose a hidden constraint**: list the constraints of the current approach and
   classify them hard (physically necessary), soft (convention) or hidden (never
   stated). The most productive move in the library's whole ideation set is
@@ -474,12 +513,15 @@ and `--strict` refuses it; two raters at least, and state their agreement.
 
 ## Variants
 
-A deliverable a reader acts on - a design, a plan, an analysis, code - is not one
-version redone until it looks right. Serial versions fixate on the first option
-and a design shown alone gets inflated ratings (Dow et al. 2010, Tohidi et al.
-2006). Produce at least three variants (two for `code`; `min_variants` in
+A deliverable a reader acts on and chooses between - a design, a plan, code - is
+not one version redone until it looks right. Serial versions fixate on the first
+option and a design shown alone gets inflated ratings (Dow et al. 2010, Tohidi et
+al. 2006). Produce at least three variants (two for `code`; `min_variants` in
 `deliverable`, and below the default only with a `single_variant_reason`) and
-compare them under criteria fixed first, in `decisions/<id>/`:
+compare them under criteria fixed first, in `decisions/<id>/`. An `analysis`
+answers its question once on a rules-5 line: variants are a choice the user
+makes, not a way to triple the answer (an older line keeps the three it was
+opened under):
 
 | File | What it holds |
 |---|---|
@@ -495,8 +537,9 @@ after it was committed; a missing cell once `decision.md` exists or the line is
 delivering; a `chosen` that is not a produced variant, a rejected variant with no
 criterion, no `flip:`; and a chosen variant another one beats or ties on every
 numeric criterion. A judged cell with fewer than two raters warns (`--strict`
-refuses). A design, plan or analysis with no `decisions/` warns while the line
-runs, is refused once it delivers, and keeps the line open.
+refuses). A design or plan (and an analysis on a line before rules 5) with no
+`decisions/` warns while the line runs, is refused once it delivers, and keeps
+the line open.
 
 When the variants are code or config, they are sibling orx nodes under one head
 node (orx cardinal rule 4: fan within a round, then descend onto the winner), and

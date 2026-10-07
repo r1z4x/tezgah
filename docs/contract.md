@@ -142,17 +142,17 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :637, `**Ponytail (minimal code).**` :645, `**Output shape:
-ADHD-friendly.**` :656, `**Deliver the whole ask; never the shortcut.**` :670,
-`**Integrity: evidence, or "doğrulanmadı".**` :684, `**Loop discipline.**` :700,
-`**Spec before building.**` :709 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :723, `**Code discovery: graph first.**` :731
-*(conditional)*, `**Consult before irreversible.**` :740 *(conditional)*,
-`**Research: route it to OpenResearch.**` :756 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :772 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :805, `**Identifiers and messages
-stay English.**` :815, `**Session scope: the user's repo, not tezgah.**` :821,
-`**Kill switches:**` :837. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :658, `**Ponytail (minimal code).**` :666, `**Output shape:
+ADHD-friendly.**` :677, `**Deliver the whole ask; never the shortcut.**` :691,
+`**Integrity: evidence, or "doğrulanmadı".**` :705, `**Loop discipline.**` :721,
+`**Spec before building.**` :730 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :744, `**Code discovery: graph first.**` :752
+*(conditional)*, `**Consult before irreversible.**` :761 *(conditional)*,
+`**Research: route it to OpenResearch.**` :777 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :804 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :837, `**Identifiers and messages
+stay English.**` :847, `**Session scope: the user's repo, not tezgah.**` :853,
+`**Kill switches:**` :869. The first label renders as `**Turkish, BLUF.**` under
 the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the five

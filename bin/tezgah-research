@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """tezgah-research - the research workspace CLI.
 
-  tezgah-research init <slug> [--question "..."] [--allow-open "<why>"]
-                       [--supersedes <slug>]              scaffold a line
+  tezgah-research init <slug> --ask "<the user's words>" [--question "..."]
+                       [--method qualitative|measured] [--in "<covered>"]... [--out "<left alone>"]...
+                       [--allow-open "<why>"] [--supersedes <slug>]   scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
                                                    the discipline checks
@@ -136,7 +137,7 @@ def cmd_init(args):
         return misuse("init <slug>: %r is not a slug - lowercase letters, digits "
                       "and dashes" % args[0])
     question, allow, supersedes = "", None, None
-    ask, tier = "", str(tr.DEFAULT_TIER)
+    ask, tier, method, scope_in, scope_out = "", str(tr.DEFAULT_TIER), "", [], []
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
@@ -146,13 +147,21 @@ def cmd_init(args):
             ask = rest.pop(0)
         elif flag == "--tier" and rest:
             tier = rest.pop(0)
+        elif flag == "--method" and rest and rest[0] in tr.METHODS:
+            method = rest.pop(0)
+        elif flag == "--in" and rest:
+            scope_in.append(rest.pop(0))
+        elif flag == "--out" and rest:
+            scope_out.append(rest.pop(0))
         elif flag == "--allow-open" and rest:
             allow = rest.pop(0)
         elif flag == "--supersedes" and rest:
             supersedes = rest.pop(0)
         else:
             return misuse('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
-                          ' [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]')
+                          ' [--method qualitative|measured] [--in "<covered>"]...'
+                          ' [--out "<left alone>"]... [--question "..."]'
+                          ' [--allow-open "<reason>"] [--supersedes <slug>]')
     problems = tr.ask_problems(ask, tier)
     if problems:
         for problem in problems:
@@ -196,7 +205,8 @@ def cmd_init(args):
         return 1
     created = time.strftime("%Y-%m-%d")
     made = tr.init(repo, slug, question=question, created=created,
-                   supersedes=supersedes, ask=ask, tier=tier)
+                   supersedes=supersedes, ask=ask, tier=tier, method=method,
+                   scope_in=scope_in, scope_out=scope_out)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -205,15 +215,22 @@ def cmd_init(args):
     print("research line: %s" % tr.line_dir(repo, slug))
     for path in made:
         print("  wrote %s" % path)
-    print("\nnext: write experiments/<hypothesis>/protocol.md - what the change is, "
-          "what it predicts, what result would falsify it, why - and COMMIT it "
-          "before the run: `tezgah-research commit %s \"protocol <hypothesis>\"`. "
-          "Then record the run in results.jsonl and commit it the same way, in a "
-          "later commit. The commits land in `.tezgah`'s own git repository (the "
-          "project ignores `.tezgah/`); `git -C .tezgah add ... && git -C .tezgah "
-          "commit` is the same step by hand. Then analyse it in analysis.md, and "
-          "put the claim in claims.jsonl with its kind, falsification criterion and "
-          "evidence." % slug)
+    for problem in tr.scope_problems(tr.line_state(repo, slug)):
+        print("  owed: %s" % problem)
+    if method == "qualitative":
+        print("\nnext: read the primary sources for each state.json scope.in item "
+              "(`orx discover`, `orx paper`), save each to literature/ as you read "
+              "it, and record every claim with a `trace` naming the S<n> it answers "
+              "and the source it rests on. No experiment, no metric.")
+    else:
+        print("\nnext: write experiments/<hypothesis>/protocol.md - what the change "
+              "is, what it predicts, what result would falsify it, why - and COMMIT "
+              "it before the run: `tezgah-research commit %s \"protocol "
+              "<hypothesis>\"`. Then record the run in results.jsonl and commit it "
+              "the same way, in a later commit. The commits land in `.tezgah`'s own "
+              "git repository (the project ignores `.tezgah/`). Then analyse it in "
+              "analysis.md, and put the claim in claims.jsonl with its kind, "
+              "falsification criterion, evidence and the S<n> it traces to." % slug)
     print("kill switch: research-off")
     return 0
 
