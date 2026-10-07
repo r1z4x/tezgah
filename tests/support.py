@@ -7,6 +7,7 @@ environment: a throwaway HOME and TEZGAH_ROOTS under tempfile, so the real
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,50 @@ OPENCODE_HARNESS = os.path.join(TESTS, "_opencode_plugin_harness.mjs")
 
 def slug(path):
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
+
+
+def ledger_rows(path, raw=False):
+    """The rows of the evidence ledger at `path` - `<cache>/evidence/<stem>.jsonl`,
+    the path `tezgah_integrity._path` names - oldest first, read from
+    `<cache>/tezgah.db`: parsed, or with `raw` their JSON text as stored. [] when
+    there is no database. Rows still only in a legacy JSONL file (one opencode's
+    plugin wrote and no hook read since) are not here: read that file."""
+    db = os.path.join(os.path.dirname(os.path.dirname(path)), "tezgah.db")
+    if not os.path.exists(db):
+        return []
+    conn = sqlite3.connect(db)
+    try:
+        texts = [t for (t,) in conn.execute(
+            "SELECT row FROM evidence WHERE session = ? ORDER BY n",
+            (os.path.basename(path)[:-len(".jsonl")],))]
+    finally:
+        conn.close()
+    return texts if raw else [json.loads(t) for t in texts]
+
+
+def ledger_sessions(cache):
+    """The sessions with a row in `<cache>/tezgah.db`, sorted."""
+    db = os.path.join(cache, "tezgah.db")
+    if not os.path.exists(db):
+        return []
+    conn = sqlite3.connect(db)
+    try:
+        return sorted(s for (s,) in conn.execute("SELECT DISTINCT session FROM evidence"))
+    finally:
+        conn.close()
+
+
+def seed_ledger(path, rows, append=False):
+    """Write `rows` (dicts) as the evidence ledger at `path` through the store, the
+    way `tezgah_integrity._append` stores a row; the session's earlier rows go
+    first unless `append`."""
+    if HOOKS not in sys.path:
+        sys.path.insert(0, HOOKS)
+    import tezgah_store
+    if not append:
+        tezgah_store.forget_session(path)
+    for row in rows:
+        tezgah_store.append_evidence(path, json.dumps(row))
 
 
 # The variables a Windows process needs to start at all (base_env keeps them).

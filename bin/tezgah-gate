@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 from tezgah_guard import import_failed  # noqa: E402
 try:
     from tezgah_gate import decision  # noqa: E402
+    from tezgah_integrity import serve_host  # noqa: E402
 except Exception as exc:
     # `check` is asked for a verdict (by a person, or the MCP `gate_check`
     # tool): an empty answer with exit 0 reads as a pass from a gate that is
@@ -62,6 +63,9 @@ def main(argv):
         return misuse("stdin is not one JSON object")
     if not isinstance(payload, dict):
         return misuse("stdin must be one JSON object")
+    if argv[1] == "decide":
+        # opencode's hook path: its rows go where its plugin reads them
+        serve_host(payload.get("host") or "opencode")
     inp = payload.get("input")
     reason = decision(payload.get("tool"), inp if isinstance(inp, dict) else {},
                       payload.get("cwd") or os.getcwd(),

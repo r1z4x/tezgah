@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 from tezgah_guard import import_failed  # noqa: E402
 try:
     from tezgah_snapshot import capture  # noqa: E402
+    from tezgah_integrity import serve_host  # noqa: E402
 except Exception as exc:
     import_failed(exc)
 
@@ -55,6 +56,8 @@ def main(argv):
               "written to no ledger and its id could not be looked up\n%s" % USAGE,
               file=sys.stderr)
         return 2
+    # opencode is the one host that runs this CLI (see above)
+    serve_host(payload.get("host") or "opencode")
     sid = capture(str(payload.get("tool") or ""), payload.get("input") or {},
                   str(payload.get("cwd") or os.getcwd()), session)
     if sid:

@@ -811,18 +811,32 @@ def _append(path, line):
         pass
 
 
+# The hosts whose plugin still writes and reads its sessions' JSONL ledgers
+# itself (opencode, until plan 071 slice 2b), and whether this process answers
+# for one (`serve_host`, set by the CLIs that plugin runs).
+JSONL_HOSTS = frozenset(("opencode",))
+_JSONL_HOST = [False]
+
+
+def serve_host(host):
+    """Note the host this process answers for: a JSONL host's rows go to the
+    session's JSONL file (`_jsonl_mirror`)."""
+    _JSONL_HOST[0] = host in JSONL_HOSTS
+
+
 def _jsonl_mirror(path, line):
     """Write `line` to the session's legacy JSONL file and mirror the file into
-    the database, when that file exists; False when it does not.
+    the database, when this process answers for a JSONL host (`serve_host`)
+    or that file exists; False otherwise.
 
     opencode's plugin still writes and reads its sessions' JSONL files (ADR 021,
     until plan 071 slice 2b moves it to the database, which removes this
-    branch): a row a Python process writes for such a session (the gate's deny,
-    a snapshot capture, a `turn` or `authorized` row) has to land in the file
-    the plugin reads. The database takes the file's new lines through the
+    branch): a row a Python process writes for such a session (a `turn` or
+    `authorized` row, a snapshot capture, the `attest` row) has to land in the
+    file the plugin reads. The database takes the file's new lines through the
     offset import right after, so the row is in both and imported once. A
     session that existed before the database keeps its file the same way."""
-    if not os.path.exists(path):
+    if not (_JSONL_HOST[0] or os.path.exists(path)):
         return False
     _jsonl_append(path, line)
     try:

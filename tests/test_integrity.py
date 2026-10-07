@@ -607,8 +607,8 @@ class ShortcutEdit(unittest.TestCase):
 class LedgerTail(unittest.TestCase):
     """events(tail=...) and prior_calls read only the end of the ledger.
 
-    The gate runs them on every gated call while the file grows with the
-    session, so the whole file must stay unread; _path is patched so the real
+    The gate runs them on every gated call while the ledger grows with the
+    session, so the whole of it must stay unparsed; _path is patched so the real
     cache is never touched."""
 
     ROWS = 5000
@@ -616,55 +616,32 @@ class LedgerTail(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         self.addCleanup(setattr, ti, "_path", ti._path)
         ti._path = lambda session: self.path
-        with open(self.path, "w") as fh:
-            for i in range(self.ROWS):
-                fh.write(json.dumps({"kind": "run", "ts": i, "id": "a%d" % i,
-                                     "detail": "x" * 40}) + "\n")
+        support.seed_ledger(self.path, [{"kind": "run", "ts": i, "id": "a%d" % i,
+                                         "detail": "x" * 40} for i in range(self.ROWS)])
 
     def append(self, row):
-        with open(self.path, "a") as fh:
-            fh.write(json.dumps(row) + "\n")
+        support.seed_ledger(self.path, [row], append=True)
 
     def test_tail_returns_the_last_rows_oldest_first(self):
         rows = ti.events("s", tail=2)
         self.assertEqual([r["id"] for r in rows], ["a4998", "a4999"])
 
-    def test_tail_never_reads_the_whole_file(self):
-        read = []
+    def test_tail_never_reads_the_whole_ledger(self):
+        given = []
+        real = ti._parse
 
-        class Counting:
-            def __init__(self, fh):
-                self.fh, self.n = fh, 0
+        def counting(lines, path=None):
+            given.append(len(lines))
+            return real(lines, path)
 
-            def read(self, size=-1):
-                data = self.fh.read(size)
-                self.n += len(data)
-                return data
-
-            def __getattr__(self, name):
-                return getattr(self.fh, name)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                return self.fh.__exit__(*exc)
-
-        def counting(path, *args, **kwargs):
-            fh = Counting(real_open(path, *args, **kwargs))
-            read.append(fh)
-            return fh
-
-        real_open = open
-        with mock.patch("builtins.open", counting):
+        with mock.patch.object(ti, "_parse", counting):
             rows = ti.events("s", tail=2)
         self.assertEqual([r["id"] for r in rows], ["a4998", "a4999"])
-        size = os.path.getsize(self.path)
-        self.assertLess(sum(f.n for f in read), size // 10,
-                        "the tail read pulled in the whole file")
+        self.assertLess(sum(given), self.ROWS // 10,
+                        "the tail read parsed the whole ledger")
 
     def test_prior_calls_count_matches_in_the_tail(self):
         self.append({"kind": "run", "id": "dup", "exit": 0})
@@ -714,7 +691,7 @@ class TurnMarker(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
 
     def marks(self):
         return [r for r in ti.events("s") if r["kind"] == "turn"]
@@ -748,13 +725,11 @@ class PartialStateReader(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.path
 
     def seed(self, *rows):
-        with open(self.path, "w") as fh:
-            for row in rows:
-                fh.write(json.dumps(row) + "\n")
+        support.seed_ledger(self.path, rows)
 
     def test_a_failure_the_turn_never_resolved_is_not_verified(self):
         self.seed({"kind": "edit", "detail": "x.py"},
@@ -816,7 +791,7 @@ class StopReadBound(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "%s.jsonl" % session)
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "%s.jsonl" % session)
 
     def seed(self, tail):
         """`PREFIX` rows, then this turn's marker, then the turn's own rows."""
@@ -893,13 +868,11 @@ class ScratchEvidenceReader(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.path
 
     def seed(self, *rows):
-        with open(self.path, "w") as fh:
-            for row in rows:
-                fh.write(json.dumps(row) + "\n")
+        support.seed_ledger(self.path, rows)
 
     def passed(self, detail):
         return {"kind": "verify_ok", "detail": detail, "exit": 0, "out_bytes": 9}
@@ -1047,13 +1020,8 @@ class WritersElsewhere(unittest.TestCase):
         self.evidence = os.path.join(self.dir, "evidence")
         os.makedirs(self.evidence)
 
-    def write(self, session, rows, age=0):
-        path = os.path.join(self.evidence, ti._slug(session) + ".jsonl")
-        with open(path, "w") as fh:
-            for row in rows:
-                fh.write(json.dumps(row) + "\n")
-        if age:
-            os.utime(path, (time.time() - age, time.time() - age))
+    def write(self, session, rows):
+        support.seed_ledger(os.path.join(self.evidence, ti._slug(session) + ".jsonl"), rows)
 
     def edit(self, path, age=0, workspace=None, cwd="/repo"):
         # the row the PostToolUse writer leaves: the host's own spelling in
@@ -1065,8 +1033,8 @@ class WritersElsewhere(unittest.TestCase):
         return row
 
     def test_the_other_writers_are_newest_first(self):
-        self.write("older", [self.edit("/repo/x.py", age=300)], age=300)
-        self.write("newer", [self.edit("/repo/x.py", age=60)], age=60)
+        self.write("older", [self.edit("/repo/x.py", age=300)])
+        self.write("newer", [self.edit("/repo/x.py", age=60)])
         self.write("mine", [self.edit("/repo/x.py")])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"),
                          [ti._slug("newer"), ti._slug("older")])
@@ -1076,12 +1044,12 @@ class WritersElsewhere(unittest.TestCase):
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
 
     def test_a_write_outside_the_window_is_not_reported(self):
-        self.write("old", [self.edit("/repo/x.py", age=20 * 60)], age=20 * 60)
+        self.write("old", [self.edit("/repo/x.py", age=20 * 60)])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
 
     def test_an_old_write_in_an_active_ledger_is_not_reported(self):
-        # that file's mtime is recent because the session is still working, so
-        # the row's own timestamp is what has to exclude the write
+        # the session is still working, so the row's own timestamp is what has
+        # to exclude the write
         self.write("busy", [self.edit("/repo/x.py", age=30 * 60),
                             self.edit("/repo/y.py")])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
@@ -1113,7 +1081,8 @@ class WritersElsewhere(unittest.TestCase):
         # audit GAP-02 / M-7: one `[1,2]` row or one terminated non-JSON line in
         # any recently written ledger raised out of this reader, and the gate's
         # guard then let every write of every session through unchecked. The
-        # damaged line is skipped now, so the rows beside it still count
+        # damaged line of a legacy JSONL file is imported as it is and skipped,
+        # so the rows beside it still count
         self.write("ok", [self.edit("/repo/x.py")])
         for name, junk in (("list", "[1, 2]\n"), ("torn", "{not json\n")):
             path = os.path.join(self.evidence, ti._slug(name) + ".jsonl")
@@ -1167,7 +1136,7 @@ class CredentialRedaction(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
 
     def test_the_named_and_bare_shapes_are_replaced_and_the_command_survives(self):
         cases = (
@@ -1252,14 +1221,16 @@ class CredentialRedaction(unittest.TestCase):
 
     def test_a_new_ledger_is_owner_only(self):
         # audit SEC-05 / L-6: the default umask left rows of commands and paths
-        # world-readable (`-rw-r--r--`)
-        path = os.path.join(self.dir, "evidence", "fresh.jsonl")
+        # world-readable (`-rw-r--r--`); the database and its directory are
+        # created owner-only
+        path = os.path.join(self.dir, "fresh", "evidence", "fresh.jsonl")
         ti._path = lambda session: path
         old = os.umask(0o022)
         self.addCleanup(os.umask, old)
         ti.note("s", "run", "ls")
-        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
-        self.assertEqual(os.stat(os.path.dirname(path)).st_mode & 0o777, 0o700)
+        db = os.path.join(self.dir, "fresh", "tezgah.db")
+        self.assertEqual(os.stat(db).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.dirname(db)).st_mode & 0o777, 0o700)
 
 
 class RowContract(unittest.TestCase):
@@ -1270,10 +1241,11 @@ class RowContract(unittest.TestCase):
     boundary every shortened text routes through."""
 
     def row(self, kind="deny", **fields):
-        path = os.path.join(tempfile.mkdtemp(), "led.jsonl")
+        path = os.path.join(tempfile.mkdtemp(), "evidence", "led.jsonl")
         ti.note_path(path, kind, fields.pop("detail", "x"), **fields)
-        with open(path, encoding="utf-8") as fh:
-            return json.loads(fh.read().strip())
+        rows = support.ledger_rows(path)
+        self.assertEqual(len(rows), 1, rows)
+        return rows[0]
 
     def test_every_row_names_the_contract_that_wrote_it(self):
         self.assertEqual(self.row()["v"], ti.ROW_VERSION)
@@ -1313,7 +1285,7 @@ class PostWriteState(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
         self.target = os.path.join(self.dir, "x.py")
         with open(self.target, "w") as fh:
             fh.write("before\n")
@@ -1380,7 +1352,7 @@ class WriteRowPath(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
 
     def path(self, name):
         return os.path.join(self.dir, name)
@@ -1511,7 +1483,7 @@ class ChangedFilesNotice(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
 
     def edit(self, name, changed=True):
         path = os.path.join(self.dir, name)
@@ -1559,7 +1531,7 @@ class HarnessDrift(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
         self.addCleanup(setattr, ta, "drift_mark", ta.drift_mark)
         mark = os.path.join(self.dir, "drift")
         ta.drift_mark = lambda session, host: (mark if host == "codex"
@@ -1618,7 +1590,7 @@ class StaleEvidence(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
         self.target = os.path.join(self.dir, "x.py")
 
     def edit(self, text):
@@ -1800,7 +1772,7 @@ class UiEvidence(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
         self.target = os.path.join(self.dir, "admin", "components",
                                    "Button.tsx")
         # a screen the rule does not ask for a design check over: a component
@@ -2110,7 +2082,7 @@ class DesignContractEvidence(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
         self.component = os.path.join(self.dir, "admin", "components",
                                       "Button.tsx")
         self.screen = os.path.join(self.dir, "admin", "pages", "users.tsx")
@@ -2225,9 +2197,11 @@ class DesignContractEvidence(unittest.TestCase):
 
 
 class CommittedBoundary(unittest.TestCase):
-    """W3: the byte boundary a ledger has committed, and what both paths do with
-    a tail past it.
+    """W3: the byte boundary a legacy JSONL ledger has committed, and what both
+    paths do with a tail past it.
 
+    The session here has a JSONL file (the one opencode's plugin still writes),
+    so every row goes to that file and is imported into the database from it.
     A process killed inside a write leaves a fragment no newline ever terminated.
     It is not a record, so no reader may see it - but it must not stay in the
     file for ever either, and the damage that *was* terminated is the other
@@ -2239,8 +2213,10 @@ class CommittedBoundary(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.path
+        os.makedirs(os.path.dirname(self.path))
+        open(self.path, "w").close()
 
     def raw(self):
         with open(self.path, "rb") as fh:
@@ -2300,14 +2276,13 @@ class CommittedBoundary(unittest.TestCase):
         self.assertEqual([r["kind"] for r in stored].count(ti.DAMAGE_KIND), 1)
 
     def test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered(self):
-        # the case the damage made an allow route: the turn's failed check is
-        # corrupted, so the fold no longer sees `check failed`
+        # the case the damage made an allow route: the turn's failed check
+        # arrives corrupted, so the fold no longer sees `check failed`
         ti.note("s", "turn", "", key="t1")
         ti.note("s", "edit", "a.py")
-        ti.note("s", "verify_fail", "pytest -q")
-        data = self.raw()
-        with open(self.path, "wb") as fh:
-            fh.write(data[:-12] + b"\n")
+        with open(self.path, "ab") as fh:
+            fh.write(json.dumps({"kind": "verify_fail", "detail": "pytest -q"}
+                                ).encode()[:-12] + b"\n")
         reason = ti.stop_reason("Done. All tests pass.", "s")
         self.assertIsNotNone(reason)
         self.assertIn("Evidence tampered", reason)
@@ -2394,8 +2369,9 @@ class LedgerAppendLock(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.path
+        os.makedirs(os.path.dirname(self.path))
 
     def test_the_append_waits_for_the_lock_a_second_writer_holds(self):
         # the lock's own premise: a holder excludes the append. Without it the
@@ -4225,11 +4201,10 @@ class ToolFirings(TempHome):
         self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
 
     def ledger(self, name, rows):
-        """Rows written straight into the file, because `note_path` stamps `ts`
-        with the clock and a series test has to choose the week a row lands in."""
-        with open(os.path.join(self.evidence, name), "w", encoding="utf-8") as fh:
-            for row in rows:
-                fh.write(json.dumps(dict(row, v=ti.ROW_VERSION)) + "\n")
+        """Rows written through the store as they are, because `note_path` stamps
+        `ts` with the clock and a series test has to choose the week a row lands in."""
+        support.seed_ledger(os.path.join(self.evidence, name),
+                            [dict(row, v=ti.ROW_VERSION) for row in rows])
 
     def counts(self, *args):
         out, proc = support.run_json(
@@ -4246,8 +4221,7 @@ class ToolFirings(TempHome):
             run_json([support.PROBE_INTEGRITY],
                      {"fn": "note_tool", "session": "s", "tool": tool,
                       "input": payload, "failed": False}, env=self.envv)
-        with open(os.path.join(self.evidence, os.listdir(self.evidence)[0])) as fh:
-            rows = [json.loads(line) for line in fh]
+        rows = support.ledger_rows(os.path.join(self.evidence, ti._slug("s") + ".jsonl"))
         self.assertEqual(sorted(r["tool"] for r in rows), ["Bash", "Write"])
         self.assertEqual(self.counts()["tools"], {"bash": 1, "write": 1})
 
@@ -4339,7 +4313,7 @@ class StopRuleRest(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.ledger = os.path.join(self.dir, "s.jsonl")
+        self.ledger = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.ledger
         self.repo = self.git_dir("repo")
         self.target = os.path.join(self.repo, "app.py")
@@ -4663,7 +4637,7 @@ class StopRuleReviewProbes(unittest.TestCase):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(directory, "s.jsonl")
+        ti._path = lambda session: os.path.join(directory, "evidence", "s.jsonl")
         self.assertIsNone(ti.stop_reason("Testler geçti mi?", "s"))
         self.assertEqual([r for r in ti.events("s") if r["kind"] == "claim"], [])
 
@@ -4680,7 +4654,7 @@ class StopFoldInProcess(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
 
     def shell(self, command, failed=False):
         ti.note_tool("s", "Bash", {"command": command}, failed=failed, out_bytes=42)
@@ -4732,7 +4706,7 @@ class OrphanPass(unittest.TestCase):
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
-        self.path = os.path.join(self.dir, "s.jsonl")
+        self.path = os.path.join(self.dir, "evidence", "s.jsonl")
         ti._path = lambda session: self.path
 
     def began(self, inp=None):
@@ -4746,13 +4720,20 @@ class OrphanPass(unittest.TestCase):
         ti.note_tool("s", "Bash", inp or self.CHECK, failed=False, out_bytes=42)
 
     def forge(self):
-        """A passing row appended outside the hooks, the interpreter route."""
+        """A passing row inserted outside the hooks, the interpreter route."""
         row = {"kind": "verify_ok", "ts": int(time.time()), "v": ti.ROW_VERSION,
                "detail": "pytest -q", "id": ti.call_id("Bash", self.CHECK),
                "tool": "Bash", "exit": 0, "out_bytes": 42}
-        proc = support.run(["-c", "import sys; open(sys.argv[1], 'a')"
-                            ".write(sys.argv[2] + '\\n')", self.path, json.dumps(row)])
+        db = os.path.join(os.path.dirname(os.path.dirname(self.path)), "tezgah.db")
+        proc = support.run(["-c", "import sqlite3, sys; c = sqlite3.connect(sys.argv[1]); "
+                            "c.execute(\"INSERT INTO evidence (session, kind, ts, row) "
+                            "VALUES ('s', 'verify_ok', 0, ?)\", (sys.argv[2],)); c.commit()",
+                            db, json.dumps(row)])
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def rewrite(self, rows):
+        """The ledger replaced by `rows`, the way a hand edit leaves it."""
+        support.seed_ledger(self.path, rows)
 
     def turn(self, key):
         ti.note("s", ti.TURN_KIND, "", key=key)
@@ -4831,12 +4812,10 @@ class OrphanPass(unittest.TestCase):
         ti.note("s", "edit", "app.py", changed=True)
         self.honest()
         self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
-        with open(self.path) as fh:
-            lines = fh.readlines()
-        start = max(i for i, line in enumerate(lines) if '"turn"' in line)
-        with open(self.path, "w") as fh:
-            fh.writelines(lines[:start] + [line for line in lines[start:]
-                                           if '"began"' not in line])
+        rows = support.ledger_rows(self.path)
+        start = max(i for i, row in enumerate(rows) if row["kind"] == "turn")
+        self.rewrite(rows[:start] + [row for row in rows[start:]
+                                     if row["kind"] != "began"])
         self.assertIn("Evidence tampered", ti.stop_reason(self.CLAIM, "s") or "")
 
     def test_a_forged_began_and_pass_pair_is_the_named_residual(self):
@@ -4902,8 +4881,11 @@ class OrphanPass(unittest.TestCase):
             self.assert_unrefused()
 
     def test_an_unlocked_append_exempts_the_pass(self):
-        # the LOCK_WAIT fallback truncates without the lock, and can cut a
-        # concurrent writer's began row; the row it writes says so
+        # the legacy JSONL append's LOCK_WAIT fallback truncates without the
+        # lock, and can cut a concurrent writer's began row; the row it writes
+        # says so
+        os.makedirs(os.path.dirname(self.path))
+        open(self.path, "w").close()
         self.turn("t1")
         self.honest()
         self.turn("t2")
@@ -4932,11 +4914,8 @@ class OrphanPass(unittest.TestCase):
         self.assertGreaterEqual(ti._design_evidence(rows)[1], 0)
         self.assertEqual(ti._no_pass_cause(rows), "other repo")
         # the same rows with their began rows gone, after a began of another call
-        with open(self.path) as fh:
-            kept = [line for line in fh if '"began"' not in line]
-        with open(self.path, "w") as fh:
-            fh.writelines([kept[0], json.dumps(
-                {"kind": ti.BEGAN_KIND, "id": "x", "check": 1}) + "\n"] + kept[1:])
+        kept = [row for row in support.ledger_rows(self.path) if row["kind"] != "began"]
+        self.rewrite([kept[0], {"kind": ti.BEGAN_KIND, "id": "x", "check": 1}] + kept[1:])
         rows = ti.events("s")
         self.assertIsNone(ti.scratch_evidence("s"))
         self.assertEqual(ti._last_pass(rows), -1)

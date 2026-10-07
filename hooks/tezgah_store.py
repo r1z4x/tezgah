@@ -266,11 +266,13 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
         key = (name, st.st_dev, st.st_ino)
         found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
                              "AND ino = ?", key).fetchone()
-        start = found[0] if found else 0
+        # a file cut below what went in (rewritten in place) resumes at its
+        # end, so the rows appended after the cut still import
+        start = min(found[0], st.st_size) if found else 0
         fh.seek(start)
         raw = fh.read()
         whole = raw[:raw.rfind(b"\n") + 1]
-        if whole:
+        if whole or (found and found[0] != start):
             put = put or _taste_put(name[:-len(".jsonl")])
             with transaction(conn):
                 for line in whole.split(b"\n"):
