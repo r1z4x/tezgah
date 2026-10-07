@@ -453,10 +453,12 @@ the contrary claim `quarantined`. Neither overwrites the other. `narrows` adds a
 narrower learning beside the broader one. When the user corrects an injected
 learning's category in the same session, that learning loses confidence
 (`apply`, `hooks/tezgah_taste_ledger.py::apply`). The hooks only read the
-ledger. `learn`, `accept`, `reject` and `edit` rewrite it one at a time under a
-lock on `ledger.lock` (`locked`, `hooks/tezgah_taste_ledger.py::locked`). A
-second one exits 2 and names the holder. Every taste row goes through the
-evidence ledger's locked writer (`append`, `hooks/tezgah_taste_ledger.py::append`).
+ledgers. `learn`, `accept`, `reject` and `edit` rewrite them one at a time on
+this machine, under a lock on `~/.config/tezgah/taste/ledger.lock` (`locked`,
+`hooks/tezgah_taste_ledger.py::locked`). The lock spans every repository,
+because each command also rewrites the user ledger. A second one exits 2 and
+names the holder. Every taste row goes through the evidence ledger's locked
+writer (`append`, `hooks/tezgah_taste_ledger.py::append`).
 
 Session start injects the active learnings (`block`,
 `hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a

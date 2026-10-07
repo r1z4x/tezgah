@@ -27,6 +27,7 @@ Store: `<repo>/.tezgah/taste/ledger.json` for path, language and repository
 learnings, `~/.config/tezgah/taste/ledger.json` for user learnings.
 """
 import datetime
+import errno
 import fnmatch
 import json
 import math
@@ -79,7 +80,7 @@ def _load(path):
 
 def _save(path, data):
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    tmp = path + ".tmp"
+    tmp = "%s.%d.tmp" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=1, sort_keys=True)
     os.replace(tmp, path)
@@ -155,24 +156,38 @@ def rows(path):
         return
 
 
-def append(path, row):
-    """One row through the ledger's own writer: flock, torn-tail repair, 0600."""
-    ti._append(path, json.dumps(row, ensure_ascii=False) + "\n")
+def append(path, row, strict=False):
+    """One row through the ledger's own writer: flock, torn-tail repair, 0600.
+    That writer drops a row it cannot write, which a hook wants; `strict` (the
+    CLI's decision, defect and label rows) reads the tail back and raises
+    OSError when the row is not there, so `learn` stops before it saves a
+    ledger whose decision was never recorded and would be re-applied."""
+    line = json.dumps(row, ensure_ascii=False) + "\n"
+    ti._append(path, line)
+    if strict:
+        data = line.encode("utf-8")
+        with open(path, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(path) - len(data)))
+            if fh.read() != data:
+                raise OSError("taste row not written to %s" % path)
 
 
 class Busy(Exception):
-    """Another command holds the taste store's write lock."""
+    """Another command holds the taste ledgers' write lock."""
 
 
 class locked:
-    """The one writer of `ledger.json`: an exclusive, non-blocking flock on
-    `<store>/ledger.lock`, held across a command's whole read-change-write, so a
-    second writer fails with `Busy` rather than overwriting the first. The hooks
-    only read the ledger and never take it. Where flock does not exist
-    (Windows) it is not taken, as for the evidence ledger."""
+    """The one writer of every taste ledger on this machine: an exclusive,
+    non-blocking flock on `~/.config/tezgah/taste/ledger.lock`, held across a
+    command's whole read-change-write. One lock for all repositories, because
+    every command also rewrites the user ledger beside its repository's, and
+    two worktrees of one repository have two stores. A second writer fails
+    with `Busy` rather than overwriting the first. The hooks only read the
+    ledgers and never take it. Where flock does not exist (Windows) it is not
+    taken, as for the evidence ledger."""
 
-    def __init__(self, root):
-        self.path = os.path.join(store_dir(root), "ledger.lock")
+    def __init__(self):
+        self.path = os.path.join(user_dir(), "ledger.lock")
         self.fh = None
 
     def __enter__(self):
@@ -181,11 +196,13 @@ class locked:
         if fcntl is not None:
             try:
                 fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
+            except OSError as exc:
                 self.fh.seek(0)
                 holder = self.fh.read().strip() or "another process"
                 self.fh.close()
-                raise Busy(holder)
+                if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    raise Busy(holder)
+                raise  # a filesystem that cannot lock is not a busy ledger
             self.fh.seek(0)
             self.fh.truncate()
             self.fh.write("pid %d" % os.getpid())

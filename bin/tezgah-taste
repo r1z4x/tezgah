@@ -714,7 +714,7 @@ def cmd_learn(args):
             "verified": dec["verified"], "kind": dec["kind"][0], "p": dec["kind"][1],
             "category": dec["category"][0], "scope": dec["scope"][0],
             "relations": {k: v[0] for k, v in dec["relations"].items() if v[0] != "unrelated"},
-            "text": ti.redact(sig["text"])[:300], "paths": sig["paths"][:8]})
+            "text": ti.redact(sig["text"])[:300], "paths": sig["paths"][:8]}, strict=True)
         if not dec["verified"]:
             counts["unverified"] += 1
             continue
@@ -723,7 +723,8 @@ def cmd_learn(args):
         if dec["kind"][0] == "defect":
             tl.append(os.path.join(tl.store_dir(repo), "defects.jsonl"),
                       {"id": sig["id"], "day": day, "session": sig["session"],
-                       "text": ti.redact(sig["text"])[:600], "paths": sig["paths"][:8]})
+                       "text": ti.redact(sig["text"])[:600], "paths": sig["paths"][:8]},
+                      strict=True)
         tl.apply(ledgers, sig, dec, day, applied=tl.injected(repo, sig["session"]))
     for lid, learning in tl.every(ledgers).items():
         if learning["state"] == "active" and lid not in before \
@@ -814,7 +815,7 @@ def cmd_label(args):
             return misuse("no typed decision %s" % args.id)
         tl.append(os.path.join(store, "labels.jsonl"),
                   {"id": args.id, "label": args.label, "decided": row.get("kind"),
-                   "provider": row.get("provider"), "day": tl.now_day()})
+                   "provider": row.get("provider"), "day": tl.now_day()}, strict=True)
         print("%s labelled %s (decided %s)" % (args.id, args.label, row.get("kind")))
         return 0
     pool = sorted(i for i in decided if i not in labelled)
@@ -911,7 +912,7 @@ def main(argv):
         refused = learn_refusal(repo) if args.cmd == "learn" else None
         if refused:
             return misuse(refused)
-        with tl.locked(repo):
+        with tl.locked():
             return handler(args)
     except tl.Busy as busy:
         return misuse("the taste ledger is in use (%s); run this again when it ends" % busy)

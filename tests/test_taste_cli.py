@@ -347,7 +347,8 @@ class Learn(support.TempHome):
             extra["TYPESAFE_API_KEY"] = "k"
         if openrouter:
             extra["OPENROUTER_API_KEY"] = "o"
-        return support.run([CLI, *args, "--repo", self.repo], env=self.env(extra=extra))
+        repo = [] if "--repo" in args else ["--repo", self.repo]
+        return support.run([CLI, *args, *repo], env=self.env(extra=extra))
 
     def listed(self):
         proc = self.cli("list", "--json", "--all")
@@ -466,7 +467,8 @@ class Learn(support.TempHome):
         open(os.path.join(self.repo, ".no-taste"), "w").close()
         self.assertEqual(self.cli("learn").returncode, 2)
         self.assertEqual(Decider.seen, [])
-        self.assertFalse(os.path.exists(os.path.join(self.store, "ledger.lock")))
+        self.assertFalse(os.path.exists(
+            os.path.join(self.home, ".config", "tezgah", "taste", "ledger.lock")))
 
     def test_a_second_writer_exits_2_while_the_ledger_is_held(self):
         self.cli("learn")
@@ -477,13 +479,17 @@ class Learn(support.TempHome):
         holder = subprocess.Popen(
             [sys.executable, "-c",
              "import sys, time; sys.path.insert(0, %r); import tezgah_taste_ledger as tl\n"
-             "with tl.locked(%r):\n    print('held', flush=True); time.sleep(30)"
-             % (support.HOOKS, self.repo)],
+             "with tl.locked():\n    print('held', flush=True); time.sleep(30)"
+             % support.HOOKS],
             stdout=subprocess.PIPE, text=True, env=self.env())
         self.addCleanup(holder.kill)
         self.assertEqual(holder.stdout.readline().strip(), "held")
         seen = len(Decider.seen)
-        for args in (("learn",), ("reject", learning["id"])):
+        # one lock for the machine: another repository's learn waits on it too,
+        # since every command also rewrites the user ledger
+        other = self.make_repo("other")
+        subprocess.run(["git", "init", "-q", other], check=True)
+        for args in (("learn",), ("reject", learning["id"]), ("learn", "--repo", other)):
             proc = self.cli(*args)
             self.assertEqual(proc.returncode, 2, proc.stdout)
             self.assertIn("in use (pid %d)" % holder.pid, proc.stderr)
