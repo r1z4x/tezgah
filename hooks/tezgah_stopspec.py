@@ -52,7 +52,7 @@ ROW_ATOMS = (
     "Dc",     # a component write (`_design_evidence`)
     "Dk",     # a `tezgah-design check` that passed
     "X",      # a read of an external system's own state (`_external_read_row`)
-    "W",      # a work row (`WORK_KINDS`)
+    "W",      # a work row (`_work_row`: WORK_KINDS less a prose edit)
 )
 SCOPE_ATOMS = ("T",)  # the turn marker
 
@@ -213,7 +213,7 @@ class Trace:
                     and kind in ("run", "verify", "verify_ok", "verify_fail")
                     and bool(ti.EXTERNAL_READ.search(self.masked(i))))
         if name == "W":
-            return kind in ti.WORK_KINDS
+            return ti._work_row(row)
         if name == "T":
             return kind == ti.TURN_KIND
         raise KeyError(name)

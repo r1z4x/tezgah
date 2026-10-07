@@ -288,13 +288,16 @@ class ReleaseWaitsForCi(unittest.TestCase):
         # the full matrix: the plan 045 shadow compares the two there.
         on = self.workflow("ci.yml").split("\njobs:\n", 1)[0]
         # a tag push is the release, whose own run calls this workflow: a push
-        # trigger on tags ran the same commit's CI a third time (ci #18, v1.0.0)
-        self.assertRegex(on, r"(?m)^  push:\n(?:    #.*\n)*    tags-ignore: \[\"\*\*\"\]")
+        # trigger on tags ran the same commit's CI a third time (ci #18, v1.0.0).
+        # A push filter that names branches only never fires for a tag.
+        self.assertRegex(on, r"(?m)^  push:\n(?:    #.*\n)*    branches: \[main\]\s*$")
+        self.assertNotIn("tags:", on)
         self.assertRegex(on, r"(?m)^      release:\n        type: boolean\n"
                              r"        default: false")
         test = self.jobs(self.workflow("ci.yml"))["test"]
         self.assertIn("inputs.release", test)
-        self.assertRegex(test, r"(?m)^        if: \$\{\{ !inputs\.release \}\}\n"
+        self.assertRegex(test, r"(?m)^        if: \$\{\{ !inputs\.release && "
+                               r"github\.event_name != 'pull_request' \}\}\n"
                                r"        run: python3 -m unittest discover")
         self.assertNotIn("inputs.release", self.jobs(self.workflow("ci.yml"))["test-sharded"])
         self.assertRegex(self.jobs(self.workflow("release.yml"))["ci"],
@@ -305,6 +308,17 @@ class ReleaseWaitsForCi(unittest.TestCase):
         for name, block in self.jobs(self.workflow("ci.yml")).items():
             if "matrix:" in block:
                 self.assertIn("fail-fast: false", block, name)
+
+    def test_every_ci_job_is_bounded_and_a_newer_push_cancels_the_older(self):
+        # owner, 2026-10-07: CI ran "endlessly" - no job had a timeout, so a hung
+        # test held a runner for GitHub's 6-hour default, and every push ran
+        # beside the run it superseded
+        for name in ("ci.yml", "neuter.yml"):
+            for job, block in self.jobs(self.workflow(name)).items():
+                self.assertRegex(block, r"(?m)^    timeout-minutes: \d+", (name, job))
+        on = self.workflow("ci.yml").split("\njobs:\n", 1)[0]
+        self.assertRegex(on, r"(?m)^concurrency:\n  group: .*github\.ref.*\n"
+                             r"  cancel-in-progress: \$\{\{ github\.event_name != 'release' \}\}")
 
     def test_no_ci_step_reads_the_gitignored_workspace(self):
         # `.tezgah/` is gitignored, so a CI step over it reads nothing and

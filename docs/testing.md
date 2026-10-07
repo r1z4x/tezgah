@@ -26,7 +26,7 @@ request (`CONTRIBUTING.md:15-20`).
 `ruff` is not vendored: install it as a uv tool, run `uvx ruff check .` without
 installing it, or use the version CI installs from `requirements-dev.txt:3`
 (`ruff==0.16.7`). There is no other linter and no type checker
-(`AGENTS.md:44-45`).
+(`AGENTS.md:51-52`).
 
 The clarity ratchet, `bin/tezgah-docs --clarity`, counts four prose rules per
 file in `docs/*.md` and `CHANGELOG.md`. The rules are sentences over 25 words,
@@ -41,7 +41,7 @@ baseline on the next run. Only `--clarity --update` raises it.
 A pin is a claim about what ran, not a guarantee about what will. This repository
 has two, and both are about the language rather than about dependencies: the
 floor `py310` (`pyproject.toml:5`) and the CI matrix that proves it
-(`.github/workflows/ci.yml:34`). There is no dependency lockfile to pin
+(`.github/workflows/ci.yml:114`). There is no dependency lockfile to pin
 because there is no package: tezgah is a set of scripts run in place, and no
 `[project]` or build system is declared (`pyproject.toml:1-2`). The only
 third-party tool the checks name is ruff, at a version in
@@ -57,33 +57,42 @@ conclude from either.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every branch push and pull request. A tag
-push does not start it, because the release run calls it itself. `release.yml`
-calls it (`ci.yml:10`) as its `ci` job, so npm and brew publish only after CI
-passed on the release commit. It runs five jobs. No matrix
-cancels its other legs when one fails (`fail-fast: false`).
+`.github/workflows/ci.yml` runs on a push to `main` and on a pull request, so
+a branch commit runs once, through its pull request, not twice. A tag push does
+not start it. `release.yml` calls it (`ci.yml:13`) as its `ci` job, so npm and
+brew publish only after CI passed on the release commit. A newer push to the
+same ref cancels the run it replaces, except on a release (`concurrency`). Every
+job has a `timeout-minutes`, so a hung test cannot hold a runner for six hours.
+No matrix cancels its other legs when one fails (`fail-fast: false`).
 
-- `test` (`ci.yml:25-54`) on Python 3.10, 3.12, 3.13 and 3.14. 3.10 is the
-  floor the project supports. The byte-compile step exercises it rather than
-  asserts it. It byte-compiles, runs the suite with `-v`, lints with
-  ruff from `requirements-dev.txt` (`ci.yml:48`), audits the docs citations and
-  runs `TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py`. A release passes
-  the `release` input to the reusable workflow. Then one 3.10 leg runs without
-  the serial suite, which `test-sharded` already runs in parallel.
-- `test-sharded` (`ci.yml:59-80`) on Python 3.10 and 3.14 with node 22 (the
-  first line that loads the omp `.ts` hook without a flag):
-  `python3 tests/impacted.py --all`. It is a shadow that started 2026-10-05.
-  After four weeks it replaces the four-version `test` matrix only if it missed
-  no failure that matrix caught.
-- `apps-e2e` (`ci.yml:82-99`) on Python 3.12 and node 20: one step,
+- `changes` diffs against the commit the push replaced or the
+  pull request's base. A change only under `docs/`, `assets/`, a root `*.md`
+  page or the GitHub templates is prose: it runs `docs` and nothing else. An
+  empty diff, a base it cannot read, a release or a manual run runs everything.
+- `docs`, prose only: the citations audit and
+  `tests/impacted.py --ref <base>`, which maps a docs page to the docs modules.
+- `test` (`ci.yml:100`) on Python 3.10 and 3.14, the floor and the ceiling.
+  It byte-compiles, lints with ruff from `requirements-dev.txt` (pip cached),
+  audits the docs citations and runs `TEZGAH_E2E_STRICT=1 python3
+  tests/e2e_plan_flow.py`. On `main` it also runs the serial suite with `-v`.
+  A pull request skips that step, and so does a release, which passes the
+  `release` input and runs one 3.10 leg.
+- `test-sharded` (`ci.yml:145`) on Python 3.10 and 3.14 with node 22 (the
+  first line that loads the omp `.ts` hook without a flag). On `main` and a
+  release it runs `python3 tests/impacted.py --all`. On a pull request it runs
+  `--ref <base>`: the modules the change maps to, and the whole suite when the
+  map does not know a path. It is a shadow that started 2026-10-05. After four
+  weeks it replaces the serial `test` step only if it missed no failure that
+  step caught.
+- `apps-e2e` (`ci.yml:178`) on Python 3.12 and node 20: one step,
   `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. It completes the
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
   a broken wire cannot hide behind a skip (`e2e_analyze_wiring.py:4-12`).
-- `artifact-install` (`ci.yml:101-139`) on Python 3.10 and 3.12: builds the
+- `artifact-install` (`ci.yml:200`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:141-225`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:243`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven. It then runs
   the opencode plugin's path tests natively, `tezgah update --dry-run`, the
@@ -236,7 +245,7 @@ a browser or a device) or to a `_probe_*.py` helper the tests call.
 - **No network.** Loopback stubs only, as above.
 - **Two e2e scripts stay opt-in and local**: `e2e_analyze_web.py` and
   `e2e_analyze_mobile.py`, behind `TEZGAH_E2E_APPS=1`, with the wiring handshake
-  as their CI substitute (`AGENTS.md:108-114`).
+  as their CI substitute (`AGENTS.md:119-125`).
 
 ## Adding a test
 

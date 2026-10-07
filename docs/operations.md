@@ -158,7 +158,7 @@ or `default`), a common block (config, the code-graph binary, the consult option
 `orx`, `npx`, the artifacts dir, `git`, the manifest, a stale-contract line), one
 block per host, then the budget (`bin/tezgah-setup::report`). Each block is
 `host_checks_<host>` (`bin/tezgah-setup::HOST_CHECKS`), and those rows are the source of truth for
-"is this host armed" (`AGENTS.md:136-137`) — not the presence of a directory, and
+"is this host armed" (`AGENTS.md:147-148`) — not the presence of a directory, and
 not the status line. A row can read ` MISS ` too: claude's `plugin copy current`
 row fails on a machine with no copy at all, because an absent copy is not a
 current one (`bin/tezgah-setup::host_checks_claude`).
