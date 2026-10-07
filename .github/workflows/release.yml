@@ -29,6 +29,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
+    with:
+      release: true
 
   # The secrets context is not available in a job-level `if`, so a guard there
   # is a workflow-file parse failure and every event dies at 0s - the guards

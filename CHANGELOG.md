@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A release run skips the serial suite.** `release.yml` calls CI with
+  `release: true`. One 3.10 `test` leg then runs compile, lint and the citation
+  audit, and `test-sharded` runs the suite. A push still runs the full
+  four-version matrix, where the plan 045 shadow compares the two jobs.
+
 ## [1.0.0] - 2026-10-07
 
 ### Upgrade note
