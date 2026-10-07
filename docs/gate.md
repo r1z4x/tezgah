@@ -286,8 +286,8 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
   table `write_paths` already holds.
 - A control-plane write through an interpreter: `python3 -c "open(...)"`, `node -e`, or a script the agent wrote. `find -delete` and `xargs` are the same
   class, and so is a path built from variables other than `~`, `$HOME` and the XDG ones. The control rule reads the command line, not what a program does at
-  run time. `SECURITY.md` names these as the residual routes. One of them is a forged `verify_ok` row appended this way. It passes the Stop rule until
-  began/pass pairing ships (plan 051).
+  run time. `SECURITY.md` names these as the residual routes. A forged `verify_ok` row appended this way no longer passes: with no gate-written `began`
+  row before it, it is an orphan (`hooks/tezgah_integrity.py::_pair`, `docs/evidence.md`). A forged `began` row plus its pass still does.
 
 **The seat a semantic rule would take on the Stop path, and why it stays empty.** The Stop rule's
 claim detector is a vocabulary (`DONE`/`VERIFIED`, `hooks/tezgah_integrity.py`),
@@ -357,7 +357,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 | `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` |
 | `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` |
 | `drift` | an internal plan's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | `hooks/tezgah_gate.py:1284-1296` | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` |
-| `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
+| `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route. A `verify_ok` appended with `python3 -c` licensed a claim (security-03), so a pass with no `began` row is an orphan (`hooks/tezgah_integrity.py::_pair`) | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
 | `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` |
 | `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` |
 | `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py::_evidence_block` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` |

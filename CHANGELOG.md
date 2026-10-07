@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An orphan pass no longer licenses a claim.** Every ledger reader now
+  pairs each `verify_ok` with the `began` row the gate wrote for its call.
+  A pass with none is an orphan: it came from outside the hooks
+  (`python3 -c`), or its call's rows went missing. No reader counts it as a
+  pass. The Stop rule refuses a done-claim in its turn as "evidence tampered",
+  and `counters.orphans` counts it. Five cases stay exempt: a session with no
+  `began` row, a turn with a `crash` row, `pretooluse-off`, an unlocked append
+  and the sandbox fallback cache. A forged `began` row plus its pass is the
+  residual `SECURITY.md` names (plan 051).
 - **The arm-bench lab is back in the repository.** `benchmarks/arm-bench/` holds
   the runner, the 49 task trees and the earlier pre-registrations, with every
   home path redacted. It is a maintainer tool: `managed()` keeps it out of host

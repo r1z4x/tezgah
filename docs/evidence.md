@@ -139,6 +139,18 @@ call of a tool goes uncounted if the host abandons it. A ledger written before t
 none, so it counts zero. The idea is gortex's: it abandons a call that overran, and the call's side
 effect stays unknown until someone re-reads it.
 
+**A pass with no `began` row is an orphan.** Every ledger reader pairs each `verify_ok` with a
+`began` row (`hooks/tezgah_integrity.py::_pair`). That row shares the pass's `id` and carries `check`.
+`events_path` and `turn_rows` call it. A pass with none came from outside the hooks (`python3 -c`),
+or its call's rows went missing. The reader marks it in memory and never writes the mark.
+`passing_check` refuses a marked row. So the freshness fold, the UI and design halves,
+`scratch_evidence` and `tezgah-route --report` all read it as a check nobody saw pass. The Stop rule
+refuses a done-claim in its turn as "evidence tampered", and `counters.orphans` counts it. A false
+block refuses an honest turn, so the reader marks nothing in five cases. These are a ledger with no
+`began` row before the pass, a turn with a `crash` row, and `pretooluse-off`. The others are an
+append that took the unlocked fallback (its row carries `unlocked`) and the sandbox fallback cache.
+A forged `began` row plus its pass stays invisible: `SECURITY.md` names it.
+
 **A shell call's `id` folds ASCII whitespace only.** Both `call_id` and `actionID` fold such runs
 into one space (`hooks/tezgah_integrity.py::ID_SPACE`).
 Python's `split()` and JS's `\s` disagreed on U+0085, U+001C-001F and U+FEFF, so a `began` row and its
