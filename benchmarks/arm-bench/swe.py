@@ -187,6 +187,8 @@ class Prepared:
         self.inst, self.work = inst, work
         self.trees = {v: work / v / "testbed" for v in VARIANTS}
         self.commits: dict[str, str] = {}
+        # an image the operator already had is theirs; only one the lab pulled goes
+        self.pulled = False
         self.hashes: dict[str, dict[str, str]] = {}
 
     def build(self) -> None:
@@ -195,6 +197,7 @@ class Prepared:
             proc = sh(["docker", "pull", "-q", "--platform", PLATFORM, image], timeout=1800)
             if proc.returncode:
                 raise RuntimeError(f"pull {image}: {proc.stderr.strip()[-300:]}")
+            self.pulled = True
         base = self.work / "base"
         name = "armbench-cp-" + self.work.name
         sh(["docker", "rm", "-f", name])
@@ -239,7 +242,7 @@ class Prepared:
 
     def cleanup(self, keep_image: bool = False) -> None:
         shutil.rmtree(self.work, ignore_errors=True)
-        if not keep_image:
+        if self.pulled and not keep_image:
             sh(["docker", "image", "rm", "-f", self.inst["image"]])
 
 
@@ -374,6 +377,7 @@ def run_cell(arm: dict, prep: Prepared, variant: str, repeat: int, model: str,
     else:
         env = {**os.environ, **run_env}
     env.update(docker_env())
+    remove_container(container)
     start_container(inst["image"], run_dir, container)
     started = time.time()
     try:
