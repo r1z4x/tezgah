@@ -263,11 +263,17 @@ function skillRead(tool: string, args: any): boolean {
 
 // The gate is only consulted for the tools the shared rule knows: the refusal
 // of the grep-only explorer (task/agent), the anti-shortcut and attribution
-// checks (bash), and the test-skip check (the edit/write names). An MCP tool is
+// checks (bash), the test-skip check (the edit/write names), and the code-graph
+// nudge on omp's search tools (grep, find, search, ast_grep). An MCP tool is
 // consulted when its name carries an effect verb (MCP_EFFECT, see `tool_call`).
-const GATED = ["grep", "bash", "shell", "command", "task", "agent", "edit",
-  "write", "multiedit", "notebookedit", "apply_patch", "edit_file", "write_file",
-  "search_replace", "powershell", "pwsh"];
+const GATED = ["grep", "find", "search", "ast_grep", "bash", "shell", "command",
+  "task", "agent", "edit", "write", "multiedit", "notebookedit", "apply_patch",
+  "edit_file", "write_file", "search_replace", "powershell", "pwsh"];
+
+// The gate's non-blocking graph line (tezgah_gate.graph_advice), held from the
+// call to its result: `tool_call` can only block, `tool_result` can hand the
+// model `additionalContext`, and carrying it across costs no second spawn.
+const ADVICE = new Map<string, string>();
 
 // The effect verbs of tezgah_integrity.MCP_VERBS, as one pattern: a read-only
 // MCP call (a code-graph query) reaches no content rule, so it pays no spawn.
@@ -647,15 +653,22 @@ export default function tezgahOmp(pi: any): void {
       return undefined;  // a hook that cannot answer cannot refuse either
     }
     if (res.deny) return { block: true, reason: res.deny };
+    if (res.advice && event?.toolCallId != null) {
+      ADVICE.set(String(event.toolCallId), String(res.advice));
+    }
     return undefined;
   });
 
   pi.on("tool_result", async (event: any, ctx: any) => {
     const tool = String(event?.toolName ?? "");
     const args = event?.input ?? {};
+    const id = event?.toolCallId != null ? String(event.toolCallId) : "";
+    const advice = ADVICE.get(id);
+    ADVICE.delete(id);
+    const graph = advice ? { additionalContext: advice } : undefined;
     if (!WATCHED.includes(tool.toLowerCase()) && !tool.startsWith("mcp__")
         && !skillRead(tool, args)) {
-      return;
+      return graph;
     }
     // Tri-state: an unread outcome must never be written as a passed check,
     // because the Stop rule below reads this ledger as evidence.
@@ -680,9 +693,9 @@ export default function tezgahOmp(pi: any): void {
     // place; every other result is left exactly as the host produced it.
     if (res.label) {
       const content = labelled(event?.content, res.label);
-      if (content) return { content };
+      if (content) return { content, ...graph };
     }
-    return undefined;
+    return graph;
   });
 
   pi.on("session_stop", async (event: any, ctx: any) => {

@@ -19,7 +19,8 @@ the same code every other host runs.
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
-        -> {"deny": reason}
+        -> {"deny": reason} | {"advice": line} (the graph line the bridge hands
+           the model with this call's result; never a block)
     {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
      "failed": bool, "idx": glyph}
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
@@ -57,7 +58,7 @@ try:
     from tezgah_context import (  # noqa: E402
         color_default, command_text, context_for, health_segments, record,
         render_tiers, shell_kind, skill_read_kind)
-    from tezgah_gate import decision  # noqa: E402
+    from tezgah_gate import decision, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
@@ -142,9 +143,12 @@ def handle(payload):
         # answered at every turn boundary
         return answered(*status_line(cwd, session_id))
     if event == "pre_tool_use":
-        reason = decision(payload.get("tool", ""), payload.get("input") or {},
-                          cwd, session_id)
-        return {"deny": reason} if reason else {}
+        tool, inp = payload.get("tool", ""), payload.get("input") or {}
+        reason = decision(tool, inp, cwd, session_id)
+        if reason:
+            return {"deny": reason}
+        advice = graph_advice(tool, inp, cwd, "omp")
+        return {"advice": advice} if advice else {}
     if not root_for(cwd):
         return {}
     if event == "session_start":

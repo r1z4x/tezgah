@@ -140,7 +140,7 @@ prefers shell tools; that preference does NOT cover definitions, callers, or
 blast radius - those go to the graph. The graph answers from a parsed call
 graph, so it beats text search on renames, dynamic dispatch and cross-file
 callers. On Claude a PreToolUse hook denies the Explore subagent here and nudges
-the first identifier-shaped Grep per session toward the graph. The MCP tool's
+the first code-symbol search per session toward the graph. The MCP tool's
 schema is deferred: on the FIRST code-discovery step of the session load it -
 ToolSearch("select:mcp__codegraph__codegraph_explore,mcp__plugin_tezgah_codegraph__codegraph_explore")
 (the plain name on a checkout's own server, the `plugin_tezgah_` one on a plugin

@@ -1987,8 +1987,11 @@ class StaleIndexNotice(TempHome):
     def setUp(self):
         super().setUp()
         self.repo = self.make_repo("proj")
-        # a real executable so codegraph_bin() is truthy without a real index
-        self.envv = self.env(extra={"TEZGAH_CODEGRAPH_BIN": sys.executable})
+        # a real executable so codegraph_bin() is truthy without a real index;
+        # the turn now starts the index worker, so one quick attempt is enough
+        self.envv = self.env(extra={"TEZGAH_CODEGRAPH_BIN": sys.executable,
+                                    "TEZGAH_INDEX_RETRIES": "1",
+                                    "TEZGAH_INDEX_RETRY_DELAY": "0"})
         subprocess.run(["git", "init", "-q", self.repo], check=True)
         self.touch(os.path.join(self.repo, "f"))
         subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
@@ -2023,7 +2026,7 @@ class StaleIndexNotice(TempHome):
         out = self.turn()
         self.assertIn("Graph index: the graph is indexed at deadbee, HEAD is %s"
                       % self.head()[:7], out)
-        self.assertIn("the index is behind", out)
+        self.assertIn("re-indexing", out)
 
     def test_a_fresh_stamp_adds_no_line(self):
         self.stamp(self.head())
@@ -2035,7 +2038,50 @@ class StaleIndexNotice(TempHome):
         # rather than being told nothing.
         out = self.turn()
         self.assertIn("unknown", out)
-        self.assertNotIn("the index is behind", out)
+        self.assertNotIn("the graph is indexed at", out)
+
+    def test_a_stale_stamp_starts_the_reindex_instead_of_sending_the_turn_to_grep(self):
+        # The notice used to end "re-index before trusting one, or say the
+        # answer came from text search" and start nothing, so every turn after a
+        # commit pushed the session from the graph to grep. The turn now starts
+        # the same lock-guarded `codegraph sync` the session start runs, and the
+        # worker stamps the new HEAD.
+        fake = os.path.join(self.home, "fake-codegraph")
+        log = os.path.join(self.home, "calls.log")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\necho "$1" >> %s\n' % log)
+        os.chmod(fake, 0o755)
+        self.envv = self.env(extra={"TEZGAH_CODEGRAPH_BIN": fake})
+        self.stamp("deadbeef" * 5)
+        out = self.turn()
+        self.assertIn("re-indexing", out)
+        self.assertNotIn("text search", out)
+        deadline = time.time() + 10
+        stamped = ""
+        while time.time() < deadline and stamped != self.head():
+            time.sleep(0.1)
+            with open(self.stamp_path) as fh:
+                stamped = fh.read().strip()
+        self.assertEqual(stamped, self.head())
+        with open(log) as fh:
+            self.assertIn("sync", fh.read())
+
+    def test_the_session_graph_line_names_the_hosts_own_tool(self):
+        # The session's graph line said only "Graph index: <status>", so a
+        # session whose prompt armed no graph rule never learned which tool
+        # the graph is - and omp's own prompt sends discovery to `find`.
+        self.stamp(self.head())
+        for host, name in (("omp", "xd://mcp__codegraph_explore"),
+                           (None, "mcp__codegraph__codegraph_explore")):
+            payload = {"session_id": "s"}
+            if host:
+                payload["host"] = host
+            out, proc = run_json([support.PROBE_CONTEXT],
+                                 {"fn": "context_for", "event": "session_start",
+                                  "cwd": self.repo, "payload": payload},
+                                 env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn(name, out, host)
 
 
 class ActiveTaskLine(TempHome):

@@ -86,7 +86,7 @@ One measured row of always-on context the installer reports in bytes: the core c
 `output-styles/tezgah.md`, a by-hand duplicate of `always_on_core()` kept for the host path that is hookless, which a test holds to the generator (`tests/test_context.py::OutputStyleMirrorsCore`). Not generated: an edit to [CORE](#core) must be carried into it by hand - a lesson the local `.tezgah/lessons.md` ledger holds; that file is untracked by design, so it carries no `path:line` here.
 
 ### nudge
-The one-time hint that sends a first identifier-shaped search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py::first_nudge`) with the text naming the graph tools (`nudge_reason()`, `hooks/tezgah_gate.py::nudge_reason`). Not a deny: it is spent by being delivered, and the identical call passes on the retry.
+The one-time hint that sends a first code-symbol search to the code graph, `first_nudge()` consuming a per-session mark before the grep is denied (`hooks/tezgah_gate.py::first_nudge`) with the text naming the graph tools (`nudge_reason()`, `hooks/tezgah_gate.py::nudge_reason`). Not a deny: it is spent by being delivered, and the identical call passes on the retry. Every later symbol search gets a non-blocking line naming the graph tool (`hooks/tezgah_gate.py::graph_advice`).
 
 ### observable measure
 A used-mark a surface is able to see at all, so it can say "armed, not used yet" without inventing it: `health_segments(observable=...)` (`hooks/tezgah_context.py::health_segments`) with the five tool-use measures in `TOOL_USE_MEASURES` (`hooks/tezgah_context.py::TOOL_USE_MEASURES`), a measure outside the set rendering as `info` rather than `ready`. Which host can see a skill read is [hosts](hosts.md)'s.

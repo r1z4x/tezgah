@@ -1902,6 +1902,13 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("grep", {"pattern": "FooBar"}))
         self.allowed(self.before("grep", {"pattern": "FooBar"}))
 
+    def test_a_plain_word_grep_is_literal_text_and_never_nudged(self):
+        # the same trigger as hooks/tezgah_gate.symbol_in: a refusal for
+        # `TODO` blocked a literal search once per session
+        self.make_index()
+        self.allowed(self.before("grep", {"pattern": "TODO"}))
+        self.denied(self.before("grep", {"pattern": "def run"}))
+
     def test_nudge_survives_an_unwritable_global_cache(self):
         # A sandboxed host denies the global cache. The Python half falls back
         # to temp (hooks/tezgah_paths.py cache_dir) and this half must too:
