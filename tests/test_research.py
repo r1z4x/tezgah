@@ -1243,8 +1243,7 @@ class Reports(Workspace):
         report = tr.check(repo)
         self.assertEqual(sorted(report), ["alpha", "beta"])
         self.assertEqual(report["alpha"],
-                         {"errors": [], "warnings": ["no claims recorded yet"],
-                          "notes": []})
+                         {"errors": [], "warnings": ["no claims recorded yet"]})
         self.assertEqual(report["beta"]["errors"],
                          ["state.json records no question"])
         self.assertEqual(list(tr.check(repo, "beta")), ["beta"])
@@ -1874,8 +1873,8 @@ class Tracking(Workspace):
     def test_a_private_protocol_does_not_precede_project_results(self):
         # the project committed the results with no protocol, and the private
         # import added the protocol: never a pass - the guess that a private
-        # commit never precedes a project one was the cross-history bypass the
-        # bridge replaced - and never only a warning
+        # commit never precedes a project one was a cross-history bypass - and
+        # never only a warning
         repo = self.repo()
         self.unmoved(repo)
         self.results(repo)
@@ -1889,7 +1888,7 @@ class Tracking(Workspace):
     def test_a_cross_history_pair_is_not_ordered_by_is_ancestor(self):
         # `_holds` used to answer "any project commit precedes any private one",
         # which orders an add in one history against an add in another: that is
-        # the bypass the declared bridge replaces, so the pair is undecided
+        # a cross-history bypass, so the pair is undecided
         repo = self.repo()
         self.unmoved(repo)
         self.protocol(repo)
@@ -4866,331 +4865,38 @@ class Standards(Workspace):
         self.assertEqual(self.cli(repo, "init", "beta", "--ask", "is beta worth it?").returncode, 0)
 
 
-class HistoryBridge(Workspace):
-    """A repository whose tree was re-rooted in one commit.
+class NoHistoryBridge(Workspace):
+    """ADR 015 deleted the declared history bridge: it proved no experiment on
+    the real workspace, so a re-rooted one-commit add is the plain refusal again
+    and a leftover `.tezgah/history-bridge.json` changes nothing."""
 
-    When the whole tree lands in one root commit - this project's 2026-09-23
-    force-push - both files of every experiment share that add and the commit
-    graph no longer shows which came first. `<repo>/.tezgah/history-bridge.json`
-    declares the pre-rewrite anchor; these cases pin what the declaration buys
-    and what it never does."""
-
-    TAG = "anchor/pre-rewrite"
-
-    def unmoved(self, repo):
-        """A line with no private `.tezgah` repository, opened before the rule set
-        that demands a locked evaluation: its commits are the project's, which is
-        the shape a re-rooted project is left in, and the evaluation-order rule
-        stays the warning class it is for every line that predates it."""
+    def test_a_leftover_bridge_file_does_not_order_a_rerooted_add(self):
+        repo = self.repo()
         self.line(repo)
-        path = os.path.join(tr.line_dir(repo, "q"), "state.json")
-        state = json.loads(read(path))
-        state.pop("rules", None)
-        self.write(path, json.dumps(state))
         shutil.rmtree(os.path.join(repo, ".tezgah", ".git"))
-
-    def old_history(self, repo, ordered=True):
-        """The two-commit order in the project, pinned by the tag: the line was
-        committed before the move, so its proof is the project's history."""
-        if ordered:
-            self.protocol(repo)
-            self.commit(repo, "protocol", when=BEFORE)
-            self.results(repo)
-            self.commit(repo, "results", when=AFTER)
-        else:
-            self.results(repo)
-            self.commit(repo, "results", when=BEFORE)
-            self.protocol(repo)
-            self.commit(repo, "protocol", when=AFTER)
-        anchor = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", self.TAG, anchor)
-        return anchor
-
-    def reroot(self, repo):
-        """A new root commit holding the whole tree, so HEAD no longer reaches
-        the old history and the tag is the only way back to it."""
-        self.git(repo, "checkout", "-q", "--orphan", "reroot")
-        self.commit(repo, "initial commit", when=AFTER)
-        return self.git(repo, "rev-parse", "HEAD").strip()
-
-    def declare(self, repo, anchor, rewrite, **over):
-        bridge = {"rewrite_commit": rewrite[:7], "anchor_tag": self.TAG,
-                  "anchor_sha": anchor, "why": "re-rooted on 2026-09-23"}
-        bridge.update(over)
-        self.write(os.path.join(repo, ".tezgah", "history-bridge.json"),
-                   json.dumps(bridge) + "\n")
-        return bridge
-
-    def protocol_blob(self, repo, rev):
-        rel = os.path.relpath(os.path.join(self.exp_dir(repo), "protocol.md"), repo)
-        return self.git(repo, "rev-parse", "%s:%s" % (rev, rel)).strip()
-
-    def test_a_declared_bridge_proves_the_rerooted_order(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-        report = tr.check(repo, "q")["q"]
-        self.assertTrue(hit("order: bridged via %s" % self.TAG, report["notes"]),
-                        report["notes"])
-
-    def test_an_orphan_branch_with_no_bridge_is_still_refused(self):
-        # no declaration, no proof: one commit adding both files is the refusal
-        # it has always been
-        repo = self.repo()
-        self.unmoved(repo)
-        self.old_history(repo)
-        self.reroot(repo)
-        self.assertTrue(hit(BOTH_TOGETHER, self.errors(repo)), self.errors(repo))
-
-    def test_removing_the_bridge_file_refuses_the_rewrite_commit_again(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-        os.remove(os.path.join(repo, ".tezgah", "history-bridge.json"))
-        self.assertTrue(hit(BOTH_TOGETHER, self.errors(repo)), self.errors(repo))
-
-    def test_an_anchor_that_lost_the_order_is_refused(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo, ordered=False)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertTrue(hit("no protocol-before-results", self.errors(repo)),
-                        self.errors(repo))
-
-    def test_a_blob_that_moved_across_the_rewrite_is_refused(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        # the re-rooted tree holds a protocol the anchor never ordered: the blob
-        # at the rewrite commit differs from the one the anchor proved
-        self.write(os.path.join(self.exp_dir(repo), "protocol.md"),
-                   "# Protocol\n\nchange: cache the lookups\nprediction: p95 drops\n"
-                   "falsifier: p95 holds or rises\noutcome: p95 dropped\n")
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        errors = self.errors(repo)
-        self.assertTrue(hit("blobs differ", errors), errors)
-        self.assertTrue(hit(self.protocol_blob(repo, anchor), errors), errors)
-
-    def test_a_results_file_extended_since_the_anchor_is_still_bridged(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        # A row appended after the anchor was pinned and before the re-root: the
-        # run only ever appends, so the anchor's rows are the head of the file the
-        # rewrite holds, and a grown file is not a disagreement.
-        self.append_line(os.path.join(self.exp_dir(repo), "results.jsonl"),
-                         {"run": 2, "p95": 0.8, "scope": "real",
-                          "source": "run.py run 2"})
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-        report = tr.check(repo, "q")["q"]
-        self.assertTrue(hit("(results extended since the anchor)", report["notes"]),
-                        report["notes"])
-
-    def test_a_protocol_extended_since_the_anchor_is_still_refused(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        # Only the results file is append-only: a protocol that grew after the
-        # anchor is still an edited plan, so a prefix is refused there - the pair
-        # the bridge tied together is unchanged.
-        with open(os.path.join(self.exp_dir(repo), "protocol.md"), "a") as fh:
-            fh.write("outcome: p95 dropped\n")
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        errors = self.errors(repo)
-        self.assertTrue(hit("protocol.md blobs differ", errors), errors)
-
-    def test_an_experiment_added_by_the_rewrite_warns_where_strict_refuses(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        # A second experiment opened after the anchor was pinned: the re-root is
-        # the only commit that ever added its files, so the anchor holds no order
-        # for it. The line is younger than the anchor, which is unprovable rather
-        # than false, so it warns and `--strict` still refuses it.
-        self.protocol(repo, h="h2")
-        self.results(repo, h="h2")
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-        warnings = self.warnings(repo)
-        self.assertTrue(hit("this experiment's files first appear in the rewrite",
-                            warnings), warnings)
-        strict = self.errors(repo, strict=True)
-        self.assertTrue(hit("this experiment's files first appear in the rewrite",
-                            strict), strict)
-
-    def test_a_bridge_whose_tag_is_missing_is_refused_naming_it(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-        self.git(repo, "tag", "-d", self.TAG)
-        errors = self.errors(repo)
-        self.assertTrue(hit(self.TAG, errors), errors)
-        self.assertTrue(hit("does not have", errors), errors)
-
-    def test_a_bridge_whose_tag_resolves_elsewhere_is_refused(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        self.old_history(repo)
-        rewrite = self.reroot(repo)
-        # the tag still points at the old anchor, the declaration names the new
-        # root as the sha that tag must equal
-        self.declare(repo, rewrite, rewrite)
-        errors = self.errors(repo)
-        self.assertTrue(hit("resolves to", errors), errors)
-        self.assertTrue(hit(self.TAG, errors), errors)
-
-    def test_a_bridge_places_a_prediction_bound_to_a_pre_rewrite_commit(self):
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        row = {"commit": anchor, "metric": "p95", "value_before": 120,
-               "falsifier": "p95 does not drop",
-               "components": [component_keys()[0]]}
-        self.write(os.path.join(tr.line_dir(repo, "q"), "predictions.jsonl"),
-                   json.dumps(row) + "\n")
-        self.assertFalse(hit("not an ancestor of HEAD", self.errors(repo)),
-                         self.errors(repo))
-
-    def test_a_one_commit_add_with_no_bridge_stays_refused(self):
-        # the shape a real project's commit left: one commit added both
-        # files and the repository declares no bridge, so the refusal stands - a
-        # bridge is never inferred from a tag that happens to exist
-        repo = self.repo()
-        self.unmoved(repo)
-        self.protocol(repo)
-        self.results(repo)
-        self.commit(repo, "protocol and results together", when=BEFORE)
-        self.assertTrue(hit(BOTH_TOGETHER, self.errors(repo)), self.errors(repo))
-
-    def test_a_commit_under_an_unrelated_tag_stays_unplaced(self):
-        # a benchmark pin is not a bridge: only a commit the declared anchor
-        # reaches is placed, so a commit reachable from another tag is still
-        # refused
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        self.git(repo, "checkout", "-q", "-b", "pin", anchor)
-        self.write(os.path.join(repo, "pin.txt"), "pinned\n")
-        self.commit(repo, "a benchmark pin", when=AFTER)
-        pinned = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", "benchmark-pin", pinned)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        row = {"commit": pinned, "metric": "p95", "value_before": 120,
-               "falsifier": "p95 does not drop",
-               "components": [component_keys()[0]]}
-        self.write(os.path.join(tr.line_dir(repo, "q"), "predictions.jsonl"),
-                   json.dumps(row) + "\n")
-        errors = self.errors(repo)
-        self.assertTrue(hit("not an ancestor of HEAD", errors), errors)
-
-    def test_d5_a_locked_evaluation_crosses_a_declared_reroot(self):
-        # E02/E21: the lock and the results both first appear in the rewrite, and
-        # the evaluation rule had no bridge, so a correct locked line was refused
-        repo = self.repo()
-        Tracking.unmoved(self, repo)  # rules kept: the evaluation rule refuses
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-
-    def test_d5_a_line_moved_before_the_anchor_is_still_bridged(self):
-        # E02: the old pair was read under the rewrite-time name only, so the move
-        # into open/ read as the add of both files
-        repo = self.repo()
-        Tracking.unmoved(self, repo)
-        self.assertIsNone(tr.move_line(repo, "q", "")[1])
         self.protocol(repo)
         self.commit(repo, "protocol", when=BEFORE)
         self.results(repo)
         self.commit(repo, "results", when=AFTER)
-        self.assertIsNone(tr.move_line(repo, "q", tr.OPEN)[1])
-        self.commit(repo, "move flat -> open", when=AFTER)
         anchor = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", self.TAG, anchor)
-        rewrite = self.reroot(repo)
-        self.declare(repo, anchor, rewrite)
-        self.assertEqual(self.errors(repo), [])
-
-    def test_d6_a_short_rewrite_prefix_covers_no_later_commit(self):
-        # E04: `startswith` matched any later commit sharing the declared prefix,
-        # so a later one-commit add was downgraded to the rewrite's warning
-        repo = self.repo()
-        self.unmoved(repo)
-        anchor = self.old_history(repo)
-        rewrite = self.reroot(repo)
-        self.protocol(repo, h="h2")
-        self.results(repo, h="h2")
-        self.commit(repo, "h2 protocol and results together", when=AFTER)
-        n = 0
-        while not self.git(repo, "rev-parse", "HEAD").startswith(rewrite[0]):
-            n += 1
-            self.git(repo, "-c", "commit.gpgsign=false", "commit", "--amend",
-                     "--no-edit", "-q", when="%d +0000" % (1672531200 + n))
-        self.declare(repo, anchor, rewrite, rewrite_commit=rewrite[0])
-        errors = self.errors(repo)
-        self.assertTrue(hit("experiment h2: " + BOTH_TOGETHER, errors), errors)
-
-    def test_d7_a_rewrite_commit_that_is_no_root_is_refused(self):
-        # E26: an ordinary one-commit add, named as the rewrite with an unrelated
-        # earlier commit as anchor, was downgraded to a warning
-        repo = self.repo()
-        self.write(os.path.join(repo, "README"), "hello\n")
-        self.git(repo, "add", "README")
-        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "C0",
-                 when=BEFORE)
-        c0 = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", self.TAG, c0)
-        self.unmoved(repo)
-        self.protocol(repo)
-        self.results(repo)
-        self.commit(repo, "protocol and results together", when=AFTER)
-        c1 = self.git(repo, "rev-parse", "HEAD").strip()
-        self.declare(repo, c0, c1, rewrite_commit=c1)
-        errors = self.errors(repo)
-        self.assertTrue(hit("is not a root commit", errors), errors)
-
-    def test_d8_an_anchor_replayed_after_the_rewrite_is_refused(self):
-        # E31: a protocol-then-results replay made after the re-root, tagged and
-        # named as the anchor, bridged a one-commit add with only a note
-        repo = self.repo()
-        self.unmoved(repo)
-        self.protocol(repo)
-        self.results(repo)
+        self.git(repo, "tag", "anchor/pre-rewrite", anchor)
+        self.git(repo, "checkout", "-q", "--orphan", "reroot")
         self.commit(repo, "initial commit", when=AFTER)
         rewrite = self.git(repo, "rev-parse", "HEAD").strip()
-        main = self.git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip()
-        res = os.path.relpath(os.path.join(self.exp_dir(repo), "results.jsonl"), repo)
-        self.git(repo, "checkout", "-q", "--orphan", "replay")
-        self.git(repo, "rm", "-q", "--cached", res)
-        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m",
-                 "replayed protocol", when="2022-02-02T00:00:00+0000")
-        self.git(repo, "add", "-f", res)
-        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m",
-                 "replayed results", when="2022-02-03T00:00:00+0000")
-        anchor = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", self.TAG, anchor)
-        self.git(repo, "checkout", "-q", "-f", main)
-        self.declare(repo, anchor, rewrite)
-        errors = self.errors(repo, strict=True)
-        self.assertTrue(hit("committed after the rewrite", errors), errors)
+        self.write(os.path.join(repo, ".tezgah", "history-bridge.json"),
+                   json.dumps({"rewrite_commit": rewrite,
+                               "anchor_tag": "anchor/pre-rewrite",
+                               "anchor_sha": anchor}) + "\n")
+        self.assertTrue(hit(BOTH_TOGETHER, self.errors(repo)), self.errors(repo))
+
+    def test_no_bridge_symbol_and_no_notes_channel_remain(self):
+        for name in ("BRIDGE_FIELDS", "bridge", "_bridged_commit", "_rel_at",
+                     "_names_rewrite", "_bridge_anchor", "_bridged_order",
+                     "_declared_rewrite", "_bridged_lock", "_added_at", "_is_prefix"):
+            self.assertFalse(hasattr(tr, name), name)
+        repo = self.repo()
+        self.line(repo)
+        self.assertEqual(sorted(tr.check(repo)["q"]), ["errors", "warnings"])
 
 
 class CrossHistory(Workspace):
@@ -5338,25 +5044,6 @@ class CrossHistory(Workspace):
         self.move(repo)
         errors = self.errors(repo)
         self.assertTrue(hit(self.CHANGED, errors), errors)
-
-    def test_c43_a_private_rewrite_after_a_bridged_reroot_is_refused(self):
-        repo = self.repo()
-        self.project_ordered(repo, rules=False)
-        anchor = self.git(repo, "rev-parse", "HEAD").strip()
-        self.git(repo, "tag", "anchor/pre-rewrite", anchor)
-        self.git(repo, "checkout", "-q", "--orphan", "reroot")
-        self.commit(repo, "initial commit", when=AFTER)
-        rewrite = self.git(repo, "rev-parse", "HEAD").strip()
-        self.write(os.path.join(self.ws(repo), "history-bridge.json"),
-                   json.dumps({"rewrite_commit": rewrite[:7],
-                               "anchor_tag": "anchor/pre-rewrite",
-                               "anchor_sha": anchor}) + "\n")
-        self.assertFalse(hit(self.CHANGED, self.errors(repo)), self.errors(repo))
-        self.import_line(repo)
-        self.rewrite(repo)
-        self.assertTrue(hit(self.CHANGED, self.errors(repo)), self.errors(repo))
-        self.move(repo)
-        self.assertTrue(hit(self.CHANGED, self.errors(repo)), self.errors(repo))
 
     def test_c44_a_private_rewrite_then_the_move_is_refused(self):
         # variant B2: the rewrite lands before the move, in the private repository

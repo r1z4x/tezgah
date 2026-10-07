@@ -84,10 +84,10 @@
     "semicolons": 42
   },
   "docs/research.md": {
-    "long_sentences": 112,
-    "passive": 60,
+    "long_sentences": 107,
+    "passive": 59,
     "replace_words": 1,
-    "semicolons": 82
+    "semicolons": 77
   },
   "docs/skills.md": {
     "long_sentences": 31,

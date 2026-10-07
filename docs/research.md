@@ -52,8 +52,9 @@ judge the answer:
   verdict, then moves the line to `done/`.
 - `close --limit "<what is left>" --ack "<what the user said>"` is the way out
   when a criterion is `not-met`: `check` refuses a conclusion over an unjudged or
-  unmet criterion without an acknowledgement, and `status` keeps listing such a
-  line as unanswered (`hooks/tezgah_research.py::unanswered`).
+  unmet criterion without an acknowledgement, and `check <slug>` and `check
+  --all-lines` keep refusing such a concluded line as unanswered
+  (`hooks/tezgah_research.py::unanswered`).
 
 The reason: 4 of 11 sampled lines in this workspace concluded with the ask
 unanswered and 0 of 416 claims cited any part of it (measured 2026-10-01), because
@@ -172,8 +173,9 @@ refused while any open line has `check` errors (`broken_open_lines`): a hatch pa
 broken lines is how they stayed broken. What is left of a line that will not be
 finished is recorded with `tezgah-research close <slug> --limit "<reason>"`
 (`close_line`), which concludes it and writes the reasons it was still open into
-`state.json` `closed` and `log.md` and seals it ("the order seal", below);
-its `check` errors stay visible. The
+`state.json` `closed` and `log.md` and seals it ("the order seal", below).
+Its errors show in `check <slug>` and `check --all-lines`; the no-slug `check`
+reads it by its seal hashes and counts it on one line (ADR 015). The
 prompt-time note reads a line's `state.json`, its experiment directory and its
 review, never `claims.jsonl`, so a line open *only* because of a live claim is
 named by `init` and not by the note; that split is the note's cost budget and is
@@ -182,15 +184,17 @@ stated in the rule's own comment.
 ## The CLI
 
 `bin/tezgah-research` is the only writer and the only reader of the workspace;
-the check a session runs from the shell is the same function the session note
-calls (`check_line`, `hooks/tezgah_research.py::check_line`).
+the no-slug check a session runs from the shell reads the same lines the session
+note does (`check`, `hooks/tezgah_research.py::check`): each open line through
+`check_line` (`hooks/tezgah_research.py::check_line`), each line under `done/`
+through its seal.
 
 | Command | What it does | Exit |
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
-| `tezgah-research check [<slug>] [--json] [--strict] [--orx] [-- <slug>]` | the discipline checks below; `--json` prints the report, `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
-| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `hooks/tezgah_research.py::summary`) | 0 |
+| `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal alone (`done_seal`, `hooks/tezgah_research.py::done_seal`), naming it only when the seal fails or its `state.json` or seal cannot be read, then prints `research: <n> done line(s): <s> checked by their seal, <u> unsealed (not checked); ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal read fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
+| `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `hooks/tezgah_research.py::append_prediction`) | 0, 1 refused, 2 misuse |
@@ -247,7 +251,7 @@ is placed only in the project's history.
 
 ### What the order rule accepts
 
-`_check_protocol_order` (`hooks/tezgah_research.py::_check_protocol_order`) accepts one of two proofs.
+`_check_protocol_order` (`hooks/tezgah_research.py::_check_protocol_order`) accepts one proof.
 
 **(A) the add-before-add rule.** The commit that added `protocol.md` must be a
 *strict* ancestor, in HEAD's lineage, of the commit that added `results.jsonl` -
@@ -274,44 +278,6 @@ the run: that is a warning, and
 `--strict` refuses it. A history git cannot read is the same class: a warning,
 refused under `--strict`.
 
-**(B) the declared history bridge.** A re-root - the whole tree landing in one
-"initial commit", as this project's 2026-09-23 force-push did - leaves every
-experiment's two files in one add, and no commit graph can order them. The
-repository declares where the old proofs are, in
-`<repo>/.tezgah/history-bridge.json`:
-
-```json
-{"rewrite_commit": "<sha>", "anchor_tag": "anchor/pre-rewrite-<date>",
- "anchor_sha": "<sha>", "why": "..."}
-```
-
-With that declaration, and only when `rewrite_commit` resolves - uniquely, so a
-full sha is the safe form - to the add of both files, `_bridged_order` accepts
-the experiment when (`_bridge_anchor` holds the first three):
-
-- `anchor_tag` resolves to `anchor_sha`, and that commit object exists;
-- the rewrite commit is a root commit - an ordinary commit is no re-root;
-- the anchor does not descend from the rewrite and was committed no later than
-  it; the graph proves the first half, the second rests on the committer date,
-  so a replay backdated before the rewrite is the ceiling;
-- in the anchor's ancestry some add of `protocol.md` is a *strict* ancestor of
-  some add of `results.jsonl`, read under every layout name the line had;
-- the blobs tie the old files to the current ones: `P@rewrite == P'@add(R') ==
-  P'@anchor` and `R@rewrite == R'@anchor`.
-
-The evaluation lock crosses the same re-root by the same anchor: the first
-state.json that locks a metric and a baseline in the anchor's ancestry has to be a
-strict ancestor of the results' add there (`_bridged_lock`).
-
-A missing tag, a tag that resolves elsewhere, a missing object or a blob that
-moved is a refusal whose reason names which of them failed - so a clean clone
-that never fetched the tag fails with the missing-tag reason. That is why **the
-anchor tag has to be pushed**: the bridge is a claim about a history the clone
-must be able to read. When the bridge proves an experiment, the report carries
-`order: bridged via <tag>` for it - the `notes` list of the JSON report, printed
-by `check` as `note <slug>: <experiment>: order: bridged via <tag>` - so a reader
-can tell a proven order from a re-rooted one.
-
 **What history a row counts in.** Each comparison stays inside one repository's
 history: the project's commits in the project's, the private `.tezgah`
 repository's in its own (`is_ancestor`, `hooks/tezgah_research.py::is_ancestor`). A project
@@ -319,11 +285,17 @@ commit and a private-repository commit are two unrelated histories whose shas
 alone order nothing - the guess that any project commit precedes any private one
 was removed, and a pair the graph cannot order is reported as undecided, never
 passed; the one cross-history order kept is the import exception in (A). A
-prediction's `commit` is placed in the project's history, and the bridge
-extends that history back past the rewrite when `git merge-base --is-ancestor
-<commit> <anchor_sha>` holds (`_bridged_commit`, `hooks/tezgah_research.py::_bridged_commit`); a
-commit reachable only from an unrelated tag, such as a benchmark pin, is not
-placed and stays refused. Neither rule has a waiver.
+prediction's `commit` is placed in the project's history only: a commit HEAD
+does not reach, a benchmark pin or one a re-root left behind, stays refused.
+Neither rule has a waiver.
+
+**No history bridge.** A re-root - the whole tree landing in one "initial
+commit" - leaves every experiment's two files in one add, which (A) refuses. A
+declared bridge (`.tezgah/history-bridge.json`, an anchor tag pinning the old
+history) used to stand in for the lost order; it proved no experiment on this
+repository's workspace, and ADR 015 deleted it. The file is no longer read. A
+history that is really gone is recorded instead by the seal's `history-lost`
+verdict (below).
 
 ### What the order proves, and the order seal
 
@@ -347,8 +319,16 @@ it.
 
 `check_line` verifies the hashes on every run, with or without git (`_check_seal`,
 `hooks/tezgah_research.py::_check_seal`). An edited, removed or added experiment
-fails the line. So the session note (`failing`) sees an edit after the
-conclusion too. The ceiling: the seal sits in the line's own `state.json`.
+fails the line. The session note (`failing`, `hooks/tezgah_research.py::failing`)
+and the no-slug `check` (`check` with `all_lines=False`,
+`hooks/tezgah_research.py::check`) read a line under `done/` by these hashes
+alone, not by `check_line`. So they see an edit after the conclusion, and the
+line's other findings stay with `check <slug>` and `check --all-lines` (ADR 015).
+A line under `done/` without a seal adds nothing to either. The no-slug `check`
+counts it as unsealed. A `state.json` that does not parse, or a seal that is
+not an object with an `experiments` object, fails the line (`done_seal`). On a
+copy of this repository's workspace (34 lines, 33 under `done/`) the note took
+0.014 s instead of 0.67 s. The ceiling: the seal sits in the line's own `state.json`.
 Whoever edits `results.jsonl` can recompute the seal there too. It catches an
 edit, not a forger.
 
@@ -781,7 +761,8 @@ not installed and to fall back to a host subagent rather than improvise the
 protocol (`context_for`, `hooks/tezgah_context.py::context_for`), and at session start and
 after a compaction a line with structural problems is named with its first error
 and the advice to run `check` before reporting a result (the note
-`research_broken` in `context_for`, `hooks/tezgah_context.py::context_for`).
+`research_broken` in `context_for`, `hooks/tezgah_context.py::context_for`). A
+line under `done/` reaches the note only through its seal hashes.
 
 The mark: `research` in the status line. It is armed when `research-off` is
 absent and the research tooling is present (`health_segments`,
