@@ -66,6 +66,9 @@ def base_env(home, roots=None, extra=None):
         # likewise the agent CLIs consult can ask: none counts unless a test
         # lists it, so a developer's own omp/claude/codex is not a consult option
         "TEZGAH_CONSULT_CLIS": "",
+        # likewise orca: a suite run inside Orca has its CLI on PATH, and the
+        # real runtime must not answer a test (tests/test_orca.py fakes one)
+        "TEZGAH_ORCA_BIN": os.path.join(home, "no-such-orca"),
         # no release check from a test: a stale cache would start a detached
         # network fetch; tests/test_update.py turns it on where it is the subject
         "TEZGAH_UPDATE_CHECK": "0",
@@ -130,9 +133,16 @@ os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude
 # A host dir or XDG base the developer exported points at their real config:
 # with CODEX_HOME set, a test that wrote and removed `<CODEX_HOME>/config.toml`
 # deleted the developer's own Codex config (2026-10-06).
+# Orca's markers likewise: a suite run from an Orca terminal would tell every
+# in-process session it runs in Orca (hooks/tezgah_orca.py::session).
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
-              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA"):
+              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA", "ORCA_WORKTREE_ID",
+              "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_CLI_COMMAND",
+              "ORCA_CLI_BIN_DIR"):
     os.environ.pop(_name, None)
+if os.environ.get("TERM_PROGRAM") == "Orca":
+    del os.environ["TERM_PROGRAM"]
+os.environ["TEZGAH_ORCA_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-orca")
 
 
 class TempHome(unittest.TestCase):

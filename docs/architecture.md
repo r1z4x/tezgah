@@ -93,6 +93,7 @@ One session, in order. Each step names the file that handles the event on Claude
    the graph index status and the detached index spawn (`hooks/tezgah_context.py::context_for`),
    the open plans, the sibling checkouts of a `git worktree` with their open plan
    and research line counts (`sibling_line`, `hooks/tezgah_context.py::sibling_line`),
+   inside Orca the `Orca:` line ([orca](orca.md), `hooks/tezgah_orca.py::context_line`),
    the lessons ledger, and the active kill switches. The CORE is
    dropped when the host's own file already carries it (`TEZGAH_CORE_IN_FILE`,
    declared by that manifest row: `~/.claude/CLAUDE.md` on Claude). Outside a

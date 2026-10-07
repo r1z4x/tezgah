@@ -212,12 +212,18 @@ between them MUST be spawned in ONE message so they run in parallel; dependent
 ones run sequentially, each briefed with the previous result. Fanning out is the
 default, not a favour the user has to ask for: two or more independent items -
 a list, several files or areas, todo entries that share nothing - go to one
-subagent each, and every writing slice gets its own branch and git worktree,
-briefed with absolute paths under it and never the main checkout. The
+subagent each, and every writing slice gets its own branch and checkout (see
+below), never the main checkout. The
 orchestrator is the main thread itself: it does not wait idle on a slice while
 independent work remains. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. If the work
 cannot be split - one file, one bounded change, a strictly serial chain - do it
 directly. Never spawn a subagent whose briefing is bigger than the work.
+A slice that needs its own checkout: inside Orca (the session-start `Orca:`
+line) create it with `orca worktree create --name <slug> --parent-worktree
+active --json` and track it with `orca worktree ps --json` or `tezgah-status
+--orca` - a raw `git worktree add` gets no card, terminal tracking or agent
+status in Orca; outside Orca, `git worktree add`. Either way the brief names
+absolute paths under that checkout.
 Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier (overrides for stored data, credentials, security first; then a Jev
 judgement; the static phase table with no key). A worker that answers

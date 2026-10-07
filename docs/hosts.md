@@ -196,7 +196,7 @@ In order, each step verified by the one below it:
    (`hosts/omp/tezgah-hook.ts.in` rendered at `hooks/tezgah_attest.py::omp_bridge`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
    (`bin/tezgah-setup::INSTALLERS`), and `uninstall_<host>()` removing only
-   tezgah-managed links and blocks (`bin/tezgah-setup:3286-3418`).
+   tezgah-managed links and blocks (`bin/tezgah-setup:3287-3419`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
    written, registered in `HOST_CHECKS` (`bin/tezgah-setup::HOST_CHECKS`); the
    `--report` output is that list (`bin/tezgah-setup::report`). Give the row a home-qualified

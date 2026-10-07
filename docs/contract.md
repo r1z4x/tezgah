@@ -142,19 +142,19 @@ research lines with a written flip; everything else keeps one fresh reviewer
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :643, `**Ponytail (minimal code).**` :651, `**Output shape:
-ADHD-friendly.**` :662, `**Deliver the whole ask; never the shortcut.**` :676,
-`**Integrity: evidence, or "doğrulanmadı".**` :690, `**Loop discipline.**` :707,
-`**Spec before building.**` :716 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :730, `**Code discovery: graph first.**` :738
-*(conditional)*, `**Consult before irreversible.**` :747 *(conditional)*,
-`**Research: route it to OpenResearch.**` :763 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :779 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :812, `**Identifiers and messages
-stay English.**` :822, `**Session scope: the user's repo, not tezgah.**` :828,
-``**Workspace: `.tezgah/` only.**`` :837, `**Parallel by default: fan out
-independent items.**` :844 *(conditional)*,
-`**Kill switches:**` :858. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :649, `**Ponytail (minimal code).**` :657, `**Output shape:
+ADHD-friendly.**` :668, `**Deliver the whole ask; never the shortcut.**` :682,
+`**Integrity: evidence, or "doğrulanmadı".**` :696, `**Loop discipline.**` :713,
+`**Spec before building.**` :722 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :736, `**Code discovery: graph first.**` :744
+*(conditional)*, `**Consult before irreversible.**` :753 *(conditional)*,
+`**Research: route it to OpenResearch.**` :769 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :785 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :818, `**Identifiers and messages
+stay English.**` :828, `**Session scope: the user's repo, not tezgah.**` :834,
+``**Workspace: `.tezgah/` only.**`` :843, `**Parallel by default: fan out
+independent items.**` :850 *(conditional)*,
+`**Kill switches:**` :865. The first label renders as `**Turkish, BLUF.**` under
 the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the six
@@ -397,7 +397,7 @@ budget is a byte count, not a token estimate.
 Over budget, `budgeted()` gives up blocks in `DROP_ORDER`, lowest value
 first — the text another surface already carries (project knowledge, the
 sibling-checkout line, lessons), the skill hint (a suggestion, never an
-instruction), the per-turn relevant lessons and the plan table first, then the tooling-availability lines and the live graph
+instruction), the per-turn relevant lessons and the plan table first, then the Orca line, the tooling-availability lines and the live graph
 glance, then the resume state (it outlives those because it is the only one that
 says what this session was doing, and it still yields to a rule), then the
 evidence-scope warning, the task phase, the delta, and the skill pointer last

@@ -54,6 +54,7 @@ _TREE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(_TREE, "hooks"))
 import tezgah_apps  # noqa: E402
 import tezgah_context  # noqa: E402
+import tezgah_orca  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_policy as policy  # noqa: E402
 import tezgah_agents  # noqa: E402
@@ -5374,7 +5375,7 @@ def upgrade(version, dry_run):
     so its farm links would point back into it. The hosts and roots come from
     config.json, so an upgrade does not re-ask the install questions. Nothing
     else calls this: a flag never upgrades tezgah as a side effect of another
-    (hooks/tezgah_policy.py:786). Prints every step before running it, and
+    (hooks/tezgah_policy.py:792). Prints every step before running it, and
     `--dry-run` stops after the printing."""
     cfg = tp.config()
     hosts = cfg.get("hosts") or detected_hosts()
@@ -5643,6 +5644,11 @@ def main(argv):
         label, ok = hosts_row()
         if not ok:
             print("%s%s" % (NO, label))
+        # Orca's presence, and whose codex home CODEX_HOME names: printed only
+        # where Orca is installed or this shell runs inside it.
+        orca = tezgah_orca.summary(CODEX)
+        if orca:
+            print(orca)
         return 0
     if args.deps and not args.install:
         return 1 if install_deps(dry_run=args.dry_run) else 0

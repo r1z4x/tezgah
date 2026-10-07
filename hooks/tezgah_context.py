@@ -15,6 +15,7 @@ import sys
 import time
 
 import tezgah_embed
+import tezgah_orca
 import tezgah_research
 from tezgah_guard import import_crash_mark
 from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
@@ -1406,7 +1407,7 @@ DEFAULT_BUDGET = 12000
 # spend them would turn bloat into rule loss - which is the failure the budget
 # exists to prevent, not one it may cause.
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
-              "plans", "subagents", "steer", "consult", "research",
+              "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate", "index",
               "resume", "scratch", "task", "delta", "pointer")
 
@@ -2142,6 +2143,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         siblings = sibling_line(root) if root not in roots() else ""
         if siblings:
             parts.append(("worktrees", siblings))
+        # Inside Orca a checkout or a long job belongs to Orca, or its sidebar
+        # never shows it; env only, so this forks nothing.
+        orca = tezgah_orca.context_line()
+        if orca:
+            parts.append(("orca", orca))
         # The project's own rule files, agents and skills (tezgah-migrate's
         # index): they stay where the project keeps them, and one line makes a
         # session read the rows its task touches instead of never seeing them.
