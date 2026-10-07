@@ -612,6 +612,21 @@ class SweAdapter(unittest.TestCase):
         self.assertFalse(self.swe.go_verdict((point, lo, hi), (-0.06, -0.1, 0.0)))
         self.assertFalse(self.swe.go_verdict((-0.2, -0.4, 0.01), (0.0, 0.0, 0.0)))
 
+    def test_patch_classes_read_text_only(self):
+        patch = ("diff --git a/.codegraph/codegraph.db b/.codegraph/codegraph.db\n"
+                 "new file mode 100644\nBinary files /dev/null and b/.codegraph/codegraph.db differ\n"
+                 "diff --git a/test_repro.py b/test_repro.py\nnew file mode 100644\n"
+                 "--- /dev/null\n+++ b/test_repro.py\n@@ -0,0 +1 @@\n+print(1)\n"
+                 "diff --git a/pkg/mod.py b/pkg/mod.py\n--- a/pkg/mod.py\n+++ b/pkg/mod.py\n"
+                 "@@ -1 +1 @@\n-x = 1\n+x = 2\n")
+        self.assertEqual(self.swe.patch_classes(patch), [])
+        edited = patch + ("diff --git a/tests/test_mod.py b/tests/test_mod.py\n"
+                          "--- a/tests/test_mod.py\n+++ b/tests/test_mod.py\n@@ -1 +1,2 @@\n"
+                          "+@pytest.mark.skip\n")
+        self.assertEqual(self.swe.patch_classes(edited), ["skip_marker", "test_or_config_edit"])
+        conftest = patch + "diff --git a/conftest.py b/conftest.py\nnew file mode 100644\n"
+        self.assertEqual(self.swe.patch_classes(conftest), ["test_or_config_edit"])
+
 
 if __name__ == "__main__":
     unittest.main()
