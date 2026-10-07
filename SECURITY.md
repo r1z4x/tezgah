@@ -47,12 +47,14 @@ an adversarial agent, and it does not claim to be one.
   - a delete or move of a directory that holds any of the above
     (`rm -rf ~/.cache`, `mv .git /tmp/x`);
   - not refused, but left as evidence: a forced `git add` of a `.tezgah/`
-    path, and a delete or move under `.tezgah/plans/open/` (a `--cached`
-    removal is plan-sync's and leaves nothing). The call passes and writes a
-    `disarm` row naming what it changed. Plan 050's replay of real ledgers
-    found these refused without the user's say-so more than once a week, so
-    its falsifier dropped the refusal; a call that also changes a protected
-    path above is refused whole;
+    path, and a delete or move of a path strictly under `.tezgah/plans/open/`
+    (a `--cached` removal is plan-sync's and leaves nothing). The call passes
+    and writes a `disarm` row naming what it changed. Plan 050's replay of
+    real ledgers found these refused without the user's say-so more than once
+    a week, so its falsifier dropped the refusal. The open plans' directory
+    and its ancestors (`rm -rf .tezgah`) stay refused as a directory holding
+    control state, and a call that also changes a protected path above is
+    refused whole;
   - the CLIs that change that state: `tezgah-gate decide`, `tezgah-capture`,
     `tezgah-pony <level>`, `tezgah-adhd on|off`, `tezgah-context attest`.
     The task CLI is the task rule's.

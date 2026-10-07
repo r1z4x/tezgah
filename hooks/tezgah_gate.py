@@ -1687,10 +1687,12 @@ CONTROL_DENY = (
 # week: its falsifier (REPORT.md 5430, ADR 018) keeps the tamper evidence and
 # drops the refusal. A call that changes one of these and nothing else the rule
 # protects passes and leaves a `disarm` row (`decision`); a refusing target in
-# the same call still refuses.
+# the same call still refuses. Only a path strictly under the open plans counts:
+# their directory or an ancestor of it takes every plan at once (HELD).
 OPEN_PLAN = "an open plan"
 FORCED_ADD = "a private `.tezgah/` path forced into the project's history"
 CONTROL_EVIDENCE = frozenset((OPEN_PLAN, FORCED_ADD))
+HELD = "a directory that holds tezgah's control state"
 
 
 def _refusing(label):
@@ -1805,8 +1807,9 @@ def _tops(cwd):
 def _held(origin):
     """The protected paths a remove or move of a directory holding one takes
     with it: tezgah's configuration, the switches that exist, the cache state,
-    the install trees, and the session checkout's git hooks. The open plans are
-    `control_target`'s own ancestor check: evidence, not a refusal."""
+    the install trees, and the session checkout's git hooks and open plans. A
+    single plan under the open plans is evidence (OPEN_PLAN); the directory
+    and its ancestors take every plan at once and stay refused."""
     out = [os.path.realpath(CONFIG_DIR)]
     out += [p for d in OFF_DIRS for p in (os.path.join(os.path.realpath(d), n)
                                           for n in SWITCHES) if os.path.exists(p)]
@@ -1814,7 +1817,9 @@ def _held(origin):
                                         os.path.realpath(fallback_cache())}
             for d in CONTROL_CACHE]
     out += _install_trees(origin)
-    out += [os.path.join(top, ".git", "hooks") for top in _tops(origin)]
+    for top in _tops(origin):
+        out += [os.path.join(top, ".git", "hooks"),
+                os.path.join(top, ".tezgah", "plans", "open")]
     return out
 
 
@@ -1872,8 +1877,10 @@ def _target_label(real, remove, origin):
         return "the repository's git hooks"
     if remove and ".husky" in real.split(os.sep):
         return "the repository's git hooks"
-    if remove and "%s.tezgah%splans%sopen%s" % ((os.sep,) * 4) in real + os.sep:
-        return OPEN_PLAN
+    opened = "%s.tezgah%splans%sopen%s" % ((os.sep,) * 4)
+    if remove and opened in real + os.sep:
+        # strictly under it is one plan; the directory itself is all of them
+        return OPEN_PLAN if opened in real else HELD
     return None
 
 
@@ -1897,10 +1904,7 @@ def control_target(path, cwd, remove=False, origin=None):
             return label
         noted = noted or label
     if remove and any(_under(held, real) for held in _held(origin)):
-        return "a directory that holds tezgah's control state"
-    if remove and any(_under(os.path.join(top, ".tezgah", "plans", "open"), real)
-                      for top in _tops(origin)):
-        return OPEN_PLAN
+        return HELD
     return noted
 
 

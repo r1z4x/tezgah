@@ -179,6 +179,8 @@ class ControlPlane(unittest.TestCase):
                         "mv ~/.cache/tezgah /tmp/x",
                         "rm -rf .git",
                         "mv .git /tmp/x",
+                        "rm -rf .tezgah",
+                        "mv .tezgah/plans /tmp/x",
                         "cp -t ~/.config/tezgah /dev/null",
                         "cp --target-directory=$HOME/.config/tezgah /dev/null",
                         "curl -so ~/.config/tezgah/verify-off http://x",
@@ -491,8 +493,8 @@ class ControlPlane(unittest.TestCase):
              tg.OPEN_PLAN),
             ("Bash", {"command": "git -C .tezgah mv plans/open/040-x.md "
                                  "plans/done/040-x.md"}, tg.OPEN_PLAN),
-            ("Bash", {"command": "mv .tezgah/plans /tmp/x"}, tg.OPEN_PLAN),
-            ("Bash", {"command": "rm -rf .tezgah"}, tg.OPEN_PLAN),
+            ("Bash", {"command": "sed -i '' s/a/b/ .tezgah/plans/open/x.md && "
+                                 "rm .tezgah/plans/open/y.md"}, tg.OPEN_PLAN),
             ("Bash", {"command": "rm %s" % plan}, tg.OPEN_PLAN),
             ("apply_patch", {"patch": "*** Begin Patch\n*** Delete File: "
                              ".tezgah/plans/open/017-x.md\n*** End Patch"},
@@ -509,6 +511,12 @@ class ControlPlane(unittest.TestCase):
                 rows = [r for r in ti.events(sid) if r.get("kind") == "disarm"]
                 self.assertEqual([r["detail"] for r in rows], ["control: " + label])
                 self.assertEqual(rows[0].get("id"), tg.call_id(tool, inp))
+        # an edit of an open plan was never refused and leaves no row
+        edit = ("Edit", {"file_path": os.path.join(self.repo, ".tezgah", "plans",
+                                                   "open", "017-x.md"),
+                         "old_string": "a", "new_string": "b"})
+        self.assertIsNone(tg.control_reason("edit", edit[1], self.repo))
+        self.assertIsNone(self.decide(*edit))
         # the dry run writes no row
         self.assertIsNone(self.decide("Bash", {"command": "git add -f .tezgah/x"}))
         self.assertEqual(ti.events("control-test"), [])
@@ -519,6 +527,19 @@ class ControlPlane(unittest.TestCase):
                         "git -C .tezgah mv plans/open/x.md ~/.config/tezgah/verify-off",
                         "rm .tezgah/plans/open/x.md; echo > .git/hooks/pre-commit",
                         "rm -rf .tezgah .git"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a delete or move of the open plans' directory or an ancestor of it
+        # takes every plan at once (with `.tezgah`, the lessons and decisions
+        # too): none of the replay's rows had that shape, so it stays refused
+        for command in ("rm -rf .tezgah",
+                        "mv .tezgah/plans /tmp/x",
+                        "git -C .tezgah rm -r plans",
+                        "git -C .tezgah mv plans /tmp/x",
+                        "rm -rf .tezgah/plans/open",
+                        "mv .tezgah/plans/open .tezgah/plans/old",
+                        "rm -rf %s" % os.path.join(self.repo, ".tezgah", "plans",
+                                                   "open") + "/"):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
 
