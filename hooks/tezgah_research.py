@@ -616,10 +616,9 @@ def _oldest_adds(repo, path):
     return adds, (perr if not any(adds.values()) else None)
 
 
-def _answers(repo, firsts, thens, settled=None):
+def _answers(repo, firsts, thens):
     """{top: True/False/None}: whether `firsts[top]` entered before `thens[top]`,
-    for every history that holds the `then` file's add. `settled` carries the
-    answers already decided (a bridged re-root).
+    for every history that holds the `then` file's add.
 
     Every history that can answer is asked, and the caller requires all of them
     to agree: reading only the first history that held both let a project pair
@@ -634,10 +633,10 @@ def _answers(repo, firsts, thens, settled=None):
     is the move itself (the project carried the line first), and a project plan
     committed after a private import that already held the result is the
     ceiling."""
-    answers = dict(settled or {})
+    answers = {}
     ones = []
     for top, then in thens.items():
-        if not then or top in answers:
+        if not then:
             continue
         first = firsts.get(top)
         if not first:
@@ -677,26 +676,6 @@ def _blob(top, rev, rel):
         if len(parts) >= 3:
             return parts[2], None
     return None, None
-
-
-def _added_at(repo, commit, rel):
-    """True when `commit` itself added `rel` - the shape a one-commit re-root has,
-    where the root commit is the whole history of the files it landed. `-1`
-    because the question is about that commit and not its ancestors."""
-    out, err = _git(repo, "log", "-1", "--diff-filter=A", "--format=%H", commit,
-                    "--", rel)
-    return bool(out) and not err
-
-
-def _is_prefix(repo, older, newer):
-    """True when blob `older`'s content is a strict prefix of `newer`'s: the rows a
-    run appended, with every row before them unchanged. Read whole because git has
-    no prefix primitive, and as text because a results file is UTF-8 JSON lines."""
-    old, err = _run(["git", "-C", repo, "cat-file", "blob", older])
-    if err:
-        return False
-    new, err = _run(["git", "-C", repo, "cat-file", "blob", newer])
-    return not err and new != old and new.startswith(old)
 
 
 UNDECIDED_CHANGE = ("experiment %s: git cannot tell whether protocol.md changed after "
@@ -879,8 +858,7 @@ def is_ancestor(repo, older, newer):
     stays inside one repository's history - the project's first, the private
     `.tezgah` one second: two commits of one history are ordered by it, while a
     project commit and a private-repository commit are two unrelated histories
-    whose shas alone prove nothing. The row that has to cross them names a bridge
-    (`bridge`), which is the only thing that can prove a cross-history order."""
+    whose shas alone prove nothing, so a pair across them is undecided."""
     answer = _ancestor(repo, older, newer)
     if answer is not None:
         return answer
@@ -888,50 +866,6 @@ def is_ancestor(repo, older, newer):
     if not os.path.exists(os.path.join(ws, ".git")):
         return None
     return _ancestor(ws, older, newer)
-
-
-BRIDGE_FIELDS = ("rewrite_commit", "anchor_tag", "anchor_sha")
-
-
-def bridge(repo):
-    """The declared history bridge, or None.
-
-    `<repo>/.tezgah/history-bridge.json` names the commit a re-root landed in,
-    the tag that pins the pre-rewrite history and the sha that tag must resolve
-    to. When the whole tree landed in one commit, the order proofs live behind
-    that tag and only the declaration says where they are; a file missing any of
-    the three fields, or one that cannot be read, is no bridge at all, and the
-    caller then keeps the one-commit refusal."""
-    data, exc = _read_json(os.path.join(tp.workspace(repo),
-                                        "history-bridge.json"))
-    if exc or not isinstance(data, dict):
-        return None
-    if not all(isinstance(data.get(k), str) and data[k].strip()
-               for k in BRIDGE_FIELDS):
-        return None
-    return {k: data[k].strip() for k in BRIDGE_FIELDS}
-
-
-def _bridged_commit(repo, commit):
-    """The tag that places a prediction's `commit`, or None.
-
-    A declared bridge whose anchor is a descendant of the row's commit places it:
-    the row names a change the re-root pushed behind the anchor, and the anchor
-    is the end of the history that holds it. A commit reachable only from another
-    ref - a benchmark pin - is not an ancestor of the anchor and stays unplaced."""
-    declared = bridge(repo)
-    if declared is None:
-        return None
-    if _ancestor(repo, commit, declared["anchor_sha"]) is True:
-        return declared["anchor_tag"]
-    return None
-
-
-def _rel_at(repo, rev, rel):
-    """The name `rel`'s file had at `rev` (`_name_at`), else `rel`: a bridge read
-    under a missing or ambiguous name finds no add and refuses."""
-    name, _sha, _err = _name_at(repo, rev, rel)
-    return name or rel
 
 
 def _name_at(top, rev, rel, extra=()):
@@ -964,170 +898,6 @@ def _blob_by_name(top, rev, rel, extra=()):
     """(blob, error) of `rel`'s file at `rev` under the name it had then."""
     _name, sha, err = _name_at(top, rev, rel, extra)
     return sha, err
-
-
-def _names_rewrite(repo, declared, sha):
-    """True when the declared `rewrite_commit` resolves, and resolves uniquely,
-    to `sha`. A prefix matched with `startswith` covered any later commit that
-    happened to share it (E04); git refuses a prefix too short to resolve or one
-    two commits share, and that names no commit."""
-    out, err = _git(repo, "rev-parse", "--verify", "-q",
-                    declared["rewrite_commit"] + "^{commit}")
-    return not err and out == [sha]
-
-
-def _bridge_anchor(repo, declared, rewrite):
-    """(tag, anchor, problem): the declared anchor, and why it cannot stand in for
-    the history before `rewrite` - None when it can.
-
-    The tag has to resolve to the declared sha. The rewrite has to be a root
-    commit: an ordinary commit that added both files is no re-root, and naming it
-    downgraded its refusal to a warning (E26). The anchor has to be on the old
-    side and from before the rewrite: not a descendant of it, and committed no
-    later than it - a protocol-then-results replay made afterwards and tagged
-    passed with only a note (E31). What the graph proves is the first half; the
-    second rests on the committer date. ponytail: a replay backdated before the
-    rewrite passes - no graph can date two unrelated roots, and the tag is a
-    declaration the repository makes."""
-    tag, anchor = declared["anchor_tag"], declared["anchor_sha"]
-    resolved, err = _git(repo, "rev-parse", "%s^{commit}" % tag)
-    if err or not resolved:
-        return tag, anchor, ("the order bridge names tag %s, which this repository "
-                             "does not have (%s), so the plan cannot be shown to "
-                             "precede the run" % (tag, err or "no such ref"))
-    if resolved[0] != anchor:
-        return tag, anchor, ("the order bridge names tag %s, which resolves to %s "
-                             "and not to the declared anchor %s, so the plan cannot "
-                             "be shown to precede the run" % (tag, resolved[0], anchor))
-    parents, err = _git(repo, "rev-list", "--parents", "-n", "1", rewrite)
-    if err or len(parents) != 1:
-        return tag, anchor, ("the order bridge's rewrite commit %s is not a root "
-                             "commit, so it is no re-root the anchor can stand in for"
-                             % rewrite[:8])
-    dates, err = _git(repo, "show", "-s", "--format=%ct", anchor, rewrite)
-    if err or len(dates) != 2 or int(dates[0]) > int(dates[1]) \
-            or _ancestor(repo, rewrite, anchor) is not False:
-        return tag, anchor, ("the order bridge's anchor %s was committed after the "
-                             "rewrite %s or descends from it, so it holds no history "
-                             "from before the re-root" % (anchor[:8], rewrite[:8]))
-    return tag, anchor, None
-
-
-def _bridged_order(repo, declared, rewrite, proto, results, h, errors, warnings,
-                   strict, notes):
-    """Record the declared bridge's answer for one experiment.
-
-    The shape it answers is the one a re-root leaves: `rewrite` is the commit that
-    added both files. The anchor has to stand in for the history before the
-    rewrite (`_bridge_anchor`), the old history it pins has to hold a strict
-    protocol-add-before-results-add pair, and the blobs have to tie that pair to
-    the current files - P@rewrite == P'@add(R') == P'@anchor and R@rewrite ==
-    R'@anchor. A tag that is missing, a sha the tag does not resolve to or a blob
-    that moved is a refusal naming which of them failed, so a clean clone without
-    the tag is told exactly that; a bridge that proves the order adds the
-    `order: bridged via <tag>` note instead. The old adds are read under every
-    layout name the line had, so a move into open/ before the anchor is not read
-    as the add of both files (E02).
-
-    Two shapes are tolerated because they are the run's own doing and not a
-    disagreement. A results file the run appended to between the anchor and the
-    re-root holds the anchor's rows and then more, so the anchor's blob is a
-    prefix of the rewrite's - order preserved, rows added - and the note says the
-    file grew. Only results.jsonl is append-only: the protocol must be identical,
-    never merely a prefix, because an edited plan is exactly what the rule
-    refuses. And an experiment whose files the anchor never added at all is
-    younger than the anchor - a line opened after the move - which the bridge
-    cannot order rather than orders wrongly, so it warns and `--strict` refuses.
-    """
-    tag, anchor, problem = _bridge_anchor(repo, declared, rewrite)
-    if problem:
-        errors.append("experiment %s: %s" % (h, problem))
-        return
-    pcur, rcur = os.path.relpath(proto, repo), os.path.relpath(results, repo)
-    p_old, perr = _named_log(repo, pcur, (anchor, "--diff-filter=AR"))
-    r_old, rerr = _named_log(repo, rcur, (anchor, "--diff-filter=AR"))
-    if perr or rerr:
-        errors.append("experiment %s: the order bridge's anchor %s holds no add of "
-                      "protocol.md and results.jsonl to order (%s)"
-                      % (h, anchor[:8], perr or rerr))
-        return
-    if not p_old and not r_old:
-        # Neither file was ever added before the re-root: the experiment is younger
-        # than the anchor - a line opened after the move - so the anchor holds no
-        # order to bridge. The rewrite commit is then the only commit that added
-        # them, and that is what says the files came with the re-root rather than
-        # from somewhere else; without it the refusal stands. Unprovable, not
-        # false: the files were written after the anchor, not against it.
-        # The name the files had at the rewrite: a line moved to done/ after the
-        # re-root is not under its current path there.
-        if _added_at(repo, rewrite, _rel_at(repo, rewrite, pcur)) \
-                and _added_at(repo, rewrite, _rel_at(repo, rewrite, rcur)):
-            _soft(errors, warnings, strict,
-                  "experiment %s: this experiment's files first appear in the "
-                  "rewrite, so the pre-rewrite anchor holds no order to bridge" % h)
-            return
-        errors.append("experiment %s: the order bridge's anchor %s holds no add of "
-                      "protocol.md and results.jsonl to order"
-                      % (h, anchor[:8]))
-        return
-    if not p_old or not r_old:
-        errors.append("experiment %s: the order bridge's anchor %s holds no add of "
-                      "protocol.md and results.jsonl to order"
-                      % (h, anchor[:8]))
-        return
-    p_old_add, r_old_add = p_old[-1][0], r_old[-1][0]
-    if p_old_add == r_old_add or _ancestor(repo, p_old_add, r_old_add) is not True:
-        errors.append("experiment %s: the order bridge's anchor %s holds no "
-                      "protocol-before-results commit pair for these files, so the "
-                      "plan cannot be shown to precede the run" % (h, anchor[:8]))
-        return
-    # The blobs tie the old pair to the current files: the protocol the rewrite
-    # holds is the one the anchor's results add saw and the one the anchor ends
-    # with, and the results at the rewrite are the anchor's own.
-    wanted = (("protocol.md", rewrite, pcur), ("protocol.md", r_old_add, pcur),
-              ("protocol.md", anchor, pcur), ("results.jsonl", rewrite, rcur),
-              ("results.jsonl", anchor, rcur))
-    protocol, rows = [], []
-    for label, rev, rel in wanted:
-        sha, err = _blob_by_name(repo, rev, rel)
-        if err:
-            errors.append("experiment %s: the order bridge could not read %s at %s "
-                          "(%s)" % (h, label, rev[:8], err))
-            return
-        (protocol if label == "protocol.md" else rows).append(sha or "")
-    if len(set(protocol)) != 1:
-        errors.append("experiment %s: the order bridge's protocol.md blobs differ - "
-                      "%s - so the file the rewrite holds is not the one the anchor "
-                      "ordered" % (h, ", ".join(protocol)))
-        return
-    extended = False
-    if len(set(rows)) != 1:
-        # A run only appends, so the anchor's rows are the head of the file the
-        # rewrite holds: a strict prefix is the same order, later rows - not a
-        # disagreement. Anything else (a rewrite, a reordering, a missing blob)
-        # still means the file the rewrite holds is not the one the anchor ordered.
-        at_rewrite, at_anchor = rows
-        extended = bool(at_rewrite and at_anchor) \
-            and _is_prefix(repo, at_anchor, at_rewrite)
-        if not extended:
-            errors.append("experiment %s: the order bridge's results.jsonl blobs "
-                          "differ - %s - so the file the rewrite holds is not the "
-                          "one the anchor ordered" % (h, ", ".join(rows)))
-            return
-    # The bridge proves the order from the project's blobs alone; a protocol the
-    # private repository rewrote after the re-root was never compared (claim
-    # C43). The rewrite commit is the run's stand-in: every tip is held to it.
-    changed = _changed_at_tips(repo, proto, repo, rewrite, protocol[0]) \
-        if protocol[0] else False
-    if changed is None:
-        _soft(errors, warnings, strict, UNDECIDED_CHANGE % h)
-    elif changed:
-        errors.append("experiment %s: protocol.md changed after the run - a protocol "
-                      "edited after the results is not a prediction" % h)
-        return
-    notes.append("experiment %s: order: bridged via %s%s"
-                 % (h, tag, " (results extended since the anchor)" if extended
-                    else ""))
 
 
 def _read_json(path):
@@ -2232,7 +2002,7 @@ def append_claim(repo, slug, claim):
     return claim.get("id"), []
 
 
-def _check_experiments(repo, base, errors, warnings, git, strict, notes, intact=None):
+def _check_experiments(repo, base, errors, warnings, git, strict, intact=None):
     """`intact` maps an experiment the line's order seal holds, with both files
     still hashing as sealed, to its seal row. Its order is re-derived from git
     like any other, unless the owner sealed it `history-lost` (`_sealed_order`)."""
@@ -2263,8 +2033,7 @@ def _check_experiments(repo, base, errors, warnings, git, strict, notes, intact=
         if git and intact.get(h, {}).get("order") == HISTORY_LOST:
             _sealed_order(h, intact[h], errors, warnings, strict)
         elif git:
-            _check_protocol_order(repo, h, proto, results, errors, warnings, strict,
-                                  notes)
+            _check_protocol_order(repo, h, proto, results, errors, warnings, strict)
     return out
 
 
@@ -2561,15 +2330,12 @@ def _check_rows(path, label, errors, warnings, strict):
     return rows
 
 
-def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, notes):
+def _check_protocol_order(repo, h, proto, results, errors, warnings, strict):
     """protocol.md must have entered the history before results.jsonl, and must
-    not have changed after it. Two proofs are accepted: the current rule - a
-    strict add-before-add in HEAD's lineage of every history that holds the
-    results (`_answers`), with the protocol's blob unchanged since the run - and,
-    for a tree that was re-rooted in one commit, the declared history bridge
-    (`bridge`). `strict` reaches the bridge because one of its answers is a
-    warning - an experiment younger than the anchor - which `--strict` refuses,
-    and so is a history git could not read (E24)."""
+    not have changed after it: a strict add-before-add in HEAD's lineage of every
+    history that holds the results (`_answers`), with the protocol's blob
+    unchanged since the run. A history git could not read is a warning, which
+    `--strict` refuses (E24)."""
     proto_adds, proto_err = _oldest_adds(repo, proto)
     res_adds, res_err = _oldest_adds(repo, results)
     if proto_err or res_err:
@@ -2585,16 +2351,7 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, not
         errors.append("experiment %s: protocol.md is not committed, so it cannot "
                       "show the plan came before the run" % h)
         return
-    settled = {}
-    declared = _declared_rewrite(repo, proto_adds, res_adds)
-    if declared is not None:
-        before = len(errors)
-        _bridged_order(repo, declared, res_adds[repo], proto, results, h, errors,
-                       warnings, strict, notes)
-        if len(errors) > before:
-            return
-        settled[repo] = True
-    answers = _answers(repo, proto_adds, res_adds, settled)
+    answers = _answers(repo, proto_adds, res_adds)
     refused = [top for top, ok in answers.items() if ok is False]
     if refused and not any(proto_adds.get(t) and res_adds.get(t) for t in answers):
         errors.append("experiment %s: protocol.md and results.jsonl were added in "
@@ -2615,8 +2372,6 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, not
         warnings.append("experiment %s: git could not order the protocol against the "
                         "results" % h)
         return
-    if settled:
-        return  # the bridge held every tip to the rewrite
     # the run is the results' add in a history that ordered the pair itself,
     # else the import that carried both after the project committed the plan
     run = next((t for t in answers if proto_adds.get(t) != res_adds.get(t)),
@@ -2627,18 +2382,6 @@ def _check_protocol_order(repo, h, proto, results, errors, warnings, strict, not
     elif changed:
         errors.append("experiment %s: protocol.md changed after the run - a protocol "
                       "edited after the results is not a prediction" % h)
-
-
-def _declared_rewrite(repo, firsts, thens):
-    """The declared bridge when the project's one commit that added both files is
-    the rewrite it names (`_names_rewrite`), else None."""
-    then = thens.get(repo)
-    if not then or firsts.get(repo) != then:
-        return None
-    declared = bridge(repo)
-    if declared is None or not _names_rewrite(repo, declared, then):
-        return None
-    return declared
 
 
 def _check_literature(base, errors, warnings, strict):
@@ -3040,26 +2783,6 @@ def _evaluation_commit(repo, path):
     return {top: _first_lock(top, rel) for top, rel in _histories(repo, path)}
 
 
-def _bridged_lock(repo, declared, rewrite, state, results):
-    """None when the declared bridge's anchor holds a lock committed strictly
-    before the results' add, else why it does not: `_bridged_order`'s rule for the
-    evaluation, where a re-root lands the lock and the results in one commit and
-    a correct locked line was refused (E21). Read under every layout name, like
-    the protocol's bridge."""
-    _tag, anchor, problem = _bridge_anchor(repo, declared, rewrite)
-    if problem:
-        return problem
-    adds, err = _named_log(repo, os.path.relpath(results, repo),
-                           (anchor, "--diff-filter=AR"))
-    lock = _first_lock(repo, os.path.relpath(state, repo), (anchor,))
-    if err or not adds or lock is None or lock == adds[-1][0] \
-            or _ancestor(repo, lock, adds[-1][0]) is not True:
-        return ("the order bridge's anchor %s holds no evaluation lock committed "
-                "before the add of results.jsonl, so the lock cannot be shown to "
-                "precede the run" % anchor[:8])
-    return None
-
-
 def _check_evaluation_order(repo, base, state, errors, warnings, strict):
     """The evaluation is locked before the first result, and `locked_at` names a
     commit the history holds. `_check_evaluation` reads that the fields are filled;
@@ -3083,18 +2806,10 @@ def _check_evaluation_order(repo, base, state, errors, warnings, strict):
             continue
         if locks is None:
             locks = _evaluation_commit(repo, path)
-        settled = {}
-        declared = _declared_rewrite(repo, locks, added)
-        if declared is not None:
-            problem = _bridged_lock(repo, declared, added[repo], path, results)
-            if problem:
-                _soft(errors, warnings, hard, "experiment %s: %s" % (h, problem))
-                continue
-            settled[repo] = True
         # every history holding the results' add orders the lock before it; a
         # lock in one history and the results in the other only was read as None
         # and passed (claim C07), and an unanswerable order passed silently (E07)
-        answers = _answers(repo, locks, added, settled)
+        answers = _answers(repo, locks, added)
         if False in answers.values():
             _soft(errors, warnings, hard,
                   "experiment %s: the evaluation was not locked before the first "
@@ -3634,14 +3349,10 @@ def _check_review_integrity(base, errors, warnings, strict):
                       % (" and ".join(high), len(order), order[0][:80]))
 
 
-def check_line(repo, slug, git=True, strict=False, notes=None):
+def check_line(repo, slug, git=True, strict=False):
     """(errors, warnings) for one research line. `git=False` skips the checks that
     need git history, for callers that must stay cheap (the session context).
-    `strict=True` turns every guarantee the checker cannot decide into an error.
-    `notes` is an optional list the caller passes in to collect the facts a rule
-    satisfied by other than its default means - today, the experiments whose order
-    came through the declared history bridge."""
-    notes = [] if notes is None else notes
+    `strict=True` turns every guarantee the checker cannot decide into an error."""
     base = line_dir(repo, slug)
     errors, warnings = [], []
     if not os.path.isdir(base):
@@ -3655,10 +3366,10 @@ def check_line(repo, slug, git=True, strict=False, notes=None):
     _check_state(base, errors, warnings, strict)
     _check_findings(base, errors, warnings, strict)
     _check_claims(base, errors, warnings, roots=(repo,), strict=strict)
-    _check_predictions(repo, base, errors, warnings, strict, git, notes)
+    _check_predictions(repo, base, errors, warnings, strict, git)
     seal_errors, intact = _check_seal(base)
     errors.extend(seal_errors)
-    _check_experiments(repo, base, errors, warnings, git, strict, notes, intact)
+    _check_experiments(repo, base, errors, warnings, git, strict, intact)
     _check_literature(base, errors, warnings, strict)
     phase = _phase(base)
     _check_review(base, phase, errors, warnings, strict)
@@ -3773,34 +3484,32 @@ def _check_derived_phase(base, phase, direction, warnings):
                         "stopped describing the line" % (direction, derived, want))
 
 
-def check(repo, slug=None, git=True, strict=False):
-    """{slug: {"errors": [...], "warnings": [...], "notes": [...]}} for one line
-    or every line. A note is neither an error nor a warning: it is a fact about
-    how a rule was satisfied that the reader needs - today, an experiment whose
-    order came through the declared history bridge."""
+def check(repo, slug=None, git=True, strict=False, all_lines=True):
+    """{slug: {"errors": [...], "warnings": [...]}} for one line or every line.
+
+    With `all_lines=False` and no slug, a line under `done/` is verified by its
+    order seal's hashes alone (`_check_seal`), not re-checked, and appears only
+    when its seal fails: the default no-slug `check` and the session note report
+    the open lines, and `check --all-lines` re-runs the closed ones (ADR 015)."""
     out = {}
     for name in ([slug] if slug else slugs(repo)):
-        notes = []
-        errors, warnings = check_line(repo, name, git=git, strict=strict,
-                                      notes=notes)
-        out[name] = {"errors": errors, "warnings": warnings, "notes": notes}
+        if not slug and not all_lines and sealed(repo, name):
+            errors = _check_seal(line_dir(repo, name))[0]
+            if errors:
+                out[name] = {"errors": errors, "warnings": []}
+            continue
+        errors, warnings = check_line(repo, name, git=git, strict=strict)
+        out[name] = {"errors": errors, "warnings": warnings}
     return out
 
 
 def failing(repo, git=False):
     """(slug, error) pairs, for a one-line session note. Structural only by
     default: the session context must not pay for git history. A line under
-    `done/` is verified by its order seal's hashes alone (`_check_seal`), not
-    re-checked: its other findings stay with `check`, and an unsealed one adds
-    nothing (plan 058 part 4)."""
-    rows = []
-    for slug in slugs(repo):
-        if sealed(repo, slug):
-            errors = _check_seal(line_dir(repo, slug))[0]
-        else:
-            errors = check_line(repo, slug, git=git)[0]
-        rows.extend((slug, err) for err in errors)
-    return rows
+    `done/` is read by its seal hashes alone (`check` with `all_lines=False`), and
+    an unsealed one adds nothing (plan 058 part 4)."""
+    return [(slug, err) for slug, row in check(repo, git=git, all_lines=False).items()
+            for err in row["errors"]]
 
 
 # --- the order seal ----------------------------------------------------------
@@ -3944,7 +3653,7 @@ def retro_seal(repo, slug, ack, date=""):
         if not results:
             continue
         errs, warns = [], []
-        _check_protocol_order(repo, h, proto, results, errs, warns, False, [])
+        _check_protocol_order(repo, h, proto, results, errs, warns, False)
         found = errs + warns
         real += [f for f in found if not any(m in f for m in LOST_HISTORY)]
         if found:
@@ -4195,8 +3904,9 @@ def close_line(repo, slug, limit, date="", ack=""):
     reasons at the moment of closing are written into `state.json` `closed` and
     into `log.md`, so the limit says exactly what was left and why, and the line
     stops counting as open. The line is sealed (`order_seal`) with its
-    experiments' hashes and order verdicts. Nothing else is rewritten: its
-    errors, if any, still show in `check`."""
+    experiments' hashes. Nothing else is rewritten: its errors, if any, still
+    show in `check <slug>` and `check --all-lines`; the no-slug `check` and the
+    session note read a line under done/ by its seal alone."""
     base = line_dir(repo, slug)
     path = os.path.join(base, "state.json")
     state, exc = _read_json(path)
@@ -5063,7 +4773,7 @@ def _named_nothing(value):
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def prediction_problems(pred, base, repo, git=True, new=True, notes=None):
+def prediction_problems(pred, base, repo, git=True, new=True):
     """(problems, undecided): the reasons this prediction row cannot be recorded,
     and the rules git could not decide. `problems` is [] exactly when the row is
     valid.
@@ -5079,11 +4789,6 @@ def prediction_problems(pred, base, repo, git=True, new=True, notes=None):
     commit graph for the callers that must stay cheap (`check_line`'s own flag) -
     the ancestry and the frozen-path question - and the row's own shape is read
     either way; the write path always asks.
-
-    A commit the re-root left behind is placed by the declared bridge when one is
-    declared (`_bridged_commit`): the row is bound to a change the rewrite pushed
-    out of HEAD's reach but the anchor still holds. `notes`, when the caller passes
-    a list, collects the bridge tag that placed the row.
 
     `new` is the second asymmetry (the first is `granted_by`'s commit graph) and
     the only one about the row's own shape: the write path records a row that is
@@ -5101,15 +4806,8 @@ def prediction_problems(pred, base, repo, git=True, new=True, notes=None):
         problems.append("commit %r is not a 40-character sha" % (commit,))
     elif git:
         # a prediction names a product commit, so only the project's history
-        # places it - never the private `.tezgah` one (see is_ancestor) - and a
-        # declared bridge extends that history back past the rewrite
+        # places it - never the private `.tezgah` one (see is_ancestor)
         ancestor = _ancestor(repo, commit, "HEAD")
-        if ancestor is not True:
-            tag = _bridged_commit(repo, commit)
-            if tag is not None:
-                if notes is not None:
-                    notes.append(tag)
-                ancestor = True
         if ancestor is None:
             undecided.append("commit %s cannot be placed against HEAD, so "
                              "whether it is an ancestor is unverified"
@@ -5178,7 +4876,7 @@ def prediction_problems(pred, base, repo, git=True, new=True, notes=None):
     return problems, undecided
 
 
-def _check_predictions(repo, base, errors, warnings, strict, git=True, notes=None):
+def _check_predictions(repo, base, errors, warnings, strict, git=True):
     """The prediction rows of one line, read from the file the writer appends to.
 
     A line with no `predictions.jsonl` is not a problem: the artifact is newer
@@ -5191,16 +4889,11 @@ def _check_predictions(repo, base, errors, warnings, strict, git=True, notes=Non
     rows, problems = _prediction_lines(base)
     errors.extend(problems)
     for n, pred in rows:
-        placed = []
-        found, undecided = prediction_problems(pred, base, repo, git=git, new=False,
-                                               notes=placed)
+        found, undecided = prediction_problems(pred, base, repo, git=git, new=False)
         errors.extend("predictions.jsonl:%d %s" % (n, p) for p in found)
         for note in undecided:
             _soft(errors, warnings, strict,
                   "predictions.jsonl:%d %s" % (n, note))
-        if notes is not None:
-            notes.extend("predictions.jsonl:%d: order: bridged via %s" % (n, tag)
-                         for tag in placed)
     return len(rows)
 
 

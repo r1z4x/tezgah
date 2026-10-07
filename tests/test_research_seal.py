@@ -54,7 +54,7 @@ class SealCase(Workspace):
         errors, warnings = [], []
         tr._check_protocol_order(repo, h, os.path.join(d, "protocol.md"),
                                  os.path.join(d, "results.jsonl"), errors,
-                                 warnings, False, [])
+                                 warnings, False)
         return errors, warnings
 
     def seal(self, repo, slug="q"):
@@ -188,6 +188,54 @@ class Mutation(SealCase):
         self.append_line(os.path.join(d, "results.jsonl"), {"run": 2, "p95": 0.1})
         self.assertTrue(hit("experiment h1: results.jsonl changed after the line "
                             "was sealed", [e for s, e in tr.failing(repo) if s == "q"]))
+
+
+class DefaultCheck(SealCase):
+    """ADR 015: the no-slug `check` reports the open lines in full and a line
+    under done/ by its seal hashes plus a one-line count; `--all-lines` runs
+    every line in full, and `check <slug>` stays that line's full answer."""
+
+    def done_and_open(self):
+        repo = self.repo()
+        self.line(repo)
+        self.shape(repo, "ordered")
+        tr.close_line(repo, "q", "fixture", "2026-10-06")
+        os.remove(os.path.join(tr.line_dir(repo, "q"), "findings.md"))
+        self.line(repo, slug="o")
+        return repo
+
+    def test_the_default_skips_a_done_line_s_findings_and_counts_it(self):
+        repo = self.done_and_open()
+        proc = self.cli(repo, "check")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertNotIn("FAIL q", proc.stdout)
+        self.assertIn("research: 1 line(s) ok", proc.stdout)
+        self.assertIn("research: 1 done line(s) checked by their seal only; "
+                      "`check --all-lines` runs them in full", proc.stdout)
+        self.assertEqual(sorted(tr.check(repo, all_lines=False)), ["o"])
+
+    def test_all_lines_and_a_slug_run_the_done_line_in_full(self):
+        repo = self.done_and_open()
+        for args in (("check", "--all-lines"), ("check", "q")):
+            with self.subTest(args=args):
+                proc = self.cli(repo, *args)
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertIn("FAIL q: findings.md is missing", proc.stdout)
+                self.assertNotIn("done line(s) checked", proc.stdout)
+
+    def test_a_broken_seal_still_reaches_the_default(self):
+        repo = self.done_and_open()
+        d = os.path.join(tr.line_dir(repo, "q"), "experiments", "h1")
+        self.append_line(os.path.join(d, "results.jsonl"), {"run": 2, "p95": 0.1})
+        proc = self.cli(repo, "check", "--json")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        out = proc.stdout.splitlines()
+        start = [n for n, line in enumerate(out) if line.startswith("{")]
+        report = json.loads("\n".join(out[start[0]:]))
+        self.assertEqual(sorted(report), ["o", "q"])
+        self.assertEqual(report["q"]["errors"], [
+            "experiment h1: results.jsonl changed after the line was sealed "
+            "(2026-10-06) - a sealed line's plan and run are its record"])
 
 
 class HistoryLost(SealCase):

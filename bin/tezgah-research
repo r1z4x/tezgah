@@ -4,7 +4,8 @@
   tezgah-research init <slug> [--question "..."] [--allow-open "<why>"]
                        [--supersedes <slug>]              scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
-  tezgah-research check [<slug>] [--json] [--strict] [--orx] [-- <slug>]  the discipline checks
+  tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
+                                                   the discipline checks
   tezgah-research status                           one line per research line
   tezgah-research --all                            every checkout's lines (git worktrees)
   tezgah-research claim <slug>                     record one claim from stdin
@@ -31,10 +32,13 @@ commits the order rule reads are made in `.tezgah`'s own private git repository,
 which `init` creates and `commit` writes to, and a line the project itself
 committed before the move keeps its order proof in the project's history.
 
+`check` with no slug reports the open lines in full; a line under `done/` is
+verified by its order seal's hashes alone and named only when they fail, with
+one line counting the done lines - `check --all-lines` re-checks every line in
+full, and `check <slug>` always does for that line (ADR 015).
+
 `check --strict` also fails the guarantees the checker cannot decide - an
-experiment file no repository can commit, an experiment younger than the
-pre-rewrite anchor the history bridge orders by (its files first appear in the
-re-root), a protocol that answers neither
+experiment file no repository can commit, a protocol that answers neither
 what it predicts nor what would falsify it, a report a concluded line owes that
 states nowhere what the evidence does not show, a claim written before `kind`
 existed, a results row written before `source` did, a results file whose rows
@@ -252,10 +256,13 @@ def cmd_check(args):
     as_json = "--json" in flags
     strict = "--strict" in flags
     ask_orx = "--orx" in flags
-    rest = [a for a in flags if a not in ("--json", "--strict", "--orx")] + after
+    all_lines = "--all-lines" in flags
+    rest = [a for a in flags
+            if a not in ("--json", "--strict", "--orx", "--all-lines")] + after
     repo = repo_root(os.getcwd())
     if len(rest) > 1:
-        return misuse("check [<slug>] [--json] [--strict] [--orx] [-- <slug>]")
+        return misuse("check [<slug>] [--json] [--strict] [--orx] [--all-lines] "
+                      "[-- <slug>]")
     known = tr.slugs(repo)
     if rest and rest[0] not in known:
         print("FAIL %s: no such research line (have: %s)"
@@ -264,15 +271,14 @@ def cmd_check(args):
     problems = 0
     report = {}
     if known:
-        report = tr.check(repo, rest[0] if rest else None, strict=strict)
+        report = tr.check(repo, rest[0] if rest else None, strict=strict,
+                          all_lines=all_lines)
         for slug, row in report.items():
             for err in row["errors"]:
                 problems += 1
                 print("FAIL %s: %s" % (slug, err))
             for warn in row["warnings"]:
                 print("warn %s: %s" % (slug, warn))
-            for note in row["notes"]:
-                print("note %s: %s" % (slug, note))
     else:
         print("no research line under %s" % tr.root(repo))
     if ask_orx:
@@ -291,6 +297,11 @@ def cmd_check(args):
         return 1 if problems else 0
     if not problems:
         print("research: %d line(s) ok" % len(report))
+    if not rest and not all_lines:
+        done = sum(1 for slug in known if tr.sealed(repo, slug))
+        if done:
+            print("research: %d done line(s) checked by their seal only; "
+                  "`check --all-lines` runs them in full" % done)
     # The layer's own state, after the per-line report and outside the FAIL/warn
     # classes: a line being open is a state and not a defect, but it is the state
     # `init` refuses a new line over, so a session running `check` sees it here
