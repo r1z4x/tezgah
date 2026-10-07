@@ -441,6 +441,20 @@ class PlainSeal(SealCase):
         self.assertIn("not under research/done/", tr.retro_seal(
             repo, "open-one", self.PLAIN, history_lost=False)[1])
 
+    def test_a_malformed_seal_is_never_overwritten(self):
+        repo = self.done_line("ordered")
+        path = os.path.join(tr.line_dir(repo, "q"), "state.json")
+        for bad in (None, "sealed", []):
+            state = json.loads(read(path))
+            state[tr.SEAL] = bad
+            self.write(path, json.dumps(state))
+            for lost in (False, True):
+                record, problem = tr.retro_seal(repo, "q", self.PLAIN,
+                                                history_lost=lost)
+                self.assertIsNone(record)
+                self.assertIn("already carries an order seal", problem)
+                self.assertEqual(tr.line_state(repo, "q")[tr.SEAL], bad)
+
     def test_the_cli_seals_without_history_lost(self):
         repo = self.done_line("ordered")
         proc = self.cli(repo, "seal", "q")

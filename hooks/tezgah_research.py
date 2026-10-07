@@ -3668,9 +3668,10 @@ def retro_seal(repo, slug, ack, date="", history_lost=True):
     state, exc = _read_json(path)
     if exc or not isinstance(state, dict):
         return None, "state.json does not parse (%s)" % (exc or "not an object")
-    if isinstance(state.get(SEAL), dict):
+    if SEAL in state:
+        seal = state[SEAL]
         return None, "%s already carries an order seal (%s)" % (
-            slug, state[SEAL].get("verdict"))
+            slug, seal.get("verdict") if isinstance(seal, dict) else "malformed")
     record = dict(order_seal(repo, base, date), verdict=HISTORY_LOST, ack=ack)
     real = []
     for h, (proto, results) in _seal_files(base).items():
