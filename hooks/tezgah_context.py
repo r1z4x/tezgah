@@ -26,7 +26,7 @@ from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
                            REPLY_LANG_TEXT, open_lines_note, pony_level_line)
-from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir,
+from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, off,
                           orx_bin, pony_level, reply_lang, root_for, roots, tool,
@@ -1674,7 +1674,9 @@ def disarmed(session_id):
     line whoever set it. The baseline lives in the cache the control rule
     protects. ponytail: a switch armed at the start, lifted and armed again is
     not seen; the baseline is a set, not a history."""
-    now = sorted(n for n in SWITCHES if off(n))
+    # the files alone (`armed`, unlatched): a switch the latch ignores is still
+    # the tamper shape this records
+    now = sorted(n for n in SWITCHES if armed(n))
     path = _switch_baseline(session_id)
     try:
         with open(path, encoding="utf-8") as fh:

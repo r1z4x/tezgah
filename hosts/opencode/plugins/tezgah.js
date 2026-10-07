@@ -55,8 +55,8 @@
 // Hook names a given opencode build does not know are skipped by the runtime
 // (Plugin.trigger does `if (!hook) continue`), so returning a hook that build
 // lacks is safe and must never be a load-time error.
-import { createReadStream, existsSync, mkdirSync, readdirSync, realpathSync,
-  rmSync, writeFileSync } from "node:fs"
+import { closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync,
+  readSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { appendFile, mkdir, open, readFile, writeFile } from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -2047,9 +2047,46 @@ const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
   "spec-off", "task-off", "triage-off", "verify-off", "workspace-off",
   "agents-off", "skill-suggest-on", "taste-on", "update-check-off"])
 
-function off(name) {
-  return SWITCHES.has(name) &&
-    (existsSync(join(CONFIG, name)) || existsSync(join(HOME, ".claude", name)))
+// The session latch, mirrored from hooks/tezgah_paths.off: with a session id, a
+// switch file whose ctime or mtime is newer than the session ledger's first row
+// is ignored unless an `authorized` row names it or it is the full uninstall's
+// stand-down (STAND_DOWN); without one the file alone answers. This process
+// serves many sessions, so the id is an argument, not process state.
+const STAND_DOWN = "tezgah-setup --uninstall --full\n"
+
+function off(name, sessionID) {
+  return SWITCHES.has(name) && [CONFIG, join(HOME, ".claude")].some(
+    (d) => honored(join(d, name), name, sessionID))
+}
+
+function honored(path, name, sessionID) {
+  let st
+  try { st = statSync(path) } catch { return false }
+  if (!sessionID) return true
+  const ledger = join(cacheDir(), "evidence", ledgerStem(sessionID) + ".jsonl")
+  let since = null
+  try {
+    const fd = openSync(ledger, "r")
+    try {
+      const buf = Buffer.alloc(65536)
+      const n = readSync(fd, buf, 0, buf.length, 0)
+      const ts = JSON.parse(buf.toString("utf8", 0, n).split("\n")[0]).ts
+      if (typeof ts === "number") since = ts
+    } finally { closeSync(fd) }
+  } catch {}
+  if (since === null || Math.max(st.mtimeMs, st.ctimeMs) / 1000 < since + 1) return true
+  try {
+    if (name === "pretooluse-off" && readFileSync(path, "utf8") === STAND_DOWN) return true
+    for (const line of readFileSync(ledger, "utf8").split("\n")) {
+      if (!line.includes('"authorized"')) continue
+      try {
+        const row = JSON.parse(line)
+        if (row.kind === "authorized" && Array.isArray(row.authorized) &&
+            row.authorized.includes(name)) return true
+      } catch {}
+    }
+  } catch {}
+  return false
 }
 
 function slug(p) {
@@ -2368,10 +2405,10 @@ export const Tezgah = async ({ directory }) => {
     "permission.ask": async (input, output) => {
       try {
         if (!output || typeof output !== "object") return
-        if (off("pretooluse-off")) return
+        const sessionID = input?.sessionID || input?.sessionId
+        if (off("pretooluse-off", sessionID)) return
         if (!(await rootFor(dir))) return
         const { tool, args } = permissionToolArgs(input)
-        const sessionID = input?.sessionID || input?.sessionId
         const sub = String(args.subagent_type || args.agent || "")
         if (attribution(tool, args)) {
           output.status = "deny"
@@ -2395,17 +2432,17 @@ export const Tezgah = async ({ directory }) => {
       let asked = false
       const core = {}
       try {
-        if (off("pretooluse-off")) return
+        const sessionID = input?.sessionID || input?.sessionId
+        if (off("pretooluse-off", sessionID)) return
         const base = await rootFor(dir)
         if (!base) return
         const tool = String(input?.tool || "").toLowerCase()
         const args = output?.args || input?.args || {}
-        const sessionID = input?.sessionID || input?.sessionId
 
         const sub = String(args.subagent_type || args.agent || "")
         // the shortcut denials are the gate half of the integrity rule, which
         // `verify-off` removes; attribution and explore are other rules and stay
-        const shortcuts = !off("verify-off")
+        const shortcuts = !off("verify-off", sessionID)
         // The control rule is the Python gate's first (hooks/tezgah_gate.decision),
         // so a shell line CONTROL_CMD says could touch the control plane is put to
         // the core before any rule here: its answer is the whole gate's, in the
