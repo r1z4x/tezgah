@@ -4610,5 +4610,53 @@ class StopRuleReviewProbes(unittest.TestCase):
         self.assertEqual([r for r in ti.events("s") if r["kind"] == "claim"], [])
 
 
+class StopFoldInProcess(unittest.TestCase):
+    """Stop shapes judged in-process, so the generated mutants of the spec table
+    (`tests/stop_spec_eval.py --mutants`, which swaps the fold only inside this
+    process) can see them. The first two repeat StopHook's subprocess tests,
+    which no in-process mutant reaches; the rest had no test at all."""
+
+    CLAIM = "Tamamlandı, tüm testler geçti."
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "s.jsonl")
+
+    def shell(self, command, failed=False):
+        ti.note_tool("s", "Bash", {"command": command}, failed=failed, out_bytes=42)
+
+    def test_a_passing_rerun_after_a_failure_licenses_the_claim(self):
+        ti.note("s", "edit", "app.py", changed=True)
+        self.shell("pytest -q", failed=True)
+        self.shell("pytest -q")
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_failure_after_a_pass_with_an_unseen_rerun_is_a_partial_failure(self):
+        ti.note("s", "edit", "app.py", changed=True)
+        self.shell("pytest -q")
+        self.shell("ruff check .", failed=True)
+        self.shell("ruff check .", failed=None)
+        self.assertIn("Partial failure", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_write_that_is_also_a_screen_proof_proves_nothing(self):
+        # the proof has to be newer than the UI write; one row is not newer
+        # than itself. A page, not a component, so the design half stays quiet.
+        ti.note("s", "run", "screencapture -x src/pages/users.tsx > src/pages/users.tsx",
+                changed=True)
+        self.assertIn("UI evidence", ti.stop_reason(self.CLAIM, "s"))
+
+    def test_a_turn_whose_only_pass_is_the_design_check_is_licensed(self):
+        self.shell("python3 bin/tezgah-design check --contract c.md --measured m.json")
+        self.assertIsNone(ti.stop_reason(self.CLAIM, "s"))
+
+    def test_the_external_read_counts_when_a_later_row_follows_it(self):
+        self.shell("npm view tezgah versions --json")
+        self.shell("pytest -q")
+        self.assertIsNone(ti.stop_reason(
+            "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok.", "s"))
+
+
 if __name__ == "__main__":
     unittest.main()
