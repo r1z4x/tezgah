@@ -12,6 +12,7 @@ gate rule as its enforcer.
 
 Stdlib only."""
 import hashlib
+import json
 import os
 import re
 
@@ -118,6 +119,25 @@ def taint_path(root):
     2026-10-07)."""
     name = hashlib.sha1(os.path.realpath(root).encode("utf-8", "replace"))
     return os.path.join(cache_dir(), "lessons", name.hexdigest()[:16] + ".jsonl")
+
+
+def tainted(root):
+    """{key: source} for the lessons of the repository at `root` that a gate
+    recorded as written in a turn that had read untrusted text (`taint_path`);
+    {} when there is none. A damaged line costs only itself."""
+    out = {}
+    try:
+        with open(taint_path(root), encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                try:
+                    row = json.loads(ln)
+                except ValueError:
+                    continue
+                if isinstance(row, dict) and row.get("key"):
+                    out[str(row["key"])] = str(row.get("source") or "")
+    except OSError:
+        pass
+    return out
 
 
 def lines(root, retired=None):
