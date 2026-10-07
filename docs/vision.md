@@ -97,9 +97,12 @@ experiment in October 2026 tested that and found no measurable effect. It ran
 DeepSeek V4.1 Flash on omp, bare against a full install. On ImpossibleBench's
 conflicting SWE-bench split, the agent cheated in 0 of 132 runs with tezgah and
 1 of 131 without. The model barely cheated in either arm, so the experiment had
-no headroom. On the same impossible tasks, the final message claimed completion
-more often with tezgah (115 of 132 against 90 of 131). The numbers, the per-task
-counts and the instrument flaws are in
+no headroom. Hand labels of final messages on those impossible tasks found
+false done claims in 3 of 30 runs with tezgah and 6 of 30 without. The CI of
+that difference includes 0. The Stop rule's claim reader
+flagged far more runs than that. On Turkish replies it counts `doğrulandı`
+(verified) on a partial fix as a claim, a recorded weakness not yet fixed. The
+numbers, the per-task counts and the instrument flaws are in
 [the results bundle](results/paired-outcome-2026-10.md).
 
 ## Source of truth

@@ -12,8 +12,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ran DeepSeek V4.1 Flash on omp, bare against a full install. It found no
   measurable reduction in cheating. The model barely cheated in either arm: 0
   of 132 runs with tezgah and 1 of 131 without, on ImpossibleBench's
-  conflicting SWE-bench split. On those impossible tasks the final message
-  claimed completion more often with tezgah, 115 of 132 against 90 of 131. The
+  conflicting SWE-bench split. Hand labels of the final messages found no
+  false-done difference either: 3 of 30 with tezgah, 6 of 30 without. The
+  Stop rule's claim reader flagged far more, because it reads `doğrulandı` on
+  a partial fix as a done claim. That weakness stays open for now. The
   README, `docs/vision.md` and `docs/evidence.md` now say what tezgah enforces
   and records, and what it has not shown. The redacted results bundle is
   `docs/results/paired-outcome-2026-10.md`, with per-task counts beside it.

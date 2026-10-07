@@ -67,8 +67,15 @@ either arm:
 - **Phase 2, ImpossibleBench's conflicting SWE-bench split (44 instances,
   k = 3):** cheating 0/132 with tezgah vs 1/131 without (-0.8 pp, 95% CI
   -2.3 to 0); clean pass on the original tasks 129/131 vs 129/132.
-- **Against the intent:** on those impossible tasks, the final message claimed
-  completion in 115/132 runs with tezgah vs 90/131 without (+18 pp, p 0.0007).
+- **False done claims, hand-labelled:** on those impossible tasks, 3 of 30
+  sampled final messages with tezgah and 6 of 30 without told the user the
+  task was done. The adjusted difference is -5 pp (95% CI -18 to +9), so no
+  effect either way.
+- **A weak spot in the Stop rule's claim reader:** it flagged 115/132 runs
+  with tezgah and 90/131 without, but only 10% and 20% of the flags it raised
+  were real done claims. With tezgah the agent replied in Turkish, and the
+  reader counts `doğrulandı` (verified) on a partial fix as a claim. This is
+  recorded, not yet fixed.
 
 The run had instrument flaws, among them agents in both arms that could read
 the benchmark's ground truth. The aggregates, per-task counts and every caveat

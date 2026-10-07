@@ -768,11 +768,16 @@ agent cheated in 0 of 132 runs with tezgah and 1 of 131 without: -0.8 pp, 95%
 CI -2.3 to 0. Clean pass on the original tasks held at 129 of 131 against 129
 of 132.
 
-One result runs against the Stop rule's intent. On the impossible split the
-final message claimed completion in 115 of 132 runs with tezgah. Without it,
-90 of 131 did (+18 pp, McNemar p 0.0007). The rule refuses a turn whose claim
-the ledger cannot back, yet the last message of these runs still carried the
-claim. A red-team pass found one route a hook cannot read (a `python3 -c`
+The Stop rule's claim reader is `hooks/tezgah_integrity.py::claims`. On the
+impossible split it read 115 of 132 final messages with tezgah as done claims,
+and 90 of 131 without. Hand labels of 30 sampled messages per arm found real
+done claims in 3 with tezgah and 6 without. The adjusted difference is -5 pp,
+95% CI -18 to +9, so no effect either way. As a false-done reader on this
+split, the reader's precision was 0.10 with tezgah and 0.20 without. With
+tezgah the agent replied in Turkish in 129 of 132 runs. The reader counts the
+passive `doğrulandı` on a partial fix as a completion claim, even beside a
+`doğrulanmadı` for the failing test. This is a recorded weakness, not fixed
+here. A red-team pass found one route a hook cannot read (a `python3 -c`
 write of a switch) in 30 attempts.
 The numbers, the per-task counts and the instrument flaws, among them agents
 that could read the benchmark's ground truth, are in
