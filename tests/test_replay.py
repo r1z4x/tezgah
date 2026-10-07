@@ -10,7 +10,9 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import support
 from support import TempHome
@@ -124,9 +126,9 @@ class Corpus(TempHome):
                     out[os.path.join(d, name)] = fh.read()
         return out
 
-    def cli(self, *args):
+    def cli(self, *args, extra=None):
         proc = subprocess.run([sys.executable, CLI, "replay", *args], capture_output=True,
-                              text=True, env=self.env(), timeout=120)
+                              text=True, env=self.env(extra=extra), timeout=120)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return proc.stdout
 
@@ -210,9 +212,121 @@ class Corpus(TempHome):
         self.assertAlmostEqual(rep["kappa"], (0.8 - 13 / 25) / (1 - 13 / 25))
         self.assertEqual(rep["false_block"]["piped"]["k"], 1)
         self.assertEqual(rep["false_block"]["piped"]["n"], 1)
+        # A rule with no item on the sheet is neither pooled nor rated (H2
+        # amendment 2026-10-06); one with fewer items than its quota is pooled.
+        self.assertEqual(rep["pooled"], ["piped"])
+        self.assertEqual(rep["not_measurable"], ["drift", "race"])
+        self.assertNotIn("race", rep["false_block"])
+        self.assertNotIn("drift", rep["false_block"])
+        self.assertEqual(rep["false_block"]["pooled"]["n"], 1)
+        self.assertIn("false-block race     not measurable: no item of this rule is on "
+                      "the sheet", self.cli("--report", *files))
         self.assertEqual((rep["stop_false_refusal"]["k"], rep["stop_false_refusal"]["n"]),
                          (1, 1))
         self.assertIn("fall back to log-only", self.cli("--report", *files))
+
+    def test_label_model_through_the_judge_seam(self):
+        """Rater 2 (H2 amendment 2026-10-07): one choice question per sheet row
+        through the judge seam, against a local stub endpoint; secrets leave
+        redacted, a reply without a valid label stays unlabelled, a second run
+        asks only the unlabelled rows, and a one-rater report prints no rate."""
+        s = self.replay()
+        self.cli("--sheet")
+        sheet = os.path.join(s["run"], "sheet.jsonl")
+        with open(sheet, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh]
+        secret = "ghp_" + "a" * 36
+        rows[0]["text"] += "\nexport K=" + secret
+        jsonl(sheet, rows)
+        prompt = os.path.join(self.home, "prompt.json")
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({
+                "replay-gate": {"instructions": "GATE RULES",
+                                "criteria": {"refuse": "r", "allow": "a", "unsure": "u"}},
+                "replay-stop": {"instructions": "STOP RULES",
+                                "criteria": {"honest": "h", "false": "f", "unsure": "u"}}},
+                fh)
+        Stub.seen, Stub.bad = [], True
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        extra = {"TYPESAFE_API_KEY": "stub", "TEZGAH_TYPESAFE_URL":
+                 "http://127.0.0.1:%d/v1/systemone" % server.server_address[1]}
+        out = self.cli("--label-model", "--run", s["run"], "--prompt", prompt, extra=extra)
+        self.assertEqual(len(Stub.seen), 5)
+        self.assertIn("labelled 4 of 5 asked, 1 unanswered", out)
+        self.assertIn("typesafe/jev-stub", out)
+        self.assertIn("50 input tokens", out)
+        sent = json.dumps(Stub.seen)
+        self.assertNotIn(secret, sent)
+        self.assertIn("[redacted:", sent)
+        for body in Stub.seen:
+            self.assertEqual(body["model"], "jev-latest")
+            q = body["questions"]["label"]
+            self.assertEqual(q["type"], "choice")
+            self.assertEqual(q["instructions"], "GATE RULES" if "This call:" in body["state"]
+                             else "STOP RULES")
+        path = os.path.join(s["run"], "labels-model.jsonl")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        with open(path, encoding="utf-8") as fh:
+            got = [json.loads(line) for line in fh]
+        self.assertEqual(sorted(r["n"] for r in got),
+                         sorted(r["n"] for r in rows if r is not rows[0]))
+        self.assertEqual({(r["rater"], r["model"], r["provider"]) for r in got},
+                         {("model", "jev-stub", "typesafe")})
+        self.assertEqual({r["set"] for r in rows}, {"replay-gate", "replay-stop"})
+        for r in got:
+            self.assertEqual(r["label"], "refuse" if r["set"] == "replay-gate" else "honest")
+        Stub.seen, Stub.bad = [], False
+        out = self.cli("--label-model", "--run", s["run"], "--prompt", prompt, extra=extra)
+        self.assertEqual(len(Stub.seen), 1, "only the unlabelled row is asked again")
+        self.assertIn("labelled 1 of 1 asked, 0 unanswered", out)
+        report = self.cli("--report", "--run", s["run"], "--labels", path)
+        self.assertIn("raters: model", report)
+        self.assertIn("one rater", report)
+        self.assertNotIn("Wilson", report)
+        self.assertNotIn("stop missed-violation", report)
+        # A run that dies mid-way keeps the rows already paid for: each answered
+        # row is on disk before the next one is read. The prompt lacks the Stop
+        # set, and the sheet puts its Stop row last, so the run raises there.
+        os.remove(path)
+        jsonl(sheet, sorted(rows, key=lambda r: r["set"] == "replay-stop"))
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({"replay-gate": {"instructions": "GATE RULES", "criteria": {
+                "refuse": "r", "allow": "a", "unsure": "u"}}}, fh)
+        proc = subprocess.run([sys.executable, CLI, "replay", "--label-model", "--run",
+                               s["run"], "--prompt", prompt], capture_output=True,
+                              text=True, env=self.env(extra=extra), timeout=120)
+        self.assertNotEqual(proc.returncode, 0)
+        with open(path, encoding="utf-8") as fh:
+            kept = [json.loads(line) for line in fh]
+        self.assertEqual(sorted(r["n"] for r in kept),
+                         sorted(r["n"] for r in rows if r["set"] == "replay-gate"))
+
+
+class Stub(BaseHTTPRequestHandler):
+    """A TypeSafe-shaped endpoint: `refuse` for a gate row, `honest` for a Stop
+    row, and, while `bad`, a label outside the criteria for the row that carried
+    a secret (so the failing row is fixed whatever order the rows are asked in)."""
+
+    seen, bad = [], False
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        type(self).seen.append(body)
+        gate = "This call:" in body["state"]
+        label = ("maybe" if type(self).bad and "[redacted:" in body["state"]
+                 else "refuse" if gate else "honest")
+        data = json.dumps({"model": "jev-stub", "answers": {"label": {"choice": label}},
+                           "usage": {"input_tokens": 10, "output_tokens": 0}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, *args):
+        pass
 
 
 class Pure(unittest.TestCase):

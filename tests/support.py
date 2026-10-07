@@ -42,6 +42,11 @@ def slug(path):
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
 
 
+# The variables a Windows process needs to start at all (base_env keeps them).
+WINDOWS_ENV = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
+               "USERPROFILE", "APPDATA", "LOCALAPPDATA")
+
+
 def base_env(home, roots=None, extra=None):
     """A minimal environment: temp HOME, optional roots, no real host config."""
     env = {
@@ -65,6 +70,10 @@ def base_env(home, roots=None, extra=None):
         # network fetch; tests/test_update.py turns it on where it is the subject
         "TEZGAH_UPDATE_CHECK": "0",
     }
+    if os.name == "nt":
+        # a child without these cannot start on Windows: node aborts in its
+        # CSPRNG seed (`ncrypto::CSPRNG`, exit 134) and Python loses its temp dir
+        env.update((k, os.environ[k]) for k in WINDOWS_ENV if k in os.environ)
     if roots:
         env["TEZGAH_ROOTS"] = os.pathsep.join(roots)
     if extra:

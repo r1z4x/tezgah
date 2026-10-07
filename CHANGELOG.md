@@ -17,6 +17,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   classifier over the final diff that uses the gate's own patterns. The report
   adds paired bootstrap intervals, exact McNemar and Holm. `bench.py selftest`
   now also fails when an arm's prompt text names a task's hidden identifier.
+- **A tainted lesson gets a label, never a refusal.**
+  Untrusted text is a web, MCP, network, tier or subagent read. A write to
+  `.tezgah/lessons.md` after one in the same user turn now leaves one
+  `lesson_tainted` row per line it adds
+  (`docs/evidence.md`). The line still rides both lesson blocks, behind a
+  per-line data label (ADR 010). The ledger now has one reader,
+  `hooks/tezgah_lessons.py`, for the context, the gate and `tezgah-lessons`.
+  It cuts a `|| check: ...` clause and an `@<sha> <path>` stamp off each line.
+  Neither changes the key, the per-turn digest, the cut or the ranking.
+- **A model can be the replay sheet's second rater.** `tezgah-gate replay
+  --label-model --prompt <file>` sends each blind sheet row, redacted, to the
+  judge seam. It writes `labels-model.jsonl` beside the sheet and prints the
+  token cost. `replay --report` with one rater's labels now prints no rate:
+  the rates need two raters' agreed labels.
 - **The shell-reader fuzzer runs weekly under bash 5.x.** A `fuzz-shell` job
   in `.github/workflows/neuter.yml` runs `tests/fuzz_shell.py` on the ubuntu
   runner's bash 5, seed 1, 20000 lines. It reads the lines once with the core
@@ -232,6 +246,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The research session note hashes a line under `done/`.** `failing()` runs
+  `_check_seal` on a concluded or closed line instead of the full `check_line`.
+  An edit after the seal still reaches the note. The line's other findings stay
+  with `check <slug>` and `check --all-lines`. On a copy of this repository's
+  workspace the note took 0.014 s instead of 0.67 s.
+- **The no-slug research `check` and `status` report the open lines.** They
+  read a line under `done/` by its seal hashes, as the session note does. A
+  `state.json` or a seal they cannot read fails the line. One line counts the
+  done lines that carry a seal and those that do not. `check --all-lines`
+  re-checks every line in full, and `check <slug>` still does for that line
+  (ADR 015).
+- **The research history bridge is gone.** Nothing reads
+  `.tezgah/history-bridge.json` any more. It proved no experiment on this
+  repository's workspace, so `check` refuses a re-rooted one-commit add like
+  any other. Its code, its `notes` channel in the `check` report and its tests
+  went with it (ADR 015).
 - **The piped-check remedy is one sentence.** `PIPED_REMEDY` in
   `hooks/tezgah_integrity.py` holds it. The refusal, the always-on core, its
   hookless copy, the contract skill and `docs/gate.md` quote it word for word.

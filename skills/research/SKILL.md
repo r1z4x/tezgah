@@ -81,7 +81,8 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 ```sh
 ~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?"
 ~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
-~/.config/tezgah/bin/tezgah-research check    # 0 clean, 1 broken rule, 2 misuse
+~/.config/tezgah/bin/tezgah-research check    # open lines + done/ seals; 0 clean, 1 broken rule, 2 misuse
+~/.config/tezgah/bin/tezgah-research check --all-lines   # every line in full, done/ included
 ~/.config/tezgah/bin/tezgah-research check --strict   # the unprovable becomes a refusal
 ~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here
 ~/.config/tezgah/bin/tezgah-research status
@@ -509,7 +510,9 @@ A line that cannot finish is closed on purpose: `tezgah-research close <slug>
 --limit "<what is left and why>"` concludes it, writes the reasons it was still open
 into `state.json` `closed` and `log.md`, seals its experiments' file hashes
 (`order_seal`), and stops it counting as open; `conclude` seals the same
-way, and an edit after the seal fails `check`. `init --allow-open` is refused
+way, and an edit after the seal fails `check`. The no-slug `check` reads a done
+line by its seal alone and counts it on one line; its other errors show in
+`check <slug>` and `check --all-lines`. `init --allow-open` is refused
 while an open line has `check` errors. A line moves to another checkout with
 `import`, never as a copy: a copy loses the order proof.
 

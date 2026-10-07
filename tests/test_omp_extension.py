@@ -5,14 +5,33 @@ against a stub pi, so which omp event reaches the hook - and what the host is
 told to do with the answer - is checked without an omp session. The hook's own
 behaviour is covered by tests/test_omp_hook.py; this file covers the bridge.
 """
+import functools
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 import support
 from support import TempHome
+
+
+@functools.lru_cache(maxsize=None)
+def node_loads_ts(node):
+    """Whether `node` imports a .ts file as is: types are stripped by default
+    from node 22.18 on; an older node (CI's setup-node 20) throws
+    ERR_UNKNOWN_FILE_EXTENSION. Probed once per node binary."""
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "probe.ts")
+        with open(path, "w") as fh:
+            fh.write("const x: number = 1\nexport { x }\n")
+        proc = subprocess.run(
+            [node, "--input-type=module", "-e",
+             'import { pathToFileURL } from "node:url";'
+             "await import(pathToFileURL(process.argv[1]).href);", path],
+            capture_output=True, timeout=60)
+    return proc.returncode == 0
 
 
 class OmpExtension(TempHome):
@@ -21,6 +40,9 @@ class OmpExtension(TempHome):
         self.node = shutil.which("node")
         if not self.node:
             self.skipTest("node is not installed")
+        if not node_loads_ts(self.node):
+            self.skipTest("node on PATH cannot load a .ts file (needs 22.18+, "
+                          "which strips types by default)")
         self.ext = self.make_ext(support.OMP_HOOK)
 
     def make_ext(self, hook, name="tezgah-hook.ts"):

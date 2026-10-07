@@ -22,6 +22,7 @@ sys.path.insert(0, support.HOOKS)
 import tezgah_context as tc  # noqa: E402
 import tezgah_gate  # noqa: E402
 import tezgah_integrity  # noqa: E402
+import tezgah_lessons  # noqa: E402
 import tezgah_policy  # noqa: E402
 
 CLI = os.path.join(support.REPO, "bin", "tezgah-lessons")
@@ -141,7 +142,9 @@ class Retirement(Child):
         self.assertNotIn("piped check", out)
         self.assertNotIn("research line", out)
         self.assertIn("2 lessons enforced", out)
-        self.assertEqual(len(self.call("_lesson_lines", repo)), 2)
+        self.assertEqual(len(self.child(
+            "import tezgah_lessons\nprint(json.dumps(tezgah_lessons.lines(%r)))"
+            % repo)), 2)
 
     def test_lesson_three_comes_back_under_verify_off(self):
         repo = self.make_repo()
@@ -220,8 +223,8 @@ class EnforcerNames(unittest.TestCase):
         self.assertFalse(known("nosuchrule"))
         self.assertFalse(known("tests.test_research.NoSuchClass"))
         self.assertFalse(known("os.path"))
-        for value in (tc.ENFORCED.search(PIPED).group(1),
-                      tc.ENFORCED.search(RESEARCH).group(1)):
+        for value in (tezgah_lessons.ENFORCED.search(PIPED).group(1),
+                      tezgah_lessons.ENFORCED.search(RESEARCH).group(1)):
             self.assertTrue(known(value), value)
         for _needle, value in _cli().RETIRE:
             self.assertTrue(known(value), value)

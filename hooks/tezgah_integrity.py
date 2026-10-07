@@ -468,6 +468,11 @@ PERMANENT_ERROR = re.compile(
 # session start compared with the install record, and the kill switches present
 # (`hooks/tezgah_attest.py::run`). `harness` annotates a `claim` row made in a
 # session whose start found those entries drifted - the drift list, never a block.
+# A `lesson_tainted` row (`tezgah_gate.lesson_taint`) adds no field of its own:
+# `key` is the 8-hex key of the ledger line the write adds
+# (`tezgah_lessons.lesson_key`, absent when the gate could not read it), `source`
+# the channel the turn had read, `target` the ledger, `id` the call. The planned
+# `lesson_hit` row (plan 061 Phase B, not written yet) needs only `key` and `id`.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -1196,19 +1201,35 @@ def _abs_target(path, cwd):
     return os.path.realpath(path)
 
 
+# An open descriptor's own link: Linux resolves /dev/stderr and /dev/fd/N to
+# one of these (`/proc/<pid>/fd/pipe:[N]`), so it is a device by another name.
+PROC_FD = re.compile(r"^/proc/(?:self|\d+)/fd/")
+# The devices a spelling alone licenses, before realpath: only these. A
+# world-writable /dev dir (Linux /dev/shm) can hold a link into the checkout,
+# and that write is the checkout's, so any other /dev/ path is read after
+# realpath like every other path.
+DEVICE = re.compile(r"^/dev/(?:std(?:in|out|err)|fd/\d+|null|tty)$")
+
+
 def scratch_target(path, cwd=None):
     """True when a written `path` is the session's own scratch, not shared work:
-    a device (`/dev/stderr`) or a file under the system temp dir (`$TMPDIR`,
-    else the OS's) or /tmp. Two sessions writing `/tmp/x` are not racing on
-    anyone's work, and `pytest > /tmp/check.log` is the piped-check rule's own
-    remedy, so the race and task rules and a `run` row's `target` leave these
-    alone. A path inside `cwd` is never scratch: a checkout that itself lives
-    in a temp dir keeps its files. ponytail: /var/tmp is not a root - the test
-    fixtures live there precisely so they are not scratch (tests/support.py)."""
-    real = _abs_target(path, cwd)
-    if not real:
+    a device (`/dev/stderr`, or the `/proc/<pid>/fd/` link Linux resolves it
+    to) or a file under the system temp dir (`$TMPDIR`, else the OS's) or /tmp.
+    Two sessions writing `/tmp/x` are not racing on anyone's work, and
+    `pytest > /tmp/check.log` is the piped-check rule's own remedy, so the race
+    and task rules and a `run` row's `target` leave these alone. A path inside
+    `cwd` is never scratch: a checkout that itself lives in a temp dir keeps its
+    files. ponytail: /var/tmp is not a root - the test fixtures live there
+    precisely so they are not scratch (tests/support.py)."""
+    path = str(path or "").strip()
+    if not path:
         return False
-    if real.startswith("/dev/"):
+    # the named devices are read by their spelling, before realpath: on Linux
+    # realpath turns /dev/stderr into `/proc/<pid>/fd/pipe:[N]` (CI ubuntu)
+    if DEVICE.match(os.path.normpath(os.path.join(cwd or os.getcwd(), path))):
+        return True
+    real = _abs_target(path, cwd)
+    if real.startswith("/dev/") or PROC_FD.match(real):
         return True
     import tempfile  # deferred: the gate imports this module on every call
     here = os.path.realpath(cwd or os.getcwd())

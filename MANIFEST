@@ -124,6 +124,7 @@ hooks/tezgah_index.py
 hooks/tezgah_integrity.py
 hooks/tezgah_judge.py
 hooks/tezgah_lang.py
+hooks/tezgah_lessons.py
 hooks/tezgah_models.py
 hooks/tezgah_paths.py
 hooks/tezgah_policy.py
@@ -704,7 +705,9 @@ tests/test_integrity.py
 tests/test_interpreter.py
 tests/test_judge.py
 tests/test_lang.py
+tests/test_lesson_lineage.py
 tests/test_lessons.py
+tests/test_lessons_compile.py
 tests/test_live_probe.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py

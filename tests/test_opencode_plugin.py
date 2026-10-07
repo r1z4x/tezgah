@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import bash_vectors
 import support
@@ -2115,6 +2116,67 @@ class PluginPaths(TempHome):
             ["/elsewhere", root]])
         self.assertEqual(got["env"], os.pathsep.join([root, other]))
         self.assertEqual(got["under"], [True, True, False, False])
+
+    def test_the_probe_env_keeps_what_a_windows_process_needs(self):
+        # windows-latest: node started without SYSTEMROOT and its kin aborts in
+        # its CSPRNG seed (exit 134) before the probe's first line runs
+        need = {k: "C:\\x\\" + k for k in support.WINDOWS_ENV}
+        with mock.patch("os.name", "nt"), mock.patch.dict(os.environ, need):
+            env = self.env()
+        self.assertEqual({k: env.get(k) for k in need}, need)
+        # elsewhere the env stays minimal: a host's own variables do not leak in
+        with mock.patch("os.name", "posix"), mock.patch.dict(os.environ, need):
+            self.assertFalse(set(need) & set(self.env()))
+
+
+# Linux's realpath for a device: /dev/stderr and /dev/fd/N resolve to the fd's
+# /proc link. A copy of the plugin gets this realpathSync in place of node's,
+# so a macOS run reads the path the way ubuntu CI does.
+LINUX_REALPATH = r"""
+const __linux = {"/dev/stderr": "/proc/42/fd/pipe:[7]",
+                 "/dev/fd/2": "/proc/42/fd/pipe:[7]"}
+// a world-writable /dev dir (Linux /dev/shm) holding a link into the checkout
+function realpathSync(p) {
+  if (p === "/dev/shm/l") return __realpathSync(process.argv[2]) + "/f"
+  return __linux[p] || __realpathSync(p)
+}
+export { scratchTarget }
+"""
+SCRATCH_PROBE = r"""
+import { pathToFileURL } from "node:url";
+const [plugin, dir, paths] = process.argv.slice(1);
+const m = await import(pathToFileURL(plugin).href);
+process.stdout.write(JSON.stringify(
+  JSON.parse(paths).map((p) => m.scratchTarget(p, dir))));
+"""
+
+
+class ScratchOnLinux(TempHome):
+    """scratchTarget, as hooks/tezgah_integrity.scratch_target: a device is
+    scratch whether realpath leaves it under /dev/ or turns it into a /proc fd."""
+
+    def setUp(self):
+        if not NODE:
+            self.skipTest("node not installed")
+        super().setUp()
+
+    def test_a_device_that_resolves_into_proc_is_still_scratch(self):
+        with open(support.OPENCODE_PLUGIN) as fh:
+            src = fh.read()
+        swapped = src.replace("realpathSync,", "realpathSync as __realpathSync,", 1)
+        self.assertNotEqual(swapped, src, "the plugin no longer imports realpathSync")
+        plugin = os.path.join(self.home, "tezgah-probe.mjs")
+        with open(plugin, "w") as fh:
+            fh.write(swapped + LINUX_REALPATH)
+        paths = ["/dev/stderr", "/dev/fd/2", "/proc/self/fd/1", "/proc/42/fd/2",
+                 "/proc/42/environ", "/dev/shm/l"]
+        proc = subprocess.run(
+            [NODE, "--input-type=module", "-e", SCRATCH_PROBE,
+             plugin, self.home, json.dumps(paths)],
+            capture_output=True, text=True, env=self.env(), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout),
+                         [True, True, True, True, False, False])
 
 
 if __name__ == "__main__":
