@@ -15,6 +15,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import support  # noqa: E402
 
+sys.path.insert(0, support.HOOKS)
+import tezgah_taste_ledger as tl  # noqa: E402
+
 CLI = os.path.join(support.REPO, "bin", "tezgah-taste")
 TOKEN = "ghp_" + "a" * 36
 
@@ -345,7 +348,8 @@ class Learn(support.TempHome):
                       "old": "x = 1", "new": "X = 1"},
                      {"kind": "prompt", "session": session, "text": text,
                       "ts": "2026-10-0%dT10:00:00Z" % (len(rows) // 2 + 1)}]
-        jsonl(os.path.join(self.store, "signals.jsonl"), rows)
+        for row in rows:
+            tl.append(self.repo, "signals", row, strict=True)
 
     def cli(self, *args, typesafe=True, openrouter=False):
         extra = dict(self.urls)
@@ -361,12 +365,12 @@ class Learn(support.TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
-    def rows(self, name):
-        path = os.path.join(self.store, name)
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line) for line in fh]
+    def rows(self, table):
+        return tl.rows(self.repo, table)
+
+    def learnings(self):
+        """The listed learnings without their confidence, which moves with the clock."""
+        return [dict(v, confidence=None) for v in self.listed()]
 
     def test_two_sessions_of_one_preference_make_one_active_learning(self):
         proc = self.cli("learn", "--json")
@@ -378,8 +382,8 @@ class Learn(support.TempHome):
         self.assertEqual((learning["state"], learning["category"], learning["sessions"]),
                          ("active", "naming", ["A", "B"]))
         self.assertEqual(learning["evidence"][0]["paths"], ["a.py"])
-        # the defect went to its own file and never into the ledger
-        [defect] = self.rows("defects.jsonl")
+        # the defect went to its own table and never into the ledger
+        [defect] = self.rows("defects")
         self.assertIn("BROKEN", defect["text"])
         # every decision required TypeSafe: the chat fallback was never asked a decision
         self.assertTrue(all(p.endswith("/v1/systemone") for p, b in Decider.seen
@@ -397,8 +401,8 @@ class Learn(support.TempHome):
         self.assertEqual((report["typesafe"], report["unverified"]), (0, 4))
         self.assertEqual(self.listed(), [])
         self.assertTrue(all(r["verified"] is False and r["provider"] == "openrouter"
-                            for r in self.rows("decisions.jsonl")))
-        self.assertEqual(self.rows("defects.jsonl"), [])
+                            for r in self.rows("decisions")))
+        self.assertEqual(self.rows("defects"), [])
 
     def test_an_activated_learning_gets_a_written_line_from_a_generative_provider(self):
         self.cli("learn", typesafe=True, openrouter=True)
@@ -425,7 +429,7 @@ class Learn(support.TempHome):
         self.assertEqual(sample.returncode, 0, sample.stderr)
         ids = [line.split()[0] for line in sample.stdout.splitlines()[:-1]]
         self.assertEqual(len(ids), 2)
-        for row in self.rows("decisions.jsonl"):
+        for row in self.rows("decisions"):
             if row["kind"] == "preference":
                 self.assertEqual(self.cli("label", row["id"], "preference").returncode, 0)
         cal = json.loads(self.cli("calibrate", "--json").stdout)
@@ -479,16 +483,16 @@ class Learn(support.TempHome):
         self.assertFalse(any(p.endswith("/chat/completions") for p, _b in Decider.seen),
                          "--no-fallback asked the chat provider for the line")
         # TypeSafe down: nothing is asked of the chat provider, nothing recorded
-        with open(os.path.join(self.store, "signals.jsonl"), "a") as fh:
-            fh.write(json.dumps({"kind": "edit", "session": "D", "path": "a.py"}) + "\n")
-            fh.write(json.dumps({"kind": "prompt", "session": "D", "text": "PREF tabs",
-                                 "ts": "2026-10-07T10:00:00Z"}) + "\n")
+        tl.append(self.repo, "signals", {"kind": "edit", "session": "D", "path": "a.py"},
+                  strict=True)
+        tl.append(self.repo, "signals", {"kind": "prompt", "session": "D", "text": "PREF tabs",
+                                         "ts": "2026-10-07T10:00:00Z"}, strict=True)
         Decider.seen, Decider.typesafe_down = [], True
         report = json.loads(self.cli("learn", "--no-fallback", "--json",
                                      openrouter=True).stdout)
         self.assertEqual((report["unanswered"], report["unverified"]), (1, 0))
         self.assertFalse(any(p.endswith("/chat/completions") for p, _b in Decider.seen))
-        self.assertFalse(any(r.get("verified") is False for r in self.rows("decisions.jsonl")))
+        self.assertFalse(any(r.get("verified") is False for r in self.rows("decisions")))
 
     def test_no_taste_mark_refuses_to_learn(self):
         open(os.path.join(self.repo, ".no-taste"), "w").close()
@@ -500,8 +504,7 @@ class Learn(support.TempHome):
     def test_a_second_writer_exits_2_while_the_ledger_is_held(self):
         self.cli("learn")
         [learning] = self.listed()
-        with open(os.path.join(self.store, "ledger.json")) as fh:
-            before = fh.read()
+        before = self.learnings()
         # another writer holds the lock: a child process, as a real learn would be
         holder = subprocess.Popen(
             [sys.executable, "-c",
@@ -521,8 +524,7 @@ class Learn(support.TempHome):
             self.assertEqual(proc.returncode, 2, proc.stdout)
             self.assertIn("in use (pid %d)" % holder.pid, proc.stderr)
         self.assertEqual(len(Decider.seen), seen, "a refused learn still asked the judge")
-        with open(os.path.join(self.store, "ledger.json")) as fh:
-            self.assertEqual(fh.read(), before)
+        self.assertEqual(self.learnings(), before)
         holder.kill()
         holder.wait()
         holder.stdout.close()

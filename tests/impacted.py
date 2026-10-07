@@ -70,6 +70,8 @@ OVERRIDES = {
                      "dsh_hooks"),
     # the taste ledger the session block, the write note and the CLI read
     "tezgah_taste_ledger": ("taste", "taste_cli", "context"),
+    # the SQLite store the taste capture, the ledger and the CLI go through
+    "tezgah_store": ("taste", "taste_cli", "taste_ledger", "context"),
 }
 # a change only in these maps to only these modules
 DOC_TARGETS = ("test_docs.py", "test_docs_router.py", "test_clarity.py")

@@ -61,11 +61,10 @@ class Ledger(TempHome):
         return learning
 
     def labels(self, agree, n):
-        path = os.path.join(tl.store_dir(self.repo), "labels.jsonl")
         for i in range(n):
-            tl.append(path, {"id": "l%d" % i, "provider": "typesafe",
-                             "decided": "preference",
-                             "label": "preference" if i < agree else "none"})
+            tl.append(self.repo, "labels", {"id": "l%d" % i, "provider": "typesafe",
+                                            "decided": "preference",
+                                            "label": "preference" if i < agree else "none"})
 
     def active(self, r=3.0, scope="repository", where=".", text="use pathlib"):
         tl.apply(self.books, dict(sig(1, "A", text), paths=["a.py"]),
@@ -284,19 +283,71 @@ class Ledger(TempHome):
     def test_the_gate_splits_at_the_first_injection_by_turn_time(self):
         learning = self.active()
         tl.record_injection(self.repo, "S", [learning["id"]], day=DAY)
-        path = os.path.join(tl.store_dir(self.repo), "decisions.jsonl")
         for i in range(10):
             # every row decided now; the turn time alone picks the arm
             for arm, at in (("b", DAY - 1), ("a", DAY + 1)):
-                tl.append(path, {"id": "%s%d" % (arm, i), "provider": "typesafe",
-                                 "day": DAY + 5, "at": at,
-                                 "kind": "preference" if i < 3 else "none"})
+                tl.append(self.repo, "decisions", {
+                    "id": "%s%d" % (arm, i), "provider": "typesafe", "day": DAY + 5,
+                    "at": at, "kind": "preference" if i < 3 else "none"})
         report = tl.gate(self.repo, need=10)
         self.assertEqual((report["before"]["turns"], report["after"]["turns"]), (10, 10))
         self.assertTrue(report["stopped"])
         self.assertEqual(tl.block(self.repo, DAY), ("", []))
-        with open(os.path.join(tl.store_dir(self.repo), "gate.json")) as fh:
-            self.assertEqual(json.load(fh)["stopped"], True)
+        self.assertTrue(tl.stopped(self.repo))
+
+    # --- the store
+
+    def test_the_legacy_files_import_once_and_are_renamed(self):
+        store = tl.store_dir(self.repo)
+        self.assertEqual((tl.rows(self.repo, "signals"), tl.stopped(self.repo)), ([], False))
+        self.assertFalse(os.path.exists(store), "a read created the store")
+        tl.apply(self.books, sig(1, "A"), dec(), DAY)
+        tl.apply(self.books, sig(2, "A", "tabs"), dec(category="formatting", scope="user"), DAY)
+        tables = {"signals": [{"kind": "prompt", "session": "A", "text": "use pathlib"}],
+                  "decisions": [{"id": "s1", "provider": "typesafe", "at": DAY,
+                                 "kind": "preference"}],
+                  "defects": [{"id": "s2", "session": "A", "text": "it fails"}],
+                  "labels": [{"id": "s1", "provider": "typesafe", "decided": "preference",
+                              "label": "preference"}],
+                  "injected": [{"session": "A", "day": DAY, "ids": ["t0001"]}]}
+        legacy = {os.path.join(store, "ledger.json"): self.books["repo"],
+                  os.path.join(tl.user_dir(), "ledger.json"): self.books["user"],
+                  os.path.join(store, "gate.json"): {"stopped": True, "report": {}}}
+        os.makedirs(store)
+        os.makedirs(tl.user_dir())
+        for path, data in legacy.items():
+            with open(path, "w") as fh:
+                json.dump(data, fh)
+        for table, rows in tables.items():
+            path = os.path.join(store, table + ".jsonl")
+            legacy[path] = rows
+            with open(path, "w") as fh:
+                fh.write("".join(json.dumps(r) + "\n" for r in rows) + '{"torn')
+        books = tl.load(self.repo)
+        self.assertEqual(books["repo"]["learnings"], self.books["repo"]["learnings"])
+        self.assertEqual(books["repo"]["meta"], self.books["repo"]["meta"])
+        self.assertEqual(books["user"]["learnings"], self.books["user"]["learnings"])
+        self.assertTrue(tl.stopped(self.repo))
+        for table, rows in tables.items():
+            self.assertEqual(tl.rows(self.repo, table), rows, table)
+        self.assertEqual(tl.injected(self.repo, "A"), {"t0001"})
+        for path in legacy:
+            self.assertFalse(os.path.exists(path), path)
+            self.assertTrue(os.path.exists(path + ".imported"), path)
+        # a second open imports nothing, even a legacy file that appeared since
+        again = os.path.join(store, "signals.jsonl")
+        with open(again, "w") as fh:
+            fh.write(json.dumps({"kind": "prompt", "session": "B", "text": "late"}) + "\n")
+        self.assertEqual(tl.rows(self.repo, "signals"), tables["signals"])
+        self.assertTrue(os.path.exists(again), "a second open imported again")
+
+    def test_a_strict_append_raises_where_a_hook_append_drops(self):
+        os.makedirs(os.path.dirname(tl.store_dir(self.repo)), exist_ok=True)
+        open(tl.store_dir(self.repo), "w").close()  # the store's directory is a file
+        row = {"id": "s1", "provider": "typesafe"}
+        self.assertIsNone(tl.append(self.repo, "decisions", row))
+        with self.assertRaises(OSError):
+            tl.append(self.repo, "decisions", row, strict=True)
 
 
 class HostNotes(TempHome):

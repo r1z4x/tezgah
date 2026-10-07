@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Taste state lives in SQLite.** The repository's signals, decisions,
+  defects, labels, injections, gate state, learnings and write-note history
+  move to `.tezgah/taste/taste.db`. User-scope learnings move to
+  `~/.config/tezgah/taste/taste.db`. The first open imports the old JSON and
+  JSONL files once and renames each to `<name>.imported`. `taste.md` stays a
+  text file.
+
 ## [1.3.0] - 2026-10-07
 
 ### Added

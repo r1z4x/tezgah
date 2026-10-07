@@ -398,7 +398,7 @@ writes only into a repository that already has a `.tezgah/` directory. A
 (`hooks/tezgah_context.py::repo_marks`). A workspace of repo-provided data gets
 nothing.
 
-Rows go to `<repo>/.tezgah/taste/signals.jsonl` through the ledger's own writer
+Rows go to the `signals` table of `<repo>/.tezgah/taste/taste.db`
 (`_write`, `hooks/tezgah_taste.py::_write`). A user turn adds a `prompt` row,
 redacted and cut to 2000 characters (`hooks/tezgah_taste.py::note_prompt`).
 A landed write adds an `edit` row with its redacted old and new text, cut to
@@ -438,21 +438,21 @@ write's pre-state, or with the file on disk (`user_diff`,
 signal (`decide`, `bin/tezgah-taste::decide`, [judge](judge.md)). The decision
 names preference, defect or none. It picks one of eleven fixed categories and a
 scope. It also says how the signal relates to each learning held: supports,
-contradicts, narrows or unrelated. When another provider answers, `learn` writes
-the decision to `decisions.jsonl` as `unverified` and never applies it. A defect
-goes to `defects.jsonl` and never into the ledger.
+contradicts, narrows or unrelated. When another provider answers, `learn` records
+the decision in the `decisions` table as `unverified` and never applies it. A
+defect goes to the `defects` table and never into the ledger.
 
 Armed taste also learns by itself. At session start, `learn` starts in the
-background when `signals.jsonl` grew since the last start, at most once an hour
-per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). It runs
+background when new signals arrived since the last start. It starts at most
+once an hour per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). It runs
 with `--no-fallback` and only when a TypeSafe key resolves, so it never pays a
 generative provider for a decision it could not apply. It does not run on
 Windows, which has no ledger lock yet. The stamp and the log live under the
 cache dir, in `taste-learn/`.
 
-The ledger is `<repo>/.tezgah/taste/ledger.json`, plus
-`~/.config/tezgah/taste/ledger.json` for user-scope learnings
-(`hooks/tezgah_taste_ledger.py`). Confidence is (r+1)/(r+s+2) over supporting
+The repository's learnings live in the same `taste.db`. User-scope learnings live in
+`~/.config/tezgah/taste/taste.db` (`hooks/tezgah_taste_ledger.py`). Confidence is
+(r+1)/(r+s+2) over supporting
 and contradicting evidence. Each piece counts at its decision probability, and
 the ledger forgets it per day at its scope's rate (`confidence`,
 `hooks/tezgah_taste_ledger.py::confidence`). A learning turns active in its
@@ -465,8 +465,18 @@ ledgers. `learn`, `accept`, `reject` and `edit` rewrite them one at a time on
 this machine, under a lock on `~/.config/tezgah/taste/ledger.lock` (`locked`,
 `hooks/tezgah_taste_ledger.py::locked`). The lock spans every repository,
 because each command also rewrites the user ledger. A second one exits 2 and
-names the holder. Every taste row goes through the evidence ledger's locked
-writer (`append`, `hooks/tezgah_taste_ledger.py::append`).
+names the holder.
+
+One module owns both databases (`taste`, `hooks/tezgah_store.py::taste`). Each
+runs SQLite in WAL mode with a 5-second busy timeout. The directory is 0700 and
+the database file 0600. A row keeps its JSON fields as before. A hook drops a
+row it cannot write, and the CLI's decision, defect and label rows raise
+instead (`append`, `hooks/tezgah_taste_ledger.py::append`). The first open of a
+database imports the files it replaces: `ledger.json`, `gate.json`, and
+`signals`, `decisions`, `defects`, `labels` and `injected` as `.jsonl`. The
+import runs in one transaction. It renames each imported file to `<name>.imported`
+and never deletes one. A later open imports nothing (`_import`,
+`hooks/tezgah_store.py::_import`).
 
 Session start injects the active learnings (`block`,
 `hooks/tezgah_taste_ledger.py::block`). A rule needs confidence 0.8 and a
@@ -475,11 +485,12 @@ labelled sample (`calibration`, `hooks/tezgah_taste_ledger.py::calibration`). A
 hint needs 0.6. A learning whose evidence paths are all gone is withheld. A
 write also carries the in-scope learnings it has not yet shown in the session,
 on every host's post-tool channel (`write_note`, `hooks/tezgah_taste.py::write_note`).
+The repository's database keeps the learnings each session has already been shown.
 `gate` compares preference corrections per writing turn before and after the
 first injection, by when each turn happened. Once both arms hold 980 turns and
 the after-rate is not lower
-at one-sided p < 0.1, it writes `gate.json` and injection stops (`gate`,
-`hooks/tezgah_taste_ledger.py::gate`). `mine` reads omp's top-level session
+at one-sided p < 0.1, injection stops (`gate`,
+`hooks/tezgah_taste_ledger.py::gate`). The database keeps that stop. `mine` reads omp's top-level session
 files and Claude's top-level transcripts whose cwd is under `--root`
 (`cmd_mine`, `bin/tezgah-taste::cmd_mine`). `measure` and `rate` use a fixed
 labelling rule (`RULE`, `bin/tezgah-taste::RULE`).

@@ -6,8 +6,8 @@ Opt-in and off by default. A row is written only when the `taste-on` marker is
 armed (`tezgah_paths.armed`), the repository carries no `.no-taste` mark, its
 `.tezgah/` already exists and is the user's own (`workspace_from_repo`: a
 workspace that came with the clone is data, and nothing of the user's is
-written into it). The store is `<git root>/.tezgah/taste/signals.jsonl`, one
-JSON object per line, owner-only.
+written into it). The store is the `signals` table of
+`<git root>/.tezgah/taste/taste.db` (`tezgah_store.taste`), owner-only.
 
 Every public function is total: it never raises and makes no network call.
 The capture functions append at most one row each. They run on the prompt and
@@ -86,9 +86,10 @@ def _write(root, kind, session_id, host, **fields):
            .strftime("%Y-%m-%dT%H:%M:%SZ"),
            "kind": kind, "session": str(session_id or ""), "host": host or _host()}
     row.update(fields)
-    # the ledger's own writer: its flock, torn-tail repair and 0700/0600 modes
-    ti._append(os.path.join(root, ".tezgah", "taste", "signals.jsonl"),
-               json.dumps(row, ensure_ascii=False) + "\n")
+    # imported here, not at the top: the off path never loads sqlite3
+    import tezgah_store as store
+    with store.taste(os.path.join(root, ".tezgah", "taste")) as db:
+        store.append(db, "signals", row)
 
 
 def _host():
@@ -215,8 +216,9 @@ def write_note(session_id, inp, cwd, tool=None):
 def learn_later(root):
     """Start `tezgah-taste learn --repo <root> --no-fallback` detached when the
     signals of `root` (the git root `enabled` returned) grew since the last
-    start and an hour has passed. Only when TypeSafe resolves: the automatic run
-    never pays a generative provider for a decision it may not apply. Not on a
+    start and an hour has passed; the stamp keeps the newest signal's append
+    number. Only when TypeSafe resolves: the automatic run never pays a
+    generative provider for a decision it may not apply. Not on a
     machine without flock (Windows), where two background runs in two
     repositories would race on the user ledger. ponytail: no Windows lock; add
     one (msvcrt.locking) before enabling it there. Total; the stamp is written
@@ -224,7 +226,11 @@ def learn_later(root):
     try:
         if not root:
             return
-        size = os.path.getsize(os.path.join(root, ".tezgah", "taste", "signals.jsonl"))
+        import tezgah_store as store
+        with store.taste(os.path.join(root, ".tezgah", "taste"), create=False) as db:
+            if db is None:
+                return
+            count = store.last(db, "signals")
         base = os.path.join(tezgah_paths.cache_dir(), "taste-learn")
         name = re.sub(r"[^A-Za-z0-9]+", "-", root).strip("-")
         stamp = os.path.join(base, name + ".json")
@@ -234,7 +240,7 @@ def learn_later(root):
         except (OSError, ValueError):
             last = {}
         now = time.time()
-        if size <= last.get("size", -1) or now - last.get("at", 0) < LEARN_EVERY:
+        if count <= last.get("rows", 0) or now - last.get("at", 0) < LEARN_EVERY:
             return
         # the costlier checks run only once a start is due: at most hourly
         import tezgah_judge
@@ -244,7 +250,7 @@ def learn_later(root):
             return
         os.makedirs(base, exist_ok=True)
         with open(stamp, "w", encoding="utf-8") as fh:
-            json.dump({"size": size, "at": now}, fh)
+            json.dump({"rows": count, "at": now}, fh)
         with open(os.path.join(base, name + ".log"), "ab") as log:
             subprocess.Popen([sys.executable, BIN, "learn", "--repo", root,
                               "--no-fallback"],

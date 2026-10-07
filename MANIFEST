@@ -142,6 +142,7 @@ hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
 hooks/tezgah_stack.py
 hooks/tezgah_stopspec.py
+hooks/tezgah_store.py
 hooks/tezgah_task.py
 hooks/tezgah_taste.py
 hooks/tezgah_taste_ledger.py

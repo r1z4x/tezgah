@@ -21,20 +21,20 @@ answers and keeps the ledger.
 - Apply: a rule needs confidence >= `RULE_AT` and a calibration bound >=
   `BOUND_AT` (Clopper-Pearson on an independently labelled sample); a hint needs
   `HINT_AT`; a learning whose evidence paths are all gone from the tree is
-  suspended. The benefit gate's stop file turns injection off.
+  suspended. The benefit gate's stopped state turns injection off.
 
-Store: `<repo>/.tezgah/taste/ledger.json` for path, language and repository
-learnings, `~/.config/tezgah/taste/ledger.json` for user learnings.
+Store: `tezgah_store.taste` - `<repo>/.tezgah/taste/taste.db` for path,
+language and repository learnings and every taste row, and
+`~/.config/tezgah/taste/taste.db` for user learnings.
 """
 import datetime
 import errno
 import fnmatch
-import json
 import math
 import os
 
-import tezgah_integrity as ti
-from tezgah_paths import CONFIG_DIR, cache_dir
+import tezgah_store as store
+from tezgah_paths import CONFIG_DIR
 
 try:
     import fcntl
@@ -66,35 +66,21 @@ def user_dir():
     return os.path.join(CONFIG_DIR, "taste")
 
 
-def _load(path):
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if isinstance(data, dict) and isinstance(data.get("learnings"), dict):
-            data.setdefault("meta", {})
-            return data
-    except (OSError, ValueError):
-        pass
-    return {"v": 1, "learnings": {}, "meta": {}}
-
-
-def _save(path, data):
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, indent=1, sort_keys=True)
-    os.replace(tmp, path)
+def _load(dirpath, user=False):
+    with store.taste(dirpath, user, create=False) as db:
+        return store.load_ledger(db) if db else {"v": 1, "learnings": {}, "meta": {}}
 
 
 def load(root):
     """{"repo": ledger, "user": ledger}."""
-    return {"repo": _load(os.path.join(store_dir(root), "ledger.json")),
-            "user": _load(os.path.join(user_dir(), "ledger.json"))}
+    return {"repo": _load(store_dir(root)), "user": _load(user_dir(), user=True)}
 
 
 def save(root, ledgers):
-    _save(os.path.join(store_dir(root), "ledger.json"), ledgers["repo"])
-    _save(os.path.join(user_dir(), "ledger.json"), ledgers["user"])
+    with store.taste(store_dir(root)) as db:
+        store.save_ledger(db, ledgers["repo"])
+    with store.taste(user_dir(), user=True) as db:
+        store.save_ledger(db, ledgers["user"])
 
 
 def every(ledgers):
@@ -142,34 +128,24 @@ def cp_lower(x, n, alpha=0.05):
     return lo
 
 
-def rows(path):
+def rows(root, table, where="", args=()):
+    """One taste table's rows in append order (`tezgah_store.TASTE_ROWS`); []
+    when the repository has no store yet."""
+    with store.taste(store_dir(root), create=False) as db:
+        return store.rows(db, table, where, args) if db else []
+
+
+def append(root, table, row, strict=False):
+    """One row into a taste table. A hook drops a row it cannot write; `strict`
+    (the CLI's decision, defect and label rows) raises instead, so `learn` stops
+    before it saves a ledger whose decision was never recorded and would be
+    re-applied."""
     try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(row, dict):
-                    yield row
-    except OSError:
-        return
-
-
-def append(path, row, strict=False):
-    """One row through the ledger's own writer: flock, torn-tail repair, 0600.
-    That writer drops a row it cannot write, which a hook wants; `strict` (the
-    CLI's decision, defect and label rows) reads the tail back and raises
-    OSError when the row is not there, so `learn` stops before it saves a
-    ledger whose decision was never recorded and would be re-applied."""
-    line = json.dumps(row, ensure_ascii=False) + "\n"
-    ti._append(path, line)
-    if strict:
-        data = line.encode("utf-8")
-        with open(path, "rb") as fh:
-            fh.seek(max(0, os.path.getsize(path) - len(data)))
-            if fh.read() != data:
-                raise OSError("taste row not written to %s" % path)
+        with store.taste(store_dir(root)) as db:
+            store.append(db, table, row)
+    except store.ERRORS:
+        if strict:
+            raise
 
 
 class Busy(Exception):
@@ -220,8 +196,8 @@ def calibration(root):
     bound on that precision. Only typed-provider decisions count; the labels are
     a sample drawn independently of what was injected (`tezgah-taste label`)."""
     x = n = 0
-    for row in rows(os.path.join(store_dir(root), "labels.jsonl")):
-        if row.get("provider") != "typesafe" or row.get("decided") != "preference":
+    for row in rows(root, "labels", "WHERE provider = ?", ("typesafe",)):
+        if row.get("decided") != "preference":
             continue
         n += 1
         x += row.get("label") == "preference"
@@ -428,11 +404,8 @@ def suspended(learning, root):
 
 def stopped(root):
     """True when the benefit gate stopped injection for this repository."""
-    try:
-        with open(os.path.join(store_dir(root), "gate.json"), encoding="utf-8") as fh:
-            return bool(json.load(fh).get("stopped"))
-    except (OSError, ValueError, AttributeError):
-        return False
+    with store.taste(store_dir(root), create=False) as db:
+        return bool(db) and store.gate_stopped(db)
 
 
 def usable(root, day=None):
@@ -478,10 +451,10 @@ def block(root, day=None):
 
 
 def record_injection(root, session_id, ids, day=None):
-    """One `injected.jsonl` row: the meta loop counts a later correction in this
+    """One `injected` row: the meta loop counts a later correction in this
     session against these ids, and the benefit gate splits its arms at the first."""
     if ids:
-        append(os.path.join(store_dir(root), "injected.jsonl"),
+        append(root, "injected",
                {"session": str(session_id or ""), "day": now_day() if day is None else day,
                 "ids": list(ids)})
 
@@ -489,9 +462,8 @@ def record_injection(root, session_id, ids, day=None):
 def injected(root, session_id):
     """The learning ids injected in one session."""
     ids = set()
-    for row in rows(os.path.join(store_dir(root), "injected.jsonl")):
-        if row.get("session") == session_id:
-            ids.update(row.get("ids") or ())
+    for row in rows(root, "injected", "WHERE session = ?", (session_id,)):
+        ids.update(row.get("ids") or ())
     return ids
 
 
@@ -502,24 +474,18 @@ def write_note(root, session_id, rel_path):
     if not session_id or not rel_path or stopped(root):
         return ""
     kind = os.path.splitext(rel_path)[1] or os.path.basename(rel_path)
-    seen_path = os.path.join(cache_dir(), "taste-notes",
-                             "%s.json" % str(session_id).replace(os.sep, "_"))
-    try:
-        with open(seen_path, encoding="utf-8") as fh:
-            seen = set(json.load(fh))
-    except (OSError, ValueError, TypeError):
-        seen = set()
+    session_id = str(session_id)
+    with store.taste(store_dir(root), create=False) as db:
+        seen = store.seen(db, session_id) if db else set()
     hits = [(mode, learning) for mode, learning in usable(root)
             if learning["scope"] in ("path", "language") and learning["id"] not in seen
             and fnmatch.fnmatch(rel_path, learning["where"])]
     if not hits:
         return ""
-    seen.update(m[1]["id"] for m in hits)
     try:
-        os.makedirs(os.path.dirname(seen_path), mode=0o700, exist_ok=True)
-        with open(seen_path, "w", encoding="utf-8") as fh:
-            json.dump(sorted(seen), fh)
-    except OSError:
+        with store.taste(store_dir(root)) as db:
+            store.mark_seen(db, session_id, [m[1]["id"] for m in hits])
+    except store.ERRORS:
         return ""
     record_injection(root, session_id, [m[1]["id"] for m in hits])
     return ("Taste for %s files (narrower scope wins):\n" % kind
@@ -529,8 +495,8 @@ def write_note(root, session_id, rel_path):
 # --- markdown and export ----------------------------------------------------------------
 
 def markdown(root, day=None):
-    """Rewrite `<store>/<category>/taste.md` from the active learnings; the JSON
-    ledger stays the source of truth. Returns the files written."""
+    """Rewrite `<store>/<category>/taste.md` from the active learnings; the
+    database stays the source of truth. Returns the files written."""
     day = now_day() if day is None else day
     by_cat = {}
     for learning in every(load(root)).values():
@@ -590,7 +556,7 @@ def export_agents(root):
 
 def first_injection(root):
     """The day of the first injection, or None: where the gate's arms split."""
-    days = [r["day"] for r in rows(os.path.join(store_dir(root), "injected.jsonl"))
+    days = [r["day"] for r in rows(root, "injected")
             if isinstance(r.get("day"), (int, float))]
     return min(days) if days else None
 
@@ -601,13 +567,13 @@ def gate(root, need=980, alpha=0.1):
     Every decided signal is one prompt after a writing turn. The arms split at
     the first injection, by when the turn happened (`at`), not by when `learn`
     decided it, so a backfill of old sessions stays in the before arm. Once both
-    arms hold `need` turns, `gate.json` says stopped unless the after-rate is
+    arms hold `need` turns, the gate's state says stopped unless the after-rate is
     lower at one-sided p < `alpha`. Returns the report."""
     first = first_injection(root)
     arms = {"before": [0, 0], "after": [0, 0]}
-    for row in rows(os.path.join(store_dir(root), "decisions.jsonl")):
+    for row in rows(root, "decisions", "WHERE provider = ?", ("typesafe",)):
         at = row.get("at")
-        if row.get("provider") != "typesafe" or not isinstance(at, (int, float)):
+        if not isinstance(at, (int, float)):
             continue
         arm = arms["after" if first is not None and at >= first else "before"]
         arm[0] += 1
@@ -623,6 +589,6 @@ def gate(root, need=980, alpha=0.1):
         report["p"] = round(0.5 * math.erfc(z / math.sqrt(2)), 4)
     if n1 >= need and n2 >= need:
         report["stopped"] = not (report["p"] is not None and report["p"] < alpha)
-        _save(os.path.join(store_dir(root), "gate.json"),
-              {"stopped": report["stopped"], "report": report})
+        with store.taste(store_dir(root)) as db:
+            store.set_gate(db, report["stopped"], report)
     return report

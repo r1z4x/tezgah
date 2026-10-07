@@ -34,15 +34,15 @@ judge's provider (`hooks/tezgah_judge.py` names it); with no credential or
 `judge-off` set they send nothing and exit 2.
 
 `learn` is taste-1's pipeline on tezgah (research line taste-architecture,
-design T1P). Each prompt after a writing turn - from the capture rows in
-`<repo>/.tezgah/taste/signals.jsonl`, or with `--from-transcripts` from this
-repository's omp and Claude transcripts - becomes one structured signal built by
-code: the prompt, the files written, the agent's edits and the user's own edit
-between two agent writes. One typed decision per signal, required from TypeSafe
-(`only=("typesafe",)`): preference, defect or none; the category; the scope; and
-how it relates to each learning held. A decision any other provider gave is
-recorded `unverified` and never applied. A defect goes to `defects.jsonl`, never
-into the ledger. The ledger itself is `hooks/tezgah_taste_ledger.py`. A
+design T1P). Each prompt after a writing turn - from the capture rows in the
+`signals` table of `<repo>/.tezgah/taste/taste.db`, or with `--from-transcripts`
+from this repository's omp and Claude transcripts - becomes one structured signal
+built by code: the prompt, the files written, the agent's edits and the user's
+own edit between two agent writes. One typed decision per signal, required from
+TypeSafe (`only=("typesafe",)`): preference, defect or none; the category; the
+scope; and how it relates to each learning held. A decision any other provider
+gave is recorded `unverified` and never applied. A defect goes to the `defects`
+table, never into the ledger. The ledger itself is `hooks/tezgah_taste_ledger.py`. A
 learning that becomes active gets one readable line from a generative provider
 (a `text` question; the user's own words when none answers).
 
@@ -522,7 +522,7 @@ def user_diff(repo, rel, after_sid, snaps):
 def capture_signals(repo):
     """One signal per prompt that followed a writing turn, from the capture rows."""
     snaps, turns, out = None, {}, []
-    for row in tl.rows(os.path.join(tl.store_dir(repo), "signals.jsonl")):
+    for row in tl.rows(repo, "signals"):
         session = row.get("session") or ""
         turn = turns.setdefault(session, {"edits": [], "after": []})
         if row.get("kind") == "edit":
@@ -689,7 +689,7 @@ def cmd_learn(args):
     signals = (transcript_signals(repo, args.host) if args.from_transcripts
                else capture_signals(repo))
     decided = {}
-    for r in tl.rows(os.path.join(tl.store_dir(repo), "decisions.jsonl")):
+    for r in tl.rows(repo, "decisions"):
         decided[r.get("id")] = decided.get(r.get("id")) or r.get("provider") == "typesafe"
     # a typed decision is final; an unverified one is retried, TypeSafe only
     todo = [s for s in signals if not decided.get(s["id"])]
@@ -709,7 +709,7 @@ def cmd_learn(args):
         tokens[0] += result["usage"]["input_tokens"]
         tokens[1] += result["usage"]["output_tokens"]
         day = tl.now_day()
-        tl.append(os.path.join(tl.store_dir(repo), "decisions.jsonl"), {
+        tl.append(repo, "decisions", {
             "id": sig["id"], "day": day, "at": sig.get("at"), "session": sig["session"],
             "provider": result.get("provider"), "model": result.get("model"),
             "verified": dec["verified"], "kind": dec["kind"][0], "p": dec["kind"][1],
@@ -722,7 +722,7 @@ def cmd_learn(args):
         counts["typesafe"] += 1
         counts[dec["kind"][0] if dec["kind"][0] in CLASSES else "none"] += 1
         if dec["kind"][0] == "defect":
-            tl.append(os.path.join(tl.store_dir(repo), "defects.jsonl"),
+            tl.append(repo, "defects",
                       {"id": sig["id"], "day": day, "session": sig["session"],
                        "text": ti.redact(sig["text"])[:600], "paths": sig["paths"][:8]},
                       strict=True)
@@ -806,17 +806,16 @@ def cmd_label(args):
     sample of unlabelled typed decisions - drawn without regard to what was
     injected, so the calibration bound rests on an unselected sample."""
     repo = store_or_exit(args)
-    store = tl.store_dir(repo)
-    decided = {r["id"]: r for r in tl.rows(os.path.join(store, "decisions.jsonl"))
-               if r.get("provider") == "typesafe" and r.get("id")}
-    labelled = {r.get("id") for r in tl.rows(os.path.join(store, "labels.jsonl"))}
+    decided = {r["id"]: r for r in tl.rows(repo, "decisions", "WHERE provider = ?",
+                                            ("typesafe",)) if r.get("id")}
+    labelled = {r.get("id") for r in tl.rows(repo, "labels")}
     if args.id:
         if args.label not in CLASSES:
             return misuse("label is one of %s" % ", ".join(CLASSES))
         row = decided.get(args.id)
         if row is None:
             return misuse("no typed decision %s" % args.id)
-        tl.append(os.path.join(store, "labels.jsonl"),
+        tl.append(repo, "labels",
                   {"id": args.id, "label": args.label, "decided": row.get("kind"),
                    "provider": row.get("provider"), "day": tl.now_day()}, strict=True)
         print("%s labelled %s (decided %s)" % (args.id, args.label, row.get("kind")))
@@ -910,7 +909,7 @@ def main(argv):
                "gate": cmd_gate}[args.cmd]
     if args.cmd not in ("learn", "accept", "reject", "edit", "label"):
         return handler(args)
-    # the commands that rewrite ledger.json: one at a time, or the last one
+    # the commands that rewrite the ledgers: one at a time, or the last one
     # to finish would silently drop what the other wrote
     try:
         repo = store_or_exit(args)

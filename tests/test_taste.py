@@ -22,6 +22,7 @@ sys.path.insert(0, support.HOOKS)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 import tezgah_snapshot as ts  # noqa: E402
+import tezgah_store as store  # noqa: E402
 import tezgah_taste as tt  # noqa: E402
 
 TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2"
@@ -46,17 +47,14 @@ class Taste(TempHome):
         env = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.roots})
         env.start()
         self.addCleanup(env.stop)
-        self.store = os.path.join(self.repo, ".tezgah", "taste", "signals.jsonl")
+        self.store = os.path.join(self.repo, ".tezgah", "taste")
 
     def arm(self):
         open(os.path.join(self.config_dir, tt.ARM), "w").close()
 
     def rows(self, kind=None):
-        try:
-            with open(self.store, encoding="utf-8") as fh:
-                rows = [json.loads(line) for line in fh]
-        except FileNotFoundError:
-            return []
+        with store.taste(self.store, create=False) as db:
+            rows = store.rows(db, "signals") if db else []
         return [r for r in rows if kind is None or r["kind"] == kind]
 
     def write(self, name, text):
@@ -85,7 +83,15 @@ class Taste(TempHome):
         self.assertEqual(row["text"], ti.redact("use pathlib, key " + TOKEN))
         self.assertNotIn("cut", row)
         self.assertRegex(row["ts"], r"\A\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\Z")
-        self.assertEqual(stat.S_IMODE(os.stat(self.store).st_mode), 0o600)
+        # owner-only: the directory, the database and, while a connection
+        # holds them open, its WAL sidecars
+        self.assertEqual(stat.S_IMODE(os.stat(self.store).st_mode), 0o700)
+        db = os.path.join(self.store, store.TASTE_DB)
+        conn = store.connect(db, store.REPO_SCHEMA)
+        self.addCleanup(conn.close)
+        conn.execute("SELECT count(*) FROM signals").fetchone()
+        for path in (db, db + "-wal", db + "-shm"):
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600, path)
 
     def test_long_prompt_and_edit_are_cut_and_flagged(self):
         self.arm()
@@ -217,9 +223,8 @@ class Taste(TempHome):
         tezgah_context.context_for(event, self.repo, {"session_id": "s-learn"})
 
     def grow(self):
-        os.makedirs(os.path.dirname(self.store), exist_ok=True)
-        with open(self.store, "a", encoding="utf-8") as fh:
-            fh.write('{"kind": "prompt"}\n')
+        with store.taste(self.store) as db:
+            store.append(db, "signals", {"kind": "prompt"})
 
     def stamps(self):
         base = os.path.join(tp.cache_dir(), "taste-learn")
