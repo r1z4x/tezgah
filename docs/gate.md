@@ -82,9 +82,9 @@ it first after the root check (`decision` `hooks/tezgah_gate.py::decision`). The
 | hook wiring | the opencode plugin file, the omp hook, the Claude plugin copy, the install prefix, and the tree the hooks run from unless the session works inside it (`hooks/tezgah_gate.py::_registration`, `hooks/tezgah_gate.py::_install_trees`) | any write |
 | shared registration files | `.claude/settings.json` and `settings.local.json`, `~/.claude/plugins/installed_plugins.json` and `known_marketplaces.json`, Codex's and Cursor's `hooks.json`, Codex's `config.toml` | a shell write; a write tool only when it changes an entry that is tezgah's - `statusLine`, `attribution`, `disableAllHooks`, a key or item naming tezgah (the user's own hook beside tezgah's in one matcher group stays theirs), or any `[hooks...]` line of `config.toml`, where the trust entries live (`hooks/tezgah_gate.py::_shared_change`) |
 | repository marks and hooks | a `REPO_MARKS` name under a root, the session checkout's `.git/hooks` (a `.sample` file and a clone elsewhere pass), `git config core.hooksPath` set or unset there or `--global` | any write |
-| | `.husky`, `.tezgah/plans/open/` | a delete, a chmod that takes a permission away, or a move; `git rm --cached` passes (plan-sync's move) |
-| | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`) | a delete or move |
-| history | `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | always |
+| | `.husky` | a delete, a chmod that takes a permission away, or a move |
+| | a directory holding any protected path (`rm -rf ~/.cache`, `mv .git /tmp/x`), also through a link (`rm -rf link/`), including `.tezgah/plans/open/` itself, every ancestor of it (`rm -rf .tezgah`, `mv .tezgah/plans /tmp/x`) and a glob or brace directly under it (`rm -rf .tezgah/plans/open/*`) | a delete or move |
+| evidence only | a delete or move of one named plan under `.tezgah/plans/open/`; a glob or the directory is refused (row above); `git add -f` or `--force` of a `.tezgah/` path (`_git_change` `hooks/tezgah_gate.py::_git_change`) | never: the call goes on to the other rules and, if they let it through, leaves a `disarm` row whose `detail` is `control: <what>` (`CONTROL_EVIDENCE` `hooks/tezgah_gate.py::CONTROL_EVIDENCE`); `git rm --cached` leaves none (plan-sync's move) |
 | the CLIs | `tezgah-gate decide`, `tezgah-capture`, `tezgah-pony <level>`, `tezgah-adhd on` or `off`, `tezgah-context attest` or `user_prompt`, by basename with or without `.py` (`hooks/tezgah_gate.py::CONTROL_CLIS`) | always |
 | the hook entries | `projects-auto-init`, `projects-pretooluse`, `projects-posttooluse`, `projects-stop`, `hook.py` under `hosts/codex`, `hosts/cursor` or `hosts/omp`, and the `tezgah-codex-hook`/`tezgah-cursor-hook` launchers (`hooks/tezgah_gate.py::HOOK_ENTRIES`, `hooks/tezgah_gate.py::_host_hook`): fed a forged payload, one writes genuine rows, the switch latch's `authorized` row among them | always |
 
@@ -96,7 +96,9 @@ variables first. It follows a `cd` within the line and reads past `if`/`then`/`d
 task phase rule and the opencode mirror. The task CLI stays the task rule's (below), so `task-off` still removes all of that rule. Told: what the call would
 change, and that the user changes it in their own terminal (`CONTROL_DENY` `hooks/tezgah_gate.py::CONTROL_DENY`). The text names no command. Standing. No switch
 but `pretooluse-off` removes the rule, and that switch is a protected file. The rule cannot tell a change the user asked for from one the agent chose. It
-refuses both inside the session, and it never sees the user's own terminal.
+refuses both inside the session, and it never sees the user's own terminal. Plan 050's replay of three weeks of real ledgers found the two evidence-only
+targets refused without the user's say-so more than once a week. Its falsifier kept the tamper evidence and dropped the refusal for them. The rule still
+refuses a call that also changes a refusing target.
 
 ### Explorer — the grep-only subagent
 

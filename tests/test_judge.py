@@ -512,6 +512,30 @@ class EndpointOverride(JudgeCase):
         # repoint it, which is what makes it a seam rather than a setting.
         self.assertEqual(tezgah_judge.endpoint(), self.url)
 
+    def test_a_plain_http_override_off_this_machine_is_refused(self):
+        """The key and the state would cross the network in clear: every URL
+        override routes through one check, and a refused one sends nothing."""
+        os.environ["TYPESAFE_API_KEY"] = "ts-secret"
+        for name, read in (("TEZGAH_TYPESAFE_URL", tezgah_judge.endpoint),
+                           ("TEZGAH_OPENROUTER_URL", tezgah_judge.openrouter_url)):
+            with self.subTest(name), mock.patch.dict(os.environ, {
+                    name: "http://example.invalid/v1/x"}):
+                with self.assertRaises(ValueError):
+                    read()
+            with mock.patch.dict(os.environ, {name: "https://example.invalid/v1/x"}):
+                self.assertEqual(read(), "https://example.invalid/v1/x")
+            with mock.patch.dict(os.environ, {name: "http://127.0.0.1:9/v1/x"}):
+                self.assertEqual(read(), "http://127.0.0.1:9/v1/x")
+        with mock.patch.dict(os.environ, {"TEZGAH_TYPESAFE_URL": "http://example.invalid/v1"}):
+            self.assertIsNone(self.ask())
+        os.environ.pop("TYPESAFE_API_KEY")
+        with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "or-secret",
+                                          "TEZGAH_OPENROUTER_URL": "http://example.invalid/c"}):
+            self.assertIsNone(self.ask())
+        self.assertEqual(Fake.seen, [])
+        self.assertEqual(tezgah_judge.override("TEZGAH_NO_SUCH_URL", "https://d.example/x"),
+                         "https://d.example/x")
+
 
 class Redirect(JudgeCase):
     """A redirect must not carry the credential to another host.

@@ -200,7 +200,15 @@ def classify(exc):
 
 
 def ask(provider, model, question, key, timeout, system):
-    """One stateless chat completion. Returns (model, answer, err, class)."""
+    """One stateless chat completion. Returns (model, answer, err, class).
+
+    A plain-http endpoint off this machine is refused before any request: the
+    bearer key and the packet would cross the network in clear (`tp.plain_http`,
+    as `bin/codegen` does; loopback stays allowed for the tests' fake)."""
+    url = endpoint(provider)
+    if tp.plain_http(url):
+        return (model, None, "CONSULT_URL %s is plain http off this machine: the key "
+                "and the packet would cross the network in clear" % url, "plain-http")
     body = json.dumps({
         "model": model.strip(),
         "messages": [
@@ -213,7 +221,7 @@ def ask(provider, model, question, key, timeout, system):
         # URL and raises ValueError for a scheme-less one (e.g. a CONSULT_URL
         # of "localhost"), which would otherwise escape this worker as an
         # uncaught exception and kill the run with a traceback.
-        req = urllib.request.Request(endpoint(provider), data=body, headers={
+        req = urllib.request.Request(url, data=body, headers={
             "Authorization": "Bearer " + key,
             "Content-Type": "application/json",
         })
@@ -488,6 +496,8 @@ def retry_hint(classes):
         return "retry once; if it repeats, check the network or switch --provider"
     if c == "empty":
         return "drop the member that answered empty (refused or filtered)"
+    if c == "plain-http":
+        return "CONSULT_URL is plain http off this machine; use https (loopback http is allowed)"
     if c == "malformed-reply":
         return "the endpoint is not speaking the chat-completions schema; check CONSULT_URL and --provider"
     if c == "unstructured":

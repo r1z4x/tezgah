@@ -20,8 +20,10 @@ sys.path.insert(0, support.HOOKS)
 import tezgah_gate as tg  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 
-# The 12 tamper probes of the deep analysis (REPORT.md R05, metric 1), as they
+# The tamper probes of the deep analysis (REPORT.md R05, metric 1), as they
 # were run from a repository root: all 12 passed the gate before this rule.
+# The twelfth, `git add -f .tezgah/x`, is evidence now, not a refusal: plan
+# 050's replay falsifier fired on it (ADR 018; test_an_open_plan_and_...).
 PROBES = (
     ("Bash", {"command": "touch ~/.config/tezgah/pretooluse-off"}),
     ("Bash", {"command": "touch ~/.config/tezgah/task-off"}),
@@ -31,7 +33,6 @@ PROBES = (
     ("Bash", {"command": "rm .git/hooks/pre-commit && git commit -m x"}),
     ("Bash", {"command": "mv .husky .husky.bak"}),
     ("Bash", {"command": "echo {} >> ~/.cache/tezgah/evidence/x.jsonl"}),
-    ("Bash", {"command": "git add -f .tezgah/x"}),
     ("Bash", {"command": "python3 bin/tezgah-task.py phase 1 build"}),
     ("Bash", {"command": "touch .no-plan-gate"}),
     ("Bash", {"command": "printf x >> .claude/settings.json"}),
@@ -112,9 +113,6 @@ class ControlPlane(unittest.TestCase):
                         "sudo rm -f ~/.config/tezgah/task-off",
                         "chmod -x .git/hooks/pre-commit",
                         "rm -rf .husky",
-                        "rm .tezgah/plans/open/017-x.md",
-                        "git -C .tezgah rm -q plans/open/017-x.md",
-                        "git add --force .tezgah/plans",
                         "python3 bin/tezgah-gate.py decide",
                         "tezgah-capture '{}'",
                         "tezgah-pony lite",
@@ -396,9 +394,7 @@ class ControlPlane(unittest.TestCase):
                         'git commit -m "a \\"b\\"" && touch ~/.config/tezgah/verify-off',
                         "echo \"it\\'s\" > ~/.config/tezgah/verify-off",
                         "cd ~/.cache/tezgah/evidence && python3 -c 'print(1)' > out.txt",
-                        "'tezgah-capture' '{}'",
-                        "mv .tezgah/plans/open/041-x.md .tezgah/plans/done/",
-                        "git -C .tezgah mv plans/open/040-x.md plans/done/040-x.md"):
+                        "'tezgah-capture' '{}'"):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
         # a heredoc whose consumer is a shell, though a plain split of its line
@@ -458,10 +454,10 @@ class ControlPlane(unittest.TestCase):
                                     % (os.path.dirname(fixture), fixture, body)})):
             with self.subTest(tool=tool, inp=inp):
                 self.assertIsNone(tg.control_reason(tool.lower(), inp, self.repo))
-        # the hooks beside that workspace, its open plan's removal, the user's
-        # own settings and a project's under a root stay refused
-        for command in ("rm %s" % plan,
-                        "echo x > %s" % os.path.join(support.REPO, "hooks", "x.py"),
+        # the hooks beside that workspace, the user's own settings and a
+        # project's under a root stay refused (its open plan's removal is
+        # evidence: test_an_open_plan_and_a_forced_add_are_evidence_not_a_refusal)
+        for command in ("echo x > %s" % os.path.join(support.REPO, "hooks", "x.py"),
                         "printf x >> ~/.claude/settings.json",
                         "printf x >> ~/.claude/settings.local.json",
                         "printf x >> .claude/settings.json"):
@@ -479,6 +475,98 @@ class ControlPlane(unittest.TestCase):
         self.assertIsNone(tg.decision("Bash", {
             "command": "touch ~/.config/tezgah/verify-off"}, tempfile.gettempdir(),
             "control-test", record=False))
+
+    def test_an_open_plan_and_a_forced_add_are_evidence_not_a_refusal(self):
+        # plan 050's replay (2026-10-07, rows 1, 3, 5, 8): the refusals the
+        # user had not authorized were an open plan's move and a forced add of
+        # a `.tezgah/` path. The falsifier (REPORT.md 5430, ADR 018) keeps the
+        # tamper evidence and drops the refusal: one `disarm` row per call.
+        import tezgah_integrity as ti
+        plan = os.path.join(support.REPO, ".tezgah", "plans", "open", "040-x.md")
+        evidence = (
+            ("Bash", {"command": "git add -f .tezgah/x"}, tg.FORCED_ADD),
+            ("Bash", {"command": "git add --force .tezgah/plans"}, tg.FORCED_ADD),
+            ("Bash", {"command": "rm .tezgah/plans/open/017-x.md"}, tg.OPEN_PLAN),
+            ("Bash", {"command": "git -C .tezgah rm -q plans/open/017-x.md"},
+             tg.OPEN_PLAN),
+            ("Bash", {"command": "mv .tezgah/plans/open/041-x.md .tezgah/plans/done/"},
+             tg.OPEN_PLAN),
+            ("Bash", {"command": "git -C .tezgah mv plans/open/040-x.md "
+                                 "plans/done/040-x.md"}, tg.OPEN_PLAN),
+            ("Bash", {"command": "sed -i '' s/a/b/ .tezgah/plans/open/x.md && "
+                                 "rm .tezgah/plans/open/y.md"}, tg.OPEN_PLAN),
+            ("Bash", {"command": "rm %s" % plan}, tg.OPEN_PLAN),
+            ("apply_patch", {"patch": "*** Begin Patch\n*** Delete File: "
+                             ".tezgah/plans/open/017-x.md\n*** End Patch"},
+             tg.OPEN_PLAN))
+        os.makedirs(os.path.join(self.repo, ".tezgah", "plans", "open"),
+                    exist_ok=True)
+        for n, (tool, inp, label) in enumerate(evidence):
+            with self.subTest(inp=inp):
+                self.assertEqual(tg.control_reason(tool.lower(), inp, self.repo),
+                                 label)
+                self.assertIsNone(self.decide(tool, inp))
+                sid = "control-evidence-%d" % n
+                self.assertIsNone(tg.decision(tool, inp, self.repo, sid))
+                rows = [r for r in ti.events(sid) if r.get("kind") == "disarm"]
+                self.assertEqual([r["detail"] for r in rows], ["control: " + label])
+                self.assertEqual(rows[0].get("id"), tg.call_id(tool, inp))
+        # an edit of an open plan was never refused and leaves no row
+        edit = ("Edit", {"file_path": os.path.join(self.repo, ".tezgah", "plans",
+                                                   "open", "017-x.md"),
+                         "old_string": "a", "new_string": "b"})
+        self.assertIsNone(tg.control_reason("edit", edit[1], self.repo))
+        self.assertIsNone(self.decide(*edit))
+        # the dry run writes no row
+        self.assertIsNone(self.decide("Bash", {"command": "git add -f .tezgah/x"}))
+        self.assertEqual(ti.events("control-test"), [])
+        # an evidence target never hides a refusing one in the same call
+        for command in ("git add -f .tezgah/x && touch ~/.config/tezgah/verify-off",
+                        "rm .tezgah/plans/open/x.md ~/.config/tezgah/verify-off",
+                        "mv .tezgah/plans/open/x.md ~/.config/tezgah/verify-off",
+                        "git -C .tezgah mv plans/open/x.md ~/.config/tezgah/verify-off",
+                        "rm .tezgah/plans/open/x.md; echo > .git/hooks/pre-commit",
+                        "rm -rf .tezgah .git"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a delete or move of the open plans' directory or an ancestor of it
+        # takes every plan at once (with `.tezgah`, the lessons and decisions
+        # too): none of the replay's rows had that shape, so it stays refused
+        for command in ("rm -rf .tezgah",
+                        "mv .tezgah/plans /tmp/x",
+                        "git -C .tezgah rm -r plans",
+                        "git -C .tezgah mv plans /tmp/x",
+                        "rm -rf .tezgah/plans/open",
+                        "mv .tezgah/plans/open .tezgah/plans/old",
+                        "rm -rf %s" % os.path.join(self.repo, ".tezgah", "plans",
+                                                   "open") + "/",
+                        # a glob or brace directly under it names every plan
+                        "rm -rf .tezgah/plans/open/*",
+                        "cd .tezgah/plans/open && rm -rf *",
+                        "rm -rf .tezgah/plans/open/{a,b}",
+                        "rm .tezgah/plans/open/0?-x.md",
+                        "mv .tezgah/plans/open/[0-9]* .tezgah/plans/done/"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+
+    def test_a_link_to_held_state_is_judged_by_what_it_points_at(self):
+        # `rm -rf link/` deletes what the link points at: a link under the open
+        # plans or anywhere else, to a directory holding control state, is
+        # that directory (the switch dir's parent, the checkout's `.git`)
+        opened = os.path.join(self.repo, ".tezgah", "plans", "open")
+        elsewhere = os.path.join(self.repo, "elsewhere")
+        for d in (opened, elsewhere):
+            os.makedirs(d, exist_ok=True)
+        config = os.path.dirname(os.path.realpath(tp.CONFIG_DIR))
+        for name, target in (("l2", config),
+                             ("lg", os.path.join(self.repo, ".git"))):
+            for d in (opened, elsewhere):
+                os.symlink(target, os.path.join(d, name))
+            for command in ("rm -rf .tezgah/plans/open/%s/" % name,
+                            "rm -rf elsewhere/%s/" % name,
+                            "cd .tezgah/plans/open && rm -rf %s/" % name):
+                with self.subTest(command=command):
+                    self.refused("Bash", {"command": command})
 
     def test_only_pretooluse_off_removes_the_rule(self):
         for name in ("verify-off", "task-off", "workspace-off", "lang-off"):

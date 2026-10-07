@@ -6,7 +6,8 @@ code, a blind label sheet drawn from them, and the report that reads the labels
   tezgah-gate replay [--cutoff WHEN] [--since WHEN] [--json]
   tezgah-gate replay --report [--run DIR] [--labels FILE ...] [--json]
   tezgah-gate replay --sheet [--run DIR] [--seed N] [--rules FILE]
-  tezgah-gate replay --label-model --prompt FILE [--run DIR]
+  tezgah-gate replay --label-model --prompt FILE [--provider typesafe|deepseek]
+                     [--model ID] [--run DIR]
 
 **Corpus.** Every ledger under the cache's `evidence/` is read read-only; a
 ledger is dropped whole when `fixture_ledger` says it is a fixture tree, or when
@@ -814,6 +815,9 @@ def report(run, label_files=()):
         out["kappa"] = kappa(pairs)
         out["kappa_pairs"] = len(pairs)
         out["disagreements"] = sum(1 for p, q in pairs if p != q)
+        # ADR 018: with no owner among the raters both are models
+        out["kappa_meaning"] = ("human-model agreement" if "owner" in raters[:2] else
+                                "model-model agreement, not human judgement")
         usable = {x: a[x] for x in key if x in a and x in b and a[x] == b[x]
                   and a[x] != "unsure"}
     else:
@@ -861,7 +865,7 @@ def report(run, label_files=()):
     return out
 
 
-# ----------------------------------------------------------------- rater 2 --
+# ----------------------------------------------------------------- raters --
 
 # Rater 2 (H2 amendment 2026-10-07): a model through the judge seam, TypeSafe
 # only, billed per million input tokens and nothing for output, at the price
@@ -869,23 +873,67 @@ def report(run, label_files=()):
 RATER_MODEL = "jev-latest"
 JEV_PRICE_PER_MILLION = 0.042
 LABEL_WORKERS = 4
+# Rater 1 (H2 amendment 2026-10-07, ADR 018): DeepSeek's OpenAI-compatible chat
+# endpoint, repointed by TEZGAH_DEEPSEEK_URL (tests). Peak price per million
+# cache-miss input and output tokens on 2026-10-07: an upper bound on the cost.
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
+DEEPSEEK_PRICE_PER_MILLION = (1.32, 3.96)
 
 
-def label_model(run, prompt_file):
-    """One `choice` question per blind sheet row through the judge seam, the
-    row's text redacted (`ti.redact`), labels written to `labels-model.jsonl`
-    beside the sheet. Rows already labelled there are not asked again; a reply
-    without a label among the prompt's criteria stays unlabelled. Reads the sheet
-    and the prompt file only, never the key."""
+def _deepseek(secret, model):
+    """`ask(state, questions)` for DeepSeek: the judge seam's chat body
+    (`CHAT_SYSTEM`, JSON-object reply, temperature 0) with thinking off, so the
+    temperature takes effect, sent by the seam's `_chat_request`; one retry on a
+    transient failure, as the seam does. A plain-http override off this machine
+    is refused before any request (`tj.override`)."""
     import tezgah_judge as tj
+    try:
+        url = tj.override("TEZGAH_DEEPSEEK_URL", DEEPSEEK_URL)
+    except ValueError as exc:
+        raise SystemExit("label-model: %s" % exc)
+
+    def ask(state, questions):
+        body = dict(tj._chat_body(state, questions, model), thinking={"type": "disabled"})
+        data = json.dumps(body).encode()
+        for attempt in range(2):
+            try:
+                result = tj._chat_request(secret, data, 120, questions, url)
+            except Exception as exc:
+                if attempt or not tj._transient(exc):
+                    return None
+                continue
+            return dict(result, model=result["model"] or model, provider="deepseek")
+    return ask
+
+
+def label_model(run, prompt_file, provider="typesafe", model=None):
+    """One `choice` question per blind sheet row, the row's text redacted
+    (`ti.redact`). `typesafe` asks through the judge seam and writes
+    `labels-model.jsonl` (rater 2); `deepseek` asks DeepSeek's chat endpoint and
+    writes `labels-deepseek.jsonl` (rater 1). Rows already labelled there are not
+    asked again; a reply without a label among the prompt's criteria stays
+    unlabelled. Reads the sheet and the prompt file only, never the key."""
     from concurrent.futures import ThreadPoolExecutor
-    provider = tj.credential()[0]
-    if provider != "typesafe" or not tj.available():
-        raise SystemExit("label-model: the judge seam must answer through TypeSafe "
-                         "(provider: %s)" % provider)
+
+    import tezgah_judge as tj
+    if provider == "deepseek":
+        secret = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        if not secret:
+            raise SystemExit("label-model: --provider deepseek needs DEEPSEEK_API_KEY")
+        ask, rater = _deepseek(secret, model or "deepseek-v4-pro"), "deepseek"
+        price = DEEPSEEK_PRICE_PER_MILLION
+    else:
+        used = tj.credential()[0]
+        if used != "typesafe" or not tj.available():
+            raise SystemExit("label-model: the judge seam must answer through TypeSafe "
+                             "(provider: %s)" % used)
+
+        def ask(state, questions):
+            return tj.ask(state, questions, model=model or RATER_MODEL, timeout=60)
+        rater, price = "model", (JEV_PRICE_PER_MILLION, 0.0)
     with open(prompt_file, encoding="utf-8") as fh:
         prompt = json.load(fh)
-    path = os.path.join(run, "labels-model.jsonl")
+    path = os.path.join(run, "labels-%s.jsonl" % rater)
     done = _read_jsonl(path) if os.path.exists(path) else []
     have = {(r["set"], r["n"]) for r in done}
     todo = [r for r in _read_jsonl(os.path.join(run, "sheet.jsonl"))
@@ -893,12 +941,11 @@ def label_model(run, prompt_file):
 
     def one(row):
         question = dict(prompt[row["set"]], type="choice")
-        result = tj.ask(ti.redact(row["text"]), {"label": question}, model=RATER_MODEL,
-                        timeout=60)
+        result = ask(ti.redact(row["text"]), {"label": question})
         label = tj.choice(result, "label")
         return row, result, label if label in question["criteria"] else None
 
-    tokens, models, new = 0, Counter(), 0
+    tokens, out_tokens, models, new = 0, 0, Counter(), 0
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.fchmod(fd, 0o600)
     # Each answered row is appended as it arrives, so a run that dies mid-way
@@ -907,17 +954,20 @@ def label_model(run, prompt_file):
         for row, result, label in pool.map(one, todo):
             if result:
                 tokens += result["usage"]["input_tokens"]
+                out_tokens += result["usage"]["output_tokens"]
                 models["%s/%s" % (result["provider"], result["model"])] += 1
             if label:
                 fh.write(json.dumps({"set": row["set"], "n": row["n"], "label": label,
-                                     "rater": "model", "model": result["model"],
+                                     "rater": rater, "model": result["model"],
                                      "provider": result["provider"]},
                                     ensure_ascii=False) + "\n")
                 fh.flush()
                 new += 1
     return {"path": path, "asked": len(todo), "labelled": new,
-            "total": len(done) + new, "input_tokens": tokens,
-            "cost_usd": tokens * JEV_PRICE_PER_MILLION / 1e6, "models": dict(models)}
+            "total": len(done) + new, "input_tokens": tokens, "output_tokens": out_tokens,
+            "price": price,
+            "cost_usd": (tokens * price[0] + out_tokens * price[1]) / 1e6,
+            "models": dict(models)}
 
 
 def _print_summary(s):
@@ -971,6 +1021,8 @@ def main(argv):
     p.add_argument("--report", action="store_true")
     p.add_argument("--label-model", action="store_true")
     p.add_argument("--prompt")
+    p.add_argument("--provider", choices=("typesafe", "deepseek"), default="typesafe")
+    p.add_argument("--model")
     p.add_argument("--sheet", action="store_true")
     p.add_argument("--run")
     p.add_argument("--labels", action="append", default=[])
@@ -981,14 +1033,15 @@ def main(argv):
     if args.label_model:
         if not args.prompt:
             p.error("--label-model needs --prompt FILE")
-        r = label_model(_run_dir(args.run), args.prompt)
+        r = label_model(_run_dir(args.run), args.prompt, args.provider, args.model)
         print("labels: %s (%d rows)" % (r["path"], r["total"]))
         print("labelled %d of %d asked, %d unanswered" % (
             r["labelled"], r["asked"], r["asked"] - r["labelled"]))
         print("answered by: %s" % (", ".join("%s %d" % kv for kv in sorted(
             r["models"].items())) or "none"))
-        print("cost: %d input tokens x $%s/1M = $%.4f" % (
-            r["input_tokens"], JEV_PRICE_PER_MILLION, r["cost_usd"]))
+        print("cost: %d input tokens x $%s/1M + %d output tokens x $%s/1M = $%.4f" % (
+            r["input_tokens"], r["price"][0], r["output_tokens"], r["price"][1],
+            r["cost_usd"]))
         return 0
     if args.sheet:
         paths, counts = sheet(_run_dir(args.run), args.seed, args.rules)
@@ -1023,8 +1076,9 @@ def _print_labels(out):
                   % out["race_exemption_bar"])
         return
     k = out["kappa"]
-    print("kappa: %s" % (k if isinstance(k, str) or k is None else "%.3f over %d pairs"
-                         % (k, out["kappa_pairs"])))
+    print("kappa: %s" % (k if isinstance(k, str) or k is None else
+                         "%.3f over %d pairs, %d disagreements (%s)"
+                         % (k, out["kappa_pairs"], out["disagreements"], out["kappa_meaning"])))
     if isinstance(k, float) and k < 0.6:
         print("kappa below 0.6: the labels cannot gate a rule; plans 061, 063 and 064 "
               "fall back to log-only would-deny counts")

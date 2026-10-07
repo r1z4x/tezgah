@@ -16,7 +16,7 @@
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
   tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
-  tezgah-research seal <slug> --history-lost --ack "<owner decision>"
+  tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"
                                                    seal a line concluded before seals existed
   tezgah-research import <checkout> [<slug>] [--allow-open "<why>"]
                                                    bring lines from another checkout, with history
@@ -658,21 +658,28 @@ def cmd_close(args):
 
 
 def cmd_seal(args):
-    """Seal a line concluded before the seal existed, with the owner's
+    """Seal a line concluded before the seal existed: plainly when every
+    experiment's order still checks (ADR 018), or with the owner's
     `history-lost` verdict (ADR 009); a line concluded or closed now is sealed
     by `conclude`/`close` itself."""
-    usage = 'seal <slug> --history-lost --ack "<the owner\'s decision>"'
-    if len(args) != 4 or args[1:3] != ["--history-lost", "--ack"]:
+    usage = 'seal <slug> [--history-lost] --ack "<the owner\'s decision>"'
+    lost = args[1:2] == ["--history-lost"]
+    rest = args[:1] + args[2:] if lost else args
+    if len(rest) != 3 or rest[1] != "--ack":
         return misuse(usage)
-    slug, ack = args[0], args[3]
+    slug, ack = rest[0], rest[2]
     repo = repo_root(os.getcwd())
     if slug not in tr.slugs(repo):
         return misuse("no such research line: %s" % slug)
-    record, problem = tr.retro_seal(repo, slug, ack, time.strftime("%Y-%m-%d"))
+    record, problem = tr.retro_seal(repo, slug, ack, time.strftime("%Y-%m-%d"),
+                                    history_lost=lost)
     if problem:
         print("FAIL %s: %s" % (slug, problem))
         return 1
     rows = record["experiments"]
+    if not lost:
+        print("sealed %s: %d experiment(s), order checks" % (slug, len(rows)))
+        return 0
     lost = sorted(h for h, row in rows.items() if row.get("order") == tr.HISTORY_LOST)
     print("sealed %s: %d experiment(s), history lost for %s"
           % (slug, len(rows), ", ".join(lost) or "none"))

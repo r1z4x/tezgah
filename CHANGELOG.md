@@ -50,6 +50,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge seam. It writes `labels-model.jsonl` beside the sheet and prints the
   token cost. `replay --report` with one rater's labels now prints no rate:
   the rates need two raters' agreed labels.
+- **A second model family can rate the replay sheet.** `tezgah-gate replay
+  --label-model --provider deepseek --model deepseek-v4-pro` asks the same
+  prompt over DeepSeek's OpenAI-compatible endpoint at temperature 0. It writes
+  `labels-deepseek.jsonl` and prints input and output token cost. With two
+  model raters `replay --report` calls kappa model-model agreement.
 - **The shell-reader fuzzer runs weekly under bash 5.x.** A `fuzz-shell` job
   in `.github/workflows/neuter.yml` runs `tests/fuzz_shell.py` on the ubuntu
   runner's bash 5, seed 1, 20000 lines. It reads the lines once with the core
@@ -104,7 +109,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   results committed after the close still count. `tezgah-research seal <slug>
   --history-lost --ack "<decision>"` gives the owner's `history-lost` verdict
   to a line concluded before seals (ADR 009). It covers only an order the lost
-  history left undecidable. A real violation stays an error.
+  history left undecidable. A real violation stays an error. Without
+  `--history-lost` (ADR 018) it writes the plain seal `conclude` would, and
+  only when every experiment's order still checks.
 - **`tezgah-research import <checkout> [<slug>]` moves a line with its
   history.** It fetches the other checkout's `.tezgah` repository from disk.
   It merges that history as a second parent and takes only the imported lines.
@@ -265,6 +272,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **An open plan's move and a forced add of `.tezgah/` leave evidence.** The
+  `control` rule refused a delete or move under `.tezgah/plans/open/`. It also
+  refused a `git add -f` of a `.tezgah/` path. Plan 050's replay of real
+  ledgers found both refused without the user's say-so. That happened more
+  than once a week, so its falsifier fired (ADR 018). A call that moves or
+  deletes one plan, or force-adds a `.tezgah/` path, now passes and leaves a
+  `disarm` row, `control: <what>`. The rule still refuses the open plans'
+  directory and its ancestors, and a call that also changes another protected
+  path.
 - **The research session note hashes a line under `done/`.** `failing()` runs
   `_check_seal` on a concluded or closed line instead of the full `check_line`.
   An edit after the seal still reaches the note. The line's other findings stay
@@ -424,6 +440,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The seam refuses a plain-http endpoint override off this machine.** The
+  judge seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the
+  replay rater's `TEZGAH_DEEPSEEK_URL` all route through
+  `tezgah_judge.override`. An `http://` URL to another host would have sent
+  the bearer key and the state in clear. Loopback stays allowed for the tests.
+  `consult` now refuses a plain-http `CONSULT_URL` off this machine the same
+  way, before any request, as failure class `plain-http`.
 - **A Homebrew install survives `brew upgrade` with its default cleanup.**
   The installer now names its keg through the stable `opt/tezgah` link
   (`hooks/tezgah_paths.py::stable_root`). So the farm links, the omp bridge's
