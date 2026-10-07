@@ -47,7 +47,7 @@ What one host can do with one rule surface: the gate, the Stop rule or a subagen
 
 <a id="ledger"></a>
 ### evidence ledger
-One session's record of what ran: the `evidence` rows of `<cache>/tezgah.db` for that session, named by the path its JSONL file had, `<cache>/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py::_path`, `hooks/tezgah_store.py::EVIDENCE_SCHEMA`), appended by `note()` (`hooks/tezgah_integrity.py::note`) and read by `events()` (`hooks/tezgah_integrity.py::events`), with its contract in the module docstring (`hooks/tezgah_integrity.py:2-24`) and every reader failing open. A JSONL file still at that path is imported before the session is read or written. Not the [session store](#session-store), which holds only used-tool marks.
+One session's record of what ran: the `evidence` rows of `<cache>/tezgah.db` for that session, keyed by the path its JSONL file had, `<cache>/evidence/<slug>.jsonl` (`hooks/tezgah_integrity.py::_path`, `hooks/tezgah_store.py::EVIDENCE_SCHEMA`), appended by `note()` (`hooks/tezgah_integrity.py::note`) and read by `events()` (`hooks/tezgah_integrity.py::events`), with its contract in the module docstring (`hooks/tezgah_integrity.py:2-24`) and every reader failing open. A read or write of the session first imports a JSONL file still at that path. Not the [session store](#session-store), which holds only used-tool marks.
 
 ### false completion
 The count of [claim](#claim) rows a stop refused, `false_completion` in `counters()`, read against `claims` so the rate is meaningful (`hooks/tezgah_integrity.py::_counts`, `hooks/tezgah_integrity.py::drift_series`). Not the count of [denies](#deny): a deny is the gate refusing a call, a false completion is the Stop rule refusing the end of a turn.

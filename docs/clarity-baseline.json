@@ -30,10 +30,10 @@
     "semicolons": 3
   },
   "docs/evidence.md": {
-    "long_sentences": 109,
-    "passive": 57,
+    "long_sentences": 108,
+    "passive": 55,
     "replace_words": 1,
-    "semicolons": 40
+    "semicolons": 39
   },
   "docs/feature-audit.md": {
     "long_sentences": 20,

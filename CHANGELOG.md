@@ -14,14 +14,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.config/tezgah/taste/taste.db`. Opening a store imports the old JSON and
   JSONL files and renames each to `<name>.imported`. It also takes rows an
   older install appends to an old file later. `taste.md` stays a text file.
-- **The evidence ledger lives in SQLite.** Every session's rows move from
+- **The evidence ledger lives in SQLite.** Session rows move from
   `~/.cache/tezgah/evidence/<session>.jsonl` to the `evidence` table of
-  `~/.cache/tezgah/tezgah.db`, one INSERT per row, so no reader meets a torn
-  line. An old JSONL file is imported before its session is read or written,
-  and session start imports the rest in the background once a day;
-  `tezgah-doctor --import-evidence` does it now. The files stay in place,
-  because opencode's plugin still writes and reads them. `tezgah-doctor
-  --clean` deletes a session idle past the retention window from the database.
+  `~/.cache/tezgah/tezgah.db`. Each row is one INSERT, so no reader meets a
+  torn line. A read or write of a session imports its old JSONL file first.
+  Session start imports the rest in the background once a day, and
+  `tezgah-doctor --import-evidence` imports them now. The files stay, because
+  opencode's plugin still writes and reads them. `tezgah-doctor --clean`
+  deletes a session idle past the retention window.
 
 ## [1.3.0] - 2026-10-07
 
