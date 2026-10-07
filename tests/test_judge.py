@@ -151,14 +151,20 @@ class JudgeCase(unittest.TestCase):
                                                             "tezgah"))
         cache.start()
         self.addCleanup(cache.stop)
-        # The seam has two providers, so "no credential of this machine" means
-        # both env channels: leaving OPENROUTER_API_KEY set here made the
-        # fallback reach the live network from a case that promises it does not.
+        # The seam has three providers, so "no credential of this machine" means
+        # every channel: leaving OPENROUTER_API_KEY set here made the fallback
+        # reach the live network from a case that promises it does not, and the
+        # host's OMPCODE/CLAUDECODE would run the developer's real session CLI.
         for name in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY",
-                     "TEZGAH_JUDGE_MODEL"):
+                     "TEZGAH_JUDGE_MODEL", "OMPCODE", "CLAUDECODE"):
             os.environ.pop(name, None)
         for name in PROXIES:
             os.environ.pop(name, None)
+        # What the seam says on stderr is collected, not printed into the run.
+        self.said = []
+        say = mock.patch.object(tezgah_judge, "_say", self.said.append)
+        say.start()
+        self.addCleanup(say.stop)
 
     @property
     def url(self):
@@ -898,6 +904,141 @@ class OpenRouterFallback(JudgeCase):
         out = self.triage("--states", path)
         self.assertEqual(out.returncode, 1, out.stderr)
         self.assertIn("OPENROUTER_API_KEY", out.stderr)
+
+
+# A stand-in for the session's own CLI (`omp -p --mode json`, `claude -p
+# --output-format json`): it answers every question it is handed, or fails when
+# FAKE_CLI_FAIL is set, and appends its argv to FAKE_CLI_LOG - so a case asserts
+# which provider was asked without any model being reached.
+FAKE_CLI = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_CLI_LOG"], "a") as fh:
+    fh.write(json.dumps(sys.argv) + "\n")
+if os.environ.get("FAKE_CLI_FAIL"):
+    sys.stderr.write("not logged in\n")
+    sys.exit(1)
+asked = json.loads(sys.argv[-1])["questions"]
+answers = {q: ({"noul": 0.9} if spec["type"] == "noul" else
+               {"choice": sorted(spec["criteria"])[0], "confidence": 0.9})
+           for q, spec in asked.items()}
+text = "```json\n" + json.dumps({"answers": answers}) + "\n```"
+if os.path.basename(sys.argv[0]) == "claude":
+    print(json.dumps({"is_error": False, "result": text,
+                      "modelUsage": {"claude-opus-5-5": {}},
+                      "usage": {"input_tokens": 7, "cache_read_input_tokens": 3,
+                                "output_tokens": 2}}))
+else:
+    print(json.dumps({"type": "session"}))
+    print(json.dumps({"type": "message_end", "message": {
+        "role": "assistant", "content": [{"type": "text", "text": text}],
+        "provider": "anthropic", "model": "claude-opus-5-5",
+        "usage": {"input": 7, "cacheRead": 3, "cacheWrite": 0, "output": 2}}}))
+'''
+
+
+class SessionFirst(JudgeCase):
+    """The session's own CLI answers first; a third party only as the
+    `fallback` setting allows, and never silently.
+
+    The session CLI is a fake on TEZGAH_OMP_BIN / TEZGAH_CLAUDE_BIN and the third
+    party the loopback fake, so no case reaches a model."""
+
+    def setUp(self):
+        super().setUp()
+        self.log = os.path.join(self.home, "cli.log")
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        for name in ("omp", "claude"):
+            path = os.path.join(bindir, name)
+            with open(path, "w") as fh:
+                fh.write(FAKE_CLI)
+            os.chmod(path, 0o755)
+            os.environ["TEZGAH_%s_BIN" % name.upper()] = path
+        os.environ.update({"FAKE_CLI_LOG": self.log, "OMPCODE": "1",
+                           "CLAUDECODE": "1", "TYPESAFE_API_KEY": "ts-secret"})
+        os.environ.pop("FAKE_CLI_FAIL", None)
+        conf = mock.patch.object(tp, "CONFIG", os.path.join(self.home, "config.json"))
+        conf.start()
+        self.addCleanup(conf.stop)
+        Fake.reply = {"model": MODEL, "answers": {"urgent": {"noul": 0.2}},
+                      "usage": {"input_tokens": 4, "output_tokens": 2}}
+
+    def fallback(self, value):
+        with open(tp.CONFIG, "w") as fh:
+            json.dump({"fallback": value}, fh)
+
+    def calls(self):
+        try:
+            with open(self.log) as fh:
+                return [json.loads(line) for line in fh]
+        except OSError:
+            return []
+
+    def test_the_session_cli_answers_although_a_third_party_key_resolves(self):
+        out = self.ask()
+        self.assertEqual(out["provider"], "omp")
+        self.assertEqual(out["model"], "anthropic/claude-opus-5-5")
+        self.assertEqual(out["answers"], {"urgent": {"noul": 0.9}})
+        self.assertEqual(out["usage"], {"input_tokens": 10, "output_tokens": 2})
+        self.assertEqual(Fake.seen, [], "a third party was asked")
+        self.assertEqual(len(self.calls()), 1)
+        self.assertEqual(self.said, [])
+        self.assertEqual(tezgah_judge.last_use()["provider"], "omp")
+
+    def test_claude_code_asks_claude(self):
+        os.environ.pop("OMPCODE")
+        out = self.ask()
+        self.assertEqual((out["provider"], out["model"]), ("claude", "claude-opus-5-5"))
+        self.assertEqual(Fake.seen, [])
+
+    def test_a_failing_session_is_not_replaced_by_a_third_party_by_default(self):
+        os.environ["FAKE_CLI_FAIL"] = "1"
+        self.assertIsNone(self.ask())
+        self.assertEqual(Fake.seen, [], "the default fell back to a third party")
+        last = tezgah_judge.last_use()
+        self.assertIsNone(last["provider"])
+        self.assertIn("fallback=vendor", last["refused"])
+        self.assertIn("omp", last["failed"])
+        self.assertEqual(len(self.said), 1)
+        self.assertIn("refuses a third-party judge", self.said[0])
+
+    def test_fallback_any_records_and_says_who_answered_instead(self):
+        os.environ["FAKE_CLI_FAIL"] = "1"
+        self.fallback("any")
+        out = self.ask()
+        self.assertEqual(out["provider"], "typesafe")
+        self.assertIn("omp", out["fallback"])
+        self.assertEqual(len(Fake.seen), 1)
+        last = tezgah_judge.last_use()
+        self.assertEqual((last["provider"], last["model"]), ("typesafe", MODEL))
+        self.assertIn("omp", last["fallback"])
+        self.assertEqual(len(self.said), 1)
+        self.assertIn("typesafe/%s" % MODEL, self.said[0])
+
+    def test_without_a_session_a_third_party_answers_and_says_so(self):
+        os.environ.pop("OMPCODE")
+        os.environ.pop("CLAUDECODE")
+        out = self.ask()
+        self.assertEqual(out["provider"], "typesafe")
+        self.assertIn("no session CLI", out["fallback"])
+        self.assertEqual(len(self.said), 1)
+
+    def test_fallback_none_refuses_every_third_party(self):
+        os.environ.pop("OMPCODE")
+        os.environ.pop("CLAUDECODE")
+        self.fallback("none")
+        self.assertFalse(tezgah_judge.available())
+        self.assertIsNone(self.ask())
+        self.assertEqual(Fake.seen, [])
+
+    def test_tezgah_status_prints_what_the_judge_used_last(self):
+        self.ask()
+        proc = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-status"), "--judge"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, HOME=self.home))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("omp/anthropic/claude-opus-5-5", proc.stdout)
 
 
 if __name__ == "__main__":

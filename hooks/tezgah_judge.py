@@ -29,15 +29,19 @@ non-interactive shell where `.zshenv` never runs - the export is absent there,
 and the key file is the channel that survives. That is why the file is read
 rather than the environment trusted.
 
-Behind the credential there are two providers. TypeSafe answers in its own
-schema; when no TypeSafe key resolves, the same questions go to an
-OpenAI-compatible chat endpoint - OpenRouter, whose key rides the same two
-channels (`OPENROUTER_API_KEY`, then `~/.config/openrouter/key`) - and its JSON
-reply is mapped back into the shapes the callers already read. That path is a
-fallback, never a peer: it is chosen only when `key()` is empty, it sends the
-same state to a different host, and a reply that does not carry a question's
-answer leaves that question absent, which every caller already reads as no
-judgement.
+Behind the credential there are three providers, asked in this order. First the
+session's own CLI - `omp` or `claude`, the host this process runs under
+(`tp.session_cli()`) - run headless with no tools, so the judgement is paid
+with the session's own credential, OAuth subscription included, and answered by
+the session's own vendor. TypeSafe and OpenRouter are third parties: they are
+asked only as the `fallback` setting allows (`tp.fallback_policy()`): by
+default (`vendor`) only when there is no session CLI at all, with `any` also
+after the session CLI failed, with `none` never. A third party that answers,
+and a fallback that was refused, is never silent: one stderr line, the
+`fallback` field on the result, and the last-use record `tezgah-status
+--judge` prints (`_record`, `last_use`). A reply that does not carry a
+question's answer leaves that question absent, which every caller already reads
+as no judgement.
 
 Kill switch: `judge-off`, honoured by `available()`, so a caller can fall back to
 its own deterministic path without knowing why the judgement is gone. It is the
@@ -148,58 +152,111 @@ def fallback_model():
     return os.environ.get("TEZGAH_JUDGE_MODEL", "").strip() or cheap_default()
 
 
-def credential():
-    """`(provider, secret)` for the first channel that resolves, else `(None, None)`.
+# The session CLIs the seam can ask, as the argv between the binary and the
+# prompt: no tools, no session file, no project rules, skills, extensions, MCP
+# servers or settings - measured 2026-10-07, the defaults sent 43,735 (omp) and
+# 37,038 (claude) cached prompt tokens for a one-word answer, these flags 869
+# and 557 - and the system prompt is the chat fallback's own contract.
+SESSION_ARGV = {
+    "omp": ["-p", "--no-tools", "--no-lsp", "--no-session", "--no-rules",
+            "--no-skills", "--no-extensions", "--no-title", "--thinking", "off",
+            "--mode", "json", "--system-prompt", CHAT_SYSTEM],
+    "claude": ["-p", "--tools", "", "--no-session-persistence",
+               "--strict-mcp-config", "--disable-slash-commands",
+               "--setting-sources", "", "--output-format", "json",
+               "--system-prompt", CHAT_SYSTEM],
+}
+NO_SESSION = "no session CLI to ask (OMPCODE/CLAUDECODE unset or the CLI missing)"
 
-    TypeSafe wins whenever it resolves, so adding a fallback cannot move a
-    machine that already judges with Jev. The pair is returned rather than the
-    secret alone so that `available()` and `ask()` cannot disagree about which
-    provider a call will use."""
-    secret = key()
-    if secret:
-        return "typesafe", secret
-    secret = openrouter_key()
-    return ("openrouter", secret) if secret else (None, None)
+
+def providers():
+    """[(provider, secret), ...] in the order `ask()` tries them, or [].
+
+    The session's own CLI first (its `secret` is the binary's path); then the
+    third parties - TypeSafe, then OpenRouter - only as `tp.fallback_policy()`
+    allows: `vendor` (the default) asks them only when no session CLI exists,
+    `any` after the session CLI too, `none` never. TypeSafe still wins over
+    OpenRouter whenever both resolve."""
+    session = tp.session_cli()
+    policy = tp.fallback_policy()
+    out = [(session, getattr(tp, session + "_bin")())] if session else []
+    if policy == "none" or (session and policy == "vendor"):
+        return out
+    return out + [(name, secret) for name, secret in
+                  (("typesafe", key()), ("openrouter", openrouter_key())) if secret]
+
+
+def credential():
+    """`(provider, secret)` for the first provider `ask()` will try, else
+    `(None, None)` - so `available()` and `ask()` cannot disagree."""
+    found = providers()
+    return found[0] if found else (None, None)
 
 
 def available():
-    """True when a judgement can be asked for: a key resolves and no kill switch."""
+    """True when a judgement can be asked for: a provider resolves and no kill switch."""
     return bool(credential()[1]) and not tp.off("judge-off")
 
 
 def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None):
     """One batched call over `questions`; `{"answers", "usage", "latency_ms",
-    "model", "provider"}`.
+    "model", "provider", "fallback"}`.
 
     `questions` is the API's own map - id -> `{type, instructions, criteria}` -
     so a caller that needs a per-line or per-state pass sends every question in
     one request and pays for the state once. The reply's usage is carried back
     because a caller quotes what the judgement cost, and the model and provider
-    beside it because the fallback answers with a different one than the caller
-    named. The model is the one the reply names, else the one asked for: an alias
-    such as `jev-latest` hides a silent upgrade the reply's own field shows.
+    beside it because the provider that answers is not the caller's choice. The
+    model is the one the reply names, else the one asked for: an alias such as
+    `jev-latest` hides a silent upgrade the reply's own field shows. `model` is
+    TypeSafe's alone; the session CLI and the chat fallback ignore it.
 
-    One request per call in the normal case, to whichever provider the credential
-    resolves - TypeSafe first, the chat fallback only when `key()` is empty. A
-    transient failure - a timeout, a connection error, a 5xx - gets one more
-    attempt, because a live measurement saw 2 of 50 calls lost that way while the
-    same cells answered on retry; a 4xx (a refused credential, a rejected body)
-    and a reply that parsed malformed are never retried, since the second request
-    would fail identically and only a call that already worked must not be billed
-    twice. The ceiling is one, so the worst case is one duplicated request on a
-    call that answered nothing anyway. A caller on a hook's budget passes
-    `attempts=1` and a `deadline` in seconds: urllib's `timeout` bounds one
-    socket operation, not the call, so only the deadline bounds its wall time.
+    The providers are tried in `providers()` order - the session's own CLI
+    first - and the next one is asked only when the previous failed. `fallback`
+    is None when the session answered, else why someone else did; that answer,
+    and a refusal, is recorded (`_record`) and said on stderr. A transient
+    failure - a timeout, a connection error, a 5xx - gets one more attempt on
+    the same provider, because a live measurement saw 2 of 50 calls lost that
+    way while the same cells answered on retry; a 4xx, a CLI that exited
+    non-zero and a reply that parsed malformed are never retried, since the
+    second request would fail identically and only a call that already worked
+    must not be billed twice. A caller on a hook's budget passes `attempts=1`
+    and a `deadline` in seconds: urllib's `timeout` bounds one socket operation,
+    not the call, so only the deadline bounds its wall time.
 
-    A call that ends on a 401, 402 or 5xx marks the provider down for
-    `DOWN_FOR` seconds, and until then every call returns None without a
-    request (`_down`), so a dead credential is not re-paid on every prompt.
+    A call that ends on a 401, 402, 5xx or a session CLI's non-zero exit marks
+    that provider down for `DOWN_FOR` seconds, and until then it is skipped
+    without a request (`_down`), so a dead credential is not re-paid on every
+    prompt.
 
-    Total by design: no key, an unreadable state, a refused request, a timeout,
-    a reply that is not the documented shape - all `None`, never an exception."""
-    provider, secret = credential()
-    if not secret:
+    Total by design: no provider, an unreadable state, a refused request, a
+    timeout, a reply that is not the documented shape - all `None`, never an
+    exception."""
+    if not credential()[1]:
         return None
+    stop = None if deadline is None else time.monotonic() + deadline
+    failed = []
+    for provider, secret in providers():
+        result, why = _ask_one(provider, secret, state, questions, model,
+                               timeout, attempts, stop)
+        if result is None:
+            failed.append("%s: %s" % (provider, why))
+            continue
+        note = "; ".join(failed) or (None if provider in SESSION_ARGV else NO_SESSION)
+        result["fallback"] = note
+        _record(result["provider"], result["model"], fallback=note)
+        return result
+    refused = None
+    session = tp.session_cli()
+    if session and (key() or openrouter_key()):
+        refused = ("fallback=%s refuses a third-party judge after %s failed"
+                   % (tp.fallback_policy(), session))
+    _record(None, None, failed="; ".join(failed), refused=refused)
+    return None
+
+
+def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop):
+    """One provider's attempts: `(result, None)`, or `(None, why)`."""
     try:
         if provider == "typesafe":
             used, url = model, endpoint()
@@ -208,34 +265,43 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None)
 
             def send():
                 return _request(secret, body, timeout)
-        else:
+        elif provider == "openrouter":
             used, url = fallback_model(), openrouter_url()
             body = json.dumps(_chat_body(state, questions, used)).encode()
 
             def send():
                 return _chat_request(secret, body, timeout, questions)
+        else:
+            used, url = None, secret
+            prompt = json.dumps({"state": state, "questions": questions})
+
+            def send():
+                left = timeout if stop is None else max(0.1, min(timeout, stop - time.monotonic()))
+                return _session_request(provider, secret, prompt, left, questions)
         marker = _down_marker(provider, url, secret)
         if _down(marker):
-            return None
-    except Exception:
-        return None
-    stop = None if deadline is None else time.monotonic() + deadline
+            return None, "marked down for %ds after a refusal" % DOWN_FOR
+    except Exception as exc:
+        return None, _why(exc)
     for attempt in range(attempts):
+        if stop is not None and time.monotonic() >= stop:
+            return None, "deadline passed"
         try:
             result = _bounded(send, stop)
         except Exception as exc:
             late = stop is not None and time.monotonic() >= stop
             if attempt + 1 >= attempts or late or not _transient(exc):
                 code = getattr(exc, "code", None)
-                if code in (401, 402) or (isinstance(code, int) and code >= 500):
+                if code in (401, 402) or (isinstance(code, int) and code >= 500) \
+                        or isinstance(exc, SessionFailed):
                     _mark_down(marker)
-                return None
+                return None, _why(exc)
             continue
         named = result.get("model")
-        result["model"] = named if isinstance(named, str) and named else used
+        result["model"] = named if isinstance(named, str) and named else used or "-"
         result["provider"] = provider
-        return result
-    return None
+        return result, None
+    return None, "no attempt"
 
 
 def _answer(result, id):
@@ -485,3 +551,118 @@ def _bounded(send, stop):
     if "err" in box:
         raise box["err"]
     return box["ok"]
+
+
+class SessionFailed(RuntimeError):
+    """The session CLI exited non-zero or printed no answer: a logged-out CLI or
+    an exhausted plan fails the same way on the next call, so it is never
+    retried and it marks the provider down like a 401."""
+
+
+def _session_request(name, exe, prompt, timeout, questions):
+    """One headless run of the session's own CLI, mapped into the documented
+    return. It starts in an empty temp dir with stdin closed - the answer rests
+    on the prompt alone, and a CLI that wants a login exits instead of waiting -
+    with TEZGAH_NESTED set so tezgah's own hooks stand down in the child. The
+    answer is read from the CLI's JSON output: the model and the usage it names
+    are what the call really used."""
+    import shutil
+    import subprocess
+    import tempfile
+    cwd = tempfile.mkdtemp(prefix="tezgah-judge-")
+    started = time.monotonic()
+    try:
+        proc = subprocess.run([exe] + SESSION_ARGV[name] + [prompt], cwd=cwd,
+                              stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, timeout=timeout,
+                              env=dict(os.environ, TEZGAH_NESTED="1"))
+    finally:
+        shutil.rmtree(cwd, ignore_errors=True)
+    if proc.returncode:
+        raise SessionFailed("%s exit %d: %s" % (name, proc.returncode,
+                                                 (proc.stderr or proc.stdout).strip()[-200:]))
+    if name == "claude":
+        data = json.loads(proc.stdout)
+        if data.get("is_error"):
+            raise SessionFailed("claude: %s" % str(data.get("result"))[:200])
+        text = data.get("result") or ""
+        model = next(iter(data.get("modelUsage") or {}), None)
+        usage = data.get("usage") or {}
+        tokens_in = sum(int(usage.get(k) or 0) for k in (
+            "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+        tokens_out = int(usage.get("output_tokens") or 0)
+    else:
+        message = None
+        for line in proc.stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and event.get("type") == "message_end" \
+                    and (event.get("message") or {}).get("role") == "assistant":
+                message = event["message"]
+        if message is None:
+            raise SessionFailed("omp printed no answer")
+        text = "".join(part.get("text") or "" for part in message.get("content") or []
+                       if isinstance(part, dict) and part.get("type") == "text")
+        model = "/".join(str(message[k]) for k in ("provider", "model") if message.get(k))
+        usage = message.get("usage") or {}
+        tokens_in = sum(int(usage.get(k) or 0) for k in ("input", "cacheRead", "cacheWrite"))
+        tokens_out = int(usage.get("output") or 0)
+    # A chat model may fence its object; the outermost braces are the object.
+    answers = _chat_answers(json.loads(text[text.find("{"):text.rfind("}") + 1]), questions)
+    return {"answers": answers,
+            "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out},
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "model": model}
+
+
+def _why(exc):
+    """A failure as one short reason: the HTTP code, else the exception's text."""
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return "http %d" % code
+    return ("%s: %s" % (type(exc).__name__, exc))[:200]
+
+
+# The last judgement's record, one file: what answered, and why it was not the
+# session's own CLI when it was not. `tezgah-status --judge` prints it.
+LAST = "judge-last.json"
+
+
+def _say(line):
+    try:
+        import sys
+        sys.stderr.write("tezgah-judge: %s\n" % line)
+    except Exception:
+        pass
+
+
+def _record(provider, model, fallback=None, failed=None, refused=None):
+    """Write the last-use record and say any fallback or refusal on stderr.
+    Best effort like every hook write: a cache that cannot be written loses
+    the record, never the answer."""
+    if fallback and provider:
+        _say("answered by %s/%s - %s" % (provider, model, fallback))
+    elif refused:
+        _say("no judgement: %s (%s)" % (refused, failed))
+    row = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "provider": provider,
+           "model": model, "fallback": fallback, "failed": failed or None,
+           "refused": refused, "policy": tp.fallback_policy()}
+    try:
+        path = os.path.join(tp.cache_dir(), LAST)
+        with open(path + ".tmp", "w", encoding="utf-8") as fh:
+            json.dump(row, fh)
+        os.replace(path + ".tmp", path)
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def last_use():
+    """The last judgement's record (see `_record`), or None when none was kept."""
+    try:
+        with open(os.path.join(tp.cache_dir(), LAST), encoding="utf-8") as fh:
+            row = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return row if isinstance(row, dict) else None

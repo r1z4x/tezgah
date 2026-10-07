@@ -129,9 +129,11 @@ os.environ["HOME"] = _SUITE_HOME.name
 os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude")
 # A host dir or XDG base the developer exported points at their real config:
 # with CODEX_HOME set, a test that wrote and removed `<CODEX_HOME>/config.toml`
-# deleted the developer's own Codex config (2026-10-06).
+# deleted the developer's own Codex config (2026-10-06). OMPCODE/CLAUDECODE name
+# the host session the judgement seam asks first, so a suite started inside omp
+# or Claude Code would run the developer's real CLI on their tokens.
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
-              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA"):
+              "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA", "OMPCODE", "CLAUDECODE"):
     os.environ.pop(_name, None)
 
 

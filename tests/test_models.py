@@ -437,12 +437,40 @@ class OmpOverrides(unittest.TestCase):
     def test_the_fallback_order_rotates_per_agent(self):
         # identical chains moved every agent onto the same fallback at once, so a
         # 429 there cascaded instead of falling through (review 2026-10-01)
-        out = self.overrides("anthropic", funded=("anthropic", "zai", "any"))
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
+            out = self.overrides("anthropic", funded=("anthropic", "zai", "any"))
         orders = {a: tuple(out[a].split(",")[1:]) for a in out}
         self.assertGreater(len(set(orders.values())), 1, orders)
         for agent, chain in out.items():
             self.assertTrue(chain.startswith("anthropic/"), agent)
             self.assertEqual(len(set(chain.split(","))), len(chain.split(",")), agent)
+
+    def test_the_default_chain_never_leaves_the_session_vendor(self):
+        # a session on Opus with GLM and OpenRouter keys beside it ran its
+        # subagents on GPT and GLM after an Anthropic 429 (owner report,
+        # 2026-10-07): the default keeps Opus, through OpenRouter at most
+        funded = ("anthropic", "zai", "any")
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="vendor"):
+            out = self.overrides("anthropic", funded)
+            with mock.patch.object(tm, "funded_families", return_value=list(funded)):
+                roles = tm.omp_role_chains("anthropic")
+        self.assertEqual(out["tezgah-standard"], "anthropic/claude-opus-5-5:medium,"
+                         "openrouter/anthropic/claude-opus-5.5:medium")
+        self.assertEqual(out["tezgah-cheap"], "anthropic/claude-opus-5-5:low,"
+                         "openrouter/anthropic/claude-opus-5.5:low")
+        for chain in out.values():
+            self.assertNotIn("glm", chain)
+            self.assertNotIn("gpt", chain)
+        self.assertEqual(roles["retry.fallbackChains.plan"],
+                         ["openrouter/anthropic/claude-opus-5.5:high"])
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="none"):
+            out = self.overrides("anthropic", funded)
+            with mock.patch.object(tm, "funded_families", return_value=list(funded)):
+                self.assertEqual(tm.omp_role_chains("anthropic"), {})
+        self.assertEqual(out["tezgah-standard"], "anthropic/claude-opus-5-5:medium")
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
+            out = self.overrides("anthropic", funded)
+        self.assertIn("zai/glm-5.3", out["tezgah-standard"])
 
     def test_bundled_agents_are_routed_and_the_reviewers_inherit(self):
         out = self.overrides("anthropic", funded=("anthropic",))
