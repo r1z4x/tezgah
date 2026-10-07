@@ -94,6 +94,7 @@ import json
 import os
 import re
 import shlex
+import time
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
@@ -138,6 +139,15 @@ try:  # The credential-file names, the secret rule's `git add` half: lost with
     from tezgah_snapshot import SECRET_FILE
 except ImportError:  # pragma: no cover - only where the module has not landed
     SECRET_FILE = None
+
+try:  # The lesson ledger's one reader (shared with tezgah_context, which the
+    # gate does not import): which file is a ledger, what a write adds to it, the
+    # key each line is remembered by, and the taint index writer. A missing
+    # module costs the taint row, never the session.
+    import tezgah_lessons
+    from tezgah_lessons import write_taint
+except ImportError:  # pragma: no cover - only where the module has not landed
+    tezgah_lessons = write_taint = None
 
 try:  # The piped-check rule's reader: newer than some integrity modules, and a
     # missing name costs the rule, never the session.
@@ -1144,6 +1154,71 @@ def workspace_reason(inp, cwd, base):
         if listed.returncode == 0 and not listed.stdout.strip():
             return WORKSPACE_DENY % (path, seg, seg)
     return None
+
+
+# --- lesson lineage: a ledger write in a turn that read untrusted text -------
+# What this records (security-08): any session can append a standing constraint
+# to `.tezgah/lessons.md`, and a line written in a turn that read a web page, an
+# MCP answer or a subagent's report is injected into every later session like
+# one the user asked for. Owner decision ADR 010: a tainted lesson costs a row,
+# never a refusal - so this is not a rule, has no `_deny` slug and no switch of
+# its own beyond `pretooluse-off`. The fold is over every row of the user turn
+# (`turn_rows`, scoped to the calling subagent), not `tezgah_untrusted.
+# turn_channel`: that is a pending state the first effect after the read spends,
+# and a lesson is usually written after other work.
+# ponytail: a shell write whose body is not a heredoc (`echo x >> lessons.md`),
+# or whose target is a positional argument (`cp`, `sed -i`), leaves a row with
+# no `key` or no row at all - the gate cannot read the line it adds - so the
+# context cannot label that line.
+def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
+    """Write one `lesson_tainted` row per lesson line this call leaves in a
+    ledger that the ledger did not hold, when the user turn already holds a row
+    carrying `source`; a single row with no `key` when the call names no new
+    line the gate can read (an unread body, an edit whose old text is not there,
+    a removal). A write tool's lines are read off the file as it will be once
+    the call lands (`_after_text`), so a partial-line edit names the line it
+    leaves, not its fragment. The keyed rows also go to the ledger's repository
+    index (`tezgah_lessons.write_taint`), which the context labels lines from.
+    Returns nothing: it is never a refusal."""
+    if tezgah_lessons is None or turn_rows is None or not session_id:
+        return
+    t = str(tool or "").lower()
+
+    def norm(path):
+        return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+
+    texts = {norm(path): new for path, _old, new in
+             write_texts(inp if t in WRITE_TOOLS else shell_body)}
+    targets = sorted(p for p in set(texts) | set(map(norm, write_paths(inp)))
+                     if tezgah_lessons.is_ledger(p))
+    if not targets:
+        return
+    source = next((row["source"] for row in reversed(
+        turn_rows(session_id, agent=agent)) if row.get("source")), None)
+    if not source:
+        return
+    key_of = tezgah_lessons.lesson_key
+    for path in targets:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                current = fh.read()
+        except OSError:
+            current = ""
+        have = set(map(key_of, tezgah_lessons.entries(current)))
+        new = texts.get(path)
+        if t in WRITE_TOOLS and new is not None:
+            after = _after_text(inp, current)
+            new = new if after is None else after    # None: a patch's `+` lines
+        keys = [k for k in dict.fromkeys(map(key_of, tezgah_lessons.entries(
+            new or ""))) if k not in have] or [None]
+        fields = dict(source=source, target=path, agent=agent,
+                      workspace=root_for(cwd), id=call_id(tool, inp))
+        for key in keys:
+            note(session_id, "lesson_tainted", source, key=key, **fields)
+        if keys != [None]:
+            write_taint(os.path.dirname(os.path.dirname(path)), have | set(keys),
+                        [{"key": k, "source": source, "ts": int(time.time())}
+                         for k in keys])
 
 
 # --- the shell's write body: three write-tool rules reached through a heredoc -
@@ -2456,6 +2531,15 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     reason = drift_reason(tool, inp, cwd, session_id)
     if reason:
         return _deny(session_id, "drift", reason, tool, inp, base)
+    # Lesson lineage: a ledger write about to land in a turn that read untrusted
+    # text leaves its rows and is let through (see lesson_taint; ADR 010). After
+    # every refusal, so a refused write that will be re-issued is counted once;
+    # a failure costs the rows, never the write.
+    if t in WRITE_TOOLS + BASH_TOOLS:
+        try:
+            lesson_taint(tool, inp, cwd, session_id, agent, shell_body)
+        except Exception:
+            pass
     # Nothing refused this call, so a write is about to land: keep the bytes it
     # is about to change, which is what bin/tezgah-rollback restores by hand.
     # Nothing automatic undoes work here - see tezgah_snapshot's own note on why.
@@ -2505,17 +2589,20 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
     """`decision` with every write it makes swapped out for the call.
 
     The writers are module names `decision` reaches through (`note` for the
-    deny, drift and nudge rows, `first_nudge` for the once-per-session mark,
-    `capture` for the snapshot), so one swap covers every rule and a new rule
+    deny, drift, nudge and lesson_tainted rows, `write_taint` for the lesson
+    taint index, `first_nudge` for the once-per-session mark, `capture` for the
+    snapshot), so one swap covers every rule and a new rule
     that records through them is dry here without being told. Safe because
     the dry run is its own process (bin/tezgah-gate check): nothing else in it
     reads these names while they are swapped, and the finally puts them back.
     The nudge is still answered as the live path would answer it - spent when
     its mark exists - only the mark is not written."""
     g = globals()
-    saved = {name: g[name] for name in ("note", "first_nudge", "capture")}
+    saved = {name: g[name] for name in ("note", "write_taint", "first_nudge",
+                                        "capture")}
 
-    g.update(note=lambda *a, **k: None, capture=None,
+    g.update(note=lambda *a, **k: None, write_taint=lambda *a, **k: None,
+             capture=None,
              first_nudge=lambda sid: not os.path.exists(nudge_mark(sid)))
     try:
         return decision(tool, inp, cwd, session_id, agent=agent)
@@ -2527,7 +2614,7 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
 # Every rule slug `decision` records a refusal under (`_deny`'s second argument),
 # with the kill switch that disarms it beside `pretooluse-off`, which disarms
 # them all; None means only that one. A lesson the ledger retires with
-# `|| enforced_by: <slug>` (tezgah_context._lesson_lines) leaves the injected
+# `|| enforced_by: <slug>` (tezgah_lessons.lines) leaves the injected
 # block only while its rule is armed, so `piped` brings its lesson back under
 # `verify-off`. `tests/test_lessons.py` holds this map to the `_deny` literals.
 DENY_RULES = {"control": None, "explorer": None, "shortcut": "verify-off",

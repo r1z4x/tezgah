@@ -468,6 +468,11 @@ PERMANENT_ERROR = re.compile(
 # session start compared with the install record, and the kill switches present
 # (`hooks/tezgah_attest.py::run`). `harness` annotates a `claim` row made in a
 # session whose start found those entries drifted - the drift list, never a block.
+# A `lesson_tainted` row (`tezgah_gate.lesson_taint`) adds no field of its own:
+# `key` is the 8-hex key of the ledger line the write adds
+# (`tezgah_lessons.lesson_key`, absent when the gate could not read it), `source`
+# the channel the turn had read, `target` the ledger, `id` the call. The planned
+# `lesson_hit` row (plan 061 Phase B, not written yet) needs only `key` and `id`.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
