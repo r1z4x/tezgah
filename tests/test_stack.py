@@ -85,6 +85,12 @@ class Stack(unittest.TestCase):
         self.put(self.path(".claude", "plugins", "installed_plugins.json"),
                  json.dumps({"plugins": {"tezgah@local": [{"installPath": live}]}}))
         self.put(os.path.join(self.repo, ".mcp.json"), json.dumps({"mcpServers": {"tezgah": {}}}))
+        # the plugin's one gate command under two matchers (tools, then mcp__*)
+        # answers two tool sets, so it is not a hook that runs twice
+        gate = {"type": "command", "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/gate.py"}
+        self.put(os.path.join(live, "hooks", "hooks.json"), json.dumps({"hooks": {
+            "PreToolUse": [{"matcher": "Bash", "hooks": [gate]},
+                           {"matcher": "^mcp__", "hooks": [gate]}]}}))
 
         code, data, kinds = self.stack()
         self.assertEqual(code, 1)

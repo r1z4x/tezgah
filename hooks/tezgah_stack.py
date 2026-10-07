@@ -30,7 +30,7 @@ import tezgah_paths as tp
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEZGAH_SKILLS = os.path.join(HERE, "skills")
 BLOCK = "<!-- tezgah:start -->"
-OWNERS = (("tezgah", "tezgah"), (".orca", "orca"), ("ORCA_", "orca"),
+OWNERS = (("tezgah", "tezgah"), ("orca", "orca"), ("ORCA_", "orca"),
           ("codegraph", "codegraph"))
 
 
@@ -90,17 +90,21 @@ def toml_tables(text, prefix):
 
 
 def hook_rows(data, source, who=None):
-    """{event: [(owner, source, command)]} from a Claude/Codex/Cursor hooks
-    object. `who` names the owner of every row (a plugin's own hooks file)."""
+    """{event: [(owner, source, matcher + command)]} from a Claude/Codex/Cursor
+    hooks object. `who` names the owner of every row (a plugin's own hooks
+    file). One command under two matchers answers two different tool sets, so
+    the matcher is part of what makes a row a duplicate."""
     out = {}
     hooks = data.get("hooks", {})
     for event, groups in (hooks.items() if isinstance(hooks, dict) else []):
         for group in groups if isinstance(groups, list) else []:
             entries = (group.get("hooks") or [group]) if isinstance(group, dict) else []
+            matcher = str(group.get("matcher") or "") if isinstance(group, dict) else ""
             for entry in entries:
                 if isinstance(entry, dict) and entry.get("command"):
                     cmd = str(entry["command"])
-                    out.setdefault(event, []).append((who or owner(cmd), source, cmd))
+                    key = "%s %s" % (matcher, cmd) if matcher else cmd
+                    out.setdefault(event, []).append((who or owner(cmd), source, key))
     return out
 
 
