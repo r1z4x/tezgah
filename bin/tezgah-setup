@@ -50,27 +50,8 @@ try:
 except ImportError:  # not POSIX: record_contract relies on os.replace alone
     fcntl = None
 
-
-def stable_root(real):
-    """The path every install renders for the tree at `real` (a realpath).
-
-    A Homebrew keg `<brew>/Cellar/tezgah/<version>/libexec` is deleted by the
-    default cleanup of the next `brew upgrade`, so when `<brew>/opt/tezgah`
-    resolves to this keg the tree is named through that stable link instead.
-    Anything else - a checkout, a release prefix, npm, a keg opt/ does not
-    name - is its own path."""
-    keg, leaf = os.path.split(real)
-    formula = os.path.dirname(keg)
-    cellar = os.path.dirname(formula)
-    if (leaf != "libexec" or os.path.basename(formula) != "tezgah"
-            or os.path.basename(cellar) != "Cellar"):
-        return real
-    opt = os.path.join(os.path.dirname(cellar), "opt", "tezgah")
-    return os.path.join(opt, leaf) if os.path.realpath(opt) == keg else real
-
-
-HERE = stable_root(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-sys.path.insert(0, os.path.join(HERE, "hooks"))
+_TREE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(_TREE, "hooks"))
 import tezgah_apps  # noqa: E402
 import tezgah_context  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
@@ -81,6 +62,9 @@ import tezgah_attest as ta  # noqa: E402
 from tezgah_policy import (  # noqa: E402
     ADHD, CODEGRAPH_RULE, CODEGRAPH_STATIC, CONSULT, EXEC, NO_CONSULT,
     ORCHESTRATE, PONYTAIL, WORKFLOWS)
+
+# the tree as installs name it: a Homebrew keg through its stable opt/ link
+HERE = tp.stable_root(_TREE)
 
 HOME = os.path.expanduser("~")
 # Where a released artifact unpacks: <prefix>/<version> plus a `current` symlink

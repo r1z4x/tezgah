@@ -15,6 +15,7 @@ fallback, and the install-update-uninstall cycle (.github/workflows/ci.yml).
 """
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
@@ -30,6 +31,7 @@ from test_setup import SetupBase, setup_module
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
+import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 
 _MISSING = object()
@@ -358,24 +360,67 @@ class BrewKeg(Base):
             capture_output=True, text=True, env=self.env, timeout=300)
         self.assertEqual(proc.returncode, 0, proc.stdout[-2000:] + proc.stderr)
         self.assertEqual([p for p in links if os.path.lexists(p)], [])
+        # the uninstall unwires; the keg is Homebrew's to remove
+        self.assertTrue(os.path.isfile(self.path("brew", "Cellar", "tezgah", "9.9.10",
+                                                 "libexec", "bin", "tezgah-setup")))
+
+    def attest(self, tree, host, session):
+        """The detail of the attest row `<tree>/bin/tezgah-context attest`
+        writes, the call every host's session start makes."""
+        work = self.path("work")
+        os.makedirs(work, exist_ok=True)
+        proc = subprocess.run(
+            [sys.executable, os.path.join(tree, "bin", "tezgah-context"), "attest",
+             host, session, work],
+            capture_output=True, text=True, env=dict(self.env, TEZGAH_ROOTS=work),
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        path = self.path(".cache", "tezgah", "evidence", ti._slug(session) + ".jsonl")
+        with open(path) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        return [r["detail"] for r in rows if r["kind"] == "attest"][-1]
+
+    def test_a_session_started_from_the_keg_reports_no_drift_before_or_after_an_upgrade(self):
+        """A hook runs from its realpath, the keg, while the install rendered
+        opt/: the attest root must read opt/ too, or every brew session starts
+        drifted (the omp bridge differs, opencode's plugin link moved)."""
+        hosts = self.HOSTS.split(",")
+        self.install(self.keg("9.9.9"))
+        for host in hosts:
+            with self.subTest(host=host, keg="9.9.9"):
+                self.assertEqual(self.attest(os.path.realpath(self.keg_tree("9.9.9")),
+                                             host, "before-" + host), "ok")
+        self.keg("9.9.10")
+        shutil.rmtree(self.path("brew", "Cellar", "tezgah", "9.9.9"))
+        for host in hosts:
+            with self.subTest(host=host, keg="9.9.10"):
+                self.assertEqual(self.attest(os.path.realpath(self.keg_tree("9.9.10")),
+                                             host, "after-" + host), "ok")
+
+    def keg_tree(self, version):
+        return self.path("brew", "Cellar", "tezgah", version, "libexec")
 
     def test_the_running_tree_is_named_through_opt_only_when_opt_is_this_keg(self):
         libexec = os.path.realpath(self.keg("9.9.9"))
         opt_tree = os.path.join(os.path.realpath(self.path("brew", "opt")),
                                 "tezgah", "libexec")
-        self.assertEqual(self.mod.stable_root(libexec), opt_tree)
+        self.assertEqual(tp.stable_root(libexec), opt_tree)
+        # a path inside the keg moves with it
+        self.assertEqual(tp.stable_root(os.path.join(libexec, "hosts", "omp", "hook.py")),
+                         os.path.join(opt_tree, "hosts", "omp", "hook.py"))
         # opt/ flipped to another keg: this one is not what opt/ names
         other = os.path.realpath(self.keg("9.9.10"))
-        self.assertEqual(self.mod.stable_root(libexec), libexec)
-        self.assertEqual(self.mod.stable_root(other), opt_tree)
+        self.assertEqual(tp.stable_root(libexec), libexec)
+        self.assertEqual(tp.stable_root(other), opt_tree)
         # no opt/ link at all: the keg itself
         os.unlink(self.path("brew", "opt", "tezgah"))
-        self.assertEqual(self.mod.stable_root(other), other)
+        self.assertEqual(tp.stable_root(other), other)
 
     def test_a_checkout_still_resolves_to_the_checkout(self):
-        self.assertEqual(self.mod.stable_root(os.path.realpath(REPO)),
-                         os.path.realpath(REPO))
-        self.assertEqual(self.mod.HERE, os.path.realpath(REPO))
+        real = os.path.realpath(REPO)
+        self.assertEqual(tp.stable_root(real), real)
+        self.assertEqual(self.mod.HERE, real)
+        self.assertEqual(os.path.realpath(tp.PLUGIN_ROOT), real)
 
 
 if __name__ == "__main__":

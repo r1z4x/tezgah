@@ -114,7 +114,8 @@ def registration(host, root=ROOT):
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")
                  for d in OPENCODE_DIRS)
-        return {os.path.basename(os.path.dirname(p)): os.path.realpath(p)
+        # a keg path is read through opt/, so a `brew upgrade` is no change
+        return {os.path.basename(os.path.dirname(p)): tp.stable_root(os.path.realpath(p))
                 for p in links if os.path.lexists(p)}, []
     if host == "omp":
         try:

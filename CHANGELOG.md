@@ -398,9 +398,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A Homebrew install survives `brew upgrade` with its default cleanup.**
   The installer now names its keg through the stable `opt/tezgah` link
-  (`bin/tezgah-setup::stable_root`). So the farm links, the omp bridge's
+  (`hooks/tezgah_paths.py::stable_root`). So the farm links, the omp bridge's
   hook path and dsh's `configPath`/`pluginRoot` no longer name the
-  versioned keg the cleanup deletes. A checkout still names itself.
+  versioned keg the cleanup deletes. The session-start attest reads the same
+  root, so a brew session reports no drift before or after an upgrade. A
+  checkout still names itself.
 - **A Windows release install can update, upgrade and uninstall itself.**
   `running_prefix()` now accepts the junction `install.ps1` makes. It also
   accepts the copy `install.ps1` makes when Windows refuses the junction. So

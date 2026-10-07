@@ -30,9 +30,29 @@ CACHE = os.path.join(HOME, ".cache", "tezgah")
 # import: `tempfile` costs ~4 ms of every gated call's import and the tool gate,
 # which imports this module, never asks for a cache dir.
 DEFAULT_ROOT = os.path.join(HOME, "Projects")
+
+
+def stable_root(path):
+    """`path` as an install names it: one inside a Homebrew keg
+    `<brew>/Cellar/tezgah/<version>/libexec` is named through `<brew>/opt/tezgah`
+    when that link resolves to the keg, because the next `brew upgrade`'s
+    default cleanup deletes the keg. Anything else - a checkout, a release
+    prefix, npm, a keg opt/ does not name - is its own path. bin/tezgah-setup
+    renders with it and the hooks attest with it, so both read one root."""
+    parts = path.split(os.sep)
+    for i in range(1, len(parts) - 3):
+        if parts[i:i + 2] == ["Cellar", "tezgah"] and parts[i + 3] == "libexec":
+            base = os.sep.join(parts[:i]) or os.sep
+            opt = os.path.join(base, "opt", "tezgah")
+            if os.path.realpath(opt) != os.path.realpath(os.sep.join(parts[:i + 3])):
+                return path
+            return os.path.join(opt, *parts[i + 3:])
+    return path
+
+
 # this file lives in <plugin>/hooks, so the plugin root is one level up and
 # every path advertised to a model is derived from here rather than hardcoded
-PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PLUGIN_ROOT = stable_root(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CODEGRAPH = "codegraph"
 ORX = "orx"
 # Tools installed by their own installers land here without the user's shell PATH
