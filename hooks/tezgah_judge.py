@@ -154,9 +154,11 @@ def fallback_model():
 
 # The session CLIs the seam can ask, as the argv between the binary and the
 # prompt: no tools, no session file, no project rules, skills, extensions, MCP
-# servers or settings - measured 2026-10-07, the defaults sent 43,735 (omp) and
-# 37,038 (claude) cached prompt tokens for a one-word answer, these flags 869
-# and 557 - and the system prompt is the chat fallback's own contract.
+# servers or settings, and the chat fallback's own contract as the system
+# prompt. Measured 2026-10-07 on a one-word answer: claude went from 37,038
+# prompt tokens ($0.30) to 725 ($0.007); omp from 43,735 written to cache
+# ($0.35) to about 37,500, 36,700 of them read from cache ($0.015) - omp has
+# no flag here that drops the rest.
 SESSION_ARGV = {
     "omp": ["-p", "--no-tools", "--no-lsp", "--no-session", "--no-rules",
             "--no-skills", "--no-extensions", "--no-title", "--thinking", "off",

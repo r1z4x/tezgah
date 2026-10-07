@@ -60,10 +60,10 @@
     "semicolons": 18
   },
   "docs/judge.md": {
-    "long_sentences": 28,
+    "long_sentences": 23,
     "passive": 15,
     "replace_words": 0,
-    "semicolons": 17
+    "semicolons": 14
   },
   "docs/layers.md": {
     "long_sentences": 20,
@@ -111,6 +111,6 @@
     "long_sentences": 9,
     "passive": 7,
     "replace_words": 1,
-    "semicolons": 12
+    "semicolons": 11
   }
 }

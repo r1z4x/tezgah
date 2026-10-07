@@ -105,7 +105,8 @@ must use it": a missing key or binary reads the same red as a kill switch
 (`consult_options()`, `orx_bin()`, `have_judge_key()`: `hooks/tezgah_paths.py::consult_options`,
 `hooks/tezgah_paths.py::orx_bin`, `hooks/tezgah_paths.py::have_judge_key`). `judge` is the seam
 behind `bin/tezgah-triage`, `bin/tezgah-docs` and the skill picker
-([judge](judge.md)), and its credential is the seam's own two channels, never
+([judge](judge.md)). Its credential is the session's own CLI, else a third-party
+key `fallback` allows, never
 omp's login store. `graph` and `orch` are the two switch-only marks: nothing at
 arming time asks whether their toolchain is on the machine, because neither rule
 leaves the text when it is missing - the graph-first rule ships whether or not
@@ -229,6 +230,7 @@ tezgah-status /path/to/repo <id> --counters  # the evidence ledger's counters
 tezgah-status --legend                       # what each mark means
 tezgah-status --rule-yield                   # live gate rules that stopped firing
 tezgah-status --enforcers                    # what enforces each always-on rule
+tezgah-status --judge                        # what the judge used last, and why
 ```
 
 The session id is the second positional argument or `TEZGAH_SESSION`; without it

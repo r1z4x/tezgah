@@ -51,14 +51,18 @@ change that would silently run nothing.
 
 ## Model routing
 
-Every omp agent gets a **cross-family fallback chain** (`hooks/tezgah_models.py::_chain`, over `hooks/tezgah_models.py::funded_families`): the mode's family first,
-then every other family this machine holds a credential for. One pin per agent
-made one provider's 429 every subagent's failure, because the account is shared
-with the main thread (measured: 24 of 26 post-routing 429s hit a subagent's first
-request, all on one Opus account; four reviews and three implementation agents
-died on it in one day). A family whose credential cannot be detected is left out
-of the chain, never guessed in. The main thread's own model, and the provider-keyed
-chains, stay the user's settings - tezgah writes only the keys it owns.
+Every omp agent gets a **fallback chain** (`hooks/tezgah_models.py::_chain`, over
+`hooks/tezgah_models.py::funded_families`). The mode's family goes first. By
+default the rest is the same vendor's model through another funded provider, such
+as Opus through OpenRouter on an Anthropic session. `fallback: any` in
+`config.json` adds every other funded family, and `none` keeps the first entry
+alone. One pin per agent made one provider's 429 every subagent's failure, because
+the account is shared with the main thread (measured: 24 of 26 post-routing 429s hit
+a subagent's first request, all on one Opus account). A chain that left the vendor
+ran an Opus session's subagents on GPT and GLM, so that step is opt-in. A family
+whose credential cannot be detected is left out of the chain, never guessed in. The
+main thread's own model, and the provider-keyed chains, stay the user's settings.
+tezgah writes only the keys it owns.
 
 What tezgah cannot fix from inside: a provider that stalls on a very large
 context (`OpenAI completions stream stalled`, five minutes without an event on a

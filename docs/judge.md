@@ -1,8 +1,8 @@
 # Judge: the judgement seam, its five callers and its switches
 
-The judgement seam is `hooks/tezgah_judge.py`: one module that asks TypeSafe
-(Jev) for a batched structured judgement over a state tezgah would otherwise pay
-an agent to read. Read this page when you are about to call one of its four
+The judgement seam is `hooks/tezgah_judge.py`. It asks the session's own model,
+through the host's CLI, for a batched structured judgement over a state tezgah
+would otherwise pay an agent to read. Read this page when you are about to call one of its four
 callers, when you need to say what leaves the machine, or when you have to tell a
 user how to switch it off. It is an on-demand capability, not a rule: no paragraph
 of it is injected into a session, and a session that never asks pays one clause in
@@ -11,7 +11,7 @@ the kill-switch paragraph and nothing else (`CORE`,
 
 ## What it is
 
-One seam, five callers, one credential, one egress boundary, one price, one
+One seam, five callers, one provider order, one egress boundary, one price, one
 redirect guard. The module is stdlib only and total - a failure is a `None`, never
 an exception, because a hook imports it and a hook that raises takes a session
 down (`_request`, `hooks/tezgah_judge.py::_request`). One endpoint and one key path
@@ -21,12 +21,12 @@ are module constants (`URL`, `hooks/tezgah_judge.py::URL`; `KEY_FILE`,
 endpoint's host, so a `Location` cannot carry the bearer (`guarded_opener`,
 `hooks/tezgah_paths.py`, the one copy `bin/consult` and `bin/codegen` use too). A
 transient failure - a timeout, a connection error, a 5xx - gets exactly one more
-attempt; a 4xx and a malformed reply never do (`_transient`,
-`hooks/tezgah_judge.py::_transient`). A hook caller asks for one attempt and a
-wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py::ask`).
-urllib's timeout bounds one socket operation, not the whole call.
-`TEZGAH_TYPESAFE_URL` repoints the endpoint and `TEZGAH_OPENROUTER_URL` the
-fallback's; both are test seams, not fallbacks.
+attempt. A 4xx, a session CLI's non-zero exit and a malformed reply never do
+(`_transient`, `hooks/tezgah_judge.py::_transient`). A hook caller asks for one
+attempt and a wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py::ask`).
+A session CLI answers in 4-10 s (measured 2026-10-07), so the skill hint's
+4 s deadline usually ends first. `TEZGAH_TYPESAFE_URL`, `TEZGAH_OPENROUTER_URL`
+and `TEZGAH_OMP_BIN`/`TEZGAH_CLAUDE_BIN` are the test seams.
 
 Every caller reads an answer through the same two accessors rather than reaching
 into the raw reply, so a Choice and a Noul are read one way for all five
@@ -39,13 +39,13 @@ still reads the selected refs and owns the finding, and the ledger's step kinds
 are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
 `hooks/tezgah_integrity.py::STEP_KINDS`).
 
-The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` - for the triage that is the screen's own text, so a screen
-carrying personal data is read by a third party, and for the docs fallback it is
-the reader's query. When no TypeSafe key resolves, the same state goes to
-`openrouter.ai` instead (`OPENROUTER_URL`, `hooks/tezgah_judge.py::OPENROUTER_URL`), which is
-the price of a machine that has no Jev credential still having a judge at all:
-the destination changes, not what is sent. Nothing else goes: no session id, no
+The state leaves the machine. By default it goes to the session's own vendor,
+through the session's own CLI and credential ([below](#the-providers-and-their-order)).
+A third party - `api.typesafe.ai` or `openrouter.ai` (`OPENROUTER_URL`,
+`hooks/tezgah_judge.py::OPENROUTER_URL`) - reads it only as the `fallback`
+setting allows. For the triage the state is the screen's own text, so whoever
+answers reads any personal data on it. For the docs fallback it is the query.
+Nothing else goes: no session id, no
 workspace path, no environment. The seam does not rewrite the state, because
 sending it is the point. Two callers rewrite what they send. `bin/tezgah-route`
 sends its brief through the ledger's own redactor (`redact`,
@@ -77,37 +77,42 @@ caches one answer per `(session, prompt)` (`_remember`,
 `hooks/tezgah_skill_pick.py::suggest`), and asks at all only when its own marker is
 armed. The other four are bin tools a session runs by name.
 
-## The credential's channels
+## The providers and their order
 
-The credential resolves from `TYPESAFE_API_KEY`, else from the key file the module
-names (`KEY_FILE`, `hooks/tezgah_judge.py::KEY_FILE`). The environment variable is the
-channel an interactive shell has; the file is the channel that matters, because a
-hook or a bin tool a host starts runs in a non-interactive shell where a
-`~/.zshenv` export never ran, so the variable is absent exactly where a judgement
-runs. That is why the file is read rather than the environment trusted. The
-install report's health row reads its own pair of channels ([hosts](hosts.md)),
-which is a different question from the one the seam asks.
+`providers()` (`hooks/tezgah_judge.py::providers`) is the order `ask()` tries.
+The next one is asked only when the previous failed. First comes the session's own
+CLI (`tp.session_cli`, `hooks/tezgah_paths.py::session_cli`): `omp` when
+`OMPCODE` is set, else `claude` when `CLAUDECODE` is. It runs headless with no
+tools, rules, skills, extensions, MCP servers or settings (`SESSION_ARGV`,
+`hooks/tezgah_judge.py::SESSION_ARGV`). Measured 2026-10-07, a call cost $0.007
+on claude and $0.015 on omp. The session's own credential pays, OAuth subscription
+included. The model and usage are read from the CLI's JSON output
+(`_session_request`, `hooks/tezgah_judge.py::_session_request`). Then come the
+third parties. TypeSafe reads `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`
+(`key`, `hooks/tezgah_judge.py::key`). OpenRouter reads `OPENROUTER_API_KEY`, else
+`~/.config/openrouter/key` (`openrouter_key`, `hooks/tezgah_judge.py::openrouter_key`).
+It asks the table's cheap row unless `TEZGAH_JUDGE_MODEL` names another
+(`fallback_model`, `hooks/tezgah_judge.py::fallback_model`). The key file is
+read because a hook runs where `~/.zshenv` never did. A chat answer is asked for in prose
+(`CHAT_SYSTEM`, `hooks/tezgah_judge.py::CHAT_SYSTEM`) and filtered to the ids
+asked, a wrongly typed answer dropped (`_chat_answers`,
+`hooks/tezgah_judge.py::_chat_answers`).
 
-When neither channel resolves, the same two channels are read again for the
-fallback provider - `OPENROUTER_API_KEY`, then `~/.config/openrouter/key`
-(`openrouter_key()`, `hooks/tezgah_judge.py::openrouter_key`) - and the request goes to an
-OpenAI-compatible chat endpoint instead (`OPENROUTER_URL`,
-`hooks/tezgah_judge.py::OPENROUTER_URL`). TypeSafe wins whenever it resolves, so the fallback
-cannot move a machine that already judges with Jev (`credential()`,
-`hooks/tezgah_judge.py::credential`). The chat model is asked for the same shapes in prose
-(`CHAT_SYSTEM`, `hooks/tezgah_judge.py::CHAT_SYSTEM`), at temperature 0
-(`_chat_body()`, `hooks/tezgah_judge.py::_chat_body`), and its reply is filtered to the ids
-that were asked for, dropping any answer whose type does not match its question
-(`_chat_answers()`, `hooks/tezgah_judge.py::_chat_answers`; `_clean_answer()`,
-`hooks/tezgah_judge.py::_clean_answer`) - so a dropped answer reads the same as no answer at
-all, which is what the callers already handled. The model is the table's cheap row
-(`cheap_model`, `hooks/tezgah_models.py`) unless `TEZGAH_JUDGE_MODEL` names
-another, and a table that cannot be read falls back to its own literal
-(`fallback_model()`, `hooks/tezgah_judge.py::fallback_model`). The result carries the provider
-that answered and the model the reply names. The requested model stands only
-when the reply names none, so a silent upgrade behind `jev-latest` shows. The
-skill hint's cost row and the router's `route` row print both as one
-`judge=<provider>/<model>` word.
+`fallback` in `~/.config/tezgah/config.json` (`fallback_policy`,
+`hooks/tezgah_paths.py::fallback_policy`) decides who may stand in:
+
+| `fallback` | Session CLI present | No session CLI |
+|---|---|---|
+| `vendor` (default) | the session CLI only; when it fails, no judgement | TypeSafe, then OpenRouter |
+| `any` | the session CLI, then TypeSafe, then OpenRouter | TypeSafe, then OpenRouter |
+| `none` | the session CLI only | nobody: `available()` is false |
+
+Nothing that stands in is silent. A result carries `provider`, the `model`
+the reply named and `fallback` - None when the session answered, else why it did
+not. That answer, and a refusal with its failures, is said on stderr as one
+`tezgah-judge:` line. It is also kept as the last-use record (`_record`,
+`hooks/tezgah_judge.py::_record`), which `tezgah-status --judge` prints. The skill
+hint's cost row and the router's `route` row also carry `judge=<provider>/<model>`.
 
 ## The switches
 
@@ -152,11 +157,11 @@ known (`note`, `hooks/tezgah_integrity.py::note`), counted by the row's kind
 3. **No seam-level answer cache, and no caller cache beyond the prompt-keyed one
    that exists** (`_remember`, `hooks/tezgah_skill_pick.py::_remember`). A judgement
    costs a fraction of a cent, so a cache is not worth its state file, and a naive
-   one would make two runs of the same command disagree. The one state the seam
-   keeps is a failure marker (`DOWN_FOR`, 300 s, in `hooks/tezgah_judge.py`). A
-   call that ends on a 401, 402 or 5xx marks that provider, endpoint and
-   credential down for five minutes. Until the marker expires, every call returns
-   no judgement and sends no request. A dead key or an empty account then costs
+   one would make two runs of the same command disagree. Beside the last-use
+   record, the seam keeps a failure marker (`DOWN_FOR`, 300 s, in `hooks/tezgah_judge.py`). A
+   call that ends on a 401, 402, 5xx or a session CLI's non-zero exit marks that
+   provider, endpoint and credential down for five minutes. Until the marker
+   expires, that provider is skipped and sent no request. A dead key or an empty account then costs
    one refusal per five minutes, not one per prompt. A rotated key gets a new
    marker, so the seam asks it at once.
 4. **No SDK, no `requests`, no async, no local model.** Each would trade one of
@@ -185,8 +190,9 @@ known (`note`, `hooks/tezgah_integrity.py::note`), counted by the row's kind
 - `hooks/tezgah_skill_pick.py` — the prompt-path skill hint, its threshold, its
   per-prompt cache and its `skill-suggest-on` marker.
 - `hooks/tezgah_policy.py` — the `**Kill switches:**` paragraph the session
-  receives; `hooks/tezgah_paths.py` — where a switch file is read, and the
-  redirect guard (`guarded_opener`) the seam, consult and codegen share.
+  receives; `hooks/tezgah_paths.py` — where a switch file is read, the session CLI
+  and the `fallback` setting, and the redirect guard (`guarded_opener`) the seam,
+  consult and codegen share; `bin/tezgah-status --judge` — the last-use record.
 - `hooks/tezgah_integrity.py` — the ledger and the `judge` counter;
   `hooks/tezgah_context.py` — the status mark and the class carve-out.
 - `tests/test_judge.py`, `tests/test_triage.py`, `tests/test_docs_router.py` —

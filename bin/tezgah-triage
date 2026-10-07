@@ -90,9 +90,11 @@ MEASURED = ("100% of the control lines at a 94% read on a reproduced 356-line "
             "screen")
 CUT = 96
 USAGE = "tezgah-triage --select FILE --task TEXT | --states FILE [--component TEXT]"
-NO_CREDENTIAL = ("no credential (TYPESAFE_API_KEY or ~/.config/typesafe/key, or "
-                 "the OpenRouter fallback's OPENROUTER_API_KEY or "
-                 "~/.config/openrouter/key), or the judge-off switch is on")
+NO_CREDENTIAL = ("no judge: no session CLI (omp or claude, from OMPCODE/CLAUDECODE), "
+                 "and no third party the `fallback` setting allows (TYPESAFE_API_KEY "
+                 "or ~/.config/typesafe/key, or the OpenRouter fallback's "
+                 "OPENROUTER_API_KEY or ~/.config/openrouter/key), or the judge-off "
+                 "switch is on")
 TRIAGE_OFF = "the triage-off switch is on"
 FAILED = ("the call failed - a timeout, a refusal, or a reply that is not the "
           "documented shape")
