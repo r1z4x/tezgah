@@ -281,6 +281,25 @@ class ReleaseWaitsForCi(unittest.TestCase):
             self.assertTrue(re.search(r"(?m)^    needs: \[?ci\]?\s*$",
                                       jobs.get(job, "")), job)
 
+    def test_a_release_skips_only_the_serial_suite_the_shards_already_run(self):
+        # The serial suite is the ~10 min leg; the sharded job runs the same
+        # suite in parallel, so a release asks ci.yml to skip only that step
+        # and keep one floor leg for compile, lint and citations. A push keeps
+        # the full matrix: the plan 045 shadow compares the two there.
+        on = self.workflow("ci.yml").split("\njobs:\n", 1)[0]
+        # a tag push is the release, whose own run calls this workflow: a push
+        # trigger on tags ran the same commit's CI a third time (ci #18, v1.0.0)
+        self.assertRegex(on, r"(?m)^  push:\n(?:    #.*\n)*    tags-ignore: \[\"\*\*\"\]")
+        self.assertRegex(on, r"(?m)^      release:\n        type: boolean\n"
+                             r"        default: false")
+        test = self.jobs(self.workflow("ci.yml"))["test"]
+        self.assertIn("inputs.release", test)
+        self.assertRegex(test, r"(?m)^        if: \$\{\{ !inputs\.release \}\}\n"
+                               r"        run: python3 -m unittest discover")
+        self.assertNotIn("inputs.release", self.jobs(self.workflow("ci.yml"))["test-sharded"])
+        self.assertRegex(self.jobs(self.workflow("release.yml"))["ci"],
+                         r"(?m)^    with:\n      release: true\s*$")
+
     def test_no_ci_matrix_cancels_its_other_legs(self):
         # the default fail-fast cancelled 3.13 in run 37228979769
         for name, block in self.jobs(self.workflow("ci.yml")).items():

@@ -2,10 +2,20 @@ name: ci
 
 on:
   push:
+    # a tag push is a release, and release.yml runs this workflow itself
+    tags-ignore: ["**"]
   pull_request:
   # release.yml runs this whole workflow as its `ci` job, so nothing publishes
   # before the same commit is green
   workflow_call:
+    inputs:
+      # release.yml passes true: the serial suite (~10 min) is skipped there and
+      # one floor leg keeps compile, lint and citations, because `test-sharded`
+      # runs the same suite in parallel. A push keeps the full matrix (the
+      # plan 045 shadow compares the two jobs there).
+      release:
+        type: boolean
+        default: false
 
 # No job inherits a token it does not need: the workflow defaults to none and
 # each job re-declares only what it reads.
@@ -21,7 +31,7 @@ jobs:
       # run 37228979769, so that leg's result was never known
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.12", "3.13", "3.14"]
+        python-version: ${{ fromJSON(inputs.release && '["3.10"]' || '["3.10", "3.12", "3.13", "3.14"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -32,6 +42,7 @@ jobs:
       - name: Byte-compile every script
         run: python3 -m compileall -q hooks hosts bin statusline.py
       - name: Run the stdlib test suite
+        if: ${{ !inputs.release }}
         run: python3 -m unittest discover -s tests -v
       - name: Install ruff
         run: pip install -r requirements-dev.txt
