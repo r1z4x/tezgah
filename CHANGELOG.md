@@ -460,6 +460,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `brew install` met a 404 until the upload finished, and for good if it
   failed. The job now uploads the tarball and its `.sha256` first. It checks
   that both are on the release, and only then touches the tap.
+- **Two sharded CI tests no longer race the runner's load.**
+  `test_components.Switches` set its switches after the session's first
+  ledger row. On a slow runner the latch then kept them out, as it should. The
+  turns after the switches now run as a new session. The redact linear-time
+  test now interleaves its two sizes, best of five each, so one load spike
+  cannot land on one size alone.
 - **The seam refuses a plain-http endpoint override off this machine.** The
   judge seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the
   replay rater's `TEZGAH_DEEPSEEK_URL` all route through

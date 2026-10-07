@@ -968,19 +968,21 @@ class ScratchEvidenceReader(unittest.TestCase):
         small = "echo " + "X" * 50000 + " " + probe
         big = "echo " + "X" * 100000 + " " + probe
 
-        def timed(text):
-            # the best of three: one sample under the sharded suite's load read
-            # 3.1x for a doubling that measures 2.0x alone (2026-10-02)
-            best = None
-            for _ in range(3):
+        # The best of five per size, the two sizes interleaved. One sample read
+        # 3.1x under the sharded suite's load for a doubling that measures 2.0x
+        # alone (2026-10-02). The best of three, small samples first, still read
+        # 3.1x in CI run 37609366936 (50 KB 0.356s -> 100 KB 1.106s), because a
+        # load spike landed on one size's samples only; interleaved, a spike
+        # that slows one size slows the other too.
+        best, out = {}, {}
+        for _ in range(5):
+            for name, text in (("small", small), ("big", big)):
                 start = time.monotonic()
-                out = ti.redact(text)
+                out[name] = ti.redact(text)
                 took = time.monotonic() - start
-                best = took if best is None else min(best, took)
-            return out, best
-
-        small_out, small_s = timed(small)
-        big_out, big_s = timed(big)
+                best[name] = min(best.get(name, took), took)
+        small_out, small_s = out["small"], best["small"]
+        big_out, big_s = out["big"], best["big"]
         self.assertIn("api_key=[redacted:", small_out or "")
         self.assertIn("api_key=[redacted:", big_out or "")
         # doubling the input must roughly double the time, not square it: the

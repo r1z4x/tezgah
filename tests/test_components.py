@@ -162,12 +162,14 @@ class Manifest(unittest.TestCase):
 class Switches(TempHome):
     """The `switch` column against the injection that reads it."""
 
+    sid = "s-components"
+
     def turn(self, cwd, prompt):
         out, proc = run_json([support.PROBE_CONTEXT],
                              {"fn": "context_for", "event": "user_prompt",
                               "cwd": cwd,
                               "payload": {"prompt": prompt,
-                                          "session_id": "s-components"}},
+                                          "session_id": self.sid}},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
@@ -182,12 +184,18 @@ class Switches(TempHome):
 
     def arm(self, repo, names):
         """Turn every named switch on: a `~/.config/tezgah` file, or - for a
-        name that starts with a dot - the per-repo mark inside the repo."""
+        name that starts with a dot - the per-repo mark inside the repo.
+
+        The turns after it belong to a new session: a switch made after a
+        session's first ledger row is latched out of that session (plan 051),
+        and these tests are about the off list, not the latch - on a slow
+        runner the touch landed past the first row's second and CI went red."""
         for name in names:
             if name.startswith("."):
                 self.touch(os.path.join(repo, name))
             else:
                 self.touch(os.path.join(self.home, ".config", "tezgah", name))
+        self.sid = "s-components-armed"
 
     def switches(self):
         return sorted({c["switch"] for c in components.COMPONENTS} - {"none"})
