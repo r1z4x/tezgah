@@ -122,6 +122,7 @@ the kill switches are files, not variables, and live in
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
 | `TEZGAH_E2E_STRICT` | `tests/e2e_*.py`, `.github/workflows/ci.yml` | unset (a missing prerequisite is a SKIP) | `1` turns an end-to-end script's SKIP into a FAIL; CI sets it. |
+| `TEZGAH_OPENCODE_NO_SQLITE` | `hosts/opencode/plugins/tezgah.js` | unset (node:sqlite when the runtime has it) | `1` makes the opencode plugin read and write the evidence ledger through `python3 hooks/tezgah_store.py evidence ...`, the path a runtime without node:sqlite takes; a test sets it. |
 
 ## Debugging
 

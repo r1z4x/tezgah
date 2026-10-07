@@ -61,14 +61,21 @@ audit L-6 found the old files `0644`.
 **The JSONL files it replaced.** Every read or write of a session first imports its old
 `<cache>/evidence/<slug>.jsonl` file (`hooks/tezgah_store.py::_sync`). The import costs one stat
 when nothing is new. It holds the old writer's flock, and it takes only the complete lines past the
-bytes the `imported` table already counts. It never renames the file aside, because opencode's plugin
-still writes and reads it. A Python row for such a session, or for any session of a process serving
-opencode (`serve_host`), goes to that file, and the import takes it from there
-(`hooks/tezgah_integrity.py::_jsonl_mirror`). So the plugin finds every row in the file it
-reads. Session start launches the bulk import of every other file, detached and at most once a day
+bytes the `imported` table already counts. It never renames the file aside: an opencode process
+started before the store may still run the old plugin, which appends to it. No current writer
+writes one. Session start launches the bulk import of every other file, detached and at most once a day
 (`hooks/tezgah_store.py::import_later`). `python3 hooks/tezgah_store.py import-evidence` and
 `tezgah-doctor --import-evidence` run it on demand. A reader that spans every session imports first
 (`hooks/tezgah_store.py::sessions`).
+
+**opencode's plugin** opens the same database through node:sqlite, with the store's busy timeout,
+WAL switch and schema (`evidenceDb` in `hosts/opencode/plugins/tezgah.js`), so either side may
+create it. `tests/test_opencode_plugin.py::OpenCodePlugin.test_the_plugin_creates_the_store_python_creates`
+holds the two schemas equal. Before its first read or write of a session it asks the store to import
+that session's old file, once per process (`importLegacy`). A runtime without node:sqlite, which is
+node before 22.5, runs `python3 hooks/tezgah_store.py evidence append|tail|first|kind|import`
+(`hooks/tezgah_store.py::_evidence_cli`) for each read or write instead. `TEZGAH_OPENCODE_NO_SQLITE=1`
+forces that path.
 
 Every reader skips a line that ends in a newline and does not parse (`_parse`
 `hooks/tezgah_integrity.py::_parse`). Such a line reaches the database only through an imported file,
@@ -166,7 +173,8 @@ or its call's rows went missing. The reader marks it in memory and never writes 
 refuses a done-claim in its turn as "evidence tampered", and `counters.orphans` counts it. A false
 block refuses an honest turn, so the reader marks nothing in five cases. These are a ledger with no
 `began` row before the pass, a turn with a `crash` row, and `pretooluse-off`. The others are an
-append that took the unlocked fallback (its row carries `unlocked`) and the sandbox fallback cache.
+row imported from an old JSONL file whose append took the unlocked fallback (it carries `unlocked`)
+and the sandbox fallback cache.
 A row with no outcome, such as Cursor's afterShellExecution `verify`, does not take a pass's `began`.
 `turn_rows` seeds the waiting `began` rows from the 200 rows before the turn. So a call that straddles a
 prompt pairs there as it does in `events`. A forged `began` row plus its pass stays invisible:

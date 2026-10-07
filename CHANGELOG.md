@@ -19,8 +19,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.cache/tezgah/tezgah.db`. Each row is one INSERT, so no reader meets a
   torn line. A read or write of a session imports its old JSONL file first.
   Session start imports the rest in the background once a day, and
-  `tezgah-doctor --import-evidence` imports them now. The files stay, because
-  opencode's plugin still writes and reads them. `tezgah-doctor --clean`
+  `tezgah-doctor --import-evidence` imports them now. opencode's plugin uses
+  the same database through node:sqlite. On node before 22.5 it calls the
+  store's `evidence` CLI. The old files stay in place: an opencode process
+  started before the upgrade may still append to one. `tezgah-doctor --clean`
   deletes a session idle past the retention window.
 
 ## [1.3.0] - 2026-10-07
