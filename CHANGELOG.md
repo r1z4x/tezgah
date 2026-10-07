@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A model can be the replay sheet's second rater.** `tezgah-gate replay
+  --label-model --prompt <file>` sends each blind sheet row, redacted, to the
+  judge seam. It writes `labels-model.jsonl` beside the sheet and prints the
+  token cost. `replay --report` with one rater's labels now prints no rate:
+  the rates need two raters' agreed labels.
 - **The shell-reader fuzzer runs weekly under bash 5.x.** A `fuzz-shell` job
   in `.github/workflows/neuter.yml` runs `tests/fuzz_shell.py` on the ubuntu
   runner's bash 5, seed 1, 20000 lines. It reads the lines once with the core

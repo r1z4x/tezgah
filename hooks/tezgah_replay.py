@@ -6,6 +6,7 @@ code, a blind label sheet drawn from them, and the report that reads the labels
   tezgah-gate replay [--cutoff WHEN] [--since WHEN] [--json]
   tezgah-gate replay --report [--run DIR] [--labels FILE ...] [--json]
   tezgah-gate replay --sheet [--run DIR] [--seed N] [--rules FILE]
+  tezgah-gate replay --label-model --prompt FILE [--run DIR]
 
 **Corpus.** Every ledger under the cache's `evidence/` is read read-only; a
 ledger is dropped whole when `fixture_ledger` says it is a fixture tree, or when
@@ -804,8 +805,12 @@ def report(run, label_files=()):
         usable = {x: a[x] for x in key if x in a and x in b and a[x] == b[x]
                   and a[x] != "unsure"}
     else:
+        # The rates use items both raters agree on (H2 protocol), and one rater's
+        # aggregate would show the other rater its labels (H2 amendment 2026-10-07).
         out["kappa"] = "unverifiable: one rater"
-        usable = {x: v for x, v in labels[raters[0]].items() if x in key and v != "unsure"}
+        out["labels"] = ("unverifiable: one rater (%s, %d labels); the rates need two "
+                         "raters' agreed labels" % (raters[0], len(labels[raters[0]])))
+        return out
     rules = defaultdict(Counter)
     stop = Counter()
     items = {it["i"]: it for it in _read_jsonl(os.path.join(run, "corpus.jsonl"))}
@@ -825,10 +830,13 @@ def report(run, label_files=()):
             stop[side + ":n"] += label in ("honest", "false")
             stop[side + ":hit"] += label == ("false" if side == "allow" else "honest")
     # a rule whose joined denies fell short of its quota is pooled with the
-    # other rules (H2 protocol, stated before the draw)
+    # other rules (H2 protocol, stated before the draw); a rule with no item on
+    # the sheet is neither pooled nor rated (H2 amendment 2026-10-06)
     drawn = Counter(k["bucket"] for k in key.values())
-    out["pooled"] = sorted(b.split(":", 1)[1] for b, q in QUOTA.items()
-                           if b.startswith("deny:") and b != "deny:other" and drawn[b] < q)
+    short = [(b.split(":", 1)[1], drawn[b]) for b, q in QUOTA.items()
+             if b.startswith("deny:") and b != "deny:other" and drawn[b] < q]
+    out["pooled"] = sorted(rule for rule, n in short if n)
+    out["not_measurable"] = sorted(rule for rule, n in short if not n)
     for rule in out["pooled"]:
         rules["pooled"].update(rules[rule])
     if out["pooled"]:
@@ -839,6 +847,65 @@ def report(run, label_files=()):
     out["race_intra_false_block"] = _rate(race_intra["wrong"], race_intra["n"]) \
         if drawn["deny:race"] else RACE_BAR_UNMEASURABLE
     return out
+
+
+# ----------------------------------------------------------------- rater 2 --
+
+# Rater 2 (H2 amendment 2026-10-07): a model through the judge seam, TypeSafe
+# only, billed per million input tokens and nothing for output, at the price
+# `bin/tezgah-triage::PRICE_PER_MILLION` quotes.
+RATER_MODEL = "jev-latest"
+JEV_PRICE_PER_MILLION = 0.042
+LABEL_WORKERS = 4
+
+
+def label_model(run, prompt_file):
+    """One `choice` question per blind sheet row through the judge seam, the
+    row's text redacted (`ti.redact`), labels written to `labels-model.jsonl`
+    beside the sheet. Rows already labelled there are not asked again; a reply
+    without a label among the prompt's criteria stays unlabelled. Reads the sheet
+    and the prompt file only, never the key."""
+    import tezgah_judge as tj
+    from concurrent.futures import ThreadPoolExecutor
+    provider = tj.credential()[0]
+    if provider != "typesafe" or not tj.available():
+        raise SystemExit("label-model: the judge seam must answer through TypeSafe "
+                         "(provider: %s)" % provider)
+    with open(prompt_file, encoding="utf-8") as fh:
+        prompt = json.load(fh)
+    path = os.path.join(run, "labels-model.jsonl")
+    done = _read_jsonl(path) if os.path.exists(path) else []
+    have = {(r["set"], r["n"]) for r in done}
+    todo = [r for r in _read_jsonl(os.path.join(run, "sheet.jsonl"))
+            if (r["set"], r["n"]) not in have]
+
+    def one(row):
+        question = dict(prompt[row["set"]], type="choice")
+        result = tj.ask(ti.redact(row["text"]), {"label": question}, model=RATER_MODEL,
+                        timeout=60)
+        label = tj.choice(result, "label")
+        return row, result, label if label in question["criteria"] else None
+
+    tokens, models, new = 0, Counter(), 0
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.fchmod(fd, 0o600)
+    # Each answered row is appended as it arrives, so a run that dies mid-way
+    # keeps every label already paid for.
+    with os.fdopen(fd, "a", encoding="utf-8") as fh, ThreadPoolExecutor(LABEL_WORKERS) as pool:
+        for row, result, label in pool.map(one, todo):
+            if result:
+                tokens += result["usage"]["input_tokens"]
+                models["%s/%s" % (result["provider"], result["model"])] += 1
+            if label:
+                fh.write(json.dumps({"set": row["set"], "n": row["n"], "label": label,
+                                     "rater": "model", "model": result["model"],
+                                     "provider": result["provider"]},
+                                    ensure_ascii=False) + "\n")
+                fh.flush()
+                new += 1
+    return {"path": path, "asked": len(todo), "labelled": new,
+            "total": len(done) + new, "input_tokens": tokens,
+            "cost_usd": tokens * JEV_PRICE_PER_MILLION / 1e6, "models": dict(models)}
 
 
 def _print_summary(s):
@@ -890,6 +957,8 @@ def main(argv):
     p.add_argument("--cutoff")
     p.add_argument("--since")
     p.add_argument("--report", action="store_true")
+    p.add_argument("--label-model", action="store_true")
+    p.add_argument("--prompt")
     p.add_argument("--sheet", action="store_true")
     p.add_argument("--run")
     p.add_argument("--labels", action="append", default=[])
@@ -897,6 +966,18 @@ def main(argv):
     p.add_argument("--rules")
     p.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
+    if args.label_model:
+        if not args.prompt:
+            p.error("--label-model needs --prompt FILE")
+        r = label_model(_run_dir(args.run), args.prompt)
+        print("labels: %s (%d rows)" % (r["path"], r["total"]))
+        print("labelled %d of %d asked, %d unanswered" % (
+            r["labelled"], r["asked"], r["asked"] - r["labelled"]))
+        print("answered by: %s" % (", ".join("%s %d" % kv for kv in sorted(
+            r["models"].items())) or "none"))
+        print("cost: %d input tokens x $%s/1M = $%.4f" % (
+            r["input_tokens"], JEV_PRICE_PER_MILLION, r["cost_usd"]))
+        return 0
     if args.sheet:
         paths, counts = sheet(_run_dir(args.run), args.seed, args.rules)
         left = counts.pop("race left off (before target)")
@@ -940,6 +1021,8 @@ def _print_labels(out):
               % ", ".join(out["pooled"]))
     for rule, r in out["false_block"].items():
         print("false-block %-8s %s" % (rule, _fmt(r)))
+    for rule in out["not_measurable"]:
+        print("false-block %-8s not measurable: no item of this rule is on the sheet" % rule)
     print("stop missed-violation %s" % _fmt(out["stop_missed_violation"]))
     print("stop false-refusal    %s" % _fmt(out["stop_false_refusal"]))
     bar = out["race_intra_false_block"]

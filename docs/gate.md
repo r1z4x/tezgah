@@ -23,8 +23,9 @@ refusal rows into that session's counters (audit L-14b, CHAT-07).
 
 The third verb, `replay`, answers no call. It measures the gate. It replays the real ledgers
 through the unmodified dry run in a sandbox HOME. Per stratum, it prints how often the replayed
-verdict equals the recorded one. `replay --sheet` draws a blind label sample, and `replay --report`
-reads the labels into per-rule false-block rates. It changes no gate behaviour, and everything it
+verdict equals the recorded one. `replay --sheet` draws a blind label sample.
+`replay --label-model` labels it with a model as rater 2, and `replay --report` reads the labels
+into per-rule false-block rates. It changes no gate behaviour, and everything it
 writes stays under `~/.cache/tezgah/replay`. The corpus, the exclusions and the metrics are in
 [evidence.md](evidence.md#the-replay-corpus).
 
