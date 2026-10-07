@@ -390,5 +390,70 @@ class HistoryLost(SealCase):
         self.assertEqual(self.seal(repo)["ack"], ACK)
 
 
+class PlainSeal(SealCase):
+    """ADR 018: a done line whose every experiment's order still checks takes a
+    plain retro seal, the record `conclude` writes; any order finding refuses it."""
+
+    PLAIN = "ADR 018: plain retro seal for done lines whose order still checks"
+    ws_commit, unseal = HistoryLost.ws_commit, HistoryLost.unseal
+    pre_seal_line = HistoryLost.pre_seal_line
+
+    def done_line(self, how, name="repo"):
+        repo = self.repo(name)
+        self.line(repo)
+        self.shape(repo, how)
+        tr.close_line(repo, "q", "fixture", "2026-10-01")
+        self.unseal(repo)
+        return repo
+
+    def test_an_ordered_line_takes_the_seal_conclude_writes(self):
+        repo = self.done_line("ordered")
+        before = tr.check_line(repo, "q")
+        record, problem = tr.retro_seal(repo, "q", self.PLAIN, "2026-10-07",
+                                        history_lost=False)
+        self.assertIsNone(problem)
+        base = tr.line_dir(repo, "q")
+        self.assertEqual(record, tr.order_seal(repo, base, "2026-10-07"))
+        self.assertEqual(self.seal(repo), record)
+        self.assertEqual(tr.check_line(repo, "q"), before)
+        self.assertIn("sealed: order checks (ack: %s)" % self.PLAIN,
+                      read(os.path.join(base, "log.md")))
+
+    def test_a_real_order_finding_cannot_be_sealed(self):
+        repo = self.done_line("both")
+        record, problem = tr.retro_seal(repo, "q", self.PLAIN, history_lost=False)
+        self.assertIsNone(record)
+        self.assertIn("cannot be sealed", problem)
+        self.assertIn(BOTH_TOGETHER, problem)
+        self.assertNotIn(tr.SEAL, tr.line_state(repo, "q"))
+
+    def test_a_lost_history_points_to_history_lost(self):
+        repo = self.pre_seal_line()
+        record, problem = tr.retro_seal(repo, "q", self.PLAIN, history_lost=False)
+        self.assertIsNone(record)
+        self.assertIn("--history-lost", problem)
+        self.assertNotIn(tr.SEAL, tr.line_state(repo, "q"))
+
+    def test_an_open_line_and_a_missing_ack_are_refused(self):
+        repo = self.done_line("ordered")
+        self.assertIn("--ack", tr.retro_seal(repo, "q", " ", history_lost=False)[1])
+        self.line(repo, "open-one", question="another question")
+        self.assertIn("not under research/done/", tr.retro_seal(
+            repo, "open-one", self.PLAIN, history_lost=False)[1])
+
+    def test_the_cli_seals_without_history_lost(self):
+        repo = self.done_line("ordered")
+        proc = self.cli(repo, "seal", "q")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        proc = self.cli(repo, "seal", "q", "--ack", self.PLAIN)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("sealed q: 1 experiment(s), order checks", proc.stdout)
+        self.assertEqual(self.seal(repo)["verdict"], "sealed")
+        repo = self.done_line("both", "repo2")
+        proc = self.cli(repo, "seal", "q", "--ack", self.PLAIN)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("cannot be sealed", proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

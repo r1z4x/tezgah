@@ -203,7 +203,7 @@ through its seal.
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `hooks/tezgah_research.py::source_run`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md`, and seals it (`close_line`) | 0, 1 unreadable state, 2 misuse |
-| `tezgah-research seal <slug> --history-lost --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed, with the `history-lost` verdict for every experiment whose order the lost history left undecidable; refuses a line with a real order violation or nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
+| `tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed: plainly, as `conclude` would, when every experiment's order still checks; with `--history-lost`, with that verdict for every experiment whose order the lost history left undecidable. Refuses a line with a real order violation, a plain seal on any order finding, and a `history-lost` seal with nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
 | `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
@@ -348,6 +348,11 @@ line with a real violation and prints the finding, which stays an error. A real
 violation is one commit that added both files, a protocol added or changed after
 the run, or a file with no commit yet. It also refuses a line with nothing lost.
 The command takes only a line under `done/`, only once, only with an ack.
+
+Without `--history-lost` (ADR 018) the command writes the plain seal `conclude`
+writes, for a line whose every experiment's order still checks. The ack goes to
+`log.md`. Any order finding refuses it: a lost history points to
+`--history-lost`, and a real violation leaves the line unsealed.
 
 ### Moving a line between checkouts
 

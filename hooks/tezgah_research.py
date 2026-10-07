@@ -3645,7 +3645,7 @@ def order_seal(repo, base, date=""):
     return {"date": date, "verdict": "sealed", "experiments": _seal_rows(repo, base)}
 
 
-def retro_seal(repo, slug, ack, date=""):
+def retro_seal(repo, slug, ack, date="", history_lost=True):
     """(record, problem): seal a line concluded before the seal existed with the
     `history-lost` verdict (ADR 009). Only a line under `done/` that carries no
     seal yet, and only with `ack` naming the owner's decision: the verdict says
@@ -3653,12 +3653,16 @@ def retro_seal(repo, slug, ack, date=""):
     Refused, with the findings printed, when an experiment's order fails for a
     reason outside `LOST_HISTORY` - a real violation stays an error - and when
     nothing is lost. An experiment whose order still checks keeps no verdict and
-    is re-derived like any sealed one."""
+    is re-derived like any sealed one.
+
+    With `history_lost` false (ADR 018) the seal is the plain one `conclude`
+    writes, and only when every experiment's order still checks: any order
+    finding refuses it, a lost history pointing to `--history-lost`."""
     if not sealed(repo, slug):
         return None, ("%s is not under research/done/: only a concluded or closed "
                       "line is retro-sealed" % slug)
     if not str(ack or "").strip():
-        return None, "a history-lost seal needs --ack \"<the owner's decision>\""
+        return None, "a retro seal needs --ack \"<the owner's decision>\""
     base = line_dir(repo, slug)
     path = os.path.join(base, "state.json")
     state, exc = _read_json(path)
@@ -3678,17 +3682,27 @@ def retro_seal(repo, slug, ack, date=""):
         real += [f for f in found if not any(m in f for m in LOST_HISTORY)]
         if found:
             record["experiments"][h].update(order=HISTORY_LOST, finding=found[0])
+    if real and not history_lost:
+        return None, ("%s cannot be sealed - these order findings stay as they "
+                      "are: %s" % (slug, "; ".join(real)))
     if real:
         return None, ("not a lost history - these order findings stay as they are: "
                       + "; ".join(real))
-    if not any(r.get("order") for r in record["experiments"].values()):
+    lost = any(r.get("order") for r in record["experiments"].values())
+    if not history_lost:
+        if lost:
+            return None, ("%s's order is not provable - the history that held it "
+                          "was lost: seal it with --history-lost" % slug)
+        record = order_seal(repo, base, date)
+    elif not lost:
         return None, "every experiment's order still checks: nothing to seal as lost"
     state[SEAL] = record
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(state, indent=2) + "\n")
         with open(os.path.join(base, "log.md"), "a", encoding="utf-8") as fh:
-            fh.write("- %s sealed: history lost (ack: %s)\n" % (date, ack))
+            fh.write("- %s sealed: %s (ack: %s)\n" % (
+                date, "history lost" if history_lost else "order checks", ack))
     except OSError as exc:
         return None, str(exc)
     return record, None
