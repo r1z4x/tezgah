@@ -3024,9 +3024,15 @@ class VersionPrefixIsNotContract(SetupBase):
         # keeps the exit status, instead of "to a file and read it" (+82 B).
         # Re-pinned 2026-10-07: the pointer line names the parallel fan-out
         # rule, so a host with no per-turn hook still knows two independent
-        # items go to parallel subagents (+112 B). The band is here to catch
-        # an accidental move, so a deliberate one is recorded.
-        self.assertEqual(9344, band, "the always-on band moved")
+        # items go to parallel subagents (+112 B); the ponytail and ADHD
+        # paragraphs carry their operative rules from the first turn instead of
+        # deferring to a skill read (+1042 B), measured by
+        # SkillRulesInForceAtSessionStart (tests/test_context.py); the
+        # session-scope paragraph tells every session to run
+        # `tezgah-skill <words>` and read only the returned range (+113 B). The
+        # band is here to catch an accidental move, so a deliberate one is
+        # recorded.
+        self.assertEqual(10499, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

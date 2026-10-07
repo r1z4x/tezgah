@@ -20,8 +20,20 @@ host says the same thing (`hooks/tezgah_policy.py:14-15`); path placeholders
 | always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the six conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
 | conditional paragraph | one of the six keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py::PROMPT_REMINDER`) | every user prompt |
-| skill suggestion | one `<skill_relevance>` line naming at most one installed skill, written by `suggest` (`hooks/tezgah_skill_pick.py::suggest`); off unless `skill-suggest-on` is armed | only on a turn the judgement answers with a skill |
+| skill suggestion | one `<skill_relevance>` line naming at most one installed skill and the SECTION of it that matches the turn (`skill://<name>:<start>-<end>` plus the absolute path), written by `suggest` (`hooks/tezgah_skill_pick.py::suggest`) when `skill-suggest-on` is armed, else by the model-free section search (`hooks/tezgah_skill_pick.py::section_hint`), default on | only on a turn the judgement answers with a skill, or whose prompt one section covers (each section once per session) |
 | on-demand full contract | the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, `RESEARCH`, …), shipped hand-kept as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
+
+Two paragraphs of the core are complete statements of their rule, not
+summaries the session must upgrade: **Ponytail** and **Output shape:
+ADHD-friendly** carry every operative clause of their skills (the runnable-check
+rule, the lazy-version-and-question reply, the evidence-gated cause, the
+three-still-broken stop, the pre-send delete pass) from the first turn of every
+session, because "on the first non-trivial task, read the full skill" armed a
+rule only when the model chose to load it. What the skills still hold is the
+level table, the reasoning and the worked examples (`skills/ponytail/SKILL.md`,
+`skills/i-have-adhd/SKILL.md`), and the pointer says so. The kill switches drop
+the paragraphs whole (`ponytail-auto.off`/`.no-ponytail`, `adhd-off`/`.no-adhd`),
+rules and all.
 
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
@@ -33,8 +45,10 @@ asking whether the turn wants a skill at all - and the winner is appended after
 the armed paragraphs as a hint to look at first, never as an instruction to load
 (`hooks/tezgah_skill_pick.py:41-75` is the whole configuration, wired into
 `context_for` at `hooks/tezgah_context.py::context_for`). Measured cost of the line
-itself: 305-317 characters, about 78 tokens of prompt. Measured cost of the
-judgement: one call per unanswered prompt, 909-915 input tokens, 0.77-0.81 s,
+itself: 455-523 characters, about 115-130 tokens of prompt (the section address
+added ~150 characters over the name-only line; `bin/tezgah-skill` is the same
+ranking without the call). Measured cost of the judgement: one call per
+unanswered prompt, 909-915 input tokens, 0.77-0.81 s,
 $0.000038 at $0.042/1M on three live judgements. It is OFF UNLESS ARMED -
 `skill-suggest-on` in `~/.config/tezgah`, the same place the kill switches live -
 because a labelled set of 28 prompts through an independent chooser was measured
@@ -46,6 +60,19 @@ absence of the arming file appends no bytes at all, and the same prompt in one
 session is never paid for twice (`tests/test_skill_pick.py`). The host's own
 roster text is left untouched: that is what a session matches on and what its
 prefix cache covers, which is the whole reason the upstream recipe keeps it.
+
+When the judgement gives no line, the local section search may write one. It
+uses no model and is on by default (`hooks/tezgah_skill_pick.py::section_hint`,
+[skills](skills.md)). Its SQLite index lives in the tezgah cache dir and
+rebuilds only when a SKILL.md's stat moves. The line needs a top section that
+carries 60% of the prompt's distinct content terms, and at least three. It
+names each section once per session and drops the absolute path on omp, whose
+read tool resolves `skill://`. Measured on this machine: 6-15 ms warm, and
+1.36 s for the one cold rebuild over 7 502 sections. The line costs 196-239
+bytes on omp and 245-320 elsewhere. It is not a judgement, so `judge-off` leaves it on,
+and `reminder-off` drops it with the per-turn text. The always-on core also
+sends every session to the same search by hand. Run `tezgah-skill <words>`
+before working a topic a skill covers, then read only the returned range.
 
 `context_for(event, …)` is the one dispatcher (`hooks/tezgah_context.py::context_for`):
 `session_start`/`post_compact` build core plus live state, `user_prompt` builds
@@ -388,8 +415,14 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 Each event has a byte budget: `session_start` and `post_compact` 12000,
 `user_prompt` 6000, `subagent_start` 5500, anything else 12000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
-sizes sit beside it. A fixture repo builds 10066 B at `session_start` and about
-5150 B at `subagent_start`. A `user_prompt` that arms all five conditional rules
+sizes sit beside it. An empty fixture repo (throwaway HOME, `session_start`
+with the core) builds 9842 B before and 10884 B after the ponytail and ADHD
+paragraphs took their operative rules inline (+1042 B, `tests/test_setup.py`
+re-pins the always-on band at 10274 B, and at 10387 B after the session-scope
+paragraph's `tezgah-skill` sentence, +113 B); the subagent brief and the reminder
+are unchanged by it, and `SkillRulesInForceAtSessionStart`
+(`tests/test_context.py`) is what pins the rules themselves, not the size. A
+`user_prompt` that arms all five conditional rules
 for the first time builds 7503 B. That is over its budget on purpose: an armed paragraph
 is never dropped, and every later match in the session pays one line. The
 budget is a byte count, not a token estimate.

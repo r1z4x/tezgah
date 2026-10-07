@@ -34,8 +34,8 @@ whether they still apply, they do.
 
 Off: the `adhd-off` kill switch (`~/.config/tezgah/adhd-off`), a repo's
 `.no-adhd` mark, or the user saying "stop adhd mode" / "normal mode". The
-always-on text carries the compressed form of these rules; this file is the full
-contract, so read it rather than working from the summary.
+always-on text carries every rule below in compressed form from the first turn
+of a session; this file adds the reasoning and the worked examples.
 
 ## What changes about reading
 

@@ -183,7 +183,9 @@ def handle(payload):
                               with_core=False)
         return {"context": context} if context else {}
     if event == "user_prompt":
-        context = context_for("user_prompt", cwd, payload)
+        # host="omp": the skill hint drops the absolute path, since omp's
+        # read tool resolves the skill:// address on its own
+        context = context_for("user_prompt", cwd, dict(payload, host="omp"))
         return {"context": context} if context else {}
     if event == "post_tool_use":
         tool = payload.get("tool", "")

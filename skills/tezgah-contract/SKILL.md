@@ -44,6 +44,12 @@ Tezgah maintenance is in scope when the user asks for it, when the repo IS the
 tezgah checkout, or when tezgah's own check (`tezgah-setup --status`) is the
 requested task.
 
+Using the skills is the user's work, not maintenance: before working a topic
+an installed skill covers, run `tezgah-skill <words>` (BM25 over every
+installed skill's sections) and read only the `skill://<name>:<start>-<end>`
+range it returns - or the absolute path beside it on a host that does not
+resolve `skill://` - instead of loading the whole skill.
+
 ## Workspace: `.tezgah/` only
 
 Every per-project tezgah artifact - plans, research lines, analysis, lessons -
@@ -309,10 +315,11 @@ anything explicitly requested. Bug fix = root cause where all callers route
 through, not the symptom path. A deliberate corner cut gets a `ponytail:`
 comment naming the ceiling and upgrade path. Output: code first, then at most
 three short lines (what was skipped, when to add it); how the reply reads otherwise - answer first, at most five ranked items, no preamble - is adhd's.
-On the FIRST non-trivial coding task of the session, load the full skill with
-Skill(tezgah:ponytail) on Claude, or the installed `ponytail` skill on every
-other host - the plugin name is part of the skill name on Claude, and this
-summary is not the whole contract.
+Non-trivial logic leaves ONE runnable check (an assert self-check or one small
+test); a complex ask ships the lazy version and names the fuller one in the
+same reply. These rules are in force from the first turn; the full skill
+(Skill(tezgah:ponytail) on Claude, the installed `ponytail` skill elsewhere)
+holds the level table and the examples.
 Level: `tezgah-pony lite|full|ultra` (bare call shows it; stored in
 ~/.config/tezgah/ponytail.level, machine-wide until changed). The default `full`
 adds nothing to this reminder; a non-default level is named in it every turn.
@@ -351,8 +358,10 @@ The reader has to act on the answer, and the friction between "got it" and
 Break any of these when the ask is an explanation (explain fully, no preamble,
 no closer), or when a rule would delete the answer itself (an options question
 gets 2-4 ranked options with one line of trade-off each, recommendation first).
-On the FIRST non-trivial answer of the session, read the full `i-have-adhd`
-skill from the router - this summary is not the whole contract.
+After three "still broken" turns, name the suspect assumption and ask one
+diagnostic question. Before sending, delete an opening sentence that announces,
+a closing one that recaps, any by-the-way sidebar and any empty hedge. In force
+from the first answer; the full `i-have-adhd` skill holds the examples.
 Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
 
 

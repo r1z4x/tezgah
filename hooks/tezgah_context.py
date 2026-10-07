@@ -1999,9 +1999,14 @@ def context_for(event, cwd, payload=None, with_core=True):
         # model as truncated one-liners, so which entry to look at first is the one
         # thing this turn cannot work out for itself. One call, one line, cached per
         # prompt - and nothing is appended when the judge is gone, the answer is
-        # `none`, or the arming file is absent (hooks/tezgah_skill_pick).
+        # `none`, or the arming file is absent (hooks/tezgah_skill_pick). When
+        # it gives no line, the model-free section search may: default on, one
+        # line at most, each section once per session (`section_hint`).
         if prompt and tezgah_skill_pick:
             hint = tezgah_skill_pick.suggest(prompt, session_id)
+            if not hint:
+                host = (payload or {}).get("host") if isinstance(payload, dict) else None
+                hint = tezgah_skill_pick.section_hint(prompt, session_id, host=host)
             if hint:
                 parts.append(("skill", hint))
         # C1 and C3 ride this turn because it is the only channel a live state

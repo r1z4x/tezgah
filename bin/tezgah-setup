@@ -1061,6 +1061,7 @@ def install_common(new_roots, hosts):
             ("tezgah-decisions", os.path.join(HERE, "bin", "tezgah-decisions")),
             ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route")),
             ("tezgah-lessons", os.path.join(HERE, "bin", "tezgah-lessons")),
+            ("tezgah-skill", os.path.join(HERE, "bin", "tezgah-skill")),
             # `tezgah` is this installer under the name `tezgah update` is typed
             # with (npm ships the same name). Not here on purpose: tezgah-dsh
             # (wired as ~/.local/bin/dsh, see dsh_launcher) and

@@ -74,6 +74,8 @@ bin/tezgah-route
 bin/tezgah-route.py
 bin/tezgah-setup
 bin/tezgah-setup.py
+bin/tezgah-skill
+bin/tezgah-skill.py
 bin/tezgah-status
 bin/tezgah-status.py
 bin/tezgah-task
@@ -735,6 +737,7 @@ tests/test_research_seal.py
 tests/test_setup.py
 tests/test_shapes.py
 tests/test_skill_pick.py
+tests/test_skill_search.py
 tests/test_skills.py
 tests/test_snapshot.py
 tests/test_statusline.py
