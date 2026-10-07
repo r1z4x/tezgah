@@ -634,10 +634,11 @@ class OpenCodePlugin(TempHome):
                                           "x = 1", "new_string": "x = 2"}))
         # The write path asks the core before it captures, and the gate CLI is
         # not linked here: the ask could not be answered, so its one `delegation`
-        # row leads the ledger this test reads whole.
+        # row leads the ledger this test reads whole, and this file writes the
+        # call's `began` the core did not (review R051b F3).
         rows = self.ledger()
         self.assertEqual([r["kind"] for r in rows],
-                         ["delegation", "snapshot"], rows)
+                         ["delegation", "snapshot", "began"], rows)
         self.assertEqual(rows[1]["detail"], target)   # the file it copied
         self.assertEqual(rows[1]["out_bytes"], len("x = 1\n"))
 
@@ -647,7 +648,7 @@ class OpenCodePlugin(TempHome):
         self.denied(self.before("edit", {
             "file_path": target,
             "new_string": "Co-Authored-By: Claude <noreply@anthropic.com>"}))
-        self.assertEqual(self.kinds(), ["delegation", "snapshot", "deny"])
+        self.assertEqual(self.kinds(), ["delegation", "snapshot", "began", "deny"])
 
     def test_a_capture_that_cannot_run_does_not_block_the_write(self):
         # The CLI is not linked here and there is no python3 to run it with, so
@@ -665,7 +666,7 @@ class OpenCodePlugin(TempHome):
         self.allowed(self.before("edit", {"file_path": target, "old_string":
                                           "x = 1", "new_string": "x = 2"}))
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["delegation"], rows)
+        self.assertEqual([r["kind"] for r in rows], ["delegation", "began"], rows)
         self.assertEqual(rows[0]["detail"], "gate: spawn")
 
     def test_a_shell_write_is_snapshotted_when_the_call_is_allowed(self):
@@ -763,7 +764,7 @@ class OpenCodePlugin(TempHome):
         # ask fails are told apart (`exit` and `spawn` are pinned by the language
         # tests below), because "the core was asked and never answered" is the
         # fact that has to be countable
-        self.assertEqual(self.kinds(), ["delegation"])
+        self.assertEqual(self.kinds(), ["delegation", "began"])
         self.assertEqual(self.ledger()[0]["detail"], "gate: timeout")
 
     def spy_calls(self, log):
@@ -997,14 +998,17 @@ class OpenCodePlugin(TempHome):
         # would be worse than one that stays silent - but the failure itself must
         # not be silent, or a rule that never ran is indistinguishable from a
         # rule that found nothing. The ask leaves one `delegation` row naming the
-        # class, which is what makes the silence countable.
+        # class, which is what makes the silence countable. The core wrote no
+        # `began` for the call either, so this file writes it (review R051b F3):
+        # without it the call's pass reads as an orphan.
         self.spy_gate(os.path.join(self.home, "gate.log"), script=FAILING_GATE)
         args = {"command": 'git commit -m "durum-onarimi eklendi"'}
         self.allowed(self.before("bash", args))
         rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["delegation"], rows)
+        self.assertEqual([r["kind"] for r in rows], ["delegation", "began"], rows)
         self.assertEqual(rows[0]["detail"], "gate: exit")
         self.assertEqual(rows[0]["id"], "s1")
+        self.assertEqual((rows[1]["tool"], rows[1]["detail"]), ("bash", args["command"]))
 
     # ---- secret: a credential on its way into a file -----------------------
     def test_secret_denies_a_credential_written_to_a_file(self):

@@ -2391,7 +2391,7 @@ export const Tezgah = async ({ directory }) => {
     "tool.execute.before": async (input, output) => {
       let deny = null
       // whether the core was asked: its live `decide` writes the call's `began`
-      // row on its own allow path, so this file writes one only when it was not
+      // row first, so this file writes one only when the core did not answer
       let asked = false
       const core = {}
       try {
@@ -2534,8 +2534,9 @@ export const Tezgah = async ({ directory }) => {
         // The call's first row, as hooks/tezgah_gate.decision writes it on its
         // allow path (tezgah_integrity.BEGAN_KIND): tool.execute.after writes the
         // second with the same id, and one never answered is a call whose
-        // outcome nobody saw.
-        if (!deny && !asked && sessionID &&
+        // outcome nobody saw. A core that was asked and did not answer wrote
+        // none, so this file writes it then too.
+        if (!deny && !core.answered && sessionID &&
             (WRITE_TOOLS.has(tool) || BASH_TOOLS.has(tool))) {
           await appendRow(sessionID, {
             kind: "began", ts: Math.floor(Date.now() / 1000),
