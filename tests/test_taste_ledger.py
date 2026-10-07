@@ -403,6 +403,27 @@ class Ledger(TempHome):
         self.assertEqual(tl.rows(self.repo, "signals"), [first, second])
         self.assertFalse(os.path.exists(path))
 
+    def test_a_file_replaced_at_the_path_after_the_read_is_not_moved_aside(self):
+        store = tl.store_dir(self.repo)
+        os.makedirs(store)
+        path = os.path.join(store, "signals.jsonl")
+        first, late = {"kind": "prompt", "text": "one"}, {"kind": "prompt", "text": "late"}
+        with open(path, "w") as fh:
+            fh.write(json.dumps(first) + "\n")
+        aside = tezgah_store._aside
+
+        def replaced(src, *args):
+            # another importer moved the read file away, and an older writer
+            # started a new one at the same path before this rename
+            os.rename(src, src + ".elsewhere")
+            with open(src, "w") as fh:
+                fh.write(json.dumps(late) + "\n")
+            return aside(src, *args)
+        with mock.patch.object(tezgah_store, "_aside", replaced):
+            self.assertEqual(tl.rows(self.repo, "signals"), [first])
+        self.assertTrue(os.path.exists(path), "a file never read was moved aside")
+        self.assertEqual(tl.rows(self.repo, "signals"), [first, late])
+
     @unittest.skipIf(fcntl is None, "no flock on this platform")
     def test_a_row_file_its_writer_holds_waits_for_the_next_open(self):
         store = tl.store_dir(self.repo)

@@ -161,10 +161,17 @@ def _wanted(conn, name):
                for table in DOC_TABLES.get(name, ()))
 
 
-def _aside(src):
-    """Rename `src` to `<src>.imported`, or `.imported.N` beside an earlier one;
-    never over a file, so no import's source is ever lost. A failed rename is
-    left for the next open, which finds nothing new in the file."""
+def _aside(src, read):
+    """Rename `src` to `<src>.imported`, or `.imported.N` beside an earlier one,
+    when it is still the file the import read (`read`, its fstat): one another
+    writer created at that path since was never read and stays. Never over a
+    file, so no import's source is ever lost. A failed rename is left for the
+    next open, which finds nothing new in the file."""
+    try:
+        if not os.path.samestat(os.stat(src), read):
+            return
+    except OSError:
+        return
     dst, n = src + ".imported", 0
     while os.path.exists(dst):
         n += 1
@@ -180,6 +187,7 @@ def _import_doc(conn, name, src, st):
         return
     try:
         with open(src, "rb") as fh:
+            read = os.fstat(fh.fileno())
             data = json.loads(fh.read().decode("utf-8"))
     except FileNotFoundError:
         return  # another process imported it since the stat
@@ -196,7 +204,7 @@ def _import_doc(conn, name, src, st):
             _write_ledger(conn, data)
         else:
             set_gate(conn, data.get("stopped"), data.get("report") or {})
-    _aside(src)
+    _aside(src, read)
 
 
 def _locked(fh):
@@ -249,8 +257,9 @@ def _import_rows(conn, name, src, st):
                              "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
         # aside only when every byte went in and no writer appended past the
         # read (the old writer appends unlocked once its own wait runs out)
-        if len(whole) == len(raw) and os.fstat(fh.fileno()).st_size == start + len(raw):
-            _aside(src)
+        now = os.fstat(fh.fileno())
+        if len(whole) == len(raw) and now.st_size == start + len(raw):
+            _aside(src, now)
 
 
 # --- the taste tables ---------------------------------------------------------------
