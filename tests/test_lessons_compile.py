@@ -41,6 +41,12 @@ class OneModule(Reader):
         self.assertIs(tc.lesson_lines, tezgah_lessons.lines)
         self.assertIs(tc.lesson_key, tezgah_lessons.lesson_key)
 
+    def test_the_gate_reads_through_it_without_the_context(self):
+        self.assertEqual(self.child(
+            "import tezgah_gate\nprint(json.dumps(['tezgah_context' in sys.modules, "
+            "tezgah_gate.tezgah_lessons is sys.modules['tezgah_lessons']]))"),
+            [False, True])
+
     def test_the_cli_reads_through_it(self):
         repo = self.make_repo()
         self.write_lessons(repo, ["- first rule - once", "# heading", "",

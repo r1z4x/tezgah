@@ -15,7 +15,7 @@ import hashlib
 import os
 import re
 
-from tezgah_paths import off
+from tezgah_paths import cache_dir, off
 
 # A line carries its metadata after its text, never in it: from the first
 # `|| check:` or `|| enforced_by:` clause to the end of the line (in any order),
@@ -96,6 +96,28 @@ def parse(line):
     m = SUFFIX.search(s)
     text, tail = (s[:m.start()], s[m.start():]) if m else (s, "")
     return STAMP.sub("", text), tail
+
+
+def entries(text):
+    """The lessons a text holds, each as `lines` returns it: what a write adds
+    to the ledger, read the way the ledger will be read."""
+    return [got[0] for got in map(parse, text.splitlines()) if got and got[0]]
+
+
+def is_ledger(path):
+    """True when the absolute, unresolved `path` names a repository's ledger."""
+    return (os.path.basename(path) == "lessons.md"
+            and os.path.basename(os.path.dirname(path)) == ".tezgah")
+
+
+def taint_path(root):
+    """The `lesson_tainted` index of the repository at `root`: the gate appends
+    each keyed row here as well as to the session's ledger, so the context of a
+    later session reads one small file for the per-line label instead of every
+    ledger on the machine (3173 files, 30 MB on the measuring machine,
+    2026-10-07)."""
+    name = hashlib.sha1(os.path.realpath(root).encode("utf-8", "replace"))
+    return os.path.join(cache_dir(), "lessons", name.hexdigest()[:16] + ".jsonl")
 
 
 def lines(root, retired=None):
