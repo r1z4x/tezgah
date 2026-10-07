@@ -672,14 +672,20 @@ def store_or_exit(args):
     return repo
 
 
-def cmd_learn(args):
-    repo = store_or_exit(args)
+def learn_refusal(repo):
+    """Why `learn` sends and writes nothing here, or None - read before the
+    store lock, so a refused run leaves no lock file behind."""
     if tezgah_judge.tp.off("judge-off") or not (
             tezgah_judge.available() or tezgah_judge.named(("typesafe",))):
-        return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
+        return "no judge: no credential resolves or judge-off is set; nothing sent"
     import tezgah_context
     if ".no-taste" in tezgah_context.repo_marks(repo)[1]:
-        return misuse(".no-taste marks this repository; nothing learned")
+        return ".no-taste marks this repository; nothing learned"
+    return None
+
+
+def cmd_learn(args):
+    repo = store_or_exit(args)
     signals = (transcript_signals(repo, args.host) if args.from_transcripts
                else capture_signals(repo))
     decided = {}
@@ -891,11 +897,24 @@ def main(argv):
             if name in ("learn", "list", "calibrate", "gate"):
                 p.add_argument("--json", action="store_true")
     args = parser.parse_args(argv[1:])
-    return {"mine": cmd_mine, "measure": cmd_measure, "rate": cmd_rate,
-            "learn": cmd_learn, "list": cmd_list, "show": cmd_one, "accept": cmd_one,
-            "reject": cmd_one, "edit": cmd_one, "export": cmd_export,
-            "label": cmd_label, "calibrate": cmd_calibrate,
-            "gate": cmd_gate}[args.cmd](args)
+    handler = {"mine": cmd_mine, "measure": cmd_measure, "rate": cmd_rate,
+               "learn": cmd_learn, "list": cmd_list, "show": cmd_one, "accept": cmd_one,
+               "reject": cmd_one, "edit": cmd_one, "export": cmd_export,
+               "label": cmd_label, "calibrate": cmd_calibrate,
+               "gate": cmd_gate}[args.cmd]
+    if args.cmd not in ("learn", "accept", "reject", "edit"):
+        return handler(args)
+    # the commands that rewrite ledger.json: one at a time, or the last one
+    # to finish would silently drop what the other wrote
+    try:
+        repo = store_or_exit(args)
+        refused = learn_refusal(repo) if args.cmd == "learn" else None
+        if refused:
+            return misuse(refused)
+        with tl.locked(repo):
+            return handler(args)
+    except tl.Busy as busy:
+        return misuse("the taste ledger is in use (%s); run this again when it ends" % busy)
 
 
 if __name__ == "__main__":

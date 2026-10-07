@@ -466,6 +466,34 @@ class Learn(support.TempHome):
         open(os.path.join(self.repo, ".no-taste"), "w").close()
         self.assertEqual(self.cli("learn").returncode, 2)
         self.assertEqual(Decider.seen, [])
+        self.assertFalse(os.path.exists(os.path.join(self.store, "ledger.lock")))
+
+    def test_a_second_writer_exits_2_while_the_ledger_is_held(self):
+        self.cli("learn")
+        [learning] = self.listed()
+        with open(os.path.join(self.store, "ledger.json")) as fh:
+            before = fh.read()
+        # another writer holds the lock: a child process, as a real learn would be
+        holder = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time; sys.path.insert(0, %r); import tezgah_taste_ledger as tl\n"
+             "with tl.locked(%r):\n    print('held', flush=True); time.sleep(30)"
+             % (support.HOOKS, self.repo)],
+            stdout=subprocess.PIPE, text=True, env=self.env())
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        seen = len(Decider.seen)
+        for args in (("learn",), ("reject", learning["id"])):
+            proc = self.cli(*args)
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertIn("in use (pid %d)" % holder.pid, proc.stderr)
+        self.assertEqual(len(Decider.seen), seen, "a refused learn still asked the judge")
+        with open(os.path.join(self.store, "ledger.json")) as fh:
+            self.assertEqual(fh.read(), before)
+        holder.kill()
+        holder.wait()
+        holder.stdout.close()
+        self.assertEqual(self.cli("reject", learning["id"]).returncode, 0)
 
 
 if __name__ == "__main__":

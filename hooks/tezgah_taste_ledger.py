@@ -32,7 +32,13 @@ import json
 import math
 import os
 
+import tezgah_integrity as ti
 from tezgah_paths import CONFIG_DIR, cache_dir
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
 
 CATEGORIES = ("architecture", "naming", "structure", "error-handling", "testing",
               "dependencies", "language-idiom", "formatting", "docs-and-comments",
@@ -150,9 +156,45 @@ def rows(path):
 
 
 def append(path, row):
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    """One row through the ledger's own writer: flock, torn-tail repair, 0600."""
+    ti._append(path, json.dumps(row, ensure_ascii=False) + "\n")
+
+
+class Busy(Exception):
+    """Another command holds the taste store's write lock."""
+
+
+class locked:
+    """The one writer of `ledger.json`: an exclusive, non-blocking flock on
+    `<store>/ledger.lock`, held across a command's whole read-change-write, so a
+    second writer fails with `Busy` rather than overwriting the first. The hooks
+    only read the ledger and never take it. Where flock does not exist
+    (Windows) it is not taken, as for the evidence ledger."""
+
+    def __init__(self, root):
+        self.path = os.path.join(store_dir(root), "ledger.lock")
+        self.fh = None
+
+    def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+        self.fh = open(self.path, "a+", encoding="utf-8")
+        if fcntl is not None:
+            try:
+                fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                self.fh.seek(0)
+                holder = self.fh.read().strip() or "another process"
+                self.fh.close()
+                raise Busy(holder)
+            self.fh.seek(0)
+            self.fh.truncate()
+            self.fh.write("pid %d" % os.getpid())
+            self.fh.flush()
+        return self
+
+    def __exit__(self, *exc):
+        self.fh.close()  # closing the descriptor releases the flock
+        return False
 
 
 def calibration(root):

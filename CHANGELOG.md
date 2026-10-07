@@ -21,7 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ledger. A before/after gate stops injection when corrections do not fall.
   `list`, `accept`, `reject`, `edit` and `export` give the user control, and
   `learn --from-transcripts` bootstraps from history. The judge seam gains
-  `only=` and a `text` question.
+  `only=` and a `text` question. Two commands never rewrite the ledger at once:
+  a second `learn`, `accept`, `reject` or `edit` exits 2 while one runs.
 
 ## [1.1.0] - 2026-10-07
 
