@@ -1649,6 +1649,50 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Grep", {"pattern": "two words"}))
         self.assertIsNone(self.decide("Grep", {"pattern": "x"}))
 
+    def test_a_plain_word_is_literal_text_and_never_nudged(self):
+        # the nudge is a refusal: a plain word (`TODO`, `error`) is a literal
+        # search, so it must never be blocked, not even once per session
+        self.make_index()
+        for word in ("TODO", "error", "hello"):
+            self.assertIsNone(self.decide("Grep", {"pattern": word},
+                                          session_id="w-" + word), word)
+
+    def test_a_definition_or_call_pattern_is_a_symbol_search(self):
+        self.make_index()
+        for i, pat in enumerate(("def run", "run\\(", "\\bsome_fn\\b", "someFunc")):
+            self.assertIsNotNone(self.decide("Grep", {"pattern": pat},
+                                             session_id="d%d" % i), pat)
+
+    def test_omp_find_and_search_reach_the_nudge(self):
+        # omp's own prompt sends code discovery to `find` first, and its regex
+        # tool is `search`: neither was read, so an omp session never met the
+        # graph unless it happened to shell out to grep
+        self.make_index()
+        self.assertIsNotNone(self.decide(
+            "find", {"query": "where is index_notice computed",
+                     "grep_keywords": []}, session_id="f1"))
+        self.assertIsNotNone(self.decide(
+            "find", {"query": "the stale stamp notice",
+                     "grep_keywords": ["index_notice"]}, session_id="f2"))
+        self.assertIsNotNone(self.decide("search", {"pattern": "index_notice"},
+                                         session_id="f3"))
+        self.assertIsNone(self.decide(
+            "find", {"query": "the docs page about install",
+                     "grep_keywords": ["install"]}, session_id="f4"))
+        self.assertIsNone(self.decide("glob", {"pattern": "**/*.py"},
+                                      session_id="f5"))
+
+    def test_a_no_graph_repo_is_never_nudged(self):
+        self.make_index()
+        self.touch(os.path.join(self.repo, ".no-graph"))
+        self.assertIsNone(self.decide("Grep", {"pattern": "some_identifier"}))
+
+    def test_the_nudge_names_the_mcp_tool_on_each_host(self):
+        self.make_index()
+        first = self.decide("Grep", {"pattern": "some_identifier"}, session_id="m1")
+        self.assertIn("xd://mcp__codegraph_explore", first)
+        self.assertIn("mcp__codegraph__codegraph_explore", first)
+
     def test_index_for_a_different_repo_does_not_nudge(self):
         # an index at the ROOT is not this repo's index: a root is not a project
         path = os.path.join(self.home, ".codegraph", "codegraph.db")
@@ -2489,6 +2533,94 @@ class PlanGate(TempHome):
         for name in ("hooks/a.py", "tests/b.py"):
             self.seed_write(os.path.join(ws, *name.split("/")))
         self.assertIsNone(self.write(os.path.join(ws, "docs", "c.md")))
+
+
+class GraphAdvice(TempHome):
+    """The non-blocking half of the graph rule: every symbol search after the
+    once-per-session nudge, while the repo's own index is current, gets one line
+    naming the graph tool - and nothing else ever gets it."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        self.touch(os.path.join(self.repo, "f"))
+        subprocess.run(["git", "-C", self.repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b",
+                        "-c", "user.name=t", "commit", "-qm", "x"], check=True)
+        path = os.path.join(self.repo, ".codegraph", "codegraph.db")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        self.stamp_path = os.path.join(self.home, ".cache", "tezgah",
+                                       support.slug(os.path.realpath(self.repo)))
+
+    def stamp(self, sha):
+        self.touch(self.stamp_path)
+        with open(self.stamp_path, "w") as fh:
+            fh.write(sha)
+
+    def head(self):
+        return subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True).stdout.strip()
+
+    def advice(self, tool, inp, host=None):
+        body = ("import json, sys\nsys.path.insert(0, %r)\n"
+                "import tezgah_gate as tg\n"
+                "print(json.dumps(tg.graph_advice(%r, %r, %r, %r)))\n"
+                % (support.HOOKS, tool, inp, self.repo, host))
+        proc = subprocess.run([sys.executable, "-c", body], capture_output=True,
+                              text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_a_symbol_search_on_a_fresh_index_is_advised(self):
+        self.stamp(self.head())
+        line = self.advice("grep", {"pattern": "index_notice"}, host="omp")
+        self.assertIn("xd://mcp__codegraph_explore", line)
+        self.assertIn("index_notice", line)
+        line = self.advice("Grep", {"pattern": "index_notice"})
+        self.assertIn("mcp__codegraph__codegraph_explore", line)
+
+    def test_a_literal_string_search_is_never_advised(self):
+        self.stamp(self.head())
+        for pat in ("index is behind", "TODO", "error"):
+            self.assertIsNone(self.advice("Grep", {"pattern": pat}), pat)
+
+    def test_a_stale_index_is_not_offered(self):
+        self.stamp("deadbeef" * 5)
+        self.assertIsNone(self.advice("Grep", {"pattern": "index_notice"}))
+
+    def test_no_graph_turns_the_advice_off(self):
+        self.stamp(self.head())
+        self.touch(os.path.join(self.repo, ".no-graph"))
+        self.assertIsNone(self.advice("Grep", {"pattern": "index_notice"}))
+
+    def test_head_is_read_without_git_from_packed_refs_and_a_worktree(self):
+        # the gate reads HEAD from the git files (no fork on a tool call), so a
+        # packed ref and a linked worktree must read the same commit rev-parse does
+        subprocess.run(["git", "-C", self.repo, "pack-refs", "--all"], check=True)
+        wt = os.path.join(self.home, "wt")
+        subprocess.run(["git", "-C", self.repo, "worktree", "add", "-q", "-b",
+                        "side", wt], check=True)
+        for repo in (self.repo, wt):
+            want = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                                  capture_output=True, text=True).stdout.strip()
+            self.assertEqual(tg.git_head(repo), want, repo)
+        self.stamp(self.head())
+        self.assertIsNotNone(self.advice("Grep", {"pattern": "index_notice"}))
+
+    def test_claude_pretooluse_carries_the_advice_without_a_decision(self):
+        # the nudge spends the session's one refusal; the next symbol search
+        # passes with the advice beside it, and no permission decision at all
+        self.stamp(self.head())
+        payload = {"tool_name": "Grep", "tool_input": {"pattern": "index_notice"},
+                   "cwd": self.repo, "session_id": "adv"}
+        first, _ = run_json([support.PRETOOLUSE], payload, env=self.env())
+        self.assertEqual(first["hookSpecificOutput"]["permissionDecision"], "deny")
+        second, _ = run_json([support.PRETOOLUSE], payload, env=self.env())
+        out = second["hookSpecificOutput"]
+        self.assertNotIn("permissionDecision", out)
+        self.assertIn("mcp__codegraph__codegraph_explore", out["additionalContext"])
 
 
 if __name__ == "__main__":

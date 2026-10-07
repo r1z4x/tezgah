@@ -29,7 +29,7 @@ try:
     from tezgah_context import (  # noqa: E402
         TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
         shell_kind)
-    from tezgah_gate import decision  # noqa: E402
+    from tezgah_gate import decision, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, changed_files_notice, note_tool, ran_nothing,
         report_bytes, stop_reason, untrusted_source)
@@ -195,6 +195,12 @@ def main():
                             if untrusted_source(tool, inp) == SUBAGENT_CHANNEL
                             else result_size(result)),
                  empty_run=ran_nothing(result))
+        # The gate's graph line for a code-symbol search rides the same
+        # non-blocking channel (tezgah_gate.graph_advice): a Codex PreToolUse
+        # carries a deny and nothing else.
+        advice = (safe(session_id, graph_advice, tool, inp, cwd, "codex")
+                  if root_for(cwd) else None)
+        notice = "\n".join(p for p in (notice, advice) if p)
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

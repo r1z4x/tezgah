@@ -4,9 +4,11 @@
 Rules, all only inside a tezgah root:
   1. a grep-only explorer subagent is refused, with the graph tools named as the
      replacement;
-  2. the FIRST identifier-shaped search of a session (Grep tool, or grep/rg run
-     through a shell) in a repo whose own codegraph index exists is nudged
-     toward the graph once, then every later search passes.
+  2. the FIRST code-symbol search of a session (grep/search/find tool, or
+     grep/rg run through a shell; a plain word is literal text and passes) in a
+     repo whose own codegraph index exists is nudged toward the graph once;
+     every later one passes, with graph_advice's line beside it while the index
+     is current.
   3. a git/gh command that writes an artifact carrying an AI/model credit
      (Co-Authored-By, "Generated with", a robot emoji, ...) is refused.
   4. an identical call that already failed LOOP_ATTEMPTS times in the current
@@ -170,7 +172,16 @@ try:  # The language rule's detector: the letter set and the word list, in their
 except ImportError:  # pragma: no cover - only where the module has not landed
     tezgah_lang = None
 
-IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{2,}$")
+# A search for a code symbol, the shape the graph answers: an identifier with an
+# inner underscore or a lower-to-upper step (snake_case, camelCase), or any
+# identifier inside a definition or call pattern (`def run`, `run\(`). A plain
+# word (`TODO`, `error`) is literal text, so it is never nudged or advised.
+SEARCH_SYMBOL = re.compile(
+    r"(?:\\b)?(?:(def|class|function|func|fn|interface|struct|type)\s+)?"
+    r"([A-Za-z_][A-Za-z0-9_]{2,})(\\?\()?(?:\\b)?")
+# omp's discovery tools: `find` takes a described behavior plus likely terms,
+# `search` and `ast_grep` a pattern; `grep` is every host's regex tool.
+PATTERN_SEARCH_TOOLS = ("grep", "search", "ast_grep")
 # ponytail: flags with a separate value (grep -A 3 foo) shift the token and the
 # search passes unnudged; not worth a real argv parser for a once-a-session hint.
 BASH_SEARCH = re.compile(r"(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)")
@@ -481,18 +492,35 @@ def explored(subagent_type):
     return str(subagent_type or "").lower() in ("explore", "explorer")
 
 
-def searched_identifier(tool, inp):
-    """The bare identifier this call searches for, or None. Host tool names
-    differ in case (Claude `Grep`/`Bash`, Codex/dsh `bash`), so match lowercased."""
+def symbol_in(text):
+    """The code symbol a search string names, or None for literal text."""
+    m = SEARCH_SYMBOL.fullmatch(str(text or "").strip().strip("'\""))
+    if not m:
+        return None
+    tok = m.group(2)
+    if (m.group(1) or m.group(3) or "_" in tok.strip("_")
+            or re.search(r"[a-z][A-Z]", tok)):
+        return tok
+    return None
+
+
+def searched_symbol(tool, inp):
+    """The code symbol this call searches for, or None. Host tool names differ
+    in case (Claude `Grep`/`Bash`, Codex/dsh/omp `bash`), so match lowercased.
+    omp's `find` is read too: its own prompt sends code discovery there first,
+    so a rule that read only grep never met an omp session."""
     t = str(tool or "").lower()
-    if t == "grep":
-        pat = str(inp.get("pattern", ""))
-        return pat if IDENT.match(pat) else None
+    if t in PATTERN_SEARCH_TOOLS:
+        return symbol_in(inp.get("pattern", ""))
+    if t == "find" and "query" in inp:
+        words = list(inp.get("grep_keywords") or [])
+        words += re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}\(?", str(inp["query"]))
+        return next(filter(None, map(symbol_in, words)), None)
     if t in ("bash", "shell"):
         for m in BASH_SEARCH.finditer(str(inp.get("command", ""))):
-            tok = m.group(2).strip("'\"")
-            if IDENT.match(tok):
-                return tok
+            symbol = symbol_in(m.group(2))
+            if symbol:
+                return symbol
     return None
 
 
@@ -509,12 +537,53 @@ def index_slug(cwd, base):
     one, so its own `.codegraph` is read) - and the name returned is still the
     key the index worker stamps HEAD under, so index_mark and index_notice keep
     reading the same file."""
+    d = index_dir(cwd, base)
+    return re.sub(r"[^A-Za-z0-9]+", "-", d).strip("-") if d else None
+
+
+def index_dir(cwd, base):
+    """The directory index_slug names: the closest repo up to `base` that holds
+    its own codegraph index, or None (none, or a `.no-graph` met first)."""
     d = os.path.realpath(cwd)
     base, rs = os.path.realpath(base), roots()
     while d.startswith(base) and (d != base or base not in rs):
+        if os.path.exists(os.path.join(d, ".no-graph")):
+            return None  # the repo's own switch: no graph rule here at all
         if os.path.isfile(os.path.join(d, ".codegraph", "codegraph.db")):
-            return re.sub(r"[^A-Za-z0-9]+", "-", d).strip("-")
+            return d
         d = os.path.dirname(d)
+    return None
+
+
+def _read(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read().strip()
+
+
+def git_head(repo):
+    """HEAD's commit read from `repo`'s git files, or None - no `git` fork,
+    because the gate pays it on a tool call. Covers a plain checkout, a linked
+    worktree (`.git` file plus `commondir`) and a packed ref."""
+    try:
+        gd = os.path.join(repo, ".git")
+        if os.path.isfile(gd):
+            gd = os.path.join(repo, _read(gd).split("gitdir:", 1)[1].strip())
+        head = _read(os.path.join(gd, "HEAD"))
+        if not head.startswith("ref: "):
+            return head or None
+        ref = head[5:]
+        common = gd
+        if os.path.isfile(os.path.join(gd, "commondir")):
+            common = os.path.join(gd, _read(os.path.join(gd, "commondir")))
+        for top in (gd, common):
+            if os.path.isfile(os.path.join(top, ref)):
+                return _read(os.path.join(top, ref))
+        with open(os.path.join(common, "packed-refs"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.rstrip("\n").endswith(" " + ref):
+                    return line.split()[0]
+    except (OSError, IndexError):
+        pass
     return None
 
 
@@ -540,12 +609,59 @@ def first_nudge(session_id):
         return False
 
 
+def graph_tool(host=None):
+    """The code-graph tool by the name this host's model calls it: omp mounts an
+    MCP server's tools as `xd://` devices, Claude and Codex as `mcp__<server>__`
+    (`mcp__plugin_tezgah_codegraph__` on a Claude plugin install), Cursor by
+    the bare tool name. Unknown host: the two prefixed spellings, so the line is
+    right wherever it lands."""
+    if host == "omp":
+        return "`xd://mcp__codegraph_explore`"
+    if host == "cursor":
+        return "the codegraph MCP server's `codegraph_explore`"
+    claude = ("`mcp__codegraph__codegraph_explore` (plugin install: "
+              "`mcp__plugin_tezgah_codegraph__codegraph_explore`)")
+    return claude if host else "%s, on omp `xd://mcp__codegraph_explore`" % claude
+
+
 def nudge_reason(symbol):
-    return ("Code graph index is ready for this repo. Run `codegraph explore %s` (source, callers, "
+    return ("Code graph index is ready for this repo. Call the MCP tool %s with "
+            "the query `%s`, or run `codegraph explore %s` (source, callers, "
             "blast radius in one call) or `codegraph callers %s` / `codegraph impact %s` from a shell; "
             "an omp subagent must use this CLI, not the MCP device, because omp's MCP device refuses "
             "concurrent writes. If you need literal text, re-run this search unchanged; it will pass - "
-            "this nudge fires once per session." % (symbol, symbol, symbol))
+            "this nudge fires once per session."
+            % (graph_tool(), symbol, symbol, symbol, symbol))
+
+
+def graph_advice(tool, inp, cwd, host=None):
+    """One non-blocking line for a symbol search the current graph answers, or
+    None. The refusal above is spent once per session; every later symbol
+    search gets this line beside its result instead, so the graph is named at
+    the moment the session reaches for grep. Fresh only: the stamp the index
+    worker writes must equal HEAD, because pointing at a graph that lags the
+    tree would send the session to a stale answer. A literal search, a repo
+    without its own index, `.no-graph` and `pretooluse-off` get nothing."""
+    symbol = searched_symbol(tool, inp)  # first: a regex, and most calls end here
+    if not symbol or off("pretooluse-off"):
+        return None
+    base = root_for(cwd)
+    repo = index_dir(cwd, base) if base else None
+    if not repo:
+        return None
+    try:
+        stamped = _read(os.path.join(cache_dir(), index_slug(cwd, base)))
+    except OSError:
+        return None
+    head = git_head(repo)
+    if not head or stamped != head:
+        return None
+    return ("Graph: `%s` is a code symbol and this repo's code graph is current "
+            "(HEAD %s). For its definition, callers or blast radius call %s "
+            "with the query `%s` (or `codegraph callers %s` / `codegraph impact "
+            "%s` in a shell): one call returns the source and the call path "
+            "that this text search cannot."
+            % (symbol, head[:7], graph_tool(host), symbol, symbol, symbol))
 
 
 # The identical attempts a call gets before the loop guard refuses it, whatever
@@ -2637,7 +2753,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         reason = retry_reason(tool, inp, session_id, agent)
         if reason:
             return _deny(session_id, "retry", reason, tool, inp, base)
-    if symbol := searched_identifier(tool, inp):
+    if symbol := searched_symbol(tool, inp):
         slug = index_slug(cwd, base)
         if slug and first_nudge(session_id):
             note(session_id, "nudge", slug, id=call_id(tool, inp),

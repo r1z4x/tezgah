@@ -2086,8 +2086,18 @@ def context_for(event, cwd, payload=None, with_core=True):
         # indexers on the same repo, so only the parent session triggers one.
         status = (autoindex(root) if event != "subagent_start"
                   else "index handled by the parent session")
-        parts.append(("graph", "Graph index: %s (project %s)."
-                      % (status, slug(root))))
+        # The tool by the name this host calls it: a session whose prompt arms
+        # no graph rule otherwise never learns which tool the graph is, and
+        # omp's own prompt sends code discovery to `find`. A subagent gets the
+        # CLI (omp's MCP device refuses concurrent writes, see tezgah_agents).
+        from tezgah_gate import graph_tool  # lazy: keep hook import cost minimal
+        how = ("`codegraph explore|callers|impact <symbol>` in a shell"
+               if event == "subagent_start"
+               else graph_tool((payload or {}).get("host")))
+        parts.append(("graph", "Graph index: %s (project %s). Definitions, "
+                      "callers and blast radius: %s first; grep only for "
+                      "literal text, configs and docs."
+                      % (status, slug(root), how)))
     else:
         parts.append(("graph", "Graph: codegraph is not installed, so use "
                                "grep/find and say the answer came from text "
@@ -2555,30 +2565,36 @@ def index_notice(cwd):
     says less than "↻" but still says something the turn needs: no stamp, or no
     readable HEAD, means the graph's age is unknown rather than current, and
     staying silent there is what let an unverifiable index answer with the
-    index's authority."""
+    index's authority.
+
+    The line used to stop there ("re-index before trusting one, or say the
+    answer came from text search") and start nothing: the index is stamped only
+    by the session-start worker, so every turn after a commit told the model to
+    leave the graph for grep. A stale or unknown stamp now starts the same
+    lock-guarded incremental worker the session start runs (`autoindex`), and
+    the line says so."""
     base, _marks = repo_marks(cwd)
     mark = index_mark(cwd, base) if base else ""
-    if mark == "?":
-        return ("Graph index: this session cannot compare the graph to HEAD (no "
-                "readable index stamp), so the graph's age is unknown - it may "
-                "describe code that has moved since. Re-index before trusting a "
-                "graph answer, or say the answer came from text search.")
-    if mark != "\u21bb":
+    if mark not in ("?", "\u21bb"):
         return ""
+    status = autoindex(repo_root(cwd))
+    keep = ("Keep using the graph for code discovery; a file changed since the "
+            "last index may still show its older source there, so read that "
+            "file itself before editing it.")
+    if mark == "?":
+        return ("Graph index: the graph's age is unknown (no readable index "
+                "stamp); %s. %s" % (status, keep))
     from tezgah_gate import index_slug  # lazy: keep hook import cost minimal
     slug = index_slug(cwd, base)
     try:
         with open(os.path.join(cache_dir(), slug), encoding="utf-8") as fh:
             stamped = fh.read().strip()
     except OSError:
-        return ""
-    head = git(repo_root(cwd), "rev-parse", "HEAD")
-    if not head or not stamped:
-        return ""
-    return ("Graph index: the graph is indexed at %s, HEAD is %s - the index is "
-            "behind, so a graph answer may describe code that has moved since. "
-            "Re-index before trusting one, or say the answer came from text "
-            "search." % (stamped[:7], head[:7]))
+        stamped = ""
+    head = git(repo_root(cwd), "rev-parse", "HEAD") or ""
+    return ("Graph index: the graph is indexed at %s, HEAD is %s; %s "
+            "(`codegraph sync`, incremental). %s"
+            % (stamped[:7] or "?", head[:7] or "?", status, keep))
 
 
 def plan_mark(cwd, base):

@@ -48,7 +48,7 @@ from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
     from tezgah_context import (  # noqa: E402
         command_text, context_for, record, shell_kind, slug, under)
-    from tezgah_gate import decision, explored  # noqa: E402
+    from tezgah_gate import decision, explored, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
         stop_reason)
@@ -318,9 +318,12 @@ def dispatch(payload):
         if (kind in ("graph", "consult") and under(cwd) and not quiet
                 and first_time(session_id, "graph")):
             reinforce = REINFORCE
-        # both are one line for the model, on the result they belong to; a turn
-        # that earns both reads them together rather than one replacing the other
-        text = "\n".join(t for t in (notice, reinforce) if t)
+        # the gate's graph line for a code-symbol search (graph_advice) rides
+        # the same channel; all three are one line each for the model, on the
+        # result they belong to, read together rather than one replacing another
+        advice = (graph_advice(gate_name(payload.get("tool_name", "")), inp, cwd,
+                               "cursor") if under(cwd) and not quiet else None)
+        text = "\n".join(t for t in (notice, reinforce, advice) if t)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUseFailure":
         if kind:

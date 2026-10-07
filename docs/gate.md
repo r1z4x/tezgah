@@ -244,13 +244,19 @@ failures. Under `verify-off` (`hooks/tezgah_gate.py::decision`).
 Trigger: the same call has been attempted more than `RETRY_CEILING = 3` times in the session, whatever those attempts returned (`hooks/tezgah_gate.py::RETRY_CEILING`, `retry_reason`
 `hooks/tezgah_gate.py::retry_reason`). Told: an unchanged repeat is not a retry (`hooks/tezgah_gate.py::loop_reason`). Standing. Under `verify-off` (`hooks/tezgah_gate.py::decision`). Both guards read only the ledger tail.
 
-### Nudge — the first identifier-shaped search of a session
+### Nudge — the first code-symbol search of a session, then a line beside every later one
 
-Trigger: a `Grep` whose pattern, or a `grep`/`rg` argument (`hooks/tezgah_gate.py::BASH_SEARCH`), matches `IDENT` (`^[A-Za-z_][A-Za-z0-9_]{2,}$`, `hooks/tezgah_gate.py::IDENT`), in a repo whose
-codegraph index exists (`<repo>/.codegraph/codegraph.db`; `searched_identifier`
-`hooks/tezgah_gate.py::searched_identifier`). Told: the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`), and that an omp subagent uses this CLI because omp's MCP device refuses concurrent writes
-(`hooks/tezgah_gate.py::nudge_reason`).
+Trigger: a search for a code symbol, in a repo whose codegraph index exists (`<repo>/.codegraph/codegraph.db`) and that has no `.no-graph` (`hooks/tezgah_gate.py::index_slug`).
+A code symbol has an inner underscore or a lower-to-upper step, or sits in a `def x` or `x\(` pattern (`hooks/tezgah_gate.py::symbol_in`).
+A plain word such as `TODO` is literal text and never matches.
+The search is the pattern of a `grep`, `search` or `ast_grep` tool, a term of omp's `find`, or a `grep`/`rg` argument (`hooks/tezgah_gate.py::searched_symbol`, `hooks/tezgah_gate.py::BASH_SEARCH`).
+omp's bridge sends `find`, `search` and `ast_grep` to the gate, because omp's own prompt sends code discovery to `find` first (`hosts/omp/tezgah-hook.ts.in`).
+Told: the host's graph tool (`hooks/tezgah_gate.py::graph_tool`) and the runnable command built from the denied search (`codegraph explore <X>`, `codegraph callers <X>`, `codegraph impact <X>`).
+An omp subagent uses this CLI, because omp's MCP device refuses concurrent writes (`hooks/tezgah_gate.py::nudge_reason`).
 Once-only: the mark in `cache_dir()/nudged/<sha1(session)[:16]>` is written *before* the refusal, so re-issuing the search passes (`hooks/tezgah_gate.py::first_nudge`). opencode's `oncePerSession` writes the same name (`hooks/tezgah_gate.py::nudge_mark`).
+After that, every later symbol search passes with one line naming the graph tool, while the index stamp equals HEAD (`hooks/tezgah_gate.py::graph_advice`).
+Claude reads the line as PreToolUse `additionalContext` (`hooks/projects-pretooluse.py`), and omp reads it with the call's `tool_result` (`hosts/omp/tezgah-hook.ts.in`).
+Codex and Cursor read it with their PostToolUse result (`hosts/codex/hook.py`, `hosts/cursor/hook.py`).
 
 ### Drift — a long turn loses the rules it started with
 
@@ -395,7 +401,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 ## Source of truth
 
 - `hooks/tezgah_gate.py` — `hooks/tezgah_gate.py::decision`; every rule constant and refusal text `hooks/tezgah_gate.py:162-2157`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py::attribution`, `hooks/tezgah_gate.py::attribution_edit`; `explored`
-  `hooks/tezgah_gate.py::explored`; `hooks/tezgah_gate.py::searched_identifier`, `hooks/tezgah_gate.py::index_slug`, `hooks/tezgah_gate.py::first_nudge`, `hooks/tezgah_gate.py::nudge_reason`; `hooks/tezgah_gate.py::LOOP_ATTEMPTS`, `hooks/tezgah_gate.py::loop_reason`,
+  `hooks/tezgah_gate.py::explored`; `hooks/tezgah_gate.py::searched_symbol`, `hooks/tezgah_gate.py::index_slug`, `hooks/tezgah_gate.py::first_nudge`, `hooks/tezgah_gate.py::nudge_reason`, `hooks/tezgah_gate.py::graph_advice`; `hooks/tezgah_gate.py::LOOP_ATTEMPTS`, `hooks/tezgah_gate.py::loop_reason`,
   `hooks/tezgah_gate.py::RETRY_CEILING`, `hooks/tezgah_gate.py::retry_reason`; `hooks/tezgah_gate.py::secret_command`, `hooks/tezgah_gate.py::race_reason`,
   `hooks/tezgah_gate.py::drift_reason`, `hooks/tezgah_gate.py::effectful`, `hooks/tezgah_gate.py::_deny`; the plan rule's own section `hooks/tezgah_gate.py:1391-1588` — `hooks/tezgah_gate.py::plan_reason`, `hooks/tezgah_gate.py::_branch`, `hooks/tezgah_gate.py::_checkout`, `hooks/tezgah_gate.py::_product`, `hooks/tezgah_gate.py::PLAN_DENY`; `hooks/tezgah_gate.py::write_paths`, `hooks/tezgah_gate.py::shell_target`, `hooks/tezgah_gate.py::SHELL_AS_WRITE`; the `capture` call `hooks/tezgah_gate.py::decision` (a write tool's target, and a shell write's)
 - `hooks/projects-pretooluse.py` — the Claude and dsh envelope; `hooks/tezgah_paths.py` — `off`, `root_for`, `cache_dir`

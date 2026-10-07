@@ -105,7 +105,8 @@ const SETUP_BIN = join(CONFIG, "bin", "tezgah-setup")
 const CONTEXT_BIN = join(CONFIG, "bin", "tezgah-context")
 const CAPTURE_BIN = join(CONFIG, "bin", "tezgah-capture")
 const GATE_BIN = join(CONFIG, "bin", "tezgah-gate")
-const IDENT = /^[A-Za-z_][A-Za-z0-9_]{2,}$/
+const SEARCH_SYMBOL =
+  /^(?:\\b)?(?:(def|class|function|func|fn|interface|struct|type)\s+)?([A-Za-z_][A-Za-z0-9_]{2,})(\\?\()?(?:\\b)?$/
 // A hung core must not hold a tool call open. Every awaited core CLI runs
 // through `collect`, which gives it a deadline and answers a timeout with the
 // same fail-open value a missing binary or a non-zero exit gets: a core that
@@ -2111,10 +2112,12 @@ function ledgerStem(sessionID) {
 }
 
 // The nearest enclosing project that holds a codegraph index. The answer is the
-// indexed directory itself, which is what the nudge names.
+// indexed directory itself, which is what the nudge names; a `.no-graph` met
+// first is the repo's own switch (hooks/tezgah_gate.index_slug), so no index.
 function indexSlug(dir) {
   let d = dir
   for (;;) {
+    if (existsSync(join(d, ".no-graph"))) return null
     if (existsSync(join(d, GRAPH_DB))) return d
     const parent = d.replace(/\/[^/]+\/?$/, "")
     if (!parent || parent === d) return null
@@ -2122,17 +2125,23 @@ function indexSlug(dir) {
   }
 }
 
+// hooks/tezgah_gate.symbol_in: a code symbol (inner underscore, a lower-to-upper
+// step, or any identifier in a `def x` / `x(` pattern); a plain word such as
+// `TODO` is literal text and is never nudged.
+function symbolIn(text) {
+  const m = String(text || "").trim().replace(/^['"]+|['"]+$/g, "").match(SEARCH_SYMBOL)
+  if (!m) return null
+  const tok = m[2]
+  const shaped = tok.replace(/^_+|_+$/g, "").includes("_") || /[a-z][A-Z]/.test(tok)
+  return m[1] || m[3] || shaped ? tok : null
+}
+
 function identifierFrom(tool, args) {
-  if (tool === "grep") {
-    const p = String(args.pattern || "")
-    return IDENT.test(p) ? p : null
-  }
+  if (tool === "grep") return symbolIn(args.pattern)
   if (tool === "bash" || tool === "shell") {
     const cmd = String(args.command || "")
     const m = cmd.match(/(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)/)
-    if (!m) return null
-    const tok = m[2].replace(/^['"]|['"]$/g, "")
-    return IDENT.test(tok) ? tok : null
+    return m ? symbolIn(m[2]) : null
   }
   return null
 }

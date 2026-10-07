@@ -111,9 +111,11 @@ One session, in order. Each step names the file that handles the event on Claude
    session block's last five, see
    [operations.md](operations.md#opt-in-embedding-relevance); each once per
    session, remembered in the turn stamp and forgotten at a compaction),
-   and the stale-index notice (`hooks/tezgah_context.py::index_notice`).
+   and the stale-index notice, which also starts the incremental re-index
+   (`hooks/tezgah_context.py::index_notice`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py::main` calls `decision` and emits
-   the deny envelope (`hooks/projects-pretooluse.py::main`). The gate is the same
+   the deny envelope, or, for a code-symbol search it lets through, the graph line
+   as `additionalContext` (`hooks/tezgah_gate.py::graph_advice`). The gate is the same
    object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py::gate_reason`.
 4. **PostToolUse** — `hooks/projects-posttooluse.py::main` writes the evidence row
    through `note_tool` (`hooks/projects-posttooluse.py::main`), records the used

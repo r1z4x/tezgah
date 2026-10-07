@@ -322,6 +322,26 @@ class OmpExtension(TempHome):
         self.assertEqual([p.get("tool") for p in self.asked(log)
                           if p["event"] == "pre_tool_use"], ["mcp__fs_write_file"])
 
+    def test_omp_search_tools_reach_the_gate_and_carry_its_graph_line(self):
+        # omp's own prompt sends code discovery to `find`, which never reached
+        # the gate; the gate's graph line rides back with that call's result,
+        # as additionalContext, never as a block
+        hook, log = self.fake_hook({"advice": "Graph: use the graph"})
+        self.ext = self.make_ext(hook, name="advice-hook.ts")
+        out = self.results(self.drive([
+            {"event": "tool_call", "arg": {"toolName": "find", "toolCallId": "c1",
+                                           "input": {"query": "who calls x_y"}}},
+            {"event": "tool_result", "arg": {"toolName": "find", "toolCallId": "c1",
+                                             "input": {"query": "who calls x_y"},
+                                             "content": "hits"}},
+            {"event": "tool_result", "arg": {"toolName": "find", "toolCallId": "c1",
+                                             "input": {}, "content": "again"}}]))
+        self.assertIsNone(out[0])
+        self.assertEqual(out[1], {"additionalContext": "Graph: use the graph"})
+        self.assertIsNone(out[2])  # handed over once
+        self.assertEqual([p["tool"] for p in self.asked(log)
+                          if p["event"] == "pre_tool_use"], ["find"])
+
     def test_a_broken_hook_is_visible_and_never_blocks(self):
         # the audit's reproduction: with the hook missing, every event was a
         # silent no-op - an attribution commit and an unverified done-claim both
