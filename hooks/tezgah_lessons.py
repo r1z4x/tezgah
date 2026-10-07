@@ -115,8 +115,8 @@ def is_ledger(path):
 
 
 def taint_path(root):
-    """The `lesson_tainted` index of the repository at `root`: the gate appends
-    each keyed row here as well as to the session's ledger, so the context of a
+    """The `lesson_tainted` index of the repository at `root`: the gate keeps
+    each keyed row here as well as in the session's ledger, so the context of a
     later session reads one small file for the per-line label instead of every
     ledger on the machine (3173 files, 30 MB on the measuring machine,
     2026-10-07)."""
@@ -124,23 +124,63 @@ def taint_path(root):
     return os.path.join(cache_dir(), "lessons", name.hexdigest()[:16] + ".jsonl")
 
 
-def tainted(root):
-    """{key: source} for the lessons of the repository at `root` that a gate
-    recorded as written in a turn that had read untrusted text (`taint_path`);
-    {} when there is none. A damaged line costs only itself."""
-    out = {}
+def _index_rows(path):
+    """The parseable keyed rows of an index file, oldest first; [] without one.
+    A damaged line costs only itself."""
+    rows = []
     try:
-        with open(taint_path(root), encoding="utf-8", errors="replace") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for ln in fh:
                 try:
                     row = json.loads(ln)
                 except ValueError:
                     continue
                 if isinstance(row, dict) and row.get("key"):
-                    out[str(row["key"])] = str(row.get("source") or "")
+                    rows.append(row)
     except OSError:
         pass
-    return out
+    return rows
+
+
+def write_taint(root, keep, rows):
+    """Rewrite the index of the repository at `root`: the rows it holds whose key
+    is in `keep` (the ledger's lines plus the write's new ones), then `rows`. So
+    the file never outgrows the ledger it labels. Best effort, like a ledger row.
+    ponytail: two sessions rewriting one index in the same instant can lose one
+    row (one label); the session ledger keeps its own copy of every row."""
+    path = taint_path(root)
+    kept = [r for r in _index_rows(path) if r["key"] in keep] + rows
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in kept))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+# The index as last read, per (path, mtime, size): the session block, the
+# per-turn block and the digest of one prompt each ask for it, and a hook
+# process serves one prompt.
+_TAINTED = {}
+
+
+def tainted(root):
+    """{key: source} for the lessons of the repository at `root` that a gate
+    recorded as written in a turn that had read untrusted text (`taint_path`);
+    {} when there is none. Read once while the file is unchanged."""
+    path = taint_path(root)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _TAINTED:
+        _TAINTED[key] = {str(r["key"]): str(r.get("source") or "")
+                         for r in _index_rows(path)}
+    return _TAINTED[key]
 
 
 def lines(root, retired=None):

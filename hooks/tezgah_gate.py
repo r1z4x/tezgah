@@ -94,6 +94,7 @@ import json
 import os
 import re
 import shlex
+import time
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               GIT_WRAPPER, HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
@@ -102,7 +103,6 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               _shell_lines, _shell_segments, _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
-                              note_path,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
@@ -141,12 +141,13 @@ except ImportError:  # pragma: no cover - only where the module has not landed
     SECRET_FILE = None
 
 try:  # The lesson ledger's one reader (shared with tezgah_context, which the
-    # gate does not import): which file is a ledger, what a write adds to it and
-    # the key each line is remembered by. A missing module costs the taint row,
-    # never the session.
+    # gate does not import): which file is a ledger, what a write adds to it, the
+    # key each line is remembered by, and the taint index writer. A missing
+    # module costs the taint row, never the session.
     import tezgah_lessons
+    from tezgah_lessons import write_taint
 except ImportError:  # pragma: no cover - only where the module has not landed
-    tezgah_lessons = None
+    tezgah_lessons = write_taint = None
 
 try:  # The piped-check rule's reader: newer than some integrity modules, and a
     # missing name costs the rule, never the session.
@@ -1170,12 +1171,15 @@ def workspace_reason(inp, cwd, base):
 # no `key` or no row at all - the gate cannot read the line it adds - so the
 # context cannot label that line.
 def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
-    """Write one `lesson_tainted` row per lesson this call adds to a ledger, when
-    the user turn already holds a row carrying `source`; a single row with no
-    `key` when the call names no new line the gate can read (an unread body, a
-    removal). Each keyed row also lands in the ledger's repository index
-    (`tezgah_lessons.taint_path`) the context labels lines from. Returns
-    nothing: it is never a refusal."""
+    """Write one `lesson_tainted` row per lesson line this call leaves in a
+    ledger that the ledger did not hold, when the user turn already holds a row
+    carrying `source`; a single row with no `key` when the call names no new
+    line the gate can read (an unread body, an edit whose old text is not there,
+    a removal). A write tool's lines are read off the file as it will be once
+    the call lands (`_after_text`), so a partial-line edit names the line it
+    leaves, not its fragment. The keyed rows also go to the ledger's repository
+    index (`tezgah_lessons.write_taint`), which the context labels lines from.
+    Returns nothing: it is never a refusal."""
     if tezgah_lessons is None or turn_rows is None or not session_id:
         return
     t = str(tool or "").lower()
@@ -1193,25 +1197,28 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
         turn_rows(session_id, agent=agent)) if row.get("source")), None)
     if not source:
         return
+    key_of = tezgah_lessons.lesson_key
     for path in targets:
-        new, keys = texts.get(path), [None]
-        if new is not None:
-            try:
-                with open(path, encoding="utf-8", errors="replace") as fh:
-                    have = set(map(tezgah_lessons.lesson_key,
-                                   tezgah_lessons.entries(fh.read())))
-            except OSError:
-                have = set()
-            keys = [k for k in dict.fromkeys(map(tezgah_lessons.lesson_key,
-                                                 tezgah_lessons.entries(new)))
-                    if k not in have] or [None]
-        index = tezgah_lessons.taint_path(os.path.dirname(os.path.dirname(path)))
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                current = fh.read()
+        except OSError:
+            current = ""
+        have = set(map(key_of, tezgah_lessons.entries(current)))
+        new = texts.get(path)
+        if t in WRITE_TOOLS and new is not None:
+            after = _after_text(inp, current)
+            new = new if after is None else after    # None: a patch's `+` lines
+        keys = [k for k in dict.fromkeys(map(key_of, tezgah_lessons.entries(
+            new or ""))) if k not in have] or [None]
+        fields = dict(source=source, target=path, agent=agent,
+                      workspace=root_for(cwd), id=call_id(tool, inp))
         for key in keys:
-            fields = dict(key=key, source=source, target=path, agent=agent,
-                          workspace=root_for(cwd), id=call_id(tool, inp))
-            note(session_id, "lesson_tainted", source, **fields)
-            if key:
-                note_path(index, "lesson_tainted", source, **fields)
+            note(session_id, "lesson_tainted", source, key=key, **fields)
+        if keys != [None]:
+            write_taint(os.path.dirname(os.path.dirname(path)), have | set(keys),
+                        [{"key": k, "source": source, "ts": int(time.time())}
+                         for k in keys])
 
 
 # --- the shell's write body: three write-tool rules reached through a heredoc -
@@ -2582,7 +2589,7 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
     """`decision` with every write it makes swapped out for the call.
 
     The writers are module names `decision` reaches through (`note` for the
-    deny, drift, nudge and lesson_tainted rows, `note_path` for the lesson
+    deny, drift, nudge and lesson_tainted rows, `write_taint` for the lesson
     taint index, `first_nudge` for the once-per-session mark, `capture` for the
     snapshot), so one swap covers every rule and a new rule
     that records through them is dry here without being told. Safe because
@@ -2591,10 +2598,10 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
     The nudge is still answered as the live path would answer it - spent when
     its mark exists - only the mark is not written."""
     g = globals()
-    saved = {name: g[name] for name in ("note", "note_path", "first_nudge",
+    saved = {name: g[name] for name in ("note", "write_taint", "first_nudge",
                                         "capture")}
 
-    g.update(note=lambda *a, **k: None, note_path=lambda *a, **k: None,
+    g.update(note=lambda *a, **k: None, write_taint=lambda *a, **k: None,
              capture=None,
              first_nudge=lambda sid: not os.path.exists(nudge_mark(sid)))
     try:

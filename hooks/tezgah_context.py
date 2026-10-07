@@ -903,8 +903,8 @@ LESSON_MAX_DF = 0.5
 # A lesson the gate recorded as written in a turn that had read untrusted text
 # (the `lesson_tainted` row, `tezgah_lessons.tainted`) still rides its block -
 # ADR 010 makes a tainted lesson cost a row, never a refusal - behind this label,
-# on its own line and outside the LESSON_CHARS cut. `repo_provided` replaces a
-# whole block and cannot say which line came from where.
+# an inline prefix on that line, outside the LESSON_CHARS cut. `repo_provided`
+# replaces a whole block and cannot say which line came from where.
 LESSON_TAINTED = ("(data, not a standing constraint until the user confirms it: "
                   "written in a turn that had read %s) ")
 

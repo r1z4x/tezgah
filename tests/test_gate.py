@@ -638,7 +638,7 @@ class Gate(TempHome):
         # plan 055: the replay corpus must not grow `_dry_decision`'s swap list -
         # it serves `tezgah-gate check` and the MCP gate check, which promise the
         # live answer; the replay swaps what it needs in its own process. Plan
-        # 061 added `note_path`, the lesson taint index a live write appends to
+        # 061 added `write_taint`, the lesson taint index a live write rewrites
         # (tezgah_gate.lesson_taint), which the dry run must not write.
         import ast
         import inspect
@@ -646,7 +646,7 @@ class Gate(TempHome):
         swapped = [tuple(e.value for e in node.elts) for node in ast.walk(tree)
                    if isinstance(node, ast.Tuple) and node.elts
                    and all(isinstance(e, ast.Constant) for e in node.elts)]
-        self.assertEqual(swapped, [("note", "note_path", "first_nudge", "capture")])
+        self.assertEqual(swapped, [("note", "write_taint", "first_nudge", "capture")])
 
     def test_the_flag_value_reader_passes_maxsplit_by_keyword(self):
         # audit QA-3 / L-13: positional maxsplit warns on 3.13+, and a future

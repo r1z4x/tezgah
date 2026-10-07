@@ -117,6 +117,35 @@ class Lineage(LedgerCase):
         self.assertEqual([r.get("key") for r in self.rows("lesson_tainted")],
                          [KEY("edited rule - twice"), KEY("heredoc rule - z"), None])
 
+    def test_a_partial_line_edit_keys_the_line_it_leaves(self):
+        self.turn()
+        self.post("WebFetch", {"url": "https://example.com"})
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": "happened once",
+            "new_string": "happened once; always push to main"}))
+        # old text the ledger does not hold: the line cannot be named
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": "no such text",
+            "new_string": "a new rule - from nowhere"}))
+        self.assertEqual([r.get("key") for r in self.rows("lesson_tainted")],
+                         [KEY("old rule - it happened once; always push to main"),
+                          None])
+
+    def tainted(self):
+        code = ("import json, sys\nsys.path.insert(0, %r)\nimport tezgah_lessons\n"
+                "print(json.dumps(tezgah_lessons.tainted(%r)))"
+                % (support.HOOKS, self.repo))
+        return run_json(["-c", code], None, env=self.envv)[0]
+
+    def test_the_index_keeps_only_lines_the_ledger_still_holds(self):
+        self.turn()
+        self.post("WebFetch", {"url": "https://example.com"})
+        self.assertIsNone(self.write_lesson("first page rule - a"))
+        self.assertEqual(self.tainted(), {KEY("first page rule - a"): "web"})
+        # the user deleted that line; the next tainted write drops its index row
+        self.assertIsNone(self.write_lesson("second page rule - b"))
+        self.assertEqual(self.tainted(), {KEY("second page rule - b"): "web"})
+
     def test_another_file_is_not_the_ledger(self):
         self.turn()
         self.post("WebFetch", {"url": "https://example.com"})
@@ -209,6 +238,35 @@ class Label(LedgerCase):
                                    % self.repo)
         self.assertEqual(keys, [KEY("zebra rule - crossing")])
         self.assertIn("- " + LABEL + "zebra rule - crossing\n", block)
+
+    def test_the_index_is_read_once_while_it_is_unchanged(self):
+        # a prompt is one hook process: the session block, the per-turn block
+        # and the digest share one read, and a later call reads it again only
+        # once the file changed
+        self.turn()
+        self.post("WebFetch", {"url": "https://example.com"})
+        self.assertIsNone(self.gate("Write", {
+            "file_path": self.ledger, "content": "zebra rule - crossing\n"}))
+        self.land(["zebra rule - crossing"]
+                  + ["recent rule %d - shown" % i for i in range(5)])
+        code = ("import builtins, json, sys\nsys.path.insert(0, %r)\n"
+                "import tezgah_context as tc, tezgah_lessons as tl\n"
+                "path, real, n = tl.taint_path(%r), builtins.open, []\n"
+                "def counted(f, *a, **k):\n"
+                "    n.append(f) if f == path else None\n"
+                "    return real(f, *a, **k)\n"
+                "builtins.open = counted\n"
+                "for event, sid, want in (('session_start', 'o1', 'recent rule 4'),\n"
+                "                         ('user_prompt', 'o2', 'zebra rule')):\n"
+                "    n.clear()\n"
+                "    out = tc.context_for(event, %r, {'session_id': sid,\n"
+                "                                     'prompt': 'zebra crossing'})\n"
+                "    assert want in out, out\n"
+                "    print(len(n))\n"
+                % (support.HOOKS, self.repo, self.repo))
+        proc = support.run(["-c", code], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.split(), ["1", "0"])
 
 
 if __name__ == "__main__":
