@@ -75,8 +75,9 @@ an adversarial agent, and it does not claim to be one.
   - A forged `began` row plus its pass: the `began` row is the pairing's only
     witness and it is a ledger row like any other. The rule refuses
     `tezgah-gate decide` by name; an interpreter can still import the core, or
-    append the line, and write both rows. No hash chain or per-install key
-    signs the ledger.
+    append the line, and write both rows. A pass forged under the `id` of a
+    real check that got no outcome pairs with that check's `began` too. No
+    hash chain or per-install key signs the ledger.
   - `find -delete`, `xargs`, and a path built from variables the gate does not
     expand (anything but `~`, `$HOME` and the XDG variables).
   - A glob or brace in a directory component (`rm -rf ~/.config/tez?ah`), and a
