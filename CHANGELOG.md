@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cursor's Stop rule re-asks once, as on every other host.** A real Cursor
+  `stop` payload carries `loop_count` and no `stop_hook_active`. The hook read
+  only the flag, so it refused every follow-up its own refusal started, until
+  Cursor's cap ended the chain. It now counts `loop_count`
+  (`hosts/cursor/hook.py::asked`).
+
 ### Changed
 
 - **The README describes mechanisms, not outcomes.** A paired on/off experiment

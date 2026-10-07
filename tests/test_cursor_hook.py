@@ -215,6 +215,19 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out["reason"])
 
+    def test_the_follow_up_a_block_started_is_not_refused_again(self):
+        # A real Cursor `stop` payload (cursor-agent 2026.10.01, captured
+        # 2026-10-07) carries `loop_count` and no `stop_hook_active`: the
+        # follow-up turn one block started reads loop_count 1, and one re-ask
+        # is the cap (decision 011).
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "ls"}})
+        self.response("Done. All tests pass.")
+        self.assertEqual(self.stop(loop_count=0).get("decision"), "block")
+        self.response("Done. All tests pass.")
+        self.assertEqual(self.stop(loop_count=1), {})
+
     def test_stop_refuses_a_done_claim_whose_check_reported_no_outcome(self):
         # A shell result with no `exitCode` in `tool_output` is a check that
         # RAN, never one that passed: a "done" the session cannot evidence does
