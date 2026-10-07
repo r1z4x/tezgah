@@ -1196,19 +1196,30 @@ def _abs_target(path, cwd):
     return os.path.realpath(path)
 
 
+# An open descriptor's own link: Linux resolves /dev/stderr and /dev/fd/N to
+# one of these (`/proc/<pid>/fd/pipe:[N]`), so it is a device by another name.
+PROC_FD = re.compile(r"^/proc/(?:self|\d+)/fd/")
+
+
 def scratch_target(path, cwd=None):
     """True when a written `path` is the session's own scratch, not shared work:
-    a device (`/dev/stderr`) or a file under the system temp dir (`$TMPDIR`,
-    else the OS's) or /tmp. Two sessions writing `/tmp/x` are not racing on
-    anyone's work, and `pytest > /tmp/check.log` is the piped-check rule's own
-    remedy, so the race and task rules and a `run` row's `target` leave these
-    alone. A path inside `cwd` is never scratch: a checkout that itself lives
-    in a temp dir keeps its files. ponytail: /var/tmp is not a root - the test
-    fixtures live there precisely so they are not scratch (tests/support.py)."""
-    real = _abs_target(path, cwd)
-    if not real:
+    a device (`/dev/stderr`, or the `/proc/<pid>/fd/` link Linux resolves it
+    to) or a file under the system temp dir (`$TMPDIR`, else the OS's) or /tmp.
+    Two sessions writing `/tmp/x` are not racing on anyone's work, and
+    `pytest > /tmp/check.log` is the piped-check rule's own remedy, so the race
+    and task rules and a `run` row's `target` leave these alone. A path inside
+    `cwd` is never scratch: a checkout that itself lives in a temp dir keeps its
+    files. ponytail: /var/tmp is not a root - the test fixtures live there
+    precisely so they are not scratch (tests/support.py)."""
+    path = str(path or "").strip()
+    if not path:
         return False
-    if real.startswith("/dev/"):
+    # the device test reads the spelling before realpath: on Linux realpath
+    # turns /dev/stderr into `/proc/<pid>/fd/pipe:[N]` (CI ubuntu)
+    if os.path.normpath(os.path.join(cwd or os.getcwd(), path)).startswith("/dev/"):
+        return True
+    real = _abs_target(path, cwd)
+    if real.startswith("/dev/") or PROC_FD.match(real):
         return True
     import tempfile  # deferred: the gate imports this module on every call
     here = os.path.realpath(cwd or os.getcwd())

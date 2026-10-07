@@ -1255,8 +1255,9 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   // sibling's shell write is seen like its edit (hooks/tezgah_integrity.note_tool);
   // one that writes only its own scratch (a temp file, a device) carries none.
   if (kind === "edit" || kind === "run") {
-    const target = absTarget(writtenPath(args), cwd)
-    if (target && !(kind === "run" && scratchTarget(target, cwd))) row.target = target
+    const written = writtenPath(args)
+    const target = absTarget(written, cwd)
+    if (target && !(kind === "run" && scratchTarget(written, cwd))) row.target = target
   }
   await appendRow(sessionID, row)
   // The opt-in taste capture: on the Python hosts note_tool calls
@@ -1312,11 +1313,18 @@ function absTarget(path, cwd) {
   }
 }
 
-// A resolved target that is the session's own scratch: a device, or a file under
+// An open descriptor's own link: Linux resolves /dev/stderr and /dev/fd/N to
+// one of these (`/proc/<pid>/fd/pipe:[N]`) (hooks/tezgah_integrity.PROC_FD).
+const PROC_FD = /^\/proc\/(?:self|\d+)\/fd\//
+
+// A written path that is the session's own scratch: a device, or a file under
 // the system temp dir or /tmp but not inside the cwd
-// (hooks/tezgah_integrity.scratch_target).
-function scratchTarget(target, cwd) {
-  if (target.startsWith("/dev/")) return true
+// (hooks/tezgah_integrity.scratch_target). The device test reads the spelling
+// before realpath too: on Linux realpath turns /dev/stderr into a /proc fd.
+function scratchTarget(path, cwd) {
+  if (resolve(cwd || process.cwd(), String(path)).startsWith("/dev/")) return true
+  const target = absTarget(path, cwd)
+  if (target.startsWith("/dev/") || PROC_FD.test(target)) return true
   const here = absTarget(cwd || process.cwd(), "/")
   if (target === here || target.startsWith(here + "/")) return false
   return [absTarget(tmpdir(), "/"), absTarget("/tmp", "/")].some(
