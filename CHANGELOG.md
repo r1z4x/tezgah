@@ -31,6 +31,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge seam. It writes `labels-model.jsonl` beside the sheet and prints the
   token cost. `replay --report` with one rater's labels now prints no rate:
   the rates need two raters' agreed labels.
+- **A second model family can rate the replay sheet.** `tezgah-gate replay
+  --label-model --provider deepseek --model deepseek-v4-pro` asks the same
+  prompt over DeepSeek's OpenAI-compatible endpoint at temperature 0. It writes
+  `labels-deepseek.jsonl` and prints input and output token cost. With two
+  model raters `replay --report` calls kappa model-model agreement.
 - **The shell-reader fuzzer runs weekly under bash 5.x.** A `fuzz-shell` job
   in `.github/workflows/neuter.yml` runs `tests/fuzz_shell.py` on the ubuntu
   runner's bash 5, seed 1, 20000 lines. It reads the lines once with the core
@@ -407,6 +412,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The seam refuses a plain-http endpoint override off this machine.** The
+  judge seam's `TEZGAH_TYPESAFE_URL` and `TEZGAH_OPENROUTER_URL` and the
+  replay rater's `TEZGAH_DEEPSEEK_URL` all route through
+  `tezgah_judge.override`. An `http://` URL to another host would have sent
+  the bearer key and the state in clear. Loopback stays allowed for the tests.
+  `consult` now refuses a plain-http `CONSULT_URL` off this machine the same
+  way, before any request, as failure class `plain-http`.
 - **A Homebrew install survives `brew upgrade` with its default cleanup.**
   The installer now names its keg through the stable `opt/tezgah` link
   (`hooks/tezgah_paths.py::stable_root`). So the farm links, the omp bridge's
