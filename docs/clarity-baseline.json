@@ -19,9 +19,9 @@
   },
   "docs/contract.md": {
     "long_sentences": 43,
-    "passive": 27,
+    "passive": 26,
     "replace_words": 0,
-    "semicolons": 32
+    "semicolons": 31
   },
   "docs/environment.md": {
     "long_sentences": 3,
