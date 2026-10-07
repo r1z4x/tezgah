@@ -3484,9 +3484,9 @@ def passing_check(entry):
     done` prove nothing about pytest, `set -o pipefail; pytest | tail` and
     `pytest && echo ok` do (`status_hidden`). Everything else is a
     check that ran with an outcome nobody saw."""
-    if entry.get("kind") != "verify_ok" or entry.get("empty_run") or entry.get(ORPHAN):
+    if entry.get("kind") != "verify_ok" or entry.get("empty_run"):
         return False
-    if entry.get("exit") != 0 or entry.get("out_bytes") == 0:
+    if entry.get(ORPHAN) or entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
     return not status_hidden(entry.get("detail"))
 
