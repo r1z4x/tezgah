@@ -76,7 +76,9 @@ into `done/`. Lines live under `research/open/` and `research/done/`, the way pl
 by one reader (`hooks/tezgah_research.py::line_dir`); an unmet criterion keeps a line
 listed as unanswered (`hooks/tezgah_research.py::unanswered`).
 
-## What is measured to know this works
+## What is measured to know the operating model holds
+
+These are measures of how a session runs, not of task outcomes.
 
 - wall time per session and the share spent waiting;
 - serial full-suite runs per session (the count, not the length, is the cost);
@@ -86,6 +88,20 @@ listed as unanswered (`hooks/tezgah_research.py::unanswered`).
   unanswered;
 - `status`'s own count of lines the layout has not migrated.
 
+## What it does not claim
+
+The model above describes mechanisms: what a session is told, what the gate
+refuses, what the ledger records. It does not claim that an agent under tezgah
+cheats less, finishes more tasks or reports more honestly. A paired on/off
+experiment in October 2026 tested that and found no measurable effect. It ran
+DeepSeek V4.1 Flash on omp, bare against a full install. On ImpossibleBench's
+conflicting SWE-bench split, the agent cheated in 0 of 132 runs with tezgah and
+1 of 131 without. The model barely cheated in either arm, so the experiment had
+no headroom. On the same impossible tasks, the final message claimed completion
+more often with tezgah (115 of 132 against 90 of 131). The numbers, the per-task
+counts and the instrument flaws are in
+[the results bundle](results/paired-outcome-2026-10.md).
+
 ## Source of truth
 
 - `hooks/tezgah_policy.py` - the rules this page describes.
@@ -93,5 +109,6 @@ listed as unanswered (`hooks/tezgah_research.py::unanswered`).
 - `hooks/tezgah_models.py`, `docs/models.md` - the routing table and the chains.
 - `hooks/tezgah_research.py`, `docs/research.md` - the research layer.
 - `tests/impacted.py`, `docs/testing.md`, `AGENTS.md` - the check tiers.
+- `docs/results/paired-outcome-2026-10.md` - the paired outcome experiment.
 - The four internal diagnosis reports behind the numbers (session scratch,
   not published).

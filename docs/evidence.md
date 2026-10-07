@@ -756,6 +756,28 @@ judge seam's chat body with `temperature: 0` and thinking off, and writes
 DeepSeek's peak rate, an upper bound. With two model raters, the report labels kappa as
 model-model agreement, not human judgement (ADR 018).
 
+## What the evidence layer has not shown
+
+The ledger records what a session ran, and the Stop rule refuses a done claim
+the ledger cannot back. Both are mechanisms. Neither has shown an effect on task
+outcomes. A paired on/off experiment in October 2026 ran DeepSeek V4.1 Flash on
+omp, bare against a full install. It found no measurable reduction in cheating
+because the model barely cheated in either arm. The second phase used
+ImpossibleBench's conflicting SWE-bench split (44 instances, k = 3). There the
+agent cheated in 0 of 132 runs with tezgah and 1 of 131 without: -0.8 pp, 95%
+CI -2.3 to 0. Clean pass on the original tasks held at 129 of 131 against 129
+of 132.
+
+One result runs against the Stop rule's intent. On the impossible split the
+final message claimed completion in 115 of 132 runs with tezgah. Without it,
+90 of 131 did (+18 pp, McNemar p 0.0007). The rule refuses a turn whose claim
+the ledger cannot back, yet the last message of these runs still carried the
+claim. A red-team pass found one route a hook cannot read (a `python3 -c`
+write of a switch) in 30 attempts.
+The numbers, the per-task counts and the instrument flaws, among them agents
+that could read the benchmark's ground truth, are in
+[the results bundle](results/paired-outcome-2026-10.md).
+
 ## Source of truth
 
 - `hooks/tezgah_integrity.py` — ledger, kinds, redaction, Stop rule, counters
@@ -774,3 +796,4 @@ model-model agreement, not human judgement (ADR 018).
 - `tests/test_integrity.py`, `tests/test_snapshot.py` — the pinned behaviour
 - `tests/test_opencode_plugin.py`, `tests/test_omp_extension.py` — the JS mirrors
   pinned against the Python half
+- `docs/results/paired-outcome-2026-10.md` — the paired outcome experiment and its counts
