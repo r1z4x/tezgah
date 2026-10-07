@@ -150,8 +150,9 @@ SPECS = (
      "properties": {
          "path": ("string", "The repository to check; defaults to the "
                             "server's own working directory."),
-         "slug": ("string", "One research line to check; every line when "
-                            "omitted.")}},
+         "slug": ("string", "One research line to check in full; when "
+                            "omitted, the open lines in full and each line "
+                            "under done/ by its order seal only.")}},
 )
 
 

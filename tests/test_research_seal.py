@@ -195,8 +195,8 @@ class DefaultCheck(SealCase):
     under done/ by its seal hashes plus a one-line count; `--all-lines` runs
     every line in full, and `check <slug>` stays that line's full answer."""
 
-    def done_and_open(self):
-        repo = self.repo()
+    def done_and_open(self, name="repo"):
+        repo = self.repo(name)
         self.line(repo)
         self.shape(repo, "ordered")
         tr.close_line(repo, "q", "fixture", "2026-10-06")
@@ -210,8 +210,9 @@ class DefaultCheck(SealCase):
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertNotIn("FAIL q", proc.stdout)
         self.assertIn("research: 1 line(s) ok", proc.stdout)
-        self.assertIn("research: 1 done line(s) checked by their seal only; "
-                      "`check --all-lines` runs them in full", proc.stdout)
+        self.assertIn("research: 1 done line(s): 1 checked by their seal, 0 unsealed "
+                      "(not checked); `check --all-lines` runs them in full",
+                      proc.stdout)
         self.assertEqual(sorted(tr.check(repo, all_lines=False)), ["o"])
 
     def test_all_lines_and_a_slug_run_the_done_line_in_full(self):
@@ -221,7 +222,7 @@ class DefaultCheck(SealCase):
                 proc = self.cli(repo, *args)
                 self.assertEqual(proc.returncode, 1, proc.stdout)
                 self.assertIn("FAIL q: findings.md is missing", proc.stdout)
-                self.assertNotIn("done line(s) checked", proc.stdout)
+                self.assertNotIn("done line(s)", proc.stdout)
 
     def test_a_broken_seal_still_reaches_the_default(self):
         repo = self.done_and_open()
@@ -236,6 +237,53 @@ class DefaultCheck(SealCase):
         self.assertEqual(report["q"]["errors"], [
             "experiment h1: results.jsonl changed after the line was sealed "
             "(2026-10-06) - a sealed line's plan and run are its record"])
+
+    def set_state(self, repo, edit):
+        """Rewrite the done line's state.json with `edit(state)`, or with the
+        raw text `edit` when it is a string."""
+        path = os.path.join(tr.line_dir(repo, "q"), "state.json")
+        if isinstance(edit, str):
+            self.write(path, edit)
+            return
+        state = json.loads(read(path))
+        edit(state)
+        self.write(path, json.dumps(state))
+
+    def test_an_unsealed_done_line_is_counted_apart_and_not_failed(self):
+        repo = self.done_and_open()
+        self.set_state(repo, lambda s: s.pop(tr.SEAL))
+        proc = self.cli(repo, "check")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("research: 1 done line(s): 0 checked by their seal, 1 unsealed "
+                      "(not checked)", proc.stdout)
+        self.assertEqual(tr.failing(repo), [])
+
+    def test_a_done_line_whose_seal_cannot_be_read_fails_the_default(self):
+        """A broken state.json or a seal of the wrong shape must not silence a
+        done line: it is a FAIL row in the default check and in the note."""
+        shapes = {"unparseable state.json": "{not json",
+                  "seal not an object": lambda s: s.update({tr.SEAL: "sealed"}),
+                  "seal without experiments": lambda s: s.update(
+                      {tr.SEAL: {"verdict": "sealed", "experiments": []}})}
+        for n, (label, edit) in enumerate(shapes.items()):
+            with self.subTest(label):
+                repo = self.done_and_open("repo%d" % n)
+                self.set_state(repo, edit)
+                proc = self.cli(repo, "check")
+                self.assertEqual(proc.returncode, 1, proc.stdout)
+                self.assertIn("FAIL q: ", proc.stdout)
+                self.assertEqual({s for s, _e in tr.failing(repo)}, {"q"})
+
+    def test_status_reads_a_done_line_by_its_seal(self):
+        """Plan 058 part 4: `status` (`summary`) reads a done line the way the
+        default check does, so its other findings stay with --all-lines."""
+        repo = self.done_and_open()
+        self.assertIn("q: done, seal ok", tr.summary(repo))
+        d = os.path.join(tr.line_dir(repo, "q"), "experiments", "h1")
+        self.append_line(os.path.join(d, "results.jsonl"), {"run": 2, "p95": 0.1})
+        self.assertIn("q: done, 1 seal problem(s)", tr.summary(repo))
+        self.set_state(repo, lambda s: s.pop(tr.SEAL))
+        self.assertIn("q: done, unsealed (not checked)", tr.summary(repo))
 
 
 class HistoryLost(SealCase):

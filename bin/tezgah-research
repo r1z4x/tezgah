@@ -298,10 +298,12 @@ def cmd_check(args):
     if not problems:
         print("research: %d line(s) ok" % len(report))
     if not rest and not all_lines:
-        done = sum(1 for slug in known if tr.sealed(repo, slug))
+        done = [slug for slug in known if tr.sealed(repo, slug)]
         if done:
-            print("research: %d done line(s) checked by their seal only; "
-                  "`check --all-lines` runs them in full" % done)
+            seals = sum(1 for slug in done if tr.SEAL in tr.line_state(repo, slug))
+            print("research: %d done line(s): %d checked by their seal, %d unsealed "
+                  "(not checked); `check --all-lines` runs them in full"
+                  % (len(done), seals, len(done) - seals))
     # The layer's own state, after the per-line report and outside the FAIL/warn
     # classes: a line being open is a state and not a defect, but it is the state
     # `init` refuses a new line over, so a session running `check` sees it here

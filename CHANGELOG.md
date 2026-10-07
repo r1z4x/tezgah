@@ -228,10 +228,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   An edit after the seal still reaches the note. The line's other findings stay
   with `check <slug>` and `check --all-lines`. On a copy of this repository's
   workspace the note took 0.014 s instead of 0.67 s.
-- **The no-slug research `check` reports the open lines.** It reads a line
-  under `done/` by its seal hashes, as the session note does. One line counts
-  the done lines. `check --all-lines` re-checks every line in full, and
-  `check <slug>` still does for that line (ADR 015).
+- **The no-slug research `check` and `status` report the open lines.** They
+  read a line under `done/` by its seal hashes, as the session note does. A
+  `state.json` or a seal they cannot read fails the line. One line counts the
+  done lines that carry a seal and those that do not. `check --all-lines`
+  re-checks every line in full, and `check <slug>` still does for that line
+  (ADR 015).
 - **The research history bridge is gone.** Nothing reads
   `.tezgah/history-bridge.json` any more. It proved no experiment on this
   repository's workspace, so `check` refuses a re-rooted one-commit add like

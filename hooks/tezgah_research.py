@@ -3487,20 +3487,35 @@ def _check_derived_phase(base, phase, direction, warnings):
 def check(repo, slug=None, git=True, strict=False, all_lines=True):
     """{slug: {"errors": [...], "warnings": [...]}} for one line or every line.
 
-    With `all_lines=False` and no slug, a line under `done/` is verified by its
-    order seal's hashes alone (`_check_seal`), not re-checked, and appears only
-    when its seal fails: the default no-slug `check` and the session note report
-    the open lines, and `check --all-lines` re-runs the closed ones (ADR 015)."""
+    With `all_lines=False` and no slug, a line under `done/` is read by its order
+    seal alone (`done_seal`), not re-checked, and appears only when that read
+    fails: the default no-slug `check` and the session note report the open
+    lines, and `check --all-lines` re-runs the closed ones (ADR 015)."""
     out = {}
     for name in ([slug] if slug else slugs(repo)):
         if not slug and not all_lines and sealed(repo, name):
-            errors = _check_seal(line_dir(repo, name))[0]
+            errors = done_seal(repo, name)[0]
             if errors:
                 out[name] = {"errors": errors, "warnings": []}
             continue
         errors, warnings = check_line(repo, name, git=git, strict=strict)
         out[name] = {"errors": errors, "warnings": warnings}
     return out
+
+
+def done_seal(repo, slug):
+    """(errors, carries a seal) for a line under `done/`, read by its order seal
+    alone. A state.json that does not parse is an error, and so is a seal of the
+    wrong shape (`_check_seal`), so a broken record never silences the line; a
+    line with no seal answers ([], False): unsealed, not checked."""
+    base = line_dir(repo, slug)
+    state, exc = _read_json(os.path.join(base, "state.json"))
+    if exc or not isinstance(state, dict):
+        return ["state.json does not parse (%s), so the line's seal cannot be read"
+                % (exc or "not an object")], False
+    if SEAL not in state:
+        return [], False
+    return _check_seal(base)[0], True
 
 
 def failing(repo, git=False):
@@ -3582,10 +3597,15 @@ def _check_seal(base):
 
     Hashing only, no git: an experiment whose protocol.md or results.jsonl no
     longer hashes as sealed, one the seal holds that is gone, and one added after
-    the seal are refused. An unsealed line answers ([], {})."""
-    seal = _state(base).get(SEAL)
-    if not isinstance(seal, dict) or not isinstance(seal.get("experiments"), dict):
+    the seal are refused, and so is a seal of the wrong shape. An unsealed line
+    answers ([], {})."""
+    state = _state(base)
+    if SEAL not in state:
         return [], {}
+    seal = state[SEAL]
+    if not isinstance(seal, dict) or not isinstance(seal.get("experiments"), dict):
+        return ["state.json order_seal is not a seal with an experiments object, so "
+                "the line's record cannot be verified"], {}
     rows, errors, intact = seal["experiments"], [], {}
     now = _seal_files(base)
     when = seal.get("date") or "undated"
@@ -4034,12 +4054,20 @@ def summary(repo):
     without opening anything, and a count of what a line's numbers are about is the
     one thing its name cannot carry. The last line names the lines that are still
     open (`open_note`), because they are what `init` refuses a new line over, and a
-    session that only meets them at its next `init` met them too late."""
+    session that only meets them at its next `init` met them too late.
+
+    A line under `done/` is read by its order seal alone (`done_seal`), as the
+    default no-slug `check` reads it: its other findings stay with `check <slug>`
+    and `check --all-lines` (plan 058 part 4, ADR 015)."""
     out = []
     for slug in slugs(repo):
-        report = check(repo, slug=slug)
-        errors = report[slug]["errors"]
-        note = "ok" if not errors else "%d problem(s)" % len(errors)
+        if sealed(repo, slug):
+            errors, has_seal = done_seal(repo, slug)
+            note = ("done, %d seal problem(s)" % len(errors) if errors
+                    else "done, seal ok" if has_seal else "done, unsealed (not checked)")
+        else:
+            errors = check(repo, slug=slug)[slug]["errors"]
+            note = "ok" if not errors else "%d problem(s)" % len(errors)
         fixtures = _fixture_claims(line_dir(repo, slug), repo)
         if fixtures:
             note += ", %d fixture-scoped claim(s): %s" % (len(fixtures), ", ".join(fixtures))

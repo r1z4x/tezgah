@@ -52,8 +52,9 @@ judge the answer:
   verdict, then moves the line to `done/`.
 - `close --limit "<what is left>" --ack "<what the user said>"` is the way out
   when a criterion is `not-met`: `check` refuses a conclusion over an unjudged or
-  unmet criterion without an acknowledgement, and `status` keeps listing such a
-  line as unanswered (`hooks/tezgah_research.py::unanswered`).
+  unmet criterion without an acknowledgement, and `check <slug>` and `check
+  --all-lines` keep refusing such a concluded line as unanswered
+  (`hooks/tezgah_research.py::unanswered`).
 
 The reason: 4 of 11 sampled lines in this workspace concluded with the ask
 unanswered and 0 of 416 claims cited any part of it (measured 2026-10-01), because
@@ -192,8 +193,8 @@ through its seal.
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
-| `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal's hashes alone, naming it only when they fail, then prints `research: <n> done line(s) checked by their seal only; ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
-| `tezgah-research status` | one line per line, `ok` or a problem count (`summary`, `hooks/tezgah_research.py::summary`) | 0 |
+| `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal alone (`done_seal`, `hooks/tezgah_research.py::done_seal`), naming it only when the seal fails or its `state.json` or seal cannot be read, then prints `research: <n> done line(s): <s> checked by their seal, <u> unsealed (not checked); ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal read fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
+| `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `hooks/tezgah_research.py::append_prediction`) | 0, 1 refused, 2 misuse |
@@ -323,7 +324,9 @@ and the no-slug `check` (`check` with `all_lines=False`,
 `hooks/tezgah_research.py::check`) read a line under `done/` by these hashes
 alone, not by `check_line`. So they see an edit after the conclusion, and the
 line's other findings stay with `check <slug>` and `check --all-lines` (ADR 015).
-A line under `done/` without a seal adds nothing to either. On a
+A line under `done/` without a seal adds nothing to either. The no-slug `check`
+counts it as unsealed. A `state.json` that does not parse, or a seal that is
+not an object with an `experiments` object, fails the line (`done_seal`). On a
 copy of this repository's workspace (34 lines, 33 under `done/`) the note took
 0.014 s instead of 0.67 s. The ceiling: the seal sits in the line's own `state.json`.
 Whoever edits `results.jsonl` can recompute the seal there too. It catches an
