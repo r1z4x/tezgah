@@ -11,7 +11,6 @@ The credential is exercised on the two channels it really has: the env var, and
 the key file a non-interactive hook shell must fall back to because `~/.zshenv`
 never ran there.
 """
-import glob
 import json
 import os
 import subprocess

@@ -8,7 +8,6 @@ it. `ContextLine` runs the whole hook path in a child process
 (bin/tezgah-context -> context_for -> the pick -> the loopback endpoint) with the
 credential on the file channel a non-interactive hook shell really has.
 """
-import glob
 import json
 import os
 import sys
