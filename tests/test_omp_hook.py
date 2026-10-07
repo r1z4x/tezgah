@@ -5,6 +5,7 @@ answers with one JSON object (hosts/omp/hook.py's docstring is the protocol).
 These tests drive that protocol directly: they are the only host-level check
 that omp's session context, gate, evidence ledger and Stop rule behave.
 """
+import glob
 import json
 import os
 import shutil
@@ -423,6 +424,28 @@ class OmpHook(TempHome):
         out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "s",
                              "last_assistant_message": "Done."})
         self.assertIsNone(out)
+
+    def test_a_forged_pass_after_a_gated_one_blocks_as_evidence_tampered(self):
+        # plan 051: the gate's pre_tool_use `began` row pairs with the
+        # post_tool_use pass; a pass appended with `python3 -c` has none
+        repo = self.make_repo()
+        call = {"cwd": repo, "session_id": "s", "tool": "bash",
+                "input": {"command": "pytest -q"}}
+        self.event(dict(call, event="pre_tool_use"))
+        self.event(dict(call, event="post_tool_use", failed=False))
+        stop = {"event": "stop", "cwd": repo, "session_id": "s",
+                "last_assistant_message": "Done."}
+        self.assertIsNone(self.event(stop)[0])
+        [path] = glob.glob(os.path.join(self.home, ".cache", "tezgah", "evidence",
+                                        support.slug("s") + "-*.jsonl"))
+        row = json.dumps({"kind": "verify_ok", "detail": "pytest -q", "id": "forged",
+                          "exit": 0, "out_bytes": 42, "v": 3})
+        proc = run(["-c", "import sys; open(sys.argv[1], 'a').write(sys.argv[2] + '\\n')",
+                    path, row])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out, _ = self.event(stop)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Evidence tampered", out["reason"])
 
     def test_stop_clears_on_an_honest_unverified_claim(self):
         repo = self.make_repo()
