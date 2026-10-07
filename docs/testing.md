@@ -67,19 +67,20 @@ cancels its other legs when one fails (`fail-fast: false`).
   asserts it. It byte-compiles, runs the suite with `-v`, lints with
   ruff from `requirements-dev.txt` (`ci.yml:37`), audits the docs citations and
   runs `TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py`.
-- `test-sharded` (`ci.yml:48-67`) on Python 3.10 and 3.14 with node 20:
+- `test-sharded` (`ci.yml:48-69`) on Python 3.10 and 3.14 with node 22 (the
+  first line that loads the omp `.ts` hook without a flag):
   `python3 tests/impacted.py --all`. It is a shadow that started 2026-10-05.
   After four weeks it replaces the four-version `test` matrix only if it missed
   no failure that matrix caught.
-- `apps-e2e` (`ci.yml:69-86`) on Python 3.12 and node 20: one step,
+- `apps-e2e` (`ci.yml:71-88`) on Python 3.12 and node 20: one step,
   `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. It completes the
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
   a broken wire cannot hide behind a skip (`e2e_analyze_wiring.py:4-12`).
-- `artifact-install` (`ci.yml:88-126`) on Python 3.10 and 3.12: builds the
+- `artifact-install` (`ci.yml:90-128`) on Python 3.10 and 3.12: builds the
   tarball, installs from it under a temp prefix, and runs the artifact smoke on
   the installed tree instead of the checkout.
-- `artifact-install-windows` (`ci.yml:128-212`) on `windows-latest`: the same
+- `artifact-install-windows` (`ci.yml:130-214`) on `windows-latest`: the same
   build, install and smoke through `packaging/install.ps1` - the twin a Windows
   user runs - so it is the only place the Windows claim is proven. It then runs
   the opencode plugin's path tests natively, `tezgah update --dry-run`, the
