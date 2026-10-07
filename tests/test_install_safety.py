@@ -221,5 +221,32 @@ class Backups(Home):
         self.assertTrue(os.path.exists(users), "a user file's backup was deleted")
 
 
+class CursorSkills(Home):
+    """Cursor reads ~/.codex/skills as well as ~/.cursor/skills, so a skill
+    linked into both reached it twice."""
+
+    def skill_links(self, host):
+        d = self.path(host, "skills")
+        return sorted(n for n in os.listdir(d) if os.path.islink(os.path.join(d, n))) \
+            if os.path.isdir(d) else []
+
+    def test_a_skill_codex_links_is_not_linked_into_cursor_too(self):
+        # cursor named first: the install still runs it after codex
+        proc = self.setup("--install", "--hosts", "cursor,codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("harness", self.skill_links(".codex"))
+        self.assertEqual(self.skill_links(".cursor"), [], proc.stdout)
+        report = self.setup("--report", "--hosts", "cursor").stdout
+        line = next((ln for ln in report.splitlines() if "skills linked" in ln), "")
+        self.assertNotIn("MISS", line, report)
+
+    def test_uninstalling_codex_relinks_cursor(self):
+        self.setup("--install", "--hosts", "cursor,codex")
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.skill_links(".codex"), [])
+        self.assertIn("harness", self.skill_links(".cursor"), proc.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

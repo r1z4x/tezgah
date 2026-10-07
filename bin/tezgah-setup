@@ -1886,6 +1886,37 @@ def cursor_hook_entries():
             for ev, extra in CURSOR_HOOK_EVENTS.items()}
 
 
+# Cursor also reads ~/.codex/skills, ~/.claude/skills and ~/.agents/skills
+# (cursor.com/docs/context/skills) and documents no winner for a name found in
+# two of them. A tezgah skill Codex's install already linked into
+# ~/.codex/skills therefore reached Cursor twice once ~/.cursor/skills linked it
+# too: ~/.cursor/skills holds only the names no other dir Cursor reads resolves
+# to this tree. Cursor installs last (install_all), so it sees Codex's links.
+CURSOR_SHARED_SKILLS = tuple(os.path.join(HOME, d, "skills")
+                             for d in (".codex", ".claude", ".agents"))
+
+
+def cursor_shared_copy(s):
+    """The other dir Cursor reads that already links skill `s` to this tree."""
+    want = os.path.realpath(os.path.join(HERE, "skills", s))
+    return next((d for d in CURSOR_SHARED_SKILLS
+                 if os.path.realpath(os.path.join(d, s)) == want), None)
+
+
+def link_cursor_skills():
+    shared = []
+    for s in SKILLS:
+        dst = os.path.join(CURSOR, "skills", s)
+        if cursor_shared_copy(s):
+            unlink_tezgah(dst)
+            shared.append(s)
+        else:
+            print(link(os.path.join(HERE, "skills", s), dst))
+    if shared:
+        print("%s %d skills reach Cursor through %s, not linked twice"
+              % (OK, len(shared), ", ".join(sorted({cursor_shared_copy(s) for s in shared}))))
+
+
 def install_cursor():
     print("\ncursor:")
     path = os.path.join(CURSOR, "hooks.json")
@@ -1901,8 +1932,7 @@ def install_cursor():
             arr.append(entry)
         write_json(path, data)
         print("%s %s" % (OK, path))
-    for s in SKILLS:
-        print(link(os.path.join(HERE, "skills", s), os.path.join(CURSOR, "skills", s)))
+    link_cursor_skills()
     cc = os.path.join(CURSOR, "cli-config.json")
     cfg = read_config(cc, {})
     if cfg is not None:
@@ -3589,6 +3619,9 @@ def uninstall(hosts, dry_run=False):
     uninstall_common()
     for h in hosts:
         UNINSTALLERS[h]()
+    if "codex" in hosts and "cursor" in (armed or []) and "cursor" not in hosts:
+        print("\ncursor (its skills came through ~/.codex/skills):")
+        link_cursor_skills()
     if "claude" in hosts:
         print("\nclaude plugin copy:")
         remove_plugin_copies()
@@ -4626,7 +4659,9 @@ def host_checks_cursor():
         ("hooks.json wired", _hooks_has(os.path.join(CURSOR, "hooks.json"),
                                         "tezgah-cursor-hook",
                                         list(CURSOR_HOOK_EVENTS))),
-        ("skills linked", skills_linked(os.path.join(CURSOR, "skills"))),
+        ("skills linked", all(
+            os.path.isfile(os.path.join(CURSOR, "skills", s, "SKILL.md"))
+            or cursor_shared_copy(s) for s in SKILLS)),
         ("MCP in mcp.json", "codegraph" in (mcp.get("mcpServers") or {})),
     ] + mcp_rows(set(mcp.get("mcpServers") or {}), "mcp.json") + [
         mcp_row(TEZGAH_MCP_NAME, (mcp.get("mcpServers") or {}).get(TEZGAH_MCP_NAME),
@@ -5539,7 +5574,8 @@ def install_all(hosts, new_roots, deps_off, dry_run, redetect):
         install_openresearch(hosts)
     else:
         print("\nopenresearch (orx):\n%s skipped: orx is not selected" % NO)
-    for h in hosts:
+    # cursor last: link_cursor_skills reads the skill links the other hosts made
+    for h in sorted(hosts, key=lambda h: h == "cursor"):
         INSTALLERS[h]()
     for dst in sweep_backups():
         print("%s moved a backup out of a host dir: %s" % (OK, dst))

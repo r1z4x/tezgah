@@ -284,8 +284,8 @@ A **full** run also takes everything the wiring was serving from:
   `bin/tezgah-setup` plus the `current` flip (`remove_install_tree()`,
   `bin/tezgah-setup::remove_install_tree`).
 
-Kept in every run: the user's own files, every `.tezgah-bak` backup
-outside the config dir (the timestamped ones too), `~/.config/tezgah/adopted/` (the only copy of the
+Kept in every run: the user's own files, every host-file backup under
+`~/.config/tezgah/backups/` (the timestamped ones too), `~/.config/tezgah/adopted/` (the only copy of the
 predecessor wiring adopt moved aside), and every repository's `.tezgah/`
 research state. A **partial** run also keeps config.json and the install tree,
 because the hosts still armed read both at runtime, and says so. It also leaves
@@ -372,6 +372,7 @@ does not hold.
 | `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor::collect`, `bin/tezgah-doctor::report`) |
 | `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`bin/tezgah-doctor::vacuum_db`, `bin/tezgah-doctor::main`); and deletes tezgah's own hook state not modified for `--retention-days` (default 30) - the ledgers under `evidence/`, `turns/`, `sessions/`, `classify.log`, `context-drops.log` and `debug.log`, in the cache and its sandbox fallback - keeping the current session's (`$TEZGAH_SESSION`) files whatever their age (`sweep_state`) |
 | `tezgah-doctor --coverage` | every tracked file the codegraph index does not hold, in two classes — a supported extension the index is missing, and a shebang-only script with no `.py` twin — with the file counts it read, so an empty result cannot read as "everything is covered" |
+| `tezgah-doctor --stack` | per host: the context files in load order, the skill dirs and which copy wins, the hook rows per event with their owner, the MCP servers, and every conflict; exits 1 on one ([hosts](hosts.md#precedence-what-each-host-loads-and-in-which-order), `hooks/tezgah_stack.py::report`) |
 | `tezgah-doctor --prune-sessions DAYS` | deletes sessions idle longer than DAYS through `opencode session delete`, then vacuums; skipped when opencode is running or its CLI is missing (`bin/tezgah-doctor::prune_sessions`, `bin/tezgah-doctor::main`) |
 
 `VACUUM` alone cannot shrink that database — its pages are all live — so
@@ -541,7 +542,11 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
 Reversible and safe to repeat: every link and settings key it writes is
 idempotent and re-created by `--install`. A write that changes a file first
-copies it to `<file>.<timestamp>.tezgah-bak`. The oldest of those copies is
+copies it to `<file>.<timestamp>.tezgah-bak`. A host file's copy goes under
+`~/.config/tezgah/backups/` (`bin/tezgah-setup::backup_base`). A host lists the
+files in its own dirs. tezgah's own state dir
+keeps its copies beside the file. `--install` moves the copies an older release
+left in a host dir (`bin/tezgah-setup::sweep_backups`). The oldest of those copies is
 always kept, beside the newest four (`backup()`, `BACKUP_CAP`). The oldest is
 the file before tezgah's first timestamped write, which is tezgah's own content
 for a file tezgah created. On an upgraded install the pre-tezgah copy is the
