@@ -161,6 +161,9 @@ class OmpHook(TempHome):
         out, proc = self.event({"event": "status", "cwd": repo,
                                 "session_id": "s", "idx": "\u2013"}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        # no status at all (an import failure or a crash in handle, both exit 0)
+        # would otherwise read as "the probe did not fork" below
+        self.assertIn("status", out or {}, proc.stdout + proc.stderr)
         self.assertGreater(self.forks(log) - before, 0)
         self.assertIn("idx?", out["status"])   # the probe's answer, not "–"
         self.assertEqual(out["idx"], "?")

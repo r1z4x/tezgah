@@ -75,6 +75,10 @@ class FeaturesBase(unittest.TestCase):
             "TEZGAH_ORX_BIN": os.path.join(self.home, "no-such-orx"),
             # `--install` registers the Claude plugin through `claude plugin`
             "TEZGAH_CLAUDE_BIN": os.path.join(self.home, "no-such-claude"),
+            # and omp: `--install` registers its extension through `omp config`,
+            # so the machine's real CLI would answer here (and, slow under load,
+            # turn the omp arming row into a MISS that fails the install)
+            "TEZGAH_OMP_BIN": os.path.join(self.home, "no-such-omp"),
             # never let a test hit the network: --install installs missing deps
             # by default
             "TEZGAH_NO_DEPS": "1",
