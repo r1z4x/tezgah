@@ -5,7 +5,7 @@
   tezgah-taste measure --samples FILE --labels FILE [--model M] [--json]
   tezgah-taste rate --in MINED [--limit N] [--json]
   tezgah-taste learn [--repo DIR] [--from-transcripts] [--host omp|claude|all]
-                     [--limit N] [--json]
+                     [--limit N] [--no-fallback] [--json]
   tezgah-taste list [--repo DIR] [--all] [--json]
   tezgah-taste show|accept|reject ID [--repo DIR]
   tezgah-taste edit ID --text TEXT [--repo DIR]
@@ -730,7 +730,9 @@ def cmd_learn(args):
     for lid, learning in tl.every(ledgers).items():
         if learning["state"] == "active" and lid not in before \
                 and not learning.get("written") and not learning.get("edited"):
-            line = write_line(learning)
+            # --no-fallback asks nothing of a generative provider: the user's
+            # own words stay the learning's line
+            line = None if args.no_fallback else write_line(learning)
             if line:
                 learning.update(text=" ".join(line.split())[:400], written=True)
     tl.save(repo, ledgers)

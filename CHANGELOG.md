@@ -9,8 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Armed taste learns by itself.** Session start runs `tezgah-taste learn` in
-  the background when the repository's signals grew, at most once an hour. Its
-  log goes under the cache dir, in `taste-learn/`.
+  the background when the repository's signals grew, at most once an hour. It
+  runs only when a TypeSafe key resolves, with the new `--no-fallback`, so it
+  asks no other provider. It does not run on Windows yet. Its log goes under
+  the cache dir, in `taste-learn/`.
 
 ## [1.2.0] - 2026-10-07
 

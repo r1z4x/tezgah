@@ -224,10 +224,6 @@ def learn_later(root):
     try:
         if not root:
             return
-        import tezgah_judge
-        import tezgah_taste_ledger
-        if tezgah_taste_ledger.fcntl is None or not tezgah_judge.named(("typesafe",)):
-            return
         size = os.path.getsize(os.path.join(root, ".tezgah", "taste", "signals.jsonl"))
         base = os.path.join(tezgah_paths.cache_dir(), "taste-learn")
         name = re.sub(r"[^A-Za-z0-9]+", "-", root).strip("-")
@@ -239,6 +235,12 @@ def learn_later(root):
             last = {}
         now = time.time()
         if size <= last.get("size", -1) or now - last.get("at", 0) < LEARN_EVERY:
+            return
+        # the costlier checks run only once a start is due: at most hourly
+        import tezgah_judge
+        import tezgah_taste_ledger
+        if tezgah_taste_ledger.fcntl is None or tezgah_paths.off("judge-off") \
+                or not tezgah_judge.named(("typesafe",)):
             return
         os.makedirs(base, exist_ok=True)
         with open(stamp, "w", encoding="utf-8") as fh:

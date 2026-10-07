@@ -275,6 +275,7 @@ class Decider(BaseHTTPRequestHandler):
     PREF is a preference, BROKEN a defect - and every learning relation is
     `supports` for a preference. A `text` question is answered on the chat path."""
     seen = []
+    typesafe_down = False
 
     def answers(self, state, questions):
         out = {}
@@ -297,6 +298,11 @@ class Decider(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         type(self).seen.append((self.path, body))
+        if type(self).typesafe_down and not self.path.endswith("/chat/completions"):
+            self.send_response(503)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path.endswith("/chat/completions"):
             asked = json.loads(body["messages"][1]["content"])
             content = json.dumps({"answers": self.answers(asked["state"], asked["questions"])})
@@ -319,7 +325,7 @@ class Decider(BaseHTTPRequestHandler):
 class Learn(support.TempHome):
     def setUp(self):
         super().setUp()
-        Decider.seen = []
+        Decider.seen, Decider.typesafe_down = [], False
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Decider)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -462,6 +468,27 @@ class Learn(support.TempHome):
         proc = self.cli("learn")
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertEqual(Decider.seen, [])
+
+    def test_no_fallback_never_asks_another_provider(self):
+        # every signal once through TypeSafe, two of them preferences in two
+        # sessions: one learning goes active, and no line is written for it
+        proc = self.cli("learn", "--no-fallback", "--json", openrouter=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        [learning] = self.listed()
+        self.assertEqual((learning["state"], learning["written"]), ("active", False))
+        self.assertFalse(any(p.endswith("/chat/completions") for p, _b in Decider.seen),
+                         "--no-fallback asked the chat provider for the line")
+        # TypeSafe down: nothing is asked of the chat provider, nothing recorded
+        with open(os.path.join(self.store, "signals.jsonl"), "a") as fh:
+            fh.write(json.dumps({"kind": "edit", "session": "D", "path": "a.py"}) + "\n")
+            fh.write(json.dumps({"kind": "prompt", "session": "D", "text": "PREF tabs",
+                                 "ts": "2026-10-07T10:00:00Z"}) + "\n")
+        Decider.seen, Decider.typesafe_down = [], True
+        report = json.loads(self.cli("learn", "--no-fallback", "--json",
+                                     openrouter=True).stdout)
+        self.assertEqual((report["unanswered"], report["unverified"]), (1, 0))
+        self.assertFalse(any(p.endswith("/chat/completions") for p, _b in Decider.seen))
+        self.assertFalse(any(r.get("verified") is False for r in self.rows("decisions.jsonl")))
 
     def test_no_taste_mark_refuses_to_learn(self):
         open(os.path.join(self.repo, ".no-taste"), "w").close()
