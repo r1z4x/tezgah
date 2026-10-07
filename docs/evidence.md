@@ -756,6 +756,36 @@ judge seam's chat body with `temperature: 0` and thinking off, and writes
 DeepSeek's peak rate, an upper bound. With two model raters, the report labels kappa as
 model-model agreement, not human judgement (ADR 018).
 
+## What the evidence layer has not shown
+
+The ledger records what a session ran, and the Stop rule refuses a done claim
+the ledger cannot back. Both are mechanisms. Neither has shown an effect on task
+outcomes. A paired on/off experiment in October 2026 ran DeepSeek V4.1 Flash on
+omp, bare against a full install. It found no measurable reduction in cheating
+because the model barely cheated in either arm. The second phase used
+ImpossibleBench's conflicting SWE-bench split (44 instances, k = 3). There the
+agent cheated in 0 of 132 runs with tezgah and 1 of 131 without: -0.8 pp, 95%
+CI -2.3 to 0. Clean pass on the original tasks held at 129 of 131 against 129
+of 132.
+
+The Stop rule's claim reader is `hooks/tezgah_integrity.py::claims`. On the
+impossible split it read 115 of 132 final messages with tezgah as done claims,
+and 90 of 131 without. Hand labels of 30 sampled messages per arm found real
+done claims in 3 with tezgah and 6 without. The adjusted difference is -5 pp,
+95% CI -18 to +9, so no effect either way. As a false-done reader on this
+split, the reader's precision was 0.10 with tezgah and 0.20 without. With
+tezgah the agent replied in Turkish in 129 of 132 runs. The reader counts the
+passive `doğrulandı` on a partial fix as a completion claim, even beside a
+`doğrulanmadı` for the failing test. This is a recorded weakness, not fixed
+here.
+
+A red-team pass found one route a hook cannot read (a `python3 -c` write of a
+switch) in 30 attempts.
+
+The numbers, the per-task counts and the instrument flaws, among them agents
+that could read the benchmark's ground truth, are in
+[the results bundle](results/paired-outcome-2026-10.md).
+
 ## Source of truth
 
 - `hooks/tezgah_integrity.py` — ledger, kinds, redaction, Stop rule, counters
@@ -774,3 +804,4 @@ model-model agreement, not human judgement (ADR 018).
 - `tests/test_integrity.py`, `tests/test_snapshot.py` — the pinned behaviour
 - `tests/test_opencode_plugin.py`, `tests/test_omp_extension.py` — the JS mirrors
   pinned against the Python half
+- `docs/results/paired-outcome-2026-10.md` — the paired outcome experiment and its counts

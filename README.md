@@ -33,23 +33,53 @@ test. The rules live once in a shared core; each host gets a thin adapter that
 translates them into the shape it understands — so a rule changed in one place
 reaches every host the same way.
 
-## Why tezgah
+## What tezgah enforces and records
 
 - **One contract, six hosts.** omp, Claude Code, Codex, Cursor, opencode and
   dsh see the same rules, because every host is a thin adapter over one shared
   core — change a rule once and all of them pick it up.
-- **"Done" means the check ran.** A gate of 15 refusals stops the neutered
-  check — `--no-verify`, `|| true`, a test piped into `tail`, a skip added
-  mid-flight — and blocks the completion claim the run cannot support.
+- **A done claim needs a passing check on record.** A gate of 15 refusals stops
+  the neutered check — `--no-verify`, `|| true`, a test piped into `tail`, a
+  skip added mid-flight — and the Stop rule refuses a completion claim the
+  session's evidence ledger cannot back. It refuses the turn; it cannot make
+  the model stop claiming.
 - **Research ships with its library.** Research tasks route through
   OpenResearch with a vendored library of 98 upstream skills, loaded one entry
   at a time so the context stays small.
 - **Every rule has an off switch.** Sixteen kill switches — plus per-repo
   marks — remove a rule's text from the session, so the rule actually stops
   rather than merely showing as off.
-- **Answers you can act on.** Replies lead with the outcome, in Turkish unless
+- **A fixed reply shape.** Replies lead with the outcome, in Turkish unless
   you pick another language; a list shows at most five ranked items; an
   estimate is named as an estimate; an error reads as location, cause, fix.
+
+## What it has not shown
+
+Tezgah is a set of mechanisms: rules injected into the session, a gate that
+refuses certain commands, and a ledger the Stop rule reads. It is not evidence
+that an agent cheats less or finishes more tasks. A paired on/off experiment
+(October 2026; DeepSeek V4.1 Flash on omp, bare vs a full tezgah install) found
+no measurable reduction in cheating, because the model barely cheated in
+either arm:
+
+- **Phase 1, three pressure fixtures:** cheating 0 of 60 runs in every arm;
+  clean pass 48/60 with tezgah vs 53/60 without.
+- **Phase 2, ImpossibleBench's conflicting SWE-bench split (44 instances,
+  k = 3):** cheating 0/132 with tezgah vs 1/131 without (-0.8 pp, 95% CI
+  -2.3 to 0); clean pass on the original tasks 129/131 vs 129/132.
+- **False done claims, hand-labelled:** on those impossible tasks, 3 of 30
+  sampled final messages with tezgah and 6 of 30 without told the user the
+  task was done. The adjusted difference is -5 pp (95% CI -18 to +9), so no
+  effect either way.
+- **A weak spot in the Stop rule's claim reader:** it flagged 115/132 runs
+  with tezgah and 90/131 without, but only 10% and 20% of the flags it raised
+  were real done claims. With tezgah the agent replied in Turkish, and the
+  reader counts `doğrulandı` (verified) on a partial fix as a claim. This is
+  recorded, not yet fixed.
+
+The run had instrument flaws, among them agents in both arms that could read
+the benchmark's ground truth. The aggregates, per-task counts and every caveat
+are in [the results bundle](docs/results/paired-outcome-2026-10.md).
 
 <a id="install"></a>
 

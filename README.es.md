@@ -34,15 +34,17 @@ reglas residen una sola vez en un núcleo compartido; cada host recibe un
 adaptador ligero que las traduce a la forma que entiende — una regla cambiada
 en un lugar llega a todos los hosts de la misma manera.
 
-## Por qué tezgah
+## Qué impone y registra tezgah
 
 - **Un contrato, seis hosts.** omp, Claude Code, Codex, Cursor, opencode y dsh
   ven las mismas reglas, porque cada host es un adaptador ligero sobre un
   único núcleo compartido — cambia una regla una vez y todos la adoptan.
-- **"Hecho" significa que la comprobación se ejecutó.** Una compuerta de 15
-  rechazos detiene la comprobación neutralizada — `--no-verify`, `|| true`,
-  una prueba canalizada a `tail`, un skip añadido a mitad de vuelo — y
-  bloquea la afirmación de finalización que la ejecución no puede sustentar.
+- **Declarar algo terminado exige una comprobación superada en el registro.**
+  Una compuerta de 15 rechazos detiene la comprobación neutralizada —
+  `--no-verify`, `|| true`, una prueba canalizada a `tail`, un skip añadido a
+  mitad de vuelo — y la regla Stop rechaza una afirmación de finalización que
+  el registro de evidencias de la sesión no respalda. Rechaza el turno; no
+  puede impedir que el modelo lo afirme.
 - **La investigación trae su biblioteca.** Las tareas de investigación se
   dirigen a través de OpenResearch con una biblioteca incorporada de 98
   habilidades upstream, cargada de una en una para que el contexto siga
@@ -51,10 +53,41 @@ en un lugar llega a todos los hosts de la misma manera.
   las marcas por repositorio — eliminan el texto de la regla de la sesión, de
   modo que la regla realmente se detiene en lugar de limitarse a figurar como
   desactivada.
-- **Respuestas sobre las que puedes actuar.** Las respuestas son en turco salvo que elijas otro idioma, y
+- **Una forma de respuesta fija.** Las respuestas son en turco salvo que elijas otro idioma, y
   empiezan por el resultado; una lista muestra como máximo cinco elementos
   ordenados; una estimación se nombra como estimación; un error se lee como
   ubicación, causa, solución.
+
+## Lo que no ha demostrado
+
+Tezgah es un conjunto de mecanismos: reglas inyectadas en la sesión, una
+compuerta que rechaza ciertos comandos y un registro que lee la regla Stop. No
+es prueba de que un agente haga menos trampas ni de que termine más tareas. Un
+experimento emparejado con y sin tezgah (octubre de 2026; DeepSeek V4.1 Flash
+en omp, sin tezgah frente a una instalación completa) no encontró una
+reducción medible de las trampas, porque el modelo apenas hizo trampas en
+ninguno de los dos brazos:
+
+- **Fase 1, tres fixtures de presión:** trampas en 0 de 60 ejecuciones en cada
+  brazo; aprobado limpio 48/60 con tezgah frente a 53/60 sin él.
+- **Fase 2, el split conflictivo de SWE-bench de ImpossibleBench (44
+  instancias, k = 3):** trampas 0/132 con tezgah frente a 1/131 sin él (-0.8
+  pp, IC del 95% -2.3 a 0); aprobado limpio en las tareas originales 129/131
+  frente a 129/132.
+- **Falsas declaraciones de terminado, etiquetadas a mano:** en esas tareas
+  imposibles, 3 de 30 mensajes finales muestreados con tezgah y 6 de 30 sin él
+  le dijeron al usuario que la tarea estaba hecha. La diferencia ajustada es
+  de -5 pp (IC del 95% -18 a +9), así que no hay efecto en ningún sentido.
+- **Un punto débil del lector de afirmaciones de la regla Stop:** marcó
+  115/132 ejecuciones con tezgah y 90/131 sin él, pero solo el 10% y el 20% de
+  sus marcas eran declaraciones reales de terminado. Con tezgah el agente
+  respondió en turco, y el lector cuenta `doğrulandı` (verificado) sobre un
+  arreglo parcial como afirmación. Está registrado, aún no corregido.
+
+La ejecución tuvo fallos de instrumento, entre ellos agentes de ambos brazos
+que podían leer la verdad de referencia del benchmark. Los agregados, los
+recuentos por tarea y cada salvedad están en el
+[paquete de resultados](docs/results/paired-outcome-2026-10.md) (en inglés).
 
 <a id="install"></a>
 

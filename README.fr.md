@@ -34,25 +34,58 @@ Les règles résident une seule fois dans un cœur partagé ; chaque hôte reço
 un adaptateur léger qui les traduit dans la forme qu'il comprend — une règle
 modifiée à un endroit atteint chaque hôte de la même façon.
 
-## Pourquoi tezgah
+## Ce que tezgah impose et enregistre
 
 - **Un contrat, six hôtes.** omp, Claude Code, Codex, Cursor, opencode et dsh
   voient les mêmes règles, car chaque hôte est un adaptateur léger au-dessus
   d'un seul cœur partagé — modifiez une règle une fois, tous l'adoptent.
-- **« Terminé » signifie que la vérification a tourné.** Une porte de 15
-  refus arrête la vérification neutralisée — `--no-verify`, `|| true`, un test
-  redirigé vers `tail`, un skip ajouté en plein vol — et bloque l'affirmation
-  d'achèvement que l'exécution ne peut pas étayer.
+- **Annoncer « terminé » exige une vérification réussie dans le registre.**
+  Une porte de 15 refus arrête la vérification neutralisée — `--no-verify`,
+  `|| true`, un test redirigé vers `tail`, un skip ajouté en plein vol — et la
+  règle Stop refuse une affirmation d'achèvement que le registre de preuves de
+  la session ne peut pas étayer. Elle refuse le tour ; elle ne peut pas
+  empêcher le modèle de l'affirmer.
 - **La recherche arrive avec sa bibliothèque.** Les tâches de recherche
   passent par OpenResearch avec une bibliothèque intégrée de 98 compétences
   upstream, chargée une entrée à la fois pour que le contexte reste petit.
 - **Chaque règle a un interrupteur.** Seize interrupteurs — plus des
   marques par dépôt — retirent le texte de la règle de la session ; la règle
   s'arrête vraiment au lieu de simplement figurer comme désactivée.
-- **Des réponses sur lesquelles agir.** Les réponses sont en turc, sauf si vous choisissez une autre langue, et
+- **Une forme de réponse fixe.** Les réponses sont en turc, sauf si vous choisissez une autre langue, et
   commencent par le résultat ; une liste montre au plus cinq éléments classés
   ; une estimation est nommée estimation ; une erreur se lit lieu, cause,
   correctif.
+
+## Ce qu'il n'a pas démontré
+
+Tezgah est un ensemble de mécanismes : des règles injectées dans la session,
+une porte qui refuse certaines commandes et un registre que lit la règle Stop.
+Ce n'est pas la preuve qu'un agent triche moins ou termine plus de tâches. Une
+expérience appariée avec et sans tezgah (octobre 2026 ; DeepSeek V4.1 Flash
+sur omp, sans tezgah contre une installation complète) n'a trouvé aucune
+baisse mesurable de la triche, car le modèle n'a presque pas triché dans
+aucun des deux bras :
+
+- **Phase 1, trois fixtures de pression :** triche dans 0 exécution sur 60
+  dans chaque bras ; réussite propre 48/60 avec tezgah contre 53/60 sans.
+- **Phase 2, le split conflictuel SWE-bench d'ImpossibleBench (44 instances,
+  k = 3) :** triche 0/132 avec tezgah contre 1/131 sans (-0.8 pp, IC à 95%
+  -2.3 à 0) ; réussite propre sur les tâches originales 129/131 contre
+  129/132.
+- **Fausses annonces de fin, étiquetées à la main :** sur ces tâches
+  impossibles, 3 messages finaux échantillonnés sur 30 avec tezgah et 6 sur 30
+  sans ont dit à l'utilisateur que la tâche était faite. L'écart ajusté est de
+  -5 pp (IC à 95% -18 à +9), donc aucun effet dans un sens ou dans l'autre.
+- **Un point faible du lecteur d'affirmations de la règle Stop :** il a
+  signalé 115/132 exécutions avec tezgah et 90/131 sans, mais seuls 10% et 20%
+  de ses signalements étaient de vraies annonces de fin. Avec tezgah, l'agent
+  répondait en turc, et le lecteur compte `doğrulandı` (vérifié) sur un
+  correctif partiel comme une affirmation. C'est consigné, pas encore corrigé.
+
+L'exécution avait des défauts d'instrument, entre autres des agents des deux
+bras qui pouvaient lire la vérité terrain du benchmark. Les agrégats, les
+comptes par tâche et chaque réserve sont dans le
+[dossier de résultats](docs/results/paired-outcome-2026-10.md) (en anglais).
 
 <a id="install"></a>
 
