@@ -87,8 +87,9 @@ an adversarial agent, and it does not claim to be one.
     (`bash <<'EOF'`): bash expands nothing in that body, and the gate reads it
     as data.
   - Switch latching's ways through are bytes the agent can write: an
-    `authorized` row appended to the ledger, and the uninstall's stand-down
-    text in `pretooluse-off`, both written by an interpreter. The latch is a
+    `authorized` row appended to the ledger, the uninstall's stand-down text in
+    `pretooluse-off`, or an emptied ledger (no first row, so no latch), each
+    written by an interpreter. The latch is a
     keyword match, not intent: "don't touch verify-off" authorizes the flip,
     and a prompt computed by a workflow, or a parent's task text a host hands
     a child as its prompt, arrives through the same path as the user's. A
