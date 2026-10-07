@@ -192,6 +192,64 @@ class Taste(TempHome):
         [edit] = self.rows("edit")
         self.assertEqual((edit["old"], edit["new"]), (None, "print(1)"))
 
+    def spawns(self):
+        """The argv lists `learn_later` starts, recorded instead of run."""
+        spawned = []
+        popen = mock.patch.object(tt.subprocess, "Popen",
+                                  side_effect=lambda argv, **kw: spawned.append(argv))
+        popen.start()
+        self.addCleanup(popen.stop)
+        return spawned
+
+    def grow(self):
+        os.makedirs(os.path.dirname(self.store), exist_ok=True)
+        with open(self.store, "a", encoding="utf-8") as fh:
+            fh.write('{"kind": "prompt"}\n')
+
+    def stamps(self):
+        base = os.path.join(tp.cache_dir(), "taste-learn")
+        return [os.path.join(base, n) for n in os.listdir(base)
+                if n.endswith(".json")] if os.path.isdir(base) else []
+
+    def age_stamp(self):
+        [path] = self.stamps()
+        with open(path, encoding="utf-8") as fh:
+            stamp = json.load(fh)
+        stamp["at"] -= tt.LEARN_EVERY + 1
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(stamp, fh)
+
+    def test_learn_later_spawns_on_growth_at_most_hourly(self):
+        spawned = self.spawns()
+        self.arm()
+        self.grow()
+        tt.learn_later(self.repo)
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(spawned[0][-3:],
+                         ["learn", "--repo", os.path.realpath(self.repo)])
+        tt.learn_later(self.repo)  # immediately again
+        self.assertEqual(len(spawned), 1)
+        self.age_stamp()
+        tt.learn_later(self.repo)  # the hour passed, the size did not change
+        self.assertEqual(len(spawned), 1)
+        self.grow()
+        tt.learn_later(self.repo)  # the hour passed and the signals grew
+        self.assertEqual(len(spawned), 2)
+
+    def test_learn_later_unarmed_spawns_nothing_and_keeps_no_stamp(self):
+        spawned = self.spawns()
+        self.grow()
+        tt.learn_later(self.repo)
+        self.assertEqual((spawned, self.stamps()), ([], []))
+
+    def test_learn_later_honours_no_taste_mark(self):
+        spawned = self.spawns()
+        self.arm()
+        self.grow()
+        open(os.path.join(self.repo, tt.MARK), "w").close()
+        tt.learn_later(self.repo)
+        self.assertEqual(spawned, [])
+
 
 if __name__ == "__main__":
     unittest.main()

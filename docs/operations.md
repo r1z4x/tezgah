@@ -442,6 +442,11 @@ contradicts, narrows or unrelated. When another provider answers, `learn` writes
 the decision to `decisions.jsonl` as `unverified` and never applies it. A defect
 goes to `defects.jsonl` and never into the ledger.
 
+Armed taste also learns by itself. At session start, `learn` starts in the
+background when `signals.jsonl` grew since the last start, at most once an hour
+per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). The stamp
+and the log live under the cache dir, in `taste-learn/`.
+
 The ledger is `<repo>/.tezgah/taste/ledger.json`, plus
 `~/.config/tezgah/taste/ledger.json` for user-scope learnings
 (`hooks/tezgah_taste_ledger.py`). Confidence is (r+1)/(r+s+2) over supporting

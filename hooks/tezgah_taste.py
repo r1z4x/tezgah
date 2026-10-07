@@ -15,15 +15,24 @@ PostToolUse hot paths, so the switch is read before anything else is.
 
 Learning lives in `bin/tezgah-taste learn` and `tezgah_taste_ledger`; the one
 thing fed back from here is `write_note`, the learnings in scope for a write.
+`learn_later` starts that `learn` in the background at session start.
 """
 import datetime
 import json
 import os
+import re
+import subprocess
+import sys
+import time
 
 import tezgah_integrity as ti
+import tezgah_paths
 from tezgah_paths import _toplevel, armed, root_for, workspace_from_repo
 
 ARM = "taste-on"
+LEARN_EVERY = 3600  # seconds between two background `learn` starts per repo
+BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+                   "bin", "tezgah-taste")
 MARK = ".no-taste"
 VERSION = 1
 PROMPT_MAX = 2000
@@ -203,6 +212,39 @@ def write_note(session_id, inp, cwd, tool=None):
         return ""
 
 
+def learn_later(cwd):
+    """Start `tezgah-taste learn --repo <root>` detached when taste is on for
+    `cwd`, its signals grew since the last start and an hour has passed.
+    Total; the stamp is written before the spawn, so a failed start waits."""
+    try:
+        if not armed(ARM):
+            return
+        root = enabled(cwd)
+        if not root:
+            return
+        size = os.path.getsize(os.path.join(root, ".tezgah", "taste", "signals.jsonl"))
+        base = os.path.join(tezgah_paths.cache_dir(), "taste-learn")
+        name = re.sub(r"[^A-Za-z0-9]+", "-", root).strip("-")
+        stamp = os.path.join(base, name + ".json")
+        try:
+            with open(stamp, encoding="utf-8") as fh:
+                last = json.load(fh)
+        except (OSError, ValueError):
+            last = {}
+        now = time.time()
+        if size <= last.get("size", -1) or now - last.get("at", 0) < LEARN_EVERY:
+            return
+        os.makedirs(base, exist_ok=True)
+        with open(stamp, "w", encoding="utf-8") as fh:
+            json.dump({"size": size, "at": now}, fh)
+        with open(os.path.join(base, name + ".log"), "ab") as log:
+            subprocess.Popen([sys.executable, BIN, "learn", "--repo", root],
+                             cwd=root, stdin=subprocess.DEVNULL, stdout=log,
+                             stderr=log, start_new_session=True)
+    except Exception:
+        pass
+
+
 def main(argv):
     """`tezgah_taste.py '<json>'`: `note_write`, then `write_note`, for a host
     that cannot call them in process (opencode's plugin is JavaScript). The one
@@ -223,5 +265,4 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main(sys.argv[1:]))

@@ -2202,6 +2202,13 @@ def context_for(event, cwd, payload=None, with_core=True):
                 taste = ""
             if taste:
                 parts.append(("taste", taste))
+        # Armed taste learns by itself: a detached `learn` when the signals grew,
+        # at most hourly (tezgah_taste.learn_later); session start only.
+        if tezgah_taste and event == "session_start":
+            try:
+                tezgah_taste.learn_later(cwd)
+            except Exception:
+                pass
         broken = tezgah_research.failing(root) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]

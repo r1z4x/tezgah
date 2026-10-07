@@ -25,6 +25,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `learn --from-transcripts` bootstraps from history. The judge seam gains
   `only=` and a `text` question. Two commands never rewrite the ledger at once:
   a second `learn`, `accept`, `reject` or `edit` exits 2 while one runs.
+- **Armed taste learns by itself.** Session start runs `tezgah-taste learn` in
+  the background when the repository's signals grew, at most once an hour. Its
+  log goes under the cache dir, in `taste-learn/`.
 
 ## [1.1.0] - 2026-10-07
 
