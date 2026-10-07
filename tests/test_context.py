@@ -2571,6 +2571,64 @@ class MarkedRulesNameTheirSkill(unittest.TestCase):
                           "so the `%s` mark can never flip" % (skill, mark))
 
 
+class SkillRulesInForceAtSessionStart(TempHome):
+    """Ponytail and ADHD were in force only after a session chose to read their
+    skill: the always-on paragraphs ended with "on the first non-trivial task,
+    read the full skill - this paragraph is not the whole contract", so the
+    rules the skill alone carried applied from whatever turn the model decided
+    to load it, if ever. Each operative rule below lives only in the skill
+    section named beside it; the session-start text - the always-on core every
+    static file (omp RULES.md, Claude CLAUDE.md) is rendered from, and the
+    `session_start` block Codex and Cursor get - must carry it, and the switch
+    must take it out with its paragraph."""
+
+    # (skill, section heading in its SKILL.md, the clause the core states it in)
+    RULES = (
+        ("ponytail", "## When NOT to be lazy", r"leaves ONE runnable check"),
+        ("ponytail", "## Rules", r"ships the lazy version"),
+        ("ponytail", "## Output", r"code first, then at most three lines"),
+        ("i-have-adhd", "### 6. Errors", r"only when the evidence identifies it"),
+        ("i-have-adhd", "## When to break these rules", r"three \"still broken\""),
+        ("i-have-adhd", "## Pre-send check", r"Before sending, delete"),
+    )
+    SWITCH = {"ponytail": "ponytail-auto.off", "i-have-adhd": "adhd-off"}
+
+    def session(self, repo):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "session_start",
+                              "cwd": repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return " ".join(out.split())
+
+    def test_the_skill_sections_still_hold_the_rules(self):
+        for skill, heading, _clause in self.RULES:
+            path = os.path.join(support.REPO, "skills", skill, "SKILL.md")
+            with open(path, encoding="utf-8") as fh:
+                self.assertIn(heading, fh.read(), path)
+
+    def test_the_session_start_text_carries_every_rule_and_no_deferral(self):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        core = " ".join(tc.always_on_core().split())
+        session = self.session(self.make_repo())
+        for text in (core, session):
+            for skill, heading, clause in self.RULES:
+                self.assertRegex(text, clause, "%s %s" % (skill, heading))
+            self.assertNotIn("not the whole contract", text)
+
+    def test_each_switch_takes_its_rules_out(self):
+        repo = self.make_repo()
+        for skill, switch in self.SWITCH.items():
+            self.touch(os.path.join(self.home, ".config", "tezgah", switch))
+            session = self.session(repo)
+            os.remove(os.path.join(self.home, ".config", "tezgah", switch))
+            for owner, heading, clause in self.RULES:
+                if owner == skill:
+                    self.assertNotRegex(session, clause, heading)
+                else:
+                    self.assertRegex(session, clause, heading)
+
+
 class PromptReminderCarriesTheOutputShape(TempHome):
     """The per-turn reminder is the text a session re-reads every turn, and it
     carried no output-shape clause at all: nothing on that surface said answer

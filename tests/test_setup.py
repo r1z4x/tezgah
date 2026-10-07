@@ -2994,12 +2994,15 @@ class VersionPrefixIsNotContract(SetupBase):
         # line, `<rule> - <incident>`, in fewer words (-23 B). Outside this
         # band the same change costs omp's RULES.md lessons line +40 B (230 ->
         # 270) and the session lessons block +86 B on this repository's ledger
-        # (1266 -> 1352, the format advisory line). Re-pinned 2026-10-06: the
-        # integrity paragraph quotes PIPED_REMEDY, the piped-check shape that
-        # keeps the exit status, instead of "to a file and read it" (+82 B).
+        # Re-pinned 2026-10-06: the integrity paragraph quotes PIPED_REMEDY, the
+        # piped-check shape that keeps the exit status, instead of "to a file
+        # and read it" (+82 B). Re-pinned 2026-10-07: the ponytail and ADHD
+        # paragraphs carry their operative rules from the first turn instead of
+        # deferring to a skill read (+1042 B) - the deferral phrases are gone,
+        # measured by SkillRulesInForceAtSessionStart (tests/test_context.py).
         # The band is here to catch an accidental move, so a deliberate one is
         # recorded.
-        self.assertEqual(9232, band, "the always-on band moved")
+        self.assertEqual(10274, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 
