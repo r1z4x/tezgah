@@ -319,6 +319,17 @@ class DenyRuns(unittest.TestCase):
         self.assertEqual((out["run_min"], out["session_min"], out["ledgers"]), (3, 20, 1))
         self.assertEqual(out["sessions_over"], 0)
 
+    def test_a_refused_call_s_early_began_does_not_break_the_run(self):
+        # the gate writes a call's `began` before its rules (plan 051), so
+        # every deny row follows its own call's `began`; an allowed call's
+        # outcome row still ends the run
+        began = {"kind": "began", "detail": "pytest -q", "id": "c"}
+        rows = [began, self.deny("loop")] * 3
+        self.assertEqual(ts.deny_runs([rows])["runs"], {"loop": 1})
+        rows = [began, self.deny("loop"), began, {"kind": "verify_ok", "id": "c"},
+                began, self.deny("loop"), began, self.deny("loop")]
+        self.assertEqual(ts.deny_runs([rows])["runs"], {})
+
     def test_sessions_with_twenty_denies(self):
         busy = [self.deny("drift"), {"kind": "run"}] * 20
         quiet = [self.deny("drift")] * 19
