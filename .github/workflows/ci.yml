@@ -1,18 +1,21 @@
 name: ci
 
 on:
+  # main only: a branch commit runs once, through its pull request, instead of
+  # once per event (push + pull_request ran every job twice for one commit). A
+  # tag push is a release, and release.yml runs this workflow itself.
   push:
-    # a tag push is a release, and release.yml runs this workflow itself
-    tags-ignore: ["**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
   # release.yml runs this whole workflow as its `ci` job, so nothing publishes
   # before the same commit is green
   workflow_call:
     inputs:
       # release.yml passes true: the serial suite (~10 min) is skipped there and
       # one floor leg keeps compile, lint and citations, because `test-sharded`
-      # runs the same suite in parallel. A push keeps the full matrix (the
-      # plan 045 shadow compares the two jobs there).
+      # runs the same suite in parallel. A push to main keeps the serial floor
+      # and ceiling (the plan 045 shadow compares the two jobs there).
       release:
         type: boolean
         default: false
@@ -21,17 +24,94 @@ on:
 # each job re-declares only what it reads.
 permissions: {}
 
+# A newer push to the same ref, or a new commit on the same pull request,
+# cancels the run it supersedes. A release is never cancelled: it publishes.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
 jobs:
-  test:
+  # What changed, against the commit the push replaced or the PR's base. A
+  # change only in prose (docs/, a root page, assets, the GitHub templates) runs
+  # the `docs` job alone; anything else, a release, a manual run or a base that
+  # cannot be read runs everything.
+  changes:
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      base: ${{ steps.diff.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+            *) base="" ;;
+          esac
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          git diff --name-only "$base" HEAD > "$RUNNER_TEMP/changed"
+          cat "$RUNNER_TEMP/changed"
+          # an empty diff is no evidence of a prose-only change: run everything
+          if [ ! -s "$RUNNER_TEMP/changed" ] || grep -qvE '^(docs/|assets/|[^/]+\.md$|LICENSE$|NOTICE$|\.github/(ISSUE_TEMPLATE/|PULL_REQUEST_TEMPLATE\.md$))' "$RUNNER_TEMP/changed"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # A prose-only change: the citations audit and the modules the change maps to
+  # (tests/impacted.py: the docs modules, or the packaging ones for CHANGELOG).
+  docs:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'false' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Every docs citation lands in the symbol it names
+        run: python3 bin/tezgah-docs --citations
+      - name: The modules the change maps to
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: python3 tests/impacted.py --ref "$BASE"
+
+  test:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       # one red leg must not cancel the others: the default cancelled 3.13 in
       # run 37228979769, so that leg's result was never known
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(inputs.release && '["3.10"]' || '["3.10", "3.12", "3.13", "3.14"]') }}
+        # the floor and the ceiling: the pure-stdlib code has no 3.12/3.13-only
+        # path, and apps-e2e and both artifact jobs still run 3.12
+        python-version: ${{ fromJSON(inputs.release && '["3.10"]' || '["3.10", "3.14"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -39,10 +119,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
       - name: Byte-compile every script
         run: python3 -m compileall -q hooks hosts bin statusline.py
+      # A pull request runs the impacted set in `test-sharded` instead; the
+      # serial run stays on main for the plan 045 shadow.
       - name: Run the stdlib test suite
-        if: ${{ !inputs.release }}
+        if: ${{ !inputs.release && github.event_name != 'pull_request' }}
         run: python3 -m unittest discover -s tests -v
       - name: Install ruff
         run: pip install -r requirements-dev.txt
@@ -56,10 +140,15 @@ jobs:
   # Shadow (plan 045, from 2026-10-05): the sharded suite on the floor and the
   # ceiling, with node for the plugin tests. It runs beside the `test` matrix for
   # four weeks; the matrix is cut only if this job missed no failure it caught.
+  # On a pull request it runs the modules the change maps to (tests/impacted.py
+  # --ref, whose unmapped paths fall back to the whole suite); main runs it all.
   test-sharded:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +157,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -76,13 +166,22 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
+      - name: Run the impacted modules, sharded (pull request)
+        if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.base != '' }}
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: python3 tests/impacted.py --ref "$BASE"
       - name: Run the suite, sharded
+        if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.base == '' }}
         run: python3 tests/impacted.py --all
 
   apps-e2e:
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -106,9 +205,12 @@ jobs:
     # published release, so no tag has to exist for CI to exercise the real
     # fetch-verify-unpack-flip code path; TEZGAH_NO_DEPS keeps the optional
     # tools' own installers off the network.
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -143,9 +245,12 @@ jobs:
     # the native entry point on a real windows runner. `shell: bash` is Git Bash,
     # the shell the sh-based packaging scripts are written against, and install.ps1
     # is the twin a Windows user actually runs.
+    needs: changes
+    if: ${{ needs.changes.outputs.code == 'true' }}
     permissions:
       contents: read
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

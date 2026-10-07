@@ -36,20 +36,31 @@ TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decisio
 
 `tests/impacted.py --ref <branch>` maps whatever changed since that ref;
 `--list` prints the set without running. A helper under `tests/` (such as
-`tests/bash_vectors.py`) runs the test modules that `import` it. A change to
+`tests/bash_vectors.py`) runs the test modules that `import` it. A file under
+`hosts/` or `packaging/` runs the modules that name its path (6-13 for a host
+hook, measured 2026-10-07), not every module that says `hook.py`. A change to
 `tests/support.py`, `hooks/tezgah_paths.py` or any path the map does not know
 runs the full suite - that is the fail-safe, not a bug. Never run `--all` in the
 edit loop, and never twice on one revision.
 
+A prose-only change (`docs/`, a `*.md` page that is not a skill, agent or
+command) needs no suite: `--run <page>` maps it to the docs modules, and
+the Stop rule owes no check for a prose edit at all
+(`docs/evidence.md`, class 9). A comment-only code edit is still code.
+
 - `ruff` is installed as a uv tool (`uv tool install ruff`); without it, run the
   same check via `uvx ruff check .`. There is no other linter or type checker.
-- CI runs the same checks on the Python matrix in `.github/workflows/ci.yml`,
-  whose oldest version is the floor and newest the ceiling. Its ubuntu legs also
-  measure the heredoc reader against bash 5.x. An `apps-e2e` job runs the
-  app-MCP handshake below on node 20. The citations audit is the check the suite
-  is silent about: a green run says nothing about a citation that moved with a
-  file. The plan report (`render_table.py --acceptance --strict`) is local only:
-  it reads the gitignored `.tezgah/`, which a CI checkout does not have.
+- CI (`.github/workflows/ci.yml`) runs on a push to `main` and on a pull
+  request, cancels a run a newer push to the same ref supersedes, and runs only
+  the citations audit and the docs modules when every changed path is prose.
+  Its `test` matrix is the floor and the ceiling, 3.10 and 3.14; the serial
+  suite runs there on `main` only, and a pull request runs the impacted set in
+  `test-sharded`. Its ubuntu legs also measure the heredoc reader against bash
+  5.x. An `apps-e2e` job runs the app-MCP handshake below on node 20. The
+  citations audit is the check the suite is silent about: a green run says
+  nothing about a citation that moved with a file. The plan report
+  (`render_table.py --acceptance --strict`) is local only: it reads the
+  gitignored `.tezgah/`, which a CI checkout does not have.
 - The artifact smoke is the one check that leaves the checkout: it builds
   `dist/tezgah-<version>.tar.gz` (`packaging/build.sh`), unpacks it in a temp
   dir and installs from the unpacked tree, so a broken manifest or a path that
