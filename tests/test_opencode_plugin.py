@@ -1193,6 +1193,20 @@ class OpenCodePlugin(TempHome):
             {"kind": "authorized", "ts": 0, "authorized": ["verify-off"]}], append=True)
         self.allowed(self.before("bash", {"command": "pytest -q"}))
 
+    def test_without_node_sqlite_the_cache_marks_go_through_the_python_store(self):
+        # the same runtime: the used-tool kind and the once-per-session nudge
+        # are written by tezgah_store's `use` and `mark` CLI verbs
+        self.envv["TEZGAH_OPENCODE_NO_SQLITE"] = "1"
+        self.context_bin()
+        self.after("bash", {"command": "timeout 30 consult --online q"})
+        self.assertEqual(self.used(), ["consult"])
+        self.make_index()
+        self.denied(self.before("grep", {"pattern": "FooBar"}))
+        self.allowed(self.before("grep", {"pattern": "FooBar"}))
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        self.assertEqual(support.store_keys(cache, "nudged"),
+                         [hashlib.sha1(b"s1").hexdigest()[:16]])
+
     def test_a_row_the_store_refuses_lands_in_the_legacy_file_marked_unlocked(self):
         # the plugin's half of tezgah_integrity._append's fallback: a database
         # it cannot open must not lose the row, and the store imports it later
