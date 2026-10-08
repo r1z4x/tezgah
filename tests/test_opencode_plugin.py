@@ -1197,6 +1197,19 @@ class OpenCodePlugin(TempHome):
             {"kind": "authorized", "ts": 0, "authorized": ["verify-off"]}], append=True)
         self.allowed(self.before("bash", {"command": "pytest -q"}))
 
+    def test_a_row_the_store_refuses_lands_in_the_legacy_file_marked_unlocked(self):
+        # the plugin's half of tezgah_integrity._append's fallback: a database
+        # it cannot open must not lose the row, and the store imports it later
+        db = os.path.join(self.home, ".cache", "tezgah", "tezgah.db")
+        os.makedirs(db)
+        self.after("bash", {"command": "ls"})
+        with open(self.evidence_path()) as fh:
+            rows = [json.loads(line) for line in fh]
+        self.assertEqual([(r["kind"], r.get(ti.UNLOCKED)) for r in rows], [("run", 1)])
+        os.rmdir(db)
+        self.assertEqual([r["kind"] for r in ti.events_path(self.evidence_path())],
+                         ["run"])
+
     def test_the_plugin_creates_the_store_python_creates(self):
         # Either side may create the database first, so the two must create the
         # same tables, indexes and version.

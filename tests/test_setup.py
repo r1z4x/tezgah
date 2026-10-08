@@ -1800,9 +1800,18 @@ class LiveReport(SetupBase):
                       for h in hosts.split(",")}
 
     def assert_no_synthetic_rows(self):
-        ev = self.path(".cache", "tezgah", "evidence")
+        cache = self.path(".cache", "tezgah")
+        ev = os.path.join(cache, "evidence")
         left = [n for n in os.listdir(ev) if "tezgah-live" in n] \
             if os.path.isdir(ev) else []
+        db = os.path.join(cache, "tezgah.db")
+        if os.path.exists(db):
+            conn = sqlite3.connect(db)
+            try:
+                left += [s for (s,) in conn.execute(
+                    "SELECT DISTINCT session FROM evidence") if "tezgah-live" in s]
+            finally:
+                conn.close()
         self.assertEqual(left, [])
 
     def trust_codex(self):

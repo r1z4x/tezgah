@@ -432,11 +432,8 @@ class Ledger(TempHome):
         row = {"kind": "prompt", "text": "one"}
         with open(path, "w") as fh:
             fh.write(json.dumps(row) + "\n")
-        wait = mock.patch.object(tezgah_store, "LOCK_WAIT", 0.1)
-        wait.start()
-        self.addCleanup(wait.stop)
         with open(path, "rb") as held:
-            fcntl.flock(held, fcntl.LOCK_EX)  # the old writer's lock (ti._append)
+            fcntl.flock(held, fcntl.LOCK_EX)  # its old writer's lock
             self.assertEqual(tl.rows(self.repo, "signals"), [])
             self.assertTrue(os.path.exists(path))
         self.assertEqual(tl.rows(self.repo, "signals"), [row])

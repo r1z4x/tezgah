@@ -63,6 +63,7 @@ import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { homedir, tmpdir } from "node:os"
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
 const HOME = homedir()
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(HOME, ".config"), "tezgah")
@@ -1478,7 +1479,7 @@ function evidenceDb(mod, create) {
   try {
     db.exec("PRAGMA busy_timeout = " + BUSY_MS)
     walMode(db)
-    if (db.prepare("PRAGMA user_version").get().user_version !== EVIDENCE_VERSION) {
+    if (db.prepare("PRAGMA user_version").get().user_version < EVIDENCE_VERSION) {
       // the write lock first, so a second opener waits on the busy timeout
       db.exec("BEGIN IMMEDIATE")
       try {
@@ -1547,26 +1548,47 @@ function parseRows(texts) {
   return rows
 }
 
-// One row appended to a session's ledger (hooks/tezgah_integrity.note): one
+// One row appended to a session's ledger (hooks/tezgah_integrity._append): one
 // INSERT in autocommit, so a row is whole or absent, and two writers queue on
-// the database's lock. Best effort: a write failure is not fatal, and a reader
-// that needs the row to exist simply reads the tail without it rather than
-// letting the action through.
+// the database's lock. A row the store cannot take (busy past its timeout, a
+// damaged file, a CLI that did not answer) goes to the legacy file instead
+// (legacyAppend). Best effort: a write failure is not fatal, and a reader that
+// needs the row to exist simply reads the tail without it rather than letting
+// the action through.
 async function appendRow(sessionID, row) {
+  let stored = false
   try {
     const text = JSON.stringify(row)
     const mod = await sqlite()
     if (!mod) {
-      await storeCli(["append", ledgerPath(sessionID), text], () => undefined)
-      return
+      stored = await storeCli(["append", ledgerPath(sessionID), text],
+        (code) => code === 0)
+    } else {
+      await importLegacy(sessionID)
+      // the two columns beside the text, as tezgah_store._insert fills them
+      const kind = typeof row.kind === "string" ? row.kind : null
+      const ts = Number.isFinite(row.ts) ? Math.trunc(row.ts) : null
+      evidenceDb(mod, true).prepare(
+        "INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)")
+        .run(ledgerStem(sessionID), kind, ts, text)
+      stored = true
     }
-    await importLegacy(sessionID)
-    // the two columns beside the text, as tezgah_store._insert fills them
-    const kind = typeof row.kind === "string" ? row.kind : null
-    const ts = Number.isFinite(row.ts) ? Math.trunc(row.ts) : null
-    evidenceDb(mod, true).prepare(
-      "INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)")
-      .run(ledgerStem(sessionID), kind, ts, text)
+  } catch {}
+  if (!stored) await legacyAppend(sessionID, row)
+}
+
+// The row the store refused, appended to the session's legacy JSONL file marked
+// `unlocked`, as hooks/tezgah_integrity._append falls back: a lost `began` row
+// would turn an honest pass into an orphan, and the mark is what exempts the
+// pairing. The next import takes it, so this process asks for one again.
+async function legacyAppend(sessionID, row) {
+  try {
+    const path = ledgerPath(sessionID)
+    // owner-only, as the Python writer creates them (audit SEC-05)
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+    await appendFile(path, JSON.stringify({ ...row, unlocked: 1 }) + "\n",
+      { mode: 0o600 })
+    legacyAsked.delete(ledgerStem(sessionID))
   } catch {}
 }
 
@@ -2500,13 +2522,18 @@ function captureSnapshot(tool, args, dir, sessionID) {
   { stdio: "ignore" }, null, () => undefined)
 }
 
-// A hooks/ module's own entry point, found beside the bin the snapshot capture
-// runs (the installed bins are links into the checkout, which holds no copy of
-// hooks/ under CONFIG), or null when that bin is not installed.
+// A hooks/ module's own entry point, or null: beside the bin the snapshot
+// capture runs (the installed bins are links into the checkout, which holds no
+// copy of hooks/ under CONFIG), else beside this file itself, which the install
+// links from the checkout's hosts/opencode/plugins/.
 function hookScript(name) {
+  const roots = []
+  try { roots.push(dirname(dirname(realpathSync(CAPTURE_BIN)))) } catch {}
   try {
-    return join(dirname(dirname(realpathSync(CAPTURE_BIN))), "hooks", name)
-  } catch { return null }
+    roots.push(dirname(dirname(dirname(dirname(
+      realpathSync(fileURLToPath(import.meta.url)))))))
+  } catch {}
+  return roots.map((root) => join(root, "hooks", name)).find(existsSync) ?? null
 }
 
 // hooks/tezgah_taste.py's own entry point. Best effort, like captureSnapshot: a

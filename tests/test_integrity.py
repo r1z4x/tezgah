@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
@@ -1044,6 +1045,19 @@ class WritersElsewhere(unittest.TestCase):
     def test_a_write_outside_the_window_is_not_reported(self):
         self.write("old", [self.edit("/repo/x.py", age=20 * 60)])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+
+    def test_a_row_without_its_own_ts_is_dated_by_its_column(self):
+        # a row inserted outside the hooks carries the `ts` column the query
+        # filters on and no `ts` field: reading the field raised out of the gate
+        self.write("mine", [self.edit("/repo/x.py")])
+        row = self.edit("/repo/x.py")
+        del row["ts"]
+        conn = sqlite3.connect(os.path.join(self.dir, "tezgah.db"))
+        with conn:
+            conn.execute("INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)",
+                         (ti._slug("forged"), "edit", int(time.time()), json.dumps(row)))
+        conn.close()
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [ti._slug("forged")])
 
     def test_an_old_write_in_an_active_ledger_is_not_reported(self):
         # the session is still working, so the row's own timestamp is what has

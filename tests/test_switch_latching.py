@@ -58,18 +58,16 @@ class Latching(TempHome):
     def ledger(self, first_ts, session="s"):
         """A ledger whose first row is stamped `first_ts`: the latch compares
         a switch file's ctime (which no caller can set) with this stamp, so a
-        stamp in the future stands for "the switch was there first"."""
+        stamp in the future stands for "the switch was there first". The row
+        goes into the store, where every current writer puts it."""
         path = os.path.join(self.home, ".cache", "tezgah", "evidence",
                             ti._slug(session) + ".jsonl")
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a") as fh:
-            fh.write(json.dumps({"kind": "attest", "ts": first_ts, "v": 3,
-                                 "detail": ""}) + "\n")
+        support.seed_ledger(path, [{"kind": "attest", "ts": first_ts, "v": 3,
+                                    "detail": ""}], append=True)
         return path
 
     def rows(self, path):
-        with open(path) as fh:
-            return [json.loads(line) for line in fh if line.strip()]
+        return support.ledger_rows(path)
 
     def probe(self, names, prompt=None, bind=True):
         spec = {"names": list(names), "prompt": prompt, "bind": bind}
@@ -223,10 +221,25 @@ class Latching(TempHome):
         self.assertIn("inflight", ti.LEDGER_FIELDS)
 
     def append(self, path, *rows, age=0):
-        with open(path, "a") as fh:
-            for row in rows:
-                fh.write(json.dumps(dict({"ts": int(time.time()) - age, "v": 3,
-                                          "detail": ""}, **row)) + "\n")
+        support.seed_ledger(path, [dict({"ts": int(time.time()) - age, "v": 3,
+                                         "detail": ""}, **row) for row in rows],
+                            append=True)
+
+    def test_a_legacy_ledger_file_is_latched_on_its_first_row(self):
+        """A session an older opencode plugin began keeps its JSONL file: the
+        latch reads its first row once the store imports it, and the prompt's
+        `authorized` row lands after it."""
+        path = os.path.join(self.home, ".cache", "tezgah", "evidence",
+                            ti._slug("s") + ".jsonl")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as fh:
+            fh.write(json.dumps({"kind": "attest", "ts": int(time.time()) - 100,
+                                 "v": 3, "detail": ""}) + "\n")
+        self.switch("verify-off")
+        self.assertEqual(self.probe(["verify-off"]), {"verify-off": False})
+        self.assertEqual(self.probe(["verify-off"], prompt="verify-off please"),
+                         {"verify-off": True})
+        self.assertEqual([r["kind"] for r in self.rows(path)][:1], ["attest"])
 
     def test_an_interrupted_call_stops_blocking_after_ten_minutes(self):
         """A host writes no PostToolUse for a call the user interrupted, so its

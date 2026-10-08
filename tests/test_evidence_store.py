@@ -1,11 +1,15 @@
 """The evidence ledger in the cache's SQLite store (ADR 021, plan 071 phase 2a):
 the legacy JSONL import, its bulk run, concurrent writers and the twin cache."""
+import fcntl
+import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -122,6 +126,75 @@ class Retention(Cache):
         self.assertEqual(swept, (2, 2))
         self.assertEqual(support.ledger_sessions(self.cache), ["live", "new"])
         self.assertFalse(os.path.exists(legacy))
+
+
+class RefusedRow(Cache):
+    def test_a_row_the_database_refuses_lands_in_the_legacy_file_marked_unlocked(self):
+        # a busy or damaged database must not lose a `began` row: the honest
+        # pass behind it would read as an orphan
+        path = self.ledger("s")
+        busy = sqlite3.OperationalError("database is locked")
+        with mock.patch.object(ts, "append_evidence", side_effect=busy):
+            ti.note_path(path, ti.BEGAN_KIND, "pytest -q", id="x", check=1)
+        with open(path) as fh:
+            self.assertEqual(json.loads(fh.read()).get(ti.UNLOCKED), 1)
+        rows = ti.events_path(path)
+        self.assertEqual([(r["kind"], r.get(ti.UNLOCKED)) for r in rows],
+                         [(ti.BEGAN_KIND, 1)])
+
+
+class ImportLocks(Cache):
+    def test_an_import_waiting_on_the_database_leaves_the_file_unlocked(self):
+        # the file's writer and readers must not wait on the database's lock
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "ls"}])
+        db = os.path.join(self.cache, ts.EVIDENCE_DB)
+        ts.connect(db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+        holder = sqlite3.connect(db, isolation_level=None)
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN IMMEDIATE")
+        importer = threading.Thread(target=ts.import_session, args=(path,))
+        importer.start()
+        try:
+            time.sleep(0.3)
+            with open(path, "rb") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises when held
+        finally:
+            holder.execute("COMMIT")
+            importer.join(timeout=30)
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["ls"])
+
+    def test_a_line_that_is_not_utf_8_is_named_by_the_old_readers_hash(self):
+        # the marker hashes the line with its newline, as the file reader did,
+        # so a damage row that reader wrote still names the same line
+        path = self.ledger("s")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "wb") as fh:
+            fh.write(b'{"kind": "x\xff"}\n')
+        ti.events_path(path)
+        self.assertEqual(support.ledger_rows(path, raw=True)[0], "\x00not utf-8 %s"
+                         % hashlib.sha1(b'{"kind": "x\xff"}\n').hexdigest()[:12])
+
+
+class Versions(Cache):
+    def test_an_older_install_leaves_a_newer_schema_alone(self):
+        db = os.path.join(self.cache, ts.EVIDENCE_DB)
+        conn = sqlite3.connect(db)
+        conn.execute("PRAGMA user_version = %d" % (ts.EVIDENCE_VERSION + 1))
+        conn.close()
+        ts.connect(db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+        conn = sqlite3.connect(db)
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0],
+                         ts.EVIDENCE_VERSION + 1)
+
+    def test_the_bulk_import_starts_only_while_a_legacy_file_exists(self):
+        os.makedirs(os.path.join(self.cache, "evidence"))
+        with mock.patch.object(subprocess, "Popen") as spawn:
+            ts.import_later(self.cache)
+            self.assertFalse(spawn.called)
+            self.legacy("s", [{"kind": "run", "ts": 1, "detail": "ls"}])
+            ts.import_later(self.cache)
+            self.assertTrue(spawn.called)
 
 
 if __name__ == "__main__":

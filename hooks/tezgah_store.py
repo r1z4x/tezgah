@@ -37,10 +37,9 @@ except ImportError:  # Windows: the old writers took no lock there either
 BUSY_MS = 5000
 TASTE_DB = "taste.db"
 ERRORS = (OSError, sqlite3.Error)
-# how long an import waits for a legacy row file's flock (its old writer,
-# `tezgah_integrity._append`, holds it for one row) before leaving the file
-# to the next open
-LOCK_WAIT, LOCK_POLL = 1.0, 0.02
+# how often the WAL switch is retried while another connection holds the file
+# (`_wal`)
+LOCK_POLL = 0.02
 
 # Each append-only taste table and the columns a query reads beside its JSON
 # row; `n` is the append order.
@@ -80,7 +79,8 @@ USER_LEGACY = ("ledger.json",)
 def connect(path, schema, version=0):
     """An autocommit connection to the database at `path` with `schema`
     applied (idempotent). With `version`, the schema runs only while the file's
-    `user_version` is not it, so a hook's open skips the DDL. Raises OSError or
+    `user_version` is below it, so a hook's open skips the DDL and an older
+    install leaves a newer schema alone. Raises OSError or
     sqlite3.Error."""
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     os.close(os.open(path, os.O_RDWR | os.O_CREAT, 0o600))
@@ -88,7 +88,7 @@ def connect(path, schema, version=0):
     try:
         conn.execute("PRAGMA busy_timeout = %d" % BUSY_MS)
         _wal(conn)
-        if not version or conn.execute("PRAGMA user_version").fetchone()[0] != version:
+        if not version or conn.execute("PRAGMA user_version").fetchone()[0] < version:
             # the write lock first, so a second opener waits on the busy
             # timeout instead of failing on SQLite's lock-upgrade deadlock
             conn.executescript("BEGIN IMMEDIATE;\n%s\nPRAGMA user_version = %d;\nCOMMIT;"
@@ -240,18 +240,15 @@ def _import_doc(conn, name, src, st):
 
 
 def _locked(fh):
-    """An exclusive flock on `fh` within LOCK_WAIT, True where flock is missing."""
+    """An exclusive flock on `fh` if one is free now, True where flock is
+    missing. Never waits: the caller holds the database's write lock."""
     if fcntl is None:
         return True
-    deadline = time.monotonic() + LOCK_WAIT
-    while True:
-        try:
-            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
-        except OSError:
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(LOCK_POLL)
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
 
 
 def _taste_put(table):
@@ -270,7 +267,13 @@ def _taste_put(table):
 def _import_rows(conn, name, src, st, put=None, keep=False):
     """The complete lines of `src` past the recorded offset, each handed to
     `put` (a taste table's row by default). With `keep` the file is never
-    renamed aside: its writer still reads it."""
+    renamed aside: its writer may still append to it.
+
+    The database's write lock comes first and the file's flock second, taken
+    only if free: an import that held the flock while it waited on a busy
+    database would hold the file's writer (and its readers) for that wait. The
+    offset is read inside the transaction, so two importers cannot both take
+    the same lines, with or without a flock."""
     try:
         fh = open(src, "rb")
     except FileNotFoundError:
@@ -279,21 +282,21 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
         _failed(conn, name, st)
         return
     with fh:  # closing it releases the flock
-        if not _locked(fh):
-            return  # its writer holds it: the next open takes it
-        st = os.fstat(fh.fileno())
-        key = (name, st.st_dev, st.st_ino)
-        found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
-                             "AND ino = ?", key).fetchone()
-        # a file cut below what went in (rewritten in place) resumes at its
-        # end, so the rows appended after the cut still import
-        start = min(found[0], st.st_size) if found else 0
-        fh.seek(start)
-        raw = fh.read()
-        whole = raw[:raw.rfind(b"\n") + 1]
-        if whole or (found and found[0] != start):
-            put = put or _taste_put(name[:-len(".jsonl")])
-            with transaction(conn):
+        with transaction(conn):
+            if not _locked(fh):
+                return  # its writer holds it: the next open takes it
+            st = os.fstat(fh.fileno())
+            key = (name, st.st_dev, st.st_ino)
+            found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
+                                 "AND ino = ?", key).fetchone()
+            # a file cut below what went in (rewritten in place) resumes at its
+            # end, so the rows appended after the cut still import
+            start = min(found[0], st.st_size) if found else 0
+            fh.seek(start)
+            raw = fh.read()
+            whole = raw[:raw.rfind(b"\n") + 1]
+            if whole or (found and found[0] != start):
+                put = put or _taste_put(name[:-len(".jsonl")])
                 for line in whole.split(b"\n"):
                     put(conn, line)
                 conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
@@ -466,9 +469,10 @@ def _evidence_put(session):
         try:
             text = line.decode("utf-8")
         except UnicodeDecodeError:
-            # the marker `tezgah_integrity._parse` names as damage, as the
-            # file reader's was
-            text = "\x00not utf-8 %s" % hashlib.sha1(line).hexdigest()[:12]
+            # the marker `tezgah_integrity._parse` names as damage, hashed
+            # over the line with its newline as the file reader hashed it, so
+            # a damage row it wrote still names the same line
+            text = "\x00not utf-8 %s" % hashlib.sha1(line + b"\n").hexdigest()[:12]
         _insert(conn, session, text)
     return put
 
@@ -594,7 +598,7 @@ def sessions(cache):
 
 
 def recent_rows(cache, since, kinds, but):
-    """(session, row text) of every row of `kinds` stamped at or after `since`
+    """(session, ts, row text) of every row of `kinds` stamped at or after `since`
     in a ledger other than session `but`, oldest first. The legacy files
     written since are imported first; the older ones cannot hold such a row."""
     fresh = []
@@ -613,7 +617,7 @@ def recent_rows(cache, since, kinds, but):
     for path in fresh:
         _sync(held, path)
     return held[0].execute(
-        "SELECT session, row FROM evidence WHERE ts >= ? AND kind IN (%s) AND session != ? "
+        "SELECT session, ts, row FROM evidence WHERE ts >= ? AND kind IN (%s) AND session != ? "
         "ORDER BY n" % ", ".join("?" * len(kinds)), (since,) + tuple(kinds) + (but,)).fetchall()
 
 
@@ -662,12 +666,13 @@ def sweep_evidence(cache, cutoff, keep=None):
 
 
 def import_later(cache):
-    """Start `import-evidence` for `cache` detached, while legacy files exist
+    """Start `import-evidence` for `cache` detached, while a legacy file exists
     and at most once per IMPORT_EVERY (the stamp's mtime, written before the
     start, so a failed start waits a day). Total."""
     try:
-        if not os.path.isdir(os.path.join(cache, "evidence")):
-            return
+        with os.scandir(os.path.join(cache, "evidence")) as found:
+            if not any(entry.name.endswith(".jsonl") for entry in found):
+                return
         stamp = os.path.join(cache, IMPORT_STAMP)
         try:
             if time.time() - os.path.getmtime(stamp) < IMPORT_EVERY:

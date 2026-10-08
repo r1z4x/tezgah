@@ -791,11 +791,30 @@ def _append(path, line):
 
     The row goes into the cache's evidence database (`tezgah_store`) as one
     INSERT in autocommit, so it is whole or absent: no torn tail, and two
-    writers queue on the database's lock instead of a file's. Best effort: a
-    write that fails is not fatal, as `note` promises."""
+    writers queue on the database's lock instead of a file's. A row the
+    database cannot take (busy past its timeout during a sweep or a large
+    import, a damaged file) goes to the session's legacy JSONL file instead,
+    marked `unlocked` (`_jsonl_append`): the next read or write imports it, and
+    a lost `began` row would otherwise turn an honest pass into an orphan. Best
+    effort: a write that fails both ways is not fatal, as `note` promises."""
     try:
         ts.append_evidence(path, line.rstrip("\n"))
     except ts.ERRORS:
+        _jsonl_append(path, _unlocked(line))
+
+
+def _jsonl_append(path, line):
+    """Append one line to the legacy JSONL file at `path`, without a lock (the
+    row says so: `_unlocked`), after cutting a torn tail back to the committed
+    boundary so the line is not merged into a fragment."""
+    try:
+        # owner-only: a row carries commands and paths (audit SEC-05 / L-6)
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        with os.fdopen(os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600),
+                       "a+b") as handle:
+            truncate_to_committed(handle)
+            handle.write(line.encode("utf-8"))
+    except OSError:
         pass
 
 
@@ -1186,13 +1205,15 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
                                 _slug(session_id))
     except ts.ERRORS:
         return []
-    for stem, text in recent:
+    # the `ts` column, not the row's own field: a row inserted outside the
+    # hooks need not carry one, and nothing here may raise out of the gate
+    for stem, stamp, text in recent:
         try:
             row = json.loads(text)
         except ValueError:
             continue
         if isinstance(row, dict) and row.get("target") == want:
-            found[stem] = max(found.get(stem, row["ts"]), row["ts"])
+            found[stem] = max(found.get(stem, stamp), stamp)
     return sorted(found, key=lambda stem: -found[stem])
 
 
@@ -4928,11 +4949,12 @@ def changed_files_notice(session_id, base=None):
 
 
 # --- pairing: a pass the gate never saw begin (plan 051 part 8) --------------
-# The field the legacy JSONL append added to a row it wrote without the lock
-# (an imported row may still carry it), and the in-memory mark `_pair` puts on
-# a `verify_ok` no gate-written `began` row answers. The mark is never written:
-# `passing_check` refuses a marked row, and the Stop rule reads one in the turn
-# as "evidence tampered".
+# The field a JSONL append adds to a row it wrote without the lock (`_append`'s
+# fallback when the database refuses a row, or the old file writer's LOCK_WAIT
+# fallback, whose imported rows may still carry it), and the in-memory mark
+# `_pair` puts on a `verify_ok` no gate-written `began` row answers. The mark is
+# never written: `passing_check` refuses a marked row, and the Stop rule reads
+# one in the turn as "evidence tampered".
 UNLOCKED = "unlocked"
 ORPHAN = "orphan"
 ORPHANED = (
@@ -4946,6 +4968,19 @@ UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
 # How many rows before a `turn_rows` slice seed `_pair`'s waiting `began` rows:
 # the same 200-row bound the gate's tail readers use.
 PAIR_SEED = 200
+
+
+def _unlocked(line):
+    """`line` with `unlocked: 1` added to its row (`_append`'s JSONL
+    fallback), or as it was when it is not one row."""
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return line
+    if not isinstance(row, dict):
+        return line
+    row[UNLOCKED] = 1
+    return json.dumps(row, ensure_ascii=False) + "\n"
 
 
 def _pair(rows, path, lines, before=()):
@@ -4967,11 +5002,11 @@ def _pair(rows, path, lines, before=()):
     - in a turn holding a `crash` row: the gate that writes `began` may be the
       code that crashed;
     - with `pretooluse-off` armed: no gate ran;
-    - when a row imported from a legacy JSONL file says its append took the
-      unlocked fallback (UNLOCKED), or this platform has no flock, so that
-      file's appends were all unlocked: that append's truncate can have cut a
-      concurrent writer's `began` row. The database insert cuts no row, but
-      the imported rows stay in the ledger for the session's life;
+    - when a row says a JSONL append wrote it without the lock (UNLOCKED:
+      `_append`'s fallback when the database refused a row, or the old file
+      writer's), or this platform has no flock, so a legacy file's appends
+      were all unlocked: that append's truncate can have cut a concurrent
+      writer's `began` row, and a row the database refused may be one;
     - for a ledger in the sandbox fallback cache, or one whose session also has
       a ledger in the other cache dir: a sandboxed host can split one call's two
       rows over two files (`tezgah_context`'s fallback-cache note).
