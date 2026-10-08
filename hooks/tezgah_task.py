@@ -158,6 +158,12 @@ _MARKER = re.compile(r"unverifiable(?![-\w])", re.I)
 # why") has no separator there and is not a declaration.
 _SEPARATORS = ":,;(-"
 _SPAN = re.compile(r"`([^`\n]+)`")
+# A runner whose test entry point is a bare subcommand: `pnpm test`, `cargo
+# test`, `uv run pytest` carry no option and no path, yet each is the command.
+# The runner has to be the first word, so `run the tests` stays prose.
+_RUNNERS = ("npm", "pnpm", "yarn", "bun", "deno", "cargo", "go", "make", "mix",
+            "dotnet", "gradle", "mvn", "poetry", "uv")
+_SUBCOMMANDS = ("test", "run")
 
 
 def _argument(token):
@@ -179,14 +185,16 @@ def _argument(token):
 
 def names_command(text):
     """Does this acceptance item name the command that proves it? A command is a
-    backticked run of two or more words carrying an option, a path or a script:
-    `bin/tezgah-docs --citations`, `python3 -m unittest tests/test_task.py`. A
-    citation (`hooks/tezgah_task.py`, `plan:line`) is not one, and an invocation
-    with no argument at all is not recognised either - both are reported, which
-    is the safe direction for a report a person reads."""
+    backticked run of two or more words carrying an option, a path or a script
+    (`bin/tezgah-docs --citations`, `python3 -m unittest tests/test_task.py`), or
+    a known runner followed by `test` or `run` (`pnpm test`, `npm run test`). A
+    citation (`hooks/tezgah_task.py`, `plan:line`) is not one, and any other
+    invocation with no argument is not recognised either - both are reported,
+    which is the safe direction for a report a person reads."""
     for span in _SPAN.findall(text):
         tokens = span.split()
-        if len(tokens) > 1 and any(_argument(token) for token in tokens[1:]):
+        if len(tokens) > 1 and (any(_argument(token) for token in tokens[1:]) or
+                                (tokens[0] in _RUNNERS and tokens[1] in _SUBCOMMANDS)):
             return True
     return False
 

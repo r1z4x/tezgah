@@ -974,6 +974,19 @@ class Acceptance(unittest.TestCase):
                   acceptance_plan("- [ ] lint: `ruff check .`\n"))
         self.assertEqual([i["state"] for i in self.report()["items"]], ["checkable"])
 
+    def test_a_runner_and_its_test_subcommand_is_checkable_and_prose_is_not(self):
+        # `pnpm test` carries no option and no path, and read by tokens alone it
+        # named no command - which refuses the phase move for the commonest
+        # acceptance item there is. A known runner before `test`/`run` is one;
+        # a sentence in backticks that starts with a plain word stays missing.
+        for span in ("pnpm test", "npm test", "yarn test", "cargo test",
+                     "go test ./...", "make test", "bun test", "npm run test",
+                     "uv run pytest"):
+            self.assertTrue(tt.names_command("- [ ] green: `%s`" % span), span)
+        for span in ("run the tests", "test it", "make it work", "npm",
+                     "go home", "cargo"):
+            self.assertFalse(tt.names_command("- [ ] `%s`" % span), span)
+
     def test_an_item_with_no_command_is_reported_with_its_plan_and_line(self):
         text = acceptance_plan(COMMAND_ITEM, MISSING_ITEM)
         self.plan(self.open, "002-b.md", text)

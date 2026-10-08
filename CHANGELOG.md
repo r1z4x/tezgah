@@ -11,6 +11,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Jev through OpenRouter asks a model OpenRouter has.** The carrier sent
   `typesafe/jev-latest`, which OpenRouter answers with 400 (no such model). It
   now sends the bare `jev-latest`, which OpenRouter maps itself.
+- **`pnpm test` names a command.** An Acceptance item counted as a command
+  only when a word after the first was an option or a path. So `pnpm test`,
+  `cargo test` and `make test` read as missing, and the phase move refused the
+  plan. A known runner followed by `test` or `run` now counts. Prose such as
+  `run the tests` still does not.
 
 ## [1.5.0] - 2026-10-09
 
