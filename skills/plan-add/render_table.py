@@ -37,8 +37,9 @@ def acceptance(strict):
     count = lambda state: sum(1 for i in report["items"] if i["state"] == state)
     print("plans: %d read, acceptance items: %d read; %d name no command, %d declared unverifiable"
           % (report["plans"], len(report["items"]), count("missing"), count("unverifiable")))
-    open_missing = [i for i in report["items"]
-                    if i["state"] == "missing" and i["plan"].startswith(".tezgah/plans/open/")]
+    # the predicate the phase move refuses on (tezgah-task), so the two agree
+    open_missing = tt.unproven([i for i in report["items"]
+                                if i["plan"].startswith(".tezgah/plans/open/")])
     if strict and open_missing:
         print("strict: %d item(s) under .tezgah/plans/open name no command and declare no "
               "unverifiable; a done plan is reported, never gated" % len(open_missing))

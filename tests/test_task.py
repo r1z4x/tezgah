@@ -318,6 +318,67 @@ class Record(unittest.TestCase):
                       "pending ", "done abc123"):
             self.assertEqual(tt.checkpoint_sha(value), "", repr(value))
 
+    # ------------------------- progress, ordering and what can run at once
+
+    def test_acceptance_items_carry_whether_their_box_is_checked(self):
+        text = acceptance_plan(COMMAND_ITEM, "- [x] shipped: `ruff check .`\n",
+                               "- [X] also shipped\n")
+        self.assertEqual([i["checked"] for i in tt.acceptance_items(text)],
+                         [False, True, True])
+
+    def test_after_reads_the_list_form_and_the_inline_form(self):
+        self.assertEqual(tt.after("---\nafter:\n  - 012\n  - 015\n---\n"), ["012", "015"])
+        self.assertEqual(tt.after("---\nafter: 012, 015\n---\n"), ["012", "015"])
+        self.assertEqual(tt.after("---\nafter:\n---\n"), [])
+        self.assertEqual(tt.after(plan_text("001")), [])
+
+    def done_plan(self, name, status="done"):
+        directory = os.path.join(self.repo, ".tezgah", "plans", "done")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, name), "w") as fh:
+            fh.write("---\nid: %s\nstatus: %s\n---\n" % (name[:3], status))
+
+    def test_queue_names_what_each_open_plan_waits_on(self):
+        self.done_plan("001-built.md")
+        self.done_plan("002-dropped.md", status="discarded")
+        self.plan("003-a.md", plan_text("003", allowed=["hooks/**"])
+                  + "## Acceptance\n" + COMMAND_ITEM + "- [x] done: `ruff check .`\n")
+        self.plan("004-b.md", plan_text("004", allowed=["docs/**"]).replace(
+            "---\n## Goal", "after: 001, 003\n---\n## Goal"))
+        self.plan("005-c.md", plan_text("005", allowed=["tests/**"]).replace(
+            "---\n## Goal", "after: 002 009\n---\n## Goal"))
+        rows = {row["id"]: row for row in tt.queue(self.repo)}
+        self.assertEqual((rows["003"]["checked"], rows["003"]["items"]), (1, 2))
+        self.assertEqual(rows["003"]["after"], [])
+        self.assertTrue(rows["003"]["ready"])
+        self.assertEqual(rows["004"]["after"], [["001", "done"], ["003", "open"]])
+        self.assertFalse(rows["004"]["ready"])
+        # a discarded plan never lands, and an id no plan carries is a typo
+        self.assertEqual(rows["005"]["after"], [["002", "discarded"], ["009", "missing"]])
+        self.assertFalse(rows["005"]["ready"])
+
+    def test_a_blocked_plan_is_not_ready_whatever_it_waits_on(self):
+        self.plan("001-a.md", plan_text("001").replace("status: open", "status: blocked"))
+        self.assertFalse(tt.queue(self.repo)[0]["ready"])
+
+    def test_parallel_picks_ready_plans_whose_scopes_share_no_path(self):
+        self.plan("001-a.md", plan_text("001", allowed=["hooks/**"]))
+        self.plan("002-b.md", plan_text("002", allowed=["hooks/tezgah_task.py"]))
+        self.plan("003-c.md", plan_text("003", allowed=["docs/**", "skills/plan-add/**"]))
+        self.plan("004-d.md", plan_text("004"))  # no scope is every path
+        rows = tt.queue(self.repo)
+        self.assertEqual({r["id"]: r["overlaps"] for r in rows},
+                         {"001": ["002", "004"], "002": ["001", "004"],
+                          "003": ["004"], "004": ["001", "002", "003"]})
+        self.assertEqual(tt.parallel(rows), ["001", "003"])
+
+    def test_scopes_overlap_reads_the_literal_prefix_of_each_glob(self):
+        self.assertTrue(tt.scopes_overlap(["hooks/**"], ["hooks/x.py"]))
+        self.assertTrue(tt.scopes_overlap(["**/tests/**"], ["docs/x.md"]))
+        self.assertTrue(tt.scopes_overlap([], ["docs/x.md"]))
+        self.assertFalse(tt.scopes_overlap(["hooks/a*.py"], ["hooks/b*.py"]))
+        self.assertFalse(tt.scopes_overlap(["hooks/**", "bin/x"], ["docs/**"]))
+
 
 class Cli(TempHome):
     """The CLI end to end: one command per record, read back through the same
@@ -525,10 +586,41 @@ class Cli(TempHome):
             self.assertEqual(refused.returncode, 1, refused.stdout)
             self.assertIn("acceptance_items", refused.stdout)
         self.assertEqual(self.status()["phase"], "discovery")
-        # one item that names its command is enough to move
+        # a command-bearing item beside it does not carry the one that names none
         with open(path, "a") as fh:
             fh.write(COMMAND_ITEM)
+        mixed = self.task("phase", "implementation")
+        self.assertEqual(mixed.returncode, 1, mixed.stdout)
+        self.assertIn("1 of its 2 Acceptance items", mixed.stdout)
+        self.assertIn("%s:%d" % (path, line_of(read(path), "The reader lives")), mixed.stdout)
+        # every item naming its proof is what moves the phase
+        with open(path, "w") as fh:
+            fh.write(plan_text("001", allowed=["hooks/**"], phase="discovery")
+                     + "## Acceptance\n" + COMMAND_ITEM)
         self.assertEqual(self.task("phase", "implementation").returncode, 0)
+
+    def test_the_phase_move_and_the_strict_report_refuse_the_same_plans(self):
+        # two readings of one rule: the refusal a person meets at the phase move
+        # and the report `--strict` runs before a commit must agree on every
+        # shape of Acceptance section, or one lets through what the other refuses
+        shapes = {"mixed": (COMMAND_ITEM, MISSING_ITEM),
+                  "missing": (MISSING_ITEM,),
+                  "proven": (COMMAND_ITEM, UNVERIFIABLE_ITEM),
+                  "empty": ()}
+        for name, items in shapes.items():
+            for old in os.listdir(self.open):
+                os.remove(os.path.join(self.open, old))
+            with open(os.path.join(self.open, "001-first.md"), "w") as fh:
+                fh.write(plan_text("001", allowed=["hooks/**"])
+                         + "## Acceptance\n" + "".join(items))
+            moved = self.task("start", "001", "--phase", "implementation")
+            strict = support.run([RENDER, "--acceptance", "--strict"],
+                                 env=self.env(extra={"PYTHONPATH": ""}), cwd=self.repo)
+            self.assertEqual(moved.returncode != 0, strict.returncode != 0,
+                             "%s: phase move %d, strict %d\n%s%s" % (
+                                 name, moved.returncode, strict.returncode,
+                                 moved.stdout, strict.stdout))
+            self.assertEqual(moved.returncode != 0, name in ("mixed", "missing"), name)
 
     def test_a_declared_unverifiable_item_and_an_absent_section_are_not_refused(
             self):
@@ -639,7 +731,7 @@ class Cli(TempHome):
     def test_verification_lists_every_item_and_the_projects_diff_base(self):
         path = self.plan("001-first.md", allowed=["hooks/**"])
         with open(path, "a") as fh:
-            fh.write("## Acceptance\n" + COMMAND_ITEM + MISSING_ITEM)
+            fh.write("## Acceptance\n" + COMMAND_ITEM + UNVERIFIABLE_ITEM)
         env = dict(os.environ, **GIT_ENV)
         ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
         heads = []
@@ -657,8 +749,8 @@ class Cli(TempHome):
         proc = self.task("start", "001", "--phase", "verification")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("bin/tezgah-docs --citations", proc.stdout)
-        # an item the command reader does not recognise is still owed proof
-        self.assertIn("one reader", proc.stdout)
+        # an item no command proves is still listed as owed, with its state
+        self.assertIn("corpus has no such file.  [unverifiable]", proc.stdout)
         self.assertIn("tezgah-reviewer", proc.stdout)
         self.assertIn("git diff %s..HEAD" % heads[0], proc.stdout)
         self.assertNotIn(heads[1], proc.stdout)
@@ -811,6 +903,33 @@ class Cli(TempHome):
         self.assertEqual(payload["active"]["id"], "001")
         self.assertEqual(payload["active"]["phase"], "verification")
         self.assertEqual(payload["active"]["allowed_paths"], ["tests/**"])
+        self.assertEqual([row["id"] for row in payload["open"]], ["001"])
+        self.assertEqual(payload["parallel"], [])
+
+    def test_status_lists_each_open_plan_with_its_progress_and_what_it_waits_on(self):
+        first = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(first, "a") as fh:
+            fh.write("## Acceptance\n" + COMMAND_ITEM + "- [x] done: `ruff check .`\n")
+        second = self.plan("002-second.md", allowed=["docs/**"])
+        tt.set_fields(second, after=["001"])
+        self.plan("003-third.md", allowed=["skills/**"])
+        proc = self.task("status")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("open plans: 3, 2 ready", proc.stdout)
+        self.assertIn("  001 open, acceptance 1/2 checked, ready", proc.stdout)
+        self.assertIn("  002 open, acceptance 0/0 checked, waits on 001 (open)", proc.stdout)
+        self.assertIn("parallel: 001, 003 - ready, and no two share an allowed_paths "
+                      "prefix", proc.stdout)
+
+    def test_status_refuses_a_status_and_a_dependency_no_reader_can_place(self):
+        path = self.plan("001-first.md")
+        tt.set_fields(path, status="done", after=["009"])
+        proc = self.task("status")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("FAIL 001: status 'done' is not one of open, blocked, which is "
+                      "what a plan under .tezgah/plans/open carries", proc.stdout)
+        self.assertIn("FAIL 001: `after: 009` names no plan under .tezgah/plans",
+                      proc.stdout)
 
 
 class Acceptance(unittest.TestCase):

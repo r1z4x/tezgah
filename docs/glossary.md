@@ -98,7 +98,7 @@ A mark consumed by its own first use, so the thing it protects happens once: the
 An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`, `.no-taste` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py::repo_marks`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
 
 ### plan
-A piece of work spanning sessions, one markdown file with frontmatter under `<repo root>/.tezgah/plans/open/`, moved to `.tezgah/plans/done/` when closed, up to three of them injected by `open_plans()` (`hooks/tezgah_context.py::open_plans`) and its work happening on a `plan/NNN-slug` branch. Not a TODO in code.
+A piece of work spanning sessions, one markdown file with frontmatter under `<repo root>/.tezgah/plans/open/`, moved to `.tezgah/plans/done/` when closed, up to three of them injected by `open_plans()` (`hooks/tezgah_context.py::open_plans`) and its work happening on a `plan/NNN-slug` branch. An optional `after:` names the plans it waits on, and `tezgah-task status` reads it with the ticked Acceptance boxes (`hooks/tezgah_task.py::queue`). Not a TODO in code, and not the host's session todo list, which no reader syncs with it.
 
 ### plan table
 The status table in `.tezgah/plans/README.md` (`.tezgah/plans/README.md:9`), owned by the `plan-status` skill (`skills/plan-status/SKILL.md:1`) and among the first blocks the [budget](#budget) gives up because it lives on disk (`hooks/tezgah_context.py::DROP_ORDER`). Not the injected list of open plans.
