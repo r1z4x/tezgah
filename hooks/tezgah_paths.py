@@ -592,17 +592,25 @@ JEV_CHOICES = ("auto", "typesafe", "openrouter", "cloudflare", "compatible",
                "clef", "clef-flash")
 
 
+def jev_name(value):
+    """A carrier choice as written by a user, lowercased and with the Workers AI
+    catalog prefix dropped: `@cf/cloudflare/clef-flash` is what Cloudflare's
+    dashboard and docs show, and it names the `clef-flash` carrier."""
+    value = value.strip().lower()
+    return value[len("@cf/cloudflare/"):] if value.startswith("@cf/cloudflare/") else value
+
+
 def jev_choice():
     """TEZGAH_JEV_PROVIDER, else JEV_PROVIDER (jev-mcp's name), else config.json
-    `jev`, else `auto` - lowercased. An unknown value is kept, so it resolves to
-    no carrier instead of silently to another one."""
+    `jev`, else `auto` - through `jev_name`. An unknown value is kept, so it
+    resolves to no carrier instead of silently to another one."""
     for env in ("TEZGAH_JEV_PROVIDER", "JEV_PROVIDER"):
-        value = os.environ.get(env, "").strip().lower()
+        value = jev_name(os.environ.get(env, ""))
         if value:
             return value
     cfg = config()
     value = cfg.get("jev") if isinstance(cfg, dict) else None
-    value = value.strip().lower() if isinstance(value, str) else ""
+    value = jev_name(value) if isinstance(value, str) else ""
     return value or "auto"
 
 
@@ -610,18 +618,25 @@ def jev_carriers():
     """[(carrier, secret), ...] the chosen Jev carriers in the order the seam
     asks them. `auto`: every carrier whose credential resolves. A named one: that
     carrier alone, its secret None when it does not resolve - the seam records
-    why rather than substituting another carrier."""
-    compatible = (os.environ.get("JEV_API_KEY", "").strip() or None
-                  if os.environ.get("JEV_API_BASE_URL", "").strip() else None)
-    workers_ai = cloudflare_token() if cloudflare_account() else None
-    found = [("typesafe", typesafe_key()), ("jev-openrouter", openrouter_key()),
+    why rather than substituting another carrier. Only the chosen carrier's
+    credential is read: the status line asks this on every redraw, and the
+    TypeSafe channel ends in omp's login database."""
+    def compatible():
+        return (os.environ.get("JEV_API_KEY", "").strip() or None
+                if os.environ.get("JEV_API_BASE_URL", "").strip() else None)
+
+    def workers_ai():
+        return cloudflare_token() if cloudflare_account() else None
+    found = [("typesafe", typesafe_key), ("jev-openrouter", openrouter_key),
              ("jev-cloudflare", workers_ai), ("jev-compatible", compatible),
              ("clef", workers_ai), ("clef-flash", workers_ai)]
     choice = jev_choice()
     if choice == "auto":
-        return [(name, secret) for name, secret in found if secret]
+        return [(name, secret) for name, secret in ((n, read()) for n, read in found)
+                if secret]
     name = choice if choice in ("typesafe", "clef", "clef-flash") else "jev-" + choice
-    return [(name, dict(found).get(name))]
+    read = dict(found).get(name)
+    return [(name, read() if read else None)]
 
 
 # How far a model call may leave the session's own vendor (config.json

@@ -11,6 +11,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Jev through OpenRouter asks a model OpenRouter has.** The carrier sent
   `typesafe/jev-latest`, which OpenRouter answers with 400 (no such model). It
   now sends the bare `jev-latest`, which OpenRouter maps itself.
+- **The Workers AI model id picks Clef.** `tezgah-setup` refused
+  `--jev @cf/cloudflare/clef-flash`, and the same value in
+  `TEZGAH_JEV_PROVIDER` chose no carrier. Both now name `clef-flash`, and
+  `@cf/cloudflare/clef` names `clef`.
+- **opencode's judge run denies tools at agent level too.** A user's
+  `agent.build.permission` beat the inline top-level deny.
+- **The refusal note needs an asked session CLI.** The seam writes it only
+  when it asked the session CLI first. A caller that named the CLI gets it.
+- **A chosen carrier reads only its own key.** A `clef` choice no longer opens
+  omp's login database on every status-line redraw.
 
 ## [1.5.0] - 2026-10-09
 

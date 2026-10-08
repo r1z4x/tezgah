@@ -5695,7 +5695,7 @@ def main(argv):
                     help="with --install: the language replies are asked for and "
                          "the Stop rule checks (config.json `reply_lang`; `tr` "
                          "when unset, `any` checks none)")
-    ap.add_argument("--jev", choices=tp.JEV_CHOICES,
+    ap.add_argument("--jev", type=tp.jev_name, choices=tp.JEV_CHOICES,
                     help="the carrier the judgement seam reaches the Jev model "
                          "through (config.json `jev`; `auto` tries every one "
                          "that resolves); TEZGAH_JEV_PROVIDER and JEV_PROVIDER "

@@ -148,6 +148,8 @@ reads, so one export serves both. `TEZGAH_JEV_PROVIDER` chooses the carrier,
 else `JEV_PROVIDER`, else `jev` in `~/.config/tezgah/config.json`, else `auto`
 (`jev_choice`, `hooks/tezgah_paths.py::jev_choice`). The values are `auto`,
 `typesafe`, `openrouter`, `cloudflare`, `compatible`, `clef` and `clef-flash`.
+The Workers AI ids `@cf/cloudflare/clef` and `@cf/cloudflare/clef-flash` name
+the same two (`jev_name`, `hooks/tezgah_paths.py::jev_name`).
 `tezgah-setup --jev <value>` writes the config key
 (`set_jev`, `bin/tezgah-setup::set_jev`). `auto`
 asks every carrier that resolves, in the table's order (`jev_carriers`,

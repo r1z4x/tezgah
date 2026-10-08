@@ -799,6 +799,11 @@ class OmpTypeSafeRow(SetupBase):
         proc = self.setup("--jev", "auto")
         self.assertIn("typesafe", proc.stdout)
         self.assertNotEqual(self.setup("--jev", "nope").returncode, 0)
+        # the id Cloudflare's catalog shows is taken and stored as its short name
+        proc = self.setup("--jev", "@cf/cloudflare/clef-flash")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(self.path(".config", "tezgah", "config.json")) as fh:
+            self.assertEqual(json.load(fh)["jev"], "clef-flash")
 
     def test_a_missing_key_reads_as_missing(self):
         os.makedirs(self.path(".omp", "agent"), exist_ok=True)

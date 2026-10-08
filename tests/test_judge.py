@@ -1235,6 +1235,11 @@ class OtherSessionClis(JudgeCase):
             config = json.loads(json.loads(fh.read().splitlines()[-1]))
         for tool in ("bash", "edit", "webfetch"):
             self.assertEqual(config["permission"][tool], "deny", tool)
+            # an agent's own permission beats the top-level one, so a user's
+            # `agent.build.permission.bash: allow` must meet a deny there too
+            for agent in ("build", "plan"):
+                self.assertEqual(config["agent"][agent]["permission"][tool], "deny",
+                                 (agent, tool))
 
 
 class JevCarriers(JudgeCase):
@@ -1383,6 +1388,15 @@ class JevCarriers(JudgeCase):
         self.assertEqual([p for p, _ in tezgah_judge.providers()],
                          ["typesafe", "openrouter"])
 
+    def test_a_workers_ai_model_id_names_its_carrier(self):
+        # the ids Cloudflare's catalog shows are what a user pastes
+        self.every_key()
+        for value, carrier in (("@cf/cloudflare/clef", "clef"),
+                               ("@cf/cloudflare/clef-flash", "clef-flash"),
+                               ("@CF/Cloudflare/Clef-Flash ", "clef-flash")):
+            os.environ["TEZGAH_JEV_PROVIDER"] = value
+            self.assertEqual(self.chosen(), [carrier], value)
+
     def test_a_forced_carrier_without_its_credential_is_no_carrier_and_says_why(self):
         os.environ.update(TYPESAFE_API_KEY="ts", TEZGAH_JEV_PROVIDER="cloudflare")
         self.assertEqual(self.chosen(), [])
@@ -1447,6 +1461,31 @@ class JevCarriers(JudgeCase):
         self.assertIsNone(self.ask(only=("jev",)))
         self.assertEqual(Fake.seen, [])
         self.assertIsNone(tezgah_judge.last_use()["refused"])
+
+    def test_a_named_session_cli_that_failed_still_records_the_refusal(self):
+        # the other half of the rule above: a caller that named the session CLI
+        # asked it, so its failure and the policy's refusal are both recorded
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        omp = os.path.join(bindir, "omp")
+        with open(omp, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(omp, 0o755)
+        os.environ.update(TEZGAH_OMP_BIN=omp, OMPCODE="1", TYPESAFE_API_KEY="ts")
+        with open(tp.CONFIG, "w") as fh:
+            json.dump({"fallback": "none"}, fh)
+        self.assertIsNone(self.ask(only=("omp", "typesafe")))
+        self.assertIn("refuses a third-party judge after omp failed",
+                      tezgah_judge.last_use()["refused"])
+
+    def test_a_forced_carrier_reads_no_other_carrier_s_credential(self):
+        # the status line asks this on every redraw; the TypeSafe channel ends in
+        # omp's login database, which a `clef` choice has no reason to open
+        os.environ.update(CLOUDFLARE_ACCOUNT_ID="acc", CLOUDFLARE_API_TOKEN="cf",
+                          TEZGAH_JEV_PROVIDER="clef")
+        with mock.patch.object(tp, "omp_login_key",
+                               side_effect=AssertionError("login store opened")):
+            self.assertEqual(tp.jev_carriers(), [("clef", "cf")])
 
 
 if __name__ == "__main__":

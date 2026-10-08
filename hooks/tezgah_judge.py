@@ -216,12 +216,17 @@ SESSION_ARGV = {
 # prompt asked for; the judge's state can be a screen's untrusted text, so the
 # run gets an inline config (`OPENCODE_CONFIG_CONTENT`) that denies every tool -
 # the same probe with it wrote nothing. cursor-agent's `--mode ask` refused the
-# same shell call, and codex's `-s read-only` sandbox has no network.
+# same shell call, and codex's `-s read-only` sandbox has no network. Inline
+# config overrides the user's files only key by key, and an agent's own
+# `permission` wins over the top-level one, so the deny is repeated for the two
+# built-in agents `run` uses.
+_DENY_ALL = {"*": "deny", "bash": "deny", "edit": "deny", "webfetch": "deny",
+             "external_directory": "deny"}
 SESSION_ENV = {
     "opencode": {"OPENCODE_CONFIG_CONTENT": json.dumps({
-        "permission": {"*": "deny", "bash": "deny", "edit": "deny", "webfetch": "deny",
-                       "external_directory": "deny"},
-        "tools": {"*": False}})},
+        "permission": _DENY_ALL, "tools": {"*": False},
+        "agent": {name: {"permission": _DENY_ALL, "tools": {"*": False}}
+                  for name in ("build", "plan")}})},
 }
 NO_SESSION = ("no session CLI to ask (no omp, Claude Code, opencode, Cursor or Codex "
               "session marker or TEZGAH_JUDGE_CLI/judge_cli pick, or that CLI missing)")
@@ -387,8 +392,9 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
         return result
     refused = None
     session = tp.session_cli()
-    if only is None and session and (openrouter_key()
-                                     or any(s for _, s in tp.jev_carriers())):
+    # only a session CLI that was asked can have failed before a refusal
+    if session in (p for p, _ in tried) and (openrouter_key()
+                                            or any(s for _, s in tp.jev_carriers())):
         refused = ("fallback=%s refuses a third-party judge after %s failed"
                    % (tp.fallback_policy(), session))
     _record(None, None, failed="; ".join(failed), refused=refused)
