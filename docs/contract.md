@@ -272,12 +272,17 @@ sentence of the rule.
 `PROMPT_HINTS` (`hooks/tezgah_context.py::PROMPT_HINTS`) is one compiled pattern per key
 — `spec`, `consult`, `research`, `product`, `graph`, `fanout` — and `classify_prompt()` returns the keys
 a prompt matches (`hooks/tezgah_context.py::classify_prompt`). `fanout` arms on the
-shape of the request, not a word. Two or more list entries on their own lines
-arm it, and so does an explicit subagent, parallel or worktree ask. The owner
-no longer has to say "do it with subagents, in parallel". On that turn only, the
-matching paragraphs are appended after the reminder
+shape of the request, not a word. Two list entries on their own lines arm it.
+An entry starts with `1.`, `1)`, `1 -`, `1:`, `a)` or a bullet. An inline
+`1. ... 2. ...` arms it too. So do three files named as one list, "First, ...
+Second, ..." and three imperative clauses in one sentence. An explicit
+subagent, parallel or worktree ask arms it as well. The owner no longer has to
+say "do it with subagents, in parallel". On that turn only, the matching
+paragraphs are appended after the reminder
 (`hooks/tezgah_context.py::context_for`); a session that never asks such a question
-pays the one-line pointer instead. The patterns carry Turkish stems because the
+pays the one-line pointer instead. A later match in the same session pays one
+line. The fan-out line still names the action
+(`hooks/tezgah_context.py::armed_again`). The patterns carry Turkish stems because the
 user writes Turkish, and a plain prompt arms nothing. The same prompt arms the
 same rules on every host (`tests/test_context.py::ArmingConformance.test_all_hosts_arm_the_same_rules`) and each advisory
 rule keeps a pointer line in the always-on text (`tests/test_context.py::ArmingConformance.test_every_advisory_rule_has_an_always_on_pointer`).

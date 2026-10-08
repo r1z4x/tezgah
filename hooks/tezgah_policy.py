@@ -283,9 +283,11 @@ independent work remains. Fan out only when
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
 sequence them. The shared artifact is the coordination channel, not chatter -
-naming a lead coordinates nothing by itself. If the work
-cannot be split - one file, one bounded change, a strictly serial chain - do it
-directly. Never spawn a subagent whose briefing is bigger than the work.
+naming a lead coordinates nothing by itself. Only a single item - one file, one
+bounded change, a strictly serial chain - is done directly; a list of
+independent items is never worked one by one on the main thread, however small
+each item is, and that holds at every phase: a plan's tasks, its acceptance
+commands and the sources of a survey fan out the same way.
 A slice that needs its own checkout: inside Orca (the session-start `Orca:`
 line) create it with `orca worktree create --name <slug> --parent-worktree
 active --json` and track it with `orca worktree ps --json` or `tezgah-status
@@ -897,8 +899,14 @@ project root and never `git add -f` anything under `.tezgah/`. Off:
 **Parallel by default: fan out independent items.** A request with two or
 more independent items - a numbered or bulleted list, several files or areas, a
 todo list whose entries share no file and no interface - is delegated without
-being asked: one subagent per item, all spawned in ONE message, while the main
-thread decomposes, integrates, verifies and reports. Every writing slice gets
+being asked: count the independent items, spawn one subagent per item in ONE
+message, and keep the main thread for decomposing, integrating, verifying and
+reporting. It holds at every phase, not only the first message: a plan's tasks,
+its acceptance commands and the sources of a survey are items too, and checks
+that share no state are tool calls in one message, never a queue (one suite run
+at a time: two runs of one suite storm the CPU and race on its temp state).
+No item is too small to delegate while another runs beside it; only a single
+item is done inline. Every writing slice gets
 its own branch and checkout - inside Orca `orca worktree create --name <slug>
 --parent-worktree active --json`, else `git worktree add -b <branch> <absolute
 path>`; its brief names every read, edit and shell `cwd` as an absolute path
@@ -907,7 +915,8 @@ not grow. Read-only slices need no worktree. Pick each agent by task class from
 the specialists line; `{ROUTE_BIN}` names the tier for code work. Serialize
 only a real dependency - one slice's output is another's input, or two slices
 edit one file - and say which. Never wait idle on a spawned slice while
-independent work remains. Off: `orchestrate-off`.
+independent work remains. A subagent does its own slice and never fans out
+again. Off: `orchestrate-off`.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
@@ -927,6 +936,15 @@ The ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
 # a structural or research question should not carry their text. Keys match the
 # CORE_RULES labels in hooks/tezgah_context.py.
 CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph", "fanout")
+
+# The fan-out rule's action, which the one-line repeat of an armed paragraph
+# (hooks/tezgah_context.armed_again) carries: a bare "Armed again" named a rule
+# the session had to recall, and the second list of a session was worked one
+# item at a time. It is the paragraph's own clause, cut to one sentence.
+FANOUT_ACTION = ("count the independent items, spawn one subagent per item in "
+                 "ONE message (each writing slice in its own worktree, absolute "
+                 "paths), and keep the main thread for integrating and verifying;"
+                 " a subagent does its own slice and never fans out again.")
 
 # The always-on replacement for the conditional paragraphs: one line each so a
 # host without a per-turn hook still knows the rule exists and where the full

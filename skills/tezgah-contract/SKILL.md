@@ -221,9 +221,11 @@ a list, several files or areas, todo entries that share nothing - go to one
 subagent each, and every writing slice gets its own branch and checkout (see
 below), never the main checkout. The
 orchestrator is the main thread itself: it does not wait idle on a slice while
-independent work remains. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. If the work
-cannot be split - one file, one bounded change, a strictly serial chain - do it
-directly. Never spawn a subagent whose briefing is bigger than the work.
+independent work remains. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. Only a single item - one file, one
+bounded change, a strictly serial chain - is done directly; a list of
+independent items is never worked one by one on the main thread, however small
+each item is, and that holds at every phase: a plan's tasks, its acceptance
+commands and the sources of a survey fan out the same way.
 A slice that needs its own checkout: inside Orca (the session-start `Orca:`
 line) create it with `orca worktree create --name <slug> --parent-worktree
 active --json` and track it with `orca worktree ps --json` or `tezgah-status

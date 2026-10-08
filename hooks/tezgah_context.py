@@ -26,8 +26,9 @@ from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
                               UNTRUSTED_CHANNEL)
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
-from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
-                           REPLY_LANG_TEXT, open_lines_note, pony_level_line)
+from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
+                           PROMPT_REMINDER, REPLY_LANG_TEXT, open_lines_note,
+                           pony_level_line)
 from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, off,
@@ -1122,8 +1123,13 @@ ARMED_RESURFACE = 20
 def armed_again(key):
     """The one line a matching prompt pays for a paragraph this session was
     already shown. The research rule keeps its `{OPEN_LINES}` slot: the open
-    lines are a fact about the repo now, not rule text the session holds."""
+    lines are a fact about the repo now, not rule text the session holds. The
+    fan-out rule keeps its action (`FANOUT_ACTION`): the rule is a thing to do
+    on this turn's list, and a bare reminder that it exists was not done."""
     label = dict(CORE_RULES)[key]
+    if key == "fanout":
+        return ("%s Armed again: %s The full rule is in the `tezgah-contract` "
+                "skill." % (label, FANOUT_ACTION))
     return ("%s Armed again: the full rule was given earlier this session and "
             "is in the `tezgah-contract` skill.%s"
             % (label, "{OPEN_LINES}" if key == "research" else ""))
