@@ -83,9 +83,10 @@ GRAPH_DB = CODEGRAPH + ".db"
 # Audit L-11 (GAP-10) measured 2,000 of each, 400 days old, surviving a full
 # cycle and `--clean`. The stamps and the marks are rows of the cache database
 # (`tezgah_store.sweep_cache`); the evidence directory holds the legacy ledger
-# files its import has not taken. Snapshots are not here: tezgah_snapshot caps
-# them itself.
-STATE_DIRS = ("evidence",)
+# files its import has not taken, and `turns/` and `sessions/` the files a
+# writer from an older release still running beside this one adds there.
+# Snapshots are not here: tezgah_snapshot caps them itself.
+STATE_DIRS = ("evidence", "turns", "sessions")
 STATE_LOGS = ("classify.log", "context-drops.log", "debug.log")
 RETENTION_DAYS = 30
 
@@ -297,7 +298,8 @@ def sweep_state(days, session=None):
     import tezgah_store
     from tezgah_context import slug
     from tezgah_integrity import _slug
-    keep = {_slug(session) + ".jsonl"} if session else set()
+    keep = ({_slug(session) + ".jsonl", slug(session) + ".json",
+             slug(session) + ".jsonl"} if session else set())
     cutoff = time.time() - days * 86400
     removed = freed = sessions = rows = marks = 0
     for base in dict.fromkeys((CACHE, fallback_cache())):

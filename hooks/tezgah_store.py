@@ -1054,13 +1054,16 @@ def _legacy(cache, table):
                 gone.append(meta)
     elif table == "replay_runs":
         latest = (_read_text(os.path.join(src, "latest")) or "").strip()
-        # by name (the run's start time), the one `latest` named last
-        for _ns, _name, path in sorted(_dirs(src), key=lambda d: (d[2] == latest, d[1])):
+        latest = latest and os.path.realpath(latest)
+        # by name (the run's start time), the one `latest` named last; the key
+        # is the run directory's real path (tezgah_replay._run_key)
+        for _ns, _name, path in sorted(_dirs(src), key=lambda d: (
+                os.path.realpath(d[2]) == latest, d[1])):
             summary = os.path.join(path, "summary.json")
             value = _read_json(summary)
             if isinstance(value, dict):
                 put.append(("INSERT OR IGNORE INTO replay_runs (run, summary) VALUES (?, ?)",
-                            (path, json.dumps(value))))
+                            (os.path.realpath(path), json.dumps(value))))
             if os.path.exists(summary):
                 gone.append(summary)
         if os.path.exists(os.path.join(src, "latest")):
@@ -1101,7 +1104,7 @@ def _legacy(cache, table):
                 text = _read_text(path)
                 if text is not None:
                     put.append((DOC_SQL % table, (name, at, json.dumps(text))))
-            elif name.endswith(".json"):  # taste-learn keeps its logs beside them
+            elif table in DOC_STORES and name.endswith(".json"):  # taste-learn's logs stay
                 value = _read_json(path)
                 if value is not None:
                     put.append((DOC_SQL % table, (name[:-len(".json")], at, json.dumps(value))))
@@ -1119,34 +1122,43 @@ def _legacy_done(conn):
 def _import_cache(conn, cache):
     """Bring each cache store's legacy files (CACHE_LEGACY) in, once per
     database: a store is done when `imported` holds its `legacy:<table>` row,
-    written in the transaction that takes its rows. The files are read before
-    that transaction and removed after it commits, so a process killed in
-    between imports them again into rows that ignore a second copy. With every
-    store done this is one indexed lookup per open. ponytail: a file a writer
-    from before this release adds after the import is never read (an opencode
-    plugin started before the upgrade, until it restarts). Total: a failure
-    leaves the store for the next open."""
+    written in the transaction that takes its rows, one transaction per store.
+    The files are read before that transaction and removed after it commits. A
+    file of a done store is never read again, and any open that finds one
+    removes it: one a process killed between the commit and the removal left,
+    or one a writer from before this release added (an opencode plugin started
+    before the upgrade, until it restarts). With every store done and its files
+    gone this is one indexed lookup and a stat per store per open. ponytail:
+    the snapshot manifests are not looked for once done, because that is a stat
+    per snapshot per open; a leftover one goes with its blob at eviction.
+    Total: a store that fails, whatever the error, is left for the next open
+    and costs the others nothing."""
     try:
-        todo = [table for table in CACHE_LEGACY if table not in _legacy_done(conn)]
-        if not todo:
-            return
-        work = {table: _legacy(cache, table) for table in todo}
-        with transaction(conn):
-            mine = [table for table in todo if table not in _legacy_done(conn)]
-            for table in mine:
-                for sql, args in work[table][0]:
-                    conn.execute(sql, args)
-                conn.execute("INSERT OR IGNORE INTO imported (name, dev, ino, bytes) "
-                             "VALUES (?, 0, 0, 0)", ("legacy:" + table,))
+        done = _legacy_done(conn)
     except ERRORS:
         return
-    for table in mine:
-        for path in work[table][1]:
+    for table, name in CACHE_LEGACY.items():
+        folder = os.path.join(cache, name)
+        try:
+            if table in done:
+                if table == "snapshots" or not os.path.exists(folder):
+                    continue
+                gone = _legacy(cache, table)[1]
+            else:
+                put, gone = _legacy(cache, table)
+                with transaction(conn):
+                    if table not in _legacy_done(conn):
+                        for sql, args in put:
+                            conn.execute(sql, args)
+                        conn.execute("INSERT OR IGNORE INTO imported (name, dev, ino, bytes) "
+                                     "VALUES (?, 0, 0, 0)", ("legacy:" + table,))
+        except Exception:
+            continue
+        for path in gone:
             try:
                 os.remove(path)
             except OSError:
                 pass
-        folder = os.path.join(cache, CACHE_LEGACY[table])
         for _ns, _name, path in _dirs(folder) if table == "cursor_reinforced" else ():
             try:
                 os.rmdir(path)

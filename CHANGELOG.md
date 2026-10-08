@@ -30,7 +30,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nudge marks, the judge's marks, the skill hints and the update check move
   too. So do the lesson-taint index, Cursor's marks and replies, the snapshot
   and replay indexes and the taste-learn stamps. The first open of the
-  database imports each store's old files once and deletes them. Snapshot
+  database imports each store's old files once and deletes them. A later open
+  deletes, unread, a file an older release still running writes there. Snapshot
   blobs, replay runs and logs stay files. `tezgah-doctor --clean` sweeps the
   stamps and marks there.
 

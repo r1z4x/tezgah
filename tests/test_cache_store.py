@@ -2,8 +2,9 @@
 one-time import of the files each store kept before (tezgah_store.CACHE_LEGACY).
 
 Each store group is seeded with the files its hooks wrote, one of them damaged.
-The first open of the database takes the rest in and deletes them all; a second
-open, as a new process makes it, imports nothing, even from a file put back."""
+The first open of the database takes the rest in and deletes them all; a later
+open, as a new process makes it, imports nothing, and removes a file put back
+unread."""
 import json
 import os
 import shutil
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import support
 
@@ -55,13 +57,14 @@ class Import(unittest.TestCase):
         return sorted(name for (name,) in support.cache_rows(
             self.cache, "SELECT name FROM imported WHERE name LIKE 'legacy:%'"))
 
-    def second_open(self, rel, data, unchanged):
+    def second_open(self, rel, data, unchanged, stays=False):
         """Put a legacy file back at `rel`, open again: `unchanged()` still
-        holds, the file is not read and stays, and every store is done once."""
+        holds, the file is not read and is removed (kept with `stays`), and
+        every store is done once."""
         self.put(rel, data)
         self.reopen()
         unchanged()
-        self.assertTrue(os.path.exists(self.path(rel)), rel)
+        self.assertEqual(os.path.exists(self.path(rel)), stays, rel)
         self.assertEqual(self.done(), sorted("legacy:" + t for t in ts.CACHE_LEGACY))
 
     def test_documents(self):
@@ -191,11 +194,14 @@ class Import(unittest.TestCase):
         for sid in ("aaaaaaaaaaaa", "bbbbbbbbbbbb"):
             with open(self.path("snapshots/%s/file" % sid), encoding="utf-8") as fh:
                 self.assertEqual(fh.read(), "bytes of " + sid)
+        # a done store's manifests are not looked for: one put back stays, and
+        # an indexed one goes with its blob at eviction
         self.second_open("snapshots/cccccccccccc/meta.json",
-                         json.dumps({"id": "cccccccccccc"}), imported)
+                         json.dumps({"id": "cccccccccccc"}), imported, stays=True)
 
     def test_replay_runs(self):
-        runs = [self.path("replay/2026100%d-000000" % n) for n in (1, 2, 3)]
+        # the run key is the run directory's real path (tezgah_replay)
+        runs = [os.path.realpath(self.path("replay/2026100%d-000000" % n)) for n in (1, 2, 3)]
         self.put("replay/20261001-000000/summary.json", json.dumps({"run": runs[0]}))
         self.put("replay/20261002-000000/summary.json", json.dumps({"run": runs[1]}))
         self.put("replay/20261003-000000/summary.json", "{not json")
@@ -216,6 +222,80 @@ class Import(unittest.TestCase):
         for run in runs:
             self.assertEqual(os.listdir(run), ["corpus.jsonl"])
         self.second_open("replay/latest", runs[1] + "\n", imported)
+
+    def everything(self):
+        """One legacy file for every store; the keys it should import under."""
+        self.put("sessions/s1.jsonl", '{"kind": "graph"}\n')
+        self.put("judge-down/k1", "")
+        self.put("lessons/root1.jsonl", '{"key": "k1", "source": "web"}\n')
+        self.put("judge-last.json", json.dumps({"provider": "p"}))
+        self.put("update.json", json.dumps({"latest": "9.9.9"}))
+        self.put("snapshots/aaaaaaaaaaaa/meta.json", json.dumps({"id": "aaaaaaaaaaaa"}))
+        self.put("replay/20261001-000000/summary.json", json.dumps({"n": 1}))
+        self.put("reinforced/s1/tag", "")
+        for table, name in ts.CACHE_LEGACY.items():
+            if table in ts.DOC_STORES + ts.MARK_STORES and not os.path.exists(self.path(name)):
+                self.put(name + "/k" + (".json" if table in (
+                    "turns", "switches", "skill_pick", "section_hint", "taste_learn") else ""),
+                    "{}")
+
+    def all_in(self, but=()):
+        """Every store but `but` imported and marked done."""
+        self.assertEqual(self.done(), sorted("legacy:" + t for t in ts.CACHE_LEGACY
+                                             if t not in but))
+        self.assertEqual(ts.used("s1", self.cache) == {"graph"}, "used" not in but)
+        self.assertEqual(ts.down_until("k1", self.cache) is not None, "judge_down" not in but)
+        self.assertEqual(ts.taint("root1", self.cache), {} if "lesson_taint" in but
+                         else {"k1": "web"})
+        self.assertEqual(ts.doc("update_check", "", self.cache),
+                         None if "update_check" in but else {"latest": "9.9.9"})
+        self.assertEqual(len(ts.snapshots(cache=self.cache)), 0 if "snapshots" in but else 1)
+        for table in ts.DOC_STORES + ts.MARK_STORES:
+            if table not in but and table not in ("judge_last", "update_check",
+                                                  "cursor_reinforced"):
+                self.assertEqual(support.store_keys(self.cache, table), ["k"], table)
+
+    def test_a_stray_file_costs_no_other_store_its_import(self):
+        # a `.json` file in the used-kind store's directory was taken for a
+        # document and its INSERT failed every store's one transaction
+        self.everything()
+        self.put("sessions/x.json", "{}")
+        self.put("lessons/x.json", "{}")
+        ts.used("s1", self.cache)
+        self.all_in()
+        # not a file of the store: left where it was
+        self.assertTrue(os.path.exists(self.path("sessions/x.json")))
+
+    def test_a_store_that_fails_costs_the_others_nothing(self):
+        self.everything()
+        legacy = ts._legacy
+
+        def broken(cache, table):
+            if table == "turns":
+                raise UnicodeEncodeError("utf-8", "\udcff", 0, 1, "surrogates not allowed")
+            return legacy(cache, table)
+
+        with mock.patch.object(ts, "_legacy", broken):
+            ts.used("s1", self.cache)
+        self.all_in(but=("turns",))
+        self.assertTrue(os.path.exists(self.path("turns/k.json")))
+        # the next open takes it
+        self.reopen()
+        self.assertEqual(ts.doc("turns", "k", self.cache), {})
+        self.all_in()
+
+    def test_files_a_killed_import_left_go_on_the_next_open(self):
+        # killed between the commit and the removal: the rows are in, the
+        # store is done, and the files are still there
+        self.everything()
+        with mock.patch.object(ts.os, "remove", side_effect=OSError):
+            ts.used("s1", self.cache)
+        self.assertTrue(os.path.exists(self.path("sessions/s1.jsonl")))
+        self.put("sessions/s1.jsonl", '{"kind": "consult"}\n')
+        self.reopen()
+        self.all_in()
+        self.absent("sessions", "judge-down", "lessons", "judge-last.json", "update.json",
+                    "reinforced", "replay/20261001-000000/summary.json", "turns/k.json")
 
 
 if __name__ == "__main__":
