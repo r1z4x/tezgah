@@ -718,6 +718,12 @@ class SessionCli(TempHome):
         self.config({"judge_cli": "cursor"})
         self.assertEqual(self.cli(missing=("cursor",), CLAUDECODE="1"), "None")
 
+    def test_a_judge_cli_that_is_not_a_string_detects(self):
+        # a hand-edited list must not raise: session_cli() feeds the status
+        # line and the judge seam, both of which must never raise
+        self.config({"judge_cli": ["codex"]})
+        self.assertEqual(self.cli(CLAUDECODE="1"), "claude")
+
 
 if __name__ == "__main__":
     unittest.main()

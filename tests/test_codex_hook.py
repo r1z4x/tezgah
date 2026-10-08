@@ -19,6 +19,26 @@ class CodexHook(TempHome):
         self.assertEqual(hso["hookEventName"], "SessionStart")
         self.assertTrue(hso["additionalContext"].strip())
 
+    def test_a_hook_names_its_codex_session_for_the_judge(self):
+        # codex gives its hooks no session marker of their own, so the hook
+        # exports the payload's session id; without it session_cli() inside a
+        # codex hook is None and the judge skips the session's own CLI
+        import contextlib
+        import importlib.util
+        import io
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("codex_hook", support.CODEX_HOOK)
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+        payload = json.dumps({"hook_event_name": "Noop", "cwd": self.home,
+                              "session_id": "s-codex"})
+        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+                mock.patch("sys.stdin", io.StringIO(payload)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            os.environ.pop("CODEX_THREAD_ID", None)
+            hook.main()
+            self.assertEqual(os.environ.get("CODEX_THREAD_ID"), "s-codex")
+
     def test_the_pretool_matcher_names_every_shell_spelling_the_post_side_records(self):
         # review R051b F5: PostToolUse has no matcher, so a `shell` call there
         # writes its `verify_ok` while a PreToolUse that misses it writes no

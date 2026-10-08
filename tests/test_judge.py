@@ -1103,6 +1103,8 @@ FAKE_OTHER_CLI = r'''#!/usr/bin/env python3
 import json, os, sys
 with open(os.environ["FAKE_CLI_LOG"], "a") as fh:
     fh.write(json.dumps(sys.argv) + "\n")
+with open(os.environ["FAKE_CLI_LOG"] + ".config", "a") as fh:
+    fh.write(json.dumps(os.environ.get("OPENCODE_CONFIG_CONTENT")) + "\n")
 name = os.path.basename(sys.argv[0])
 mode = os.environ.get("FAKE_CLI_MODE", "")
 if mode == "exit":
@@ -1223,6 +1225,16 @@ class OtherSessionClis(JudgeCase):
             tezgah_judge._session_request("codex", os.environ["TEZGAH_CODEX_BIN"],
                                           packet, 30, self.QUESTION)
         self.assertIn("model is not supported", str(caught.exception))
+
+    def test_opencode_runs_with_every_tool_denied(self):
+        # `opencode run` ran a bash tool from the prompt on 2026-10-09 (probe:
+        # the file it was told to write appeared); the judge's prompt carries
+        # untrusted state, so the run gets a config that denies every tool
+        self.check("OPENCODE", "opencode", {"input_tokens": 10, "output_tokens": 3})
+        with open(self.log + ".config") as fh:
+            config = json.loads(json.loads(fh.read().splitlines()[-1]))
+        for tool in ("bash", "edit", "webfetch"):
+            self.assertEqual(config["permission"][tool], "deny", tool)
 
 
 class JevCarriers(JudgeCase):
@@ -1391,6 +1403,21 @@ class JevCarriers(JudgeCase):
                           CLOUDFLARE_API_TOKEN="cf")
         self.assertIsNone(self.ask())
         self.assertIn("refuses a third-party judge", tezgah_judge.last_use()["refused"])
+
+    def test_a_caller_that_named_jev_records_no_refusal_of_a_cli_never_asked(self):
+        # only=("jev",) never asks the session CLI, so a missing carrier
+        # credential must not read as "refuses a third-party judge after omp failed"
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        omp = os.path.join(bindir, "omp")
+        with open(omp, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(omp, 0o755)
+        os.environ.update(TEZGAH_OMP_BIN=omp, OMPCODE="1", OPENROUTER_API_KEY="o",
+                          TEZGAH_JEV_PROVIDER="cloudflare")
+        self.assertIsNone(self.ask(only=("jev",)))
+        self.assertEqual(Fake.seen, [])
+        self.assertIsNone(tezgah_judge.last_use()["refused"])
 
 
 if __name__ == "__main__":

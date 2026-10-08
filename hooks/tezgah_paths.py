@@ -667,7 +667,7 @@ def session_cli():
     cfg = config()
     pick = (os.environ.get("TEZGAH_JUDGE_CLI", "").strip()
             or (cfg.get("judge_cli") if isinstance(cfg, dict) else None))
-    if pick not in bins:
+    if not isinstance(pick, str) or pick not in bins:
         pick = next((name for name, markers in SESSION_CLIS
                      if any(os.environ.get(m) for m in markers)), None)
     return pick if pick and bins[pick]() else None

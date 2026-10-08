@@ -205,6 +205,18 @@ SESSION_ARGV = {
     "codex": ["exec", "--json", "--ephemeral", "--skip-git-repo-check",
               "--ignore-rules", "-s", "read-only", "--color", "never"],
 }
+# What the CLI's environment adds to the call. `opencode run` has no flag that
+# drops its tools, and a probe on 2026-10-09 saw it run a bash command the
+# prompt asked for; the judge's state can be a screen's untrusted text, so the
+# run gets an inline config (`OPENCODE_CONFIG_CONTENT`) that denies every tool -
+# the same probe with it wrote nothing. cursor-agent's `--mode ask` refused the
+# same shell call, and codex's `-s read-only` sandbox has no network.
+SESSION_ENV = {
+    "opencode": {"OPENCODE_CONFIG_CONTENT": json.dumps({
+        "permission": {"*": "deny", "bash": "deny", "edit": "deny", "webfetch": "deny",
+                       "external_directory": "deny"},
+        "tools": {"*": False}})},
+}
 NO_SESSION = ("no session CLI to ask (no omp, Claude Code, opencode, Cursor or Codex "
               "session marker or TEZGAH_JUDGE_CLI/judge_cli pick, or that CLI missing)")
 
@@ -357,7 +369,8 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
         return result
     refused = None
     session = tp.session_cli()
-    if session and (openrouter_key() or any(s for _, s in tp.jev_carriers())):
+    if only is None and session and (openrouter_key()
+                                     or any(s for _, s in tp.jev_carriers())):
         refused = ("fallback=%s refuses a third-party judge after %s failed"
                    % (tp.fallback_policy(), session))
     _record(None, None, failed="; ".join(failed), refused=refused)
@@ -696,7 +709,8 @@ def _session_request(name, exe, prompt, timeout, questions):
         proc = subprocess.run([exe] + SESSION_ARGV[name] + [prompt], cwd=cwd,
                               stdin=subprocess.DEVNULL, capture_output=True,
                               text=True, timeout=timeout,
-                              env=dict(os.environ, TEZGAH_NESTED="1"))
+                              env=dict(os.environ, TEZGAH_NESTED="1",
+                                       **SESSION_ENV.get(name, {})))
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode:

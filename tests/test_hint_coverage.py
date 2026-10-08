@@ -266,3 +266,14 @@ class HintCoverage(unittest.TestCase):
         self.assertGreaterEqual(len(CORPUS), 100)
         for key in ("spec", "consult", "research", "product", "graph", "fanout"):
             self.assertTrue(any(key in want for want in CORPUS.values()), key)
+
+    def test_a_long_paste_classifies_in_bounded_time(self):
+        # the prompt hook runs every pattern over the whole prompt: an
+        # unanchored file-list pattern took about a minute on 100 KB of word
+        # characters, so each adversarial shape gets a wall-clock ceiling
+        import time
+        for text in ("a" * 100_000, "a/b." * 25_000, "1 - x\n" * 16_000,
+                     "fix a, " * 14_000):
+            started = time.monotonic()
+            tc.classify_prompt(text)
+            self.assertLess(time.monotonic() - started, 3.0, text[:20])

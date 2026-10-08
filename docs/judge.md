@@ -117,6 +117,10 @@ rules, skills, extensions, MCP servers and settings. The other three have no fla
 that drops their tools or takes a system prompt. They run with the least their
 `--help` offers: opencode `--pure`, cursor-agent `--mode ask`, codex
 `-s read-only --ephemeral`. Their prompt starts with the system prompt.
+`opencode run` ran a shell command its prompt asked for in a probe on
+2026-10-09. So it also gets an inline config that denies every tool
+(`SESSION_ENV`, `hooks/tezgah_judge.py::SESSION_ENV`). With it, the same probe
+wrote nothing. cursor-agent in ask mode refused the same shell call.
 Measured 2026-10-07, a call cost $0.007 on claude and $0.015 on omp. Measured
 2026-10-09 on one choice question, opencode read 28,646 input tokens ($0.004 by
 its own report), cursor-agent 17,095 and codex 20,919. The session's own
