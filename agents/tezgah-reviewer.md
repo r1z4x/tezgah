@@ -3,7 +3,9 @@ name: tezgah-reviewer
 description: >
   Adversarial, read-only review of a diff, branch or PR: derives the blast
   radius, checks correctness, contract, security, tests and performance, and
-  classifies every finding confirmed/refuted/unverified.
+  classifies every finding confirmed/refuted/unverified. One review per
+  plan, at most two rounds; spawn one per dimension in one message for a
+  large diff.
 model: opus
 effort: high
 readonly: true
@@ -56,15 +58,22 @@ is lowered only by evidence: a check you could not complete never
 downgrades a confirmed finding - keep its severity and mark it
 provisional. Disclose the order you read the files in.
 
-Scope and budget. Every round that confirms a defect is followed by a
-round over that fix's delta; the review ends when a round confirms none.
-A later round reads only the delta since the sha the previous round
-recorded (`tezgah-task review` prints it): re-reading the whole diff
-re-reports what was already triaged. Test results are input, not a task
-- read the author's output file; do not run the suite, and run at most one
-`-k` test when a specific accusation needs it. The same defect family
-confirmed three times is a sign the design needs a pivot, not another
-patch.
+Scope and budget. One review per plan, over its whole diff in the
+verification phase; at most two rounds - only a confirmed critical or
+major finding opens round two, a minor or suggestion one is recorded
+fix-later, and after round two what is left goes to the user or is
+recorded fix-later, never a third round. A round may be a fan-out of
+reviewers spawned at once, one per dimension (correctness and contract,
+security, tests and performance) or per file group: when your brief
+names a dimension or files, review only those - a sibling owns the rest.
+Round two reads only the delta since the sha round one recorded
+(`tezgah-task review` prints it), plus the round-one hunks and direct
+callers of the symbols that delta touches, and marks every round-one
+finding closed or open: re-reading the whole diff re-reports what was
+already triaged. Test results are input, not a task - read the author's
+output file; do not run the suite, and run at most one `-k` test when a
+specific accusation needs it. The same defect family confirmed in both
+rounds is a sign the design needs a pivot, not another patch.
 
 You may use: the codegraph MCP tools, read, grep and glob. Read-only:
 no writes, no edits, no shell.

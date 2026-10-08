@@ -22,13 +22,13 @@ creates the plan, and `start` without `--allow` keeps it. A writing phase with
 no allowlist is refused unless `--any-path` says so explicitly, and the record
 keeps where its scope came from (`allowed_from:`), which `status` prints.
 
-`review` and `close` are the session's: the verification phase asks for a
-fresh reviewer's read of the diff, `review` records its verdict as
+`review` and `close` are the session's: the verification phase asks for one
+review of the plan's whole diff, `review` records its verdict as
 `review: <reviewer> <verdict> <date>` together with `reviewed_sha:` (the
 project's HEAD it read) and `review_round:`, so the next round reads only
-`git diff <reviewed_sha>..HEAD` and the two-round budget is countable; `close
-NNN done` refuses a plan whose review is missing or not `approve`. `close`
-refuses the active task - that one is the user's to stop first.
+`git diff <reviewed_sha>..HEAD`, and refuses a third round: the budget is two
+rounds per plan; `close NNN done` refuses a plan whose review is missing or not
+`approve`. `close` refuses the active task - that one is the user's to stop first.
 
 Two things the plan owes are asked here, at the only moment they can still be
 fixed - the phase move - because the record is the user's and the refusal is
@@ -139,6 +139,14 @@ def write_fields(path, **fields):
 
 ANY_PATH = "--any-path"
 VERDICTS = ("approve", "changes")
+# The review budget, enforced here and nowhere else: `review` refuses a third
+# round, and every text that states the rule (the reviewer agent, the contract,
+# plan-sync) says the same two rounds.
+REVIEW_ROUNDS = 2
+# Under this many changed lines one reviewer reads every dimension; at or above
+# it the round fans out. ponytail: a line count, not a risk model - a small diff
+# that touches a trust boundary is the brief's to route to security.
+SMALL_DIFF = 300
 
 
 def allow_source(text):
@@ -295,12 +303,23 @@ def phase_problems(phase, text, path):
     return out
 
 
+def changed_lines(root, base):
+    """Lines `git diff <base>..HEAD` adds and removes, or None when git cannot
+    say (no base, not a repository)."""
+    stat = git_out(root, "diff", "--shortstat", base + "..HEAD") \
+        if base != "<base>" else None
+    if stat is None:
+        return None
+    return sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", stat))
+
+
 def verification_steps(text, path):
     """What the verification phase requires before the plan is done: the plan's
-    own acceptance commands run once on the final tree, unpiped, and a fresh
-    reviewer's read of the diff, recorded with `review` - `close NNN done` refuses
-    without it. A round after the first reads only the delta since the sha the
-    last `review` recorded, and the review budget is two rounds."""
+    own acceptance commands run once on the final tree, unpiped, and ONE review
+    of the plan's whole diff, recorded with `review` - `close NNN done` refuses
+    without an approve. Round one fans out one reviewer per dimension, round two
+    reads only the delta since the sha round one recorded, and REVIEW_ROUNDS is
+    the budget `review` enforces."""
     fields = tt.frontmatter(text)
     ident = fields.get("id") or os.path.basename(path).split("-")[0]
     # every item, not only the ones the command reader recognises: `pnpm test`
@@ -311,7 +330,7 @@ def verification_steps(text, path):
              for i in tt.acceptance_items(text)]
     # the project, not the private repository `.tezgah` may hold
     root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
-    reviewed = fields.get("reviewed_sha") or ""
+    reviewed = fields.get("reviewed_sha") or "(no commit)"
     prior = fields.get("review_round") or ""
     rounds = int(prior) if prior.isdigit() else 0
     print("verification - required before this plan is done:")
@@ -322,16 +341,39 @@ def verification_steps(text, path):
         print("     - %s" % item)
     if os.path.isfile(os.path.join(root, "tests", "impacted.py")):
         print("     the one full run here is `python3 tests/impacted.py --all`")
-    if reviewed:
-        print("  2. review round %d: a fresh tezgah-reviewer reads only the delta "
-              "`git diff %s..HEAD` and the test output above; it does not re-run "
-              "the suite" % (rounds + 1, reviewed))
-        if rounds >= 2:
-            print("     the 2-round budget is spent: triage what is left as block "
-                  "(back to the user) or fix-later (recorded), never a third loop")
+    if rounds and review_verdict(text) == "approve":
+        print("  2. the review approved in round %d at %s: no further round"
+              % (rounds, reviewed))
+        print("  3. `tezgah-task close %s done` once the work lands" % ident)
+        return
+    if rounds >= REVIEW_ROUNDS:
+        print("  2. the %d-round budget is spent: `tezgah-task review` refuses a "
+              "third round. A critical or major finding still confirmed goes to "
+              "the user (block); a minor or suggestion one is recorded fix-later "
+              "under the plan's ## State" % REVIEW_ROUNDS)
+        return
+    if rounds:
+        print("  2. review round 2 (the last): each confirmed critical or major "
+              "finding is fixed with a regression test that failed first; one "
+              "fresh tezgah-reviewer reads only the delta `git diff %s..HEAD`, the "
+              "round-1 hunks and direct callers of the symbols it touches, and the "
+              "test output above, and marks every round-1 finding closed or open; "
+              "it does not re-run the suite" % reviewed)
     else:
-        print("  2. a fresh reviewer - the host's tezgah-reviewer subagent - "
-              "reads `git diff %s..HEAD` and the test output above" % diff_base(root))
+        base = diff_base(root)
+        size = changed_lines(root, base)
+        print("  2. one review of the whole plan, at most %d rounds: spawn fresh "
+              "tezgah-reviewer subagents in ONE message, each owning one dimension "
+              "- correctness and contract, security, tests and performance - or one "
+              "file group of a large diff, over `git diff %s..HEAD` and the test "
+              "output above, then merge their findings into one verdict. Under %d "
+              "changed lines one reviewer reads every dimension (this diff: %s), "
+              "unless the diff touches auth, secrets or a gate, which keeps a "
+              "security reviewer" % (REVIEW_ROUNDS, base, SMALL_DIFF,
+                                     "unknown" if size is None else size))
+        print("     only a confirmed critical or major finding is `changes` and "
+              "opens round 2; a minor or suggestion one is recorded fix-later "
+              "under ## State and the verdict is `approve`")
     print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
           " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
@@ -495,6 +537,16 @@ def review_verdict(text):
     return parts[1] if len(parts) >= 2 and parts[1] in VERDICTS else None
 
 
+def budget_spent(path, ident):
+    """The refusal once REVIEW_ROUNDS rounds are recorded: what is left belongs
+    to the user, never to a third round."""
+    return ("%s has spent its %d-round review budget: never a third round. A "
+            "critical or major finding still confirmed goes to the user, who "
+            "decides (block); a minor or suggestion one is recorded fix-later "
+            "under the plan's ## State; `tezgah-task close %s discarded` needs no "
+            "review" % (path, REVIEW_ROUNDS, ident))
+
+
 def cmd_review(args):
     if len(args) != 3 or args[2] not in VERDICTS:
         return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
@@ -503,6 +555,8 @@ def cmd_review(args):
         return problems([problem])
     fields = tt.frontmatter(read(path))
     prior = fields.get("review_round") or ""
+    if prior.isdigit() and int(prior) >= REVIEW_ROUNDS:
+        return problems([budget_spent(path, os.path.basename(path).split("-")[0])])
     # the project's HEAD, never the private `.tezgah` repository's: the next
     # round's delta is `git diff <this>..HEAD` over the project
     root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
@@ -535,6 +589,9 @@ def cmd_close(args):
         return problems(["%s is the active task: the user stops it first "
                          "(`tezgah-task stop`)" % path])
     if args[1] == "done" and review_verdict(text) != "approve":
+        prior = tt.frontmatter(text).get("review_round") or ""
+        if prior.isdigit() and int(prior) >= REVIEW_ROUNDS:
+            return problems([budget_spent(path, ident)])
         return problems(["%s records no approving review: a fresh reviewer reads "
                          "the diff, then `tezgah-task review %s <reviewer> approve`"
                          % (path, ident)])

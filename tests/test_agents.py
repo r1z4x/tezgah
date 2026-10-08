@@ -334,13 +334,17 @@ class Generation(AgentsBase):
                 self.assertIn(self.FLOOR, " ".join(text.split()),
                               "%s on %s" % (role, host))
 
-    ROUNDS = ("Every round that confirms a defect is followed by a round over that "
-              "fix's delta; the review ends when a round confirms none.")
+    BUDGET = ("One review per plan, over its whole diff in the verification phase; "
+              "at most two rounds - only a confirmed critical or major finding opens "
+              "round two, a minor or suggestion one is recorded fix-later, and after "
+              "round two what is left goes to the user or is recorded fix-later, "
+              "never a third round.")
 
-    def test_the_reviewer_re_reviews_every_fix_and_names_no_round_cap(self):
-        # A fixed "stop at two rounds" ended review while defects remained:
-        # two internal plans each had a test-confirmed defect after round two,
-        # and two of one plan's four severe defects came in with the previous fix.
+    def test_the_reviewer_names_the_two_round_budget_on_every_host(self):
+        # "the review ends when a round ..." had no cap, and any minor finding
+        # opened another round: a finished plan was reviewed round after round.
+        # The budget keeps no severe finding silent - after round two it goes to
+        # the user - and `tezgah-task review` refuses a third round.
         # One rule, on every host and in the plugin's own copy.
         self.sync()
         out, proc = run_json([support.PROBE_AGENTS],
@@ -356,8 +360,22 @@ class Generation(AgentsBase):
             "omp": out["tezgah-reviewer.md"]})
         for host, text in texts.items():
             flat = " ".join(text.split())
-            self.assertIn(self.ROUNDS, flat, host)
-            self.assertNotIn("two rounds", flat, host)
+            self.assertIn(self.BUDGET, flat, host)
+            self.assertNotIn("confirms none", flat, host)
+
+    def test_the_contract_policy_and_plan_sync_say_the_reviewers_budget(self):
+        # four hand-kept copies of one rule drift apart one at a time: the agent
+        # text looped while the CLI printed two rounds
+        import tezgah_policy as policy
+        texts = {"policy": policy.EXEC}
+        for rel in (("skills", "tezgah-contract", "SKILL.md"),
+                    ("skills", "plan-sync", "SKILL.md")):
+            with open(os.path.join(support.REPO, *rel), encoding="utf-8") as fh:
+                texts[rel[1]] = fh.read()
+        for name, text in texts.items():
+            flat = " ".join(text.split())
+            self.assertIn(self.BUDGET, flat, name)
+            self.assertNotIn("confirms none", flat, name)
 
     def test_a_tier_worker_may_not_widen_or_narrow_its_own_scope(self):
         # A delegate that answered a wider or narrower question than it was

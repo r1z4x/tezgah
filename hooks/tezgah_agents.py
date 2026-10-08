@@ -206,15 +206,22 @@ def _reviewer_body(host):
         "is lowered only by evidence: a check you could not complete never\n"
         "downgrades a confirmed finding - keep its severity and mark it\n"
         "provisional. Disclose the order you read the files in.\n\n"
-        "Scope and budget. Every round that confirms a defect is followed by a\n"
-        "round over that fix's delta; the review ends when a round confirms none.\n"
-        "A later round reads only the delta since the sha the previous round\n"
-        "recorded (`tezgah-task review` prints it): re-reading the whole diff\n"
-        "re-reports what was already triaged. Test results are input, not a task\n"
-        "- read the author's output file; do not run the suite, and run at most one\n"
-        "`-k` test when a specific accusation needs it. The same defect family\n"
-        "confirmed three times is a sign the design needs a pivot, not another\n"
-        "patch.\n\n"
+        "Scope and budget. One review per plan, over its whole diff in the\n"
+        "verification phase; at most two rounds - only a confirmed critical or\n"
+        "major finding opens round two, a minor or suggestion one is recorded\n"
+        "fix-later, and after round two what is left goes to the user or is\n"
+        "recorded fix-later, never a third round. A round may be a fan-out of\n"
+        "reviewers spawned at once, one per dimension (correctness and contract,\n"
+        "security, tests and performance) or per file group: when your brief\n"
+        "names a dimension or files, review only those - a sibling owns the rest.\n"
+        "Round two reads only the delta since the sha round one recorded\n"
+        "(`tezgah-task review` prints it), plus the round-one hunks and direct\n"
+        "callers of the symbols that delta touches, and marks every round-one\n"
+        "finding closed or open: re-reading the whole diff re-reports what was\n"
+        "already triaged. Test results are input, not a task - read the author's\n"
+        "output file; do not run the suite, and run at most one `-k` test when a\n"
+        "specific accusation needs it. The same defect family confirmed in both\n"
+        "rounds is a sign the design needs a pivot, not another patch.\n\n"
         "%s" % (_graph_howto(host), _blast_radius(host), EMPTY_IS_NOT_PROOF,
                 _may_use(host)))
 
@@ -343,7 +350,8 @@ ROLES = (
     ("tezgah-reviewer",
      "Adversarial, read-only review of a diff, branch or PR: derives the blast "
      "radius, checks correctness, contract, security, tests and performance, and "
-     "classifies every finding confirmed/refuted/unverified.",
+     "classifies every finding confirmed/refuted/unverified. One review per plan, "
+     "at most two rounds; spawn one per dimension in one message for a large diff.",
      lambda infra: infra["caps"]["graph"], _reviewer_body, True),
     ("tezgah-cheap",
      "Mechanical, fully specified edits on the cheapest model tier: renames, "

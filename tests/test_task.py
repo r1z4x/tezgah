@@ -706,6 +706,49 @@ class Cli(TempHome):
         out = self.task("status").stdout
         self.assertIn("2-round budget is spent", out)
 
+    def test_a_third_review_round_is_refused(self):
+        # The reviewer text looped while any round confirmed a defect, and this CLI
+        # printed a two-round budget and recorded round 3, 4, ... anyway: a plan
+        # reviewed fifty times in a row. The budget is this refusal, not prose.
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        for _ in range(2):
+            self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                       "changes").returncode, 0)
+        before = read(path)
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("never a third", refused.stdout)
+        self.assertIn("to the user", refused.stdout)
+        self.assertIn("fix-later", refused.stdout)
+        self.assertEqual(read(path), before)
+        # what is left is the user's: close done stays refused, discarded is open
+        self.assertIn("to the user", self.task("close", "001", "done").stdout)
+
+    def test_verification_names_the_fan_out_and_the_budget_per_round(self):
+        self.plan("001-first.md", allowed=["hooks/**"])
+        first = self.task("start", "001", "--phase", "verification").stdout
+        for words in ("ONE message", "correctness and contract", "security",
+                      "tests and performance", "one reviewer", "at most 2 rounds",
+                      "critical or major", "fix-later"):
+            self.assertIn(words, first)
+        self.task("review", "001", "tezgah-reviewer", "changes")
+        second = self.task("status").stdout
+        self.assertIn("review round 2 (the last)", second)
+        self.assertIn("regression test", second)
+        self.task("review", "001", "tezgah-reviewer", "changes")
+        spent = self.task("status").stdout
+        self.assertIn("2-round budget is spent", spent)
+        self.assertIn("refuses a third", spent)
+        self.assertNotIn("record its verdict", spent)
+
+    def test_an_approving_round_owes_no_further_round(self):
+        self.plan("001-first.md", allowed=["hooks/**"])
+        self.task("start", "001", "--phase", "verification")
+        self.task("review", "001", "tezgah-reviewer", "approve")
+        out = self.task("status").stdout
+        self.assertIn("approved in round 1", out)
+        self.assertNotIn("review round 2", out)
+
     def test_close_refuses_the_active_task_and_discards_without_review(self):
         self.plan("001-first.md", phase="discovery")
         self.plan("002-second.md")
