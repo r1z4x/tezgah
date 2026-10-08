@@ -19,6 +19,7 @@ import tezgah_context as tc  # noqa: E402
 
 SPEC = "**Spec before building.**"
 RESEARCH = "**Research: route it to OpenResearch.**"
+FANOUT = "**Parallel by default: fan out independent items.**"
 
 
 class ArmedOncePerSession(TempHome):
@@ -73,6 +74,17 @@ class ArmedOncePerSession(TempHome):
         again = self.prompt("literatür taraması yap", patch=patch)
         self.assertIn(RESEARCH + " Armed again", again)
         self.assertIn("OPEN-LINES-FACT", again)
+
+    def test_the_fanout_repeat_names_the_action_not_only_the_rule(self):
+        # "Armed again" alone named a rule the session had to recall; the second
+        # list of the session was then worked one item at a time
+        lists = "1 - fix the parser\n2 - update the release notes"
+        self.assertIn(FANOUT, self.prompt(lists))
+        again = self.prompt(lists)
+        self.assertIn(FANOUT + " Armed again", again)
+        for words in ("count the independent items", "one subagent per item",
+                      "in ONE message", "own worktree", "main thread"):
+            self.assertIn(words, again)
 
     def test_the_full_paragraph_resurfaces_after_the_pinned_turn_count(self):
         # Cursor and dsh send no compaction signal, so a paragraph shown early

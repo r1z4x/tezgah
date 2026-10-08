@@ -29,6 +29,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `learn`'s report key `typesafe` is now `jev`. Replay's `--provider typesafe`
   is now `--provider jev`, and the old name still works. The triage's no-judge
   message names every carrier, the selection knob and the session CLIs.
+- **The fan-out rule arms on the lists the owner writes.** Items written
+  `1 - ...`, `1- `, `1:`, `a)` or `+` now arm it. An inline `1. ... 2. ...`
+  arms it, and so does "subagentlerle". Three files named as one list arm it
+  too, and so do "First, ... Second, ..." and three imperative clauses. A later
+  list in the same session gets a line that names the action: count the items,
+  one subagent per item in one message. The rule covers every phase: a plan's
+  tasks, its acceptance commands and a survey's sources fan out too. The clause
+  that let a list of small items run one by one is gone.
 
 ### Added
 

@@ -26,8 +26,9 @@ from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
                               UNTRUSTED_CHANNEL)
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
-from tezgah_policy import (CONDITIONAL_KEYS, CORE, POINTERS, PROMPT_REMINDER,
-                           REPLY_LANG_TEXT, open_lines_note, pony_level_line)
+from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
+                           PROMPT_REMINDER, REPLY_LANG_TEXT, open_lines_note,
+                           pony_level_line)
 from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, off,
@@ -104,6 +105,21 @@ def _tr_ui_ask(word):
     """`word` after a Turkish UI surface in the same phrase - `_ui_ask`'s
     object-first half, for the language whose object comes first."""
     return (r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (TR_UI_OBJECTS, word))
+
+
+# The fan-out hint's parts (PROMPT_HINTS["fanout"]). A list item's marker:
+# `1.`, `1)`, `1 -`, `1:`, `a)`, or a `-`/`*`/`+`/`•` bullet, then its text.
+_FAN_ITEM = r"(?:\d+[ \t]*[.):\u2013-]|[a-z]\)|[-*+\u2022])[ \t]+\S"
+# A file a prompt names: a path with a directory, or a name with an extension.
+# Anchored at a token start: unanchored, a long run of word characters made
+# every position a start and the search quadratic (100 KB took minutes).
+_FAN_FILE = (r"(?<![\w./-])[`'\"]?(?:(?:[\w.-]+/)+[\w.-]*\w|"
+             r"\w[\w-]*\.[a-z]{1,4}\b)[`'\"]?")
+# The imperative that opens an English clause and closes a Turkish one.
+_FAN_VERB_EN = (r"(?:fix|add|update|write|remove|delete|rename|move|refactor|"
+                r"document|bump|create|implement|migrate|replace)")
+_FAN_VERB_TR = (r"(?:düzelt|güncelle|ekle|yaz|sil|kaldır|taşı|bitir|tamamla|"
+                r"incele|oluştur|değiştir)")
 
 
 PROMPT_HINTS = (
@@ -340,9 +356,22 @@ PROMPT_HINTS = (
     # had to say "do everything with subagents and in parallel" on every task
     # because nothing armed the fan-out rule from the shape of the request.
     # `parallelize` alone is code work, so only the delegation phrasings count.
-    ("fanout", r"(?ms:^[ \t]*\d+[.)][ \t]+\S.*?^[ \t]*\d+[.)][ \t]+\S)|"
-               r"(?ms:^[ \t]*[-*•][ \t]+\S.*?^[ \t]*[-*•][ \t]+\S)|"
-               r"\b(?:in parallel|paralel\w*|sub-?agents?|alt ?ajan\w*|"
+    # The owner's own shapes armed nothing until 2026-10-09: `1 - `, `1- `,
+    # `1:`, `a)`, `+` items, an inline `1. ... 2. ...`, "subagentlerle", three
+    # files named as one list, "First, ... Second, ...", and three imperative
+    # clauses in one sentence (clause-initial in English, clause-final in
+    # Turkish). A timestamp, a range and a traceback stay out (the corpus).
+    ("fanout", r"(?ms:^[ \t]*" + _FAN_ITEM + r".*?^[ \t]*" + _FAN_ITEM + r")|"
+               r"(?<![\w.])1[ \t]*[.)-][ \t]+\S[^\n]*?(?<![\w.])2[ \t]*[.)-][ \t]+\S|"
+               + _FAN_FILE + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|ve)[ \t]+)?|"
+               r"(?:and|ve|&)[ \t]+)" + _FAN_FILE + r"){2,}|"
+               r"(?s:\bfirst(?:ly)?[,:].*?\bsecond(?:ly)?[,:])|"
+               r"(?s:\bbirinci(?:si)?[,:].*?\bikinci(?:si)?[,:])|"
+               r"(?m:(?:(?:^|[,;]|\band\b)[ \t]*(?:and[ \t]+)?" + _FAN_VERB_EN
+               + r"\b[^\n]*?){3})|"
+               r"(?m:(?:\b" + _FAN_VERB_TR + r"\w{0,4}[ \t]*(?:[,;.]|\bve\b|$)"
+               r"[^\n]*?){3})|"
+               r"\b(?:in parallel|paralel\w*|sub-?agent\w*|alt ?ajan\w*|"
                r"worktrees?|fan[- ]?out|orchestrat\w*|orkestra\w*)\b"),
 )
 
@@ -1094,8 +1123,13 @@ ARMED_RESURFACE = 20
 def armed_again(key):
     """The one line a matching prompt pays for a paragraph this session was
     already shown. The research rule keeps its `{OPEN_LINES}` slot: the open
-    lines are a fact about the repo now, not rule text the session holds."""
+    lines are a fact about the repo now, not rule text the session holds. The
+    fan-out rule keeps its action (`FANOUT_ACTION`): the rule is a thing to do
+    on this turn's list, and a bare reminder that it exists was not done."""
     label = dict(CORE_RULES)[key]
+    if key == "fanout":
+        return ("%s Armed again: %s The full rule is in the `tezgah-contract` "
+                "skill." % (label, FANOUT_ACTION))
     return ("%s Armed again: the full rule was given earlier this session and "
             "is in the `tezgah-contract` skill.%s"
             % (label, "{OPEN_LINES}" if key == "research" else ""))
