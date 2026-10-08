@@ -671,6 +671,7 @@ tests/test_ai_research_library.py
 tests/test_apps_registry.py
 tests/test_attest.py
 tests/test_bash_agreement.py
+tests/test_cache_store.py
 tests/test_cheap_source.py
 tests/test_clarity.py
 tests/test_claude_adapters.py
