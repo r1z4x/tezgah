@@ -329,8 +329,8 @@ def verification_steps(text, path):
     the budget `review` enforces."""
     fields = tt.frontmatter(text)
     ident = fields.get("id") or os.path.basename(path).split("-")[0]
-    # every item, not only the ones the command reader recognises: `pnpm test`
-    # carries no option or path and would otherwise vanish from the list
+    # every item, not only the ones the command reader recognises: a bare
+    # `pytest` is a command it does not read as one, and must not vanish here
     items = ["%s%s" % (i["text"], "" if i["state"] == "checkable" else
                        "  [%s]" % ("unverifiable" if i["state"] == "unverifiable"
                                    else "names no command"))

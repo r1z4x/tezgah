@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when it asked the session CLI first. A caller that named the CLI gets it.
 - **A chosen carrier reads only its own key.** A `clef` choice no longer opens
   omp's login database on every status-line redraw.
+- **`pnpm test` names a command.** An Acceptance item counted as a command
+  only when a word after the first was an option or a path. So `pnpm test`,
+  `cargo test` and `make test` read as missing, and the phase move refused the
+  plan. A known runner followed by `test` or `run` now counts. Prose such as
+  `run the tests` still does not.
 
 ## [1.5.0] - 2026-10-09
 
