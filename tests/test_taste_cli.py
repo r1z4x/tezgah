@@ -604,6 +604,70 @@ class Learn(support.TempHome):
         holder.stdout.close()
         self.assertEqual(self.cli("reject", learning["id"]).returncode, 0)
 
+    def taste_module(self):
+        import importlib.machinery
+        import importlib.util
+        loader = importlib.machinery.SourceFileLoader("taste_price", CLI)
+        taste = importlib.util.module_from_spec(importlib.util.spec_from_loader(
+            "taste_price", loader))
+        loader.exec_module(taste)
+        return taste
+
+    def test_a_clef_answer_costs_clefs_price_not_jevs(self):
+        # each carrier bills its own rate: 1000 input tokens on Clef are
+        # 1000 * 0.24 / 1e6, never Jev's 0.042
+        from unittest import mock
+        import tezgah_judge as tj
+        taste = self.taste_module()
+
+        def ask(state, questions, **_kw):
+            return {"answers": {q: {"choice": "preference"} for q in questions},
+                    "usage": {"input_tokens": 1000, "output_tokens": 10},
+                    "model": tj.MODEL, "provider": "clef", "fallback": None}
+
+        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+                mock.patch.object(tj, "ask", ask):
+            labels, usage = taste.classify(["PREF a"], tj.MODEL)
+        self.assertEqual(labels, ["preference"])
+        self.assertEqual(usage["cost_usd"], round(1000 * 0.24 / 1e6, 6))
+
+    def test_a_run_with_one_unpriced_answer_reports_its_cost_unknown(self):
+        # Clef answers three signals; the BROKEN one only an unlisted fallback
+        # model answers, so the run's total is unknown, never Jev's rate guessed
+        import contextlib
+        import io
+        import shutil
+        from unittest import mock
+        import tezgah_judge as tj
+        taste = self.taste_module()
+        twin = os.path.join(os.path.dirname(self.repo), "twin")
+        shutil.copytree(self.repo, twin, symlinks=True)
+
+        def ask(state, questions, only=None, **_kw):
+            unpriced = "BROKEN" in state
+            if only == ("jev",) and unpriced:
+                return None
+            return {"answers": Decider.answers(None, state, questions),
+                    "usage": {"input_tokens": 100, "output_tokens": 0},
+                    "model": "unlisted-model" if unpriced else tj.MODEL,
+                    "provider": "elsewhere" if unpriced else "clef", "fallback": None}
+
+        def cli(*args):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(taste.main(["tezgah-taste", *args]), 0)
+            return out.getvalue()
+
+        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+                mock.patch.object(tj, "available", lambda: False), \
+                mock.patch.object(tj, "named", lambda only: [("clef", "c")]), \
+                mock.patch.object(tj, "ask", ask):
+            report = json.loads(cli("learn", "--json", "--repo", self.repo))
+            text = cli("learn", "--repo", twin)
+        self.assertEqual((report["jev"], report["unverified"]), (3, 1))
+        self.assertIsNone(report["cost_usd"])
+        self.assertIn("typed decisions: 400 input tokens, cost unknown", text)
+
 
 if __name__ == "__main__":
     unittest.main()
