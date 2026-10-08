@@ -44,7 +44,9 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    writing phase (`tezgah-task` refuses it, through the predicate `--strict`
    refuses on), so this is the plan's own check, not a report read later. State:
    `not started` plus the findings from
-   step 4. Next: the first concrete action. Dates: `date +%F`. `allowed_paths:`:
+   step 4. Next: the first concrete action - when the plan holds two or more
+   independent tasks, one parallel wave: one slice per task, each with its own
+   worktree and a subset of `allowed_paths:`, spawned in one message. Dates: `date +%F`. `allowed_paths:`:
    the globs the work will write, from the files step 4 found (`apps/admin/**`,
    `packages/ui/src/**`), narrow enough that a write outside them is a surprise
    - the plan names its own scope, and `tezgah-task start` without `--allow`

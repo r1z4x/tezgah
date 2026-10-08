@@ -343,7 +343,8 @@ def verification_steps(text, path):
     print("verification - required before this plan is done:")
     print("  1. prove the acceptance items ONCE, on the final tree - not again per "
           "review round - every command run unpiped "
-          "(`cmd > /tmp/check.log 2>&1`, then read the file):")
+          "(`cmd > /tmp/check.log 2>&1`, then read the file); items that share "
+          "no state go out as tool calls in ONE message, one suite run at a time:")
     for item in items or ["(the plan has no Acceptance items)"]:
         print("     - %s" % item)
     if os.path.isfile(os.path.join(root, "tests", "impacted.py")):

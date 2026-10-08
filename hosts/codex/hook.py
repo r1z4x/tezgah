@@ -158,6 +158,11 @@ def main():
     event = payload.get("hook_event_name") or "SessionStart"
     cwd = payload.get("cwd") or os.getcwd()
     session_id = payload.get("session_id")
+    # codex hands its hooks its own env, which carries no codex marker (only the
+    # shell tool gets CODEX_THREAD_ID), so the judge seam's session_cli() could
+    # not tell this is a codex session without it.
+    if session_id:
+        os.environ.setdefault("CODEX_THREAD_ID", str(session_id))
     safe(session_id, bind_session, session_id)  # the switch latch (tezgah_paths.off)
     if event == "SessionStart":
         safe(session_id, attest_session, "codex", session_id, cwd)
