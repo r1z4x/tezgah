@@ -138,7 +138,7 @@ shape, so a caller that needs a typed answer takes them like Jev.
 | Carrier | Endpoint | Credential (env, else file, stripped) | Body |
 |---|---|---|---|
 | `typesafe` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`, else the active omp login (`~/.omp/agent/agent.db`, read-only; `typesafe_key`, `hooks/tezgah_paths.py::typesafe_key`) | `{state, model, questions}` |
-| `jev-openrouter` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY`, else `~/.config/openrouter/key` | the same, a bare `jev-*` id sent as `typesafe/<id>` |
+| `jev-openrouter` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY`, else `~/.config/openrouter/key` | the same; a bare `jev-*` id is sent as it is, and OpenRouter maps it onto `typesafe/` |
 | `jev-cloudflare` | `https://api.cloudflare.com/client/v4/accounts/<id>/ai/run` | `JEV_CLOUDFLARE_API_TOKEN`, else `CLOUDFLARE_API_TOKEN`, else `~/.config/cloudflare/token`; the account id from `CLOUDFLARE_ACCOUNT_ID`, else `~/.config/cloudflare/account_id` | `{model: "typesafe/jev", input: {state, questions}}`; the reply is read bare or inside `result` |
 | `jev-compatible` | `JEV_API_BASE_URL`, used verbatim | `JEV_API_KEY` | TypeSafe's, the model from `TEZGAH_JEV_MODEL` if set |
 | `clef`, `clef-flash` | `https://api.cloudflare.com/client/v4/accounts/<id>/ai/run/@cf/cloudflare/<name>` | the Cloudflare token and account id above | `{model: "<name>", state, questions}`; the reply read like Cloudflare's above |

@@ -1265,13 +1265,15 @@ class JevCarriers(JudgeCase):
     def chosen(self):
         return [p for p, _ in tezgah_judge.named(("jev",))]
 
-    def test_openrouter_carries_the_typesafe_body_with_a_namespaced_model(self):
+    def test_openrouter_carries_the_typesafe_body_with_the_bare_model_id(self):
+        # OpenRouter maps a bare `jev-*` id onto its typesafe/ namespace itself;
+        # `typesafe/jev-latest` does not exist there (live 400, 2026-10-09)
         os.environ["OPENROUTER_API_KEY"] = "or-secret"
         out = self.ask(state="S", model="jev-latest")
         seen = Fake.seen[0]
         self.assertEqual(seen["path"], "/api/v1/systemone")
         self.assertEqual(seen["authorization"], "Bearer or-secret")
-        self.assertEqual(seen["body"], {"state": "S", "model": "typesafe/jev-latest",
+        self.assertEqual(seen["body"], {"state": "S", "model": "jev-latest",
                                         "questions": {"urgent": {
                                             "type": "noul", "instructions": "Is it urgent?"}}})
         self.assertEqual(out["provider"], "jev-openrouter")

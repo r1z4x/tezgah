@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Jev through OpenRouter asks a model OpenRouter has.** The carrier sent
+  `typesafe/jev-latest`, which OpenRouter answers with 400 (no such model). It
+  now sends the bare `jev-latest`, which OpenRouter maps itself.
+
 ## [1.5.0] - 2026-10-09
 
 ### Changed

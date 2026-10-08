@@ -65,7 +65,8 @@ import tezgah_store
 URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = "jev-latest"
 # The other Jev carriers (`JEV_CARRIERS`): OpenRouter's System One endpoint,
-# which takes TypeSafe's body and namespaces the model `typesafe/<id>`; and
+# which takes TypeSafe's body and maps a bare `jev-*` id onto `typesafe/` itself
+# (`typesafe/jev-latest` is no model there: a live 400 on 2026-10-09); and
 # Cloudflare Workers AI, whose run route wraps the state and questions in
 # `input` and serves the one alias `typesafe/jev`. A System One-compatible URL
 # is the user's own (`JEV_API_BASE_URL`), so it has no constant here.
@@ -157,7 +158,7 @@ def _jev_call(provider, model, state, questions):
         return CLOUDFLARE_MODEL, url, {"model": CLOUDFLARE_MODEL, "input": {
             "state": state, "questions": questions}}
     if provider == "jev-openrouter":
-        used = model if "/" in model else "typesafe/" + model
+        used = model
         url = override("TEZGAH_JEV_OPENROUTER_URL", JEV_OPENROUTER_URL)
     elif provider == "jev-compatible":
         used = os.environ.get("TEZGAH_JEV_MODEL", "").strip() or model
