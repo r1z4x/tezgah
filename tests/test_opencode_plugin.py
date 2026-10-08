@@ -1210,6 +1210,36 @@ class OpenCodePlugin(TempHome):
         self.assertEqual([r["kind"] for r in ti.events_path(self.evidence_path())],
                          ["run"])
 
+    def test_a_row_python_appends_to_the_legacy_file_is_imported_mid_process(self):
+        # A Python process whose row the store refused appends it to the legacy
+        # file while this plugin process keeps running: the plugin has to
+        # import the file again, or that row stays out of its reads. The
+        # stand-in core is that process: asked about a write, it appends a
+        # failed `pytest -q` and allows the write.
+        row = dict(self.failures(1)[0], ts=int(time.time()), unlocked=1)
+        gate = os.path.join(self.home, ".config", "tezgah", "bin", "tezgah-gate")
+        os.makedirs(os.path.dirname(gate), exist_ok=True)
+        with open(gate, "w") as fh:
+            fh.write("#!/usr/bin/env python3\n"
+                     "import os, sys\n"
+                     "sys.stdin.read()\n"
+                     "with open(os.environ['TEZGAH_TEST_LEDGER'], 'a') as fh:\n"
+                     "    fh.write(os.environ['TEZGAH_TEST_ROW'] + '\\n')\n")
+        os.chmod(gate, 0o755)
+        self.envv = self.env(extra={"TEZGAH_TEST_LEDGER": self.evidence_path(),
+                                    "TEZGAH_TEST_ROW": json.dumps(row)})
+        os.makedirs(os.path.dirname(self.evidence_path()))
+        pytest = {"tool": "bash", "args": {"command": "pytest -q"}, "sessionID": "s1"}
+        results = self.drive([
+            {"hook": "tool.execute.after", "input": pytest,
+             "output": {"metadata": {"exit": 1}}},
+            {"hook": "tool.execute.before", "input": {
+                "tool": "write", "sessionID": "s1",
+                "args": {"filePath": os.path.join(self.repo, "a.py"), "content": "x"}}},
+            {"hook": "tool.execute.before", "input": pytest}])
+        self.allowed(results[1])
+        self.assertIn("Loop guard denied: this is attempt 3", self.denied(results[2]))
+
     def test_the_plugin_creates_the_store_python_creates(self):
         # Either side may create the database first, so the two must create the
         # same tables, indexes and version.

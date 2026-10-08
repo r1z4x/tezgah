@@ -142,6 +142,21 @@ class RefusedRow(Cache):
         self.assertEqual([(r["kind"], r.get(ti.UNLOCKED)) for r in rows],
                          [(ti.BEGAN_KIND, 1)])
 
+    def test_the_fallback_cuts_a_torn_tail_before_its_row(self):
+        # the fallback row must not be merged into a fragment a killed writer
+        # left: merged, the two would be one line no reader can parse
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "ls"}])
+        with open(path, "ab") as fh:
+            fh.write(b'{"kind": "run", "det')
+        busy = sqlite3.OperationalError("database is locked")
+        with mock.patch.object(ts, "append_evidence", side_effect=busy):
+            ti.note_path(path, "run", "pwd")
+        with open(path, "rb") as fh:
+            self.assertEqual([json.loads(line)["detail"] for line in fh.read().splitlines()],
+                             ["ls", "pwd"])
+        self.assertEqual([(r["detail"], r.get(ti.UNLOCKED)) for r in ti.events_path(path)],
+                         [("ls", None), ("pwd", 1)])
+
 
 class ImportLocks(Cache):
     def test_an_import_waiting_on_the_database_leaves_the_file_unlocked(self):
@@ -162,6 +177,26 @@ class ImportLocks(Cache):
             holder.execute("COMMIT")
             importer.join(timeout=30)
         self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["ls"])
+
+    def test_a_torn_tail_costs_a_reader_no_write_lock(self):
+        # a fragment past the imported lines is not a line yet: a read must
+        # not wait on (and, past the busy timeout, fail on) the write lock
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "ls"}])
+        self.assertEqual(len(ts.evidence_rows(path)), 1)
+        with open(path, "ab") as fh:
+            fh.write(b'{"kind": "run", "det')
+        holder = sqlite3.connect(os.path.join(self.cache, ts.EVIDENCE_DB),
+                                 isolation_level=None)
+        self.addCleanup(holder.close)
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            started = time.monotonic()
+            rows = ts.evidence_rows(path)
+            waited = time.monotonic() - started
+        finally:
+            holder.execute("COMMIT")
+        self.assertEqual([json.loads(text)["detail"] for text in rows], ["ls"])
+        self.assertLess(waited, 1.0)
 
     def test_a_line_that_is_not_utf_8_is_named_by_the_old_readers_hash(self):
         # the marker hashes the line with its newline, as the file reader did,

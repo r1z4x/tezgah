@@ -264,16 +264,32 @@ def _taste_put(table):
     return put
 
 
+def _offset(conn, name, fh):
+    """(the file's key, the byte offset its import resumes at, whether that
+    differs from the recorded one). A file cut below what went in (rewritten in
+    place) resumes at its end, so the rows appended after the cut still
+    import."""
+    st = os.fstat(fh.fileno())
+    key = (name, st.st_dev, st.st_ino)
+    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
+                         "AND ino = ?", key).fetchone()
+    start = min(found[0], st.st_size) if found else 0
+    return key, start, bool(found and found[0] != start)
+
+
 def _import_rows(conn, name, src, st, put=None, keep=False):
     """The complete lines of `src` past the recorded offset, each handed to
     `put` (a taste table's row by default). With `keep` the file is never
     renamed aside: its writer may still append to it.
 
-    The database's write lock comes first and the file's flock second, taken
-    only if free: an import that held the flock while it waited on a busy
-    database would hold the file's writer (and its readers) for that wait. The
-    offset is read inside the transaction, so two importers cannot both take
-    the same lines, with or without a flock."""
+    A peek without a transaction comes first: a file with no complete line
+    past the offset (nothing new, or a torn fragment its writer has not
+    finished) costs no write lock, so a read under a busy writer still answers.
+    Then the database's write lock, and the file's flock only if it is free: an
+    import that held the flock while it waited on a busy database would hold
+    the file's writer for that wait. The offset is read again inside the
+    transaction, so two importers cannot both take the same lines, with or
+    without a flock."""
     try:
         fh = open(src, "rb")
     except FileNotFoundError:
@@ -282,30 +298,31 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
         _failed(conn, name, st)
         return
     with fh:  # closing it releases the flock
-        with transaction(conn):
-            if not _locked(fh):
-                return  # its writer holds it: the next open takes it
-            st = os.fstat(fh.fileno())
-            key = (name, st.st_dev, st.st_ino)
-            found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
-                                 "AND ino = ?", key).fetchone()
-            # a file cut below what went in (rewritten in place) resumes at its
-            # end, so the rows appended after the cut still import
-            start = min(found[0], st.st_size) if found else 0
-            fh.seek(start)
-            raw = fh.read()
-            whole = raw[:raw.rfind(b"\n") + 1]
-            if whole or (found and found[0] != start):
-                put = put or _taste_put(name[:-len(".jsonl")])
-                for line in whole.split(b"\n"):
-                    put(conn, line)
-                conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
-                             "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
-        # aside only when every byte went in and no writer appended past the
-        # read (the old writer appends unlocked once its own wait runs out)
-        now = os.fstat(fh.fileno())
-        if not keep and len(whole) == len(raw) and now.st_size == start + len(raw):
-            _aside(src, now)
+        key, start, cut = _offset(conn, name, fh)
+        fh.seek(start)
+        raw = fh.read()
+        if b"\n" in raw or cut:
+            with transaction(conn):
+                if not _locked(fh):
+                    return  # its writer holds it: the next open takes it
+                key, start, cut = _offset(conn, name, fh)
+                fh.seek(start)
+                raw = fh.read()
+                whole = raw[:raw.rfind(b"\n") + 1]
+                if whole or cut:
+                    put = put or _taste_put(name[:-len(".jsonl")])
+                    for line in whole.split(b"\n"):
+                        put(conn, line)
+                    conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
+                                 "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
+        # aside only when every byte went in (no fragment past the last newline)
+        # and no writer appended past the read (the old writer appends unlocked
+        # once its own wait runs out), under the flock so no writer is inside
+        # an append
+        if not keep and not raw[raw.rfind(b"\n") + 1:] and _locked(fh):
+            now = os.fstat(fh.fileno())
+            if now.st_size == start + len(raw):
+                _aside(src, now)
 
 
 # --- the taste tables ---------------------------------------------------------------

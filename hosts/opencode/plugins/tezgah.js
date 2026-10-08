@@ -1410,10 +1410,11 @@ async function postWrite(sessionID, args, cwd) {
 // TEZGAH_OPENCODE_NO_SQLITE=1 forces that path.
 //
 // A session may still have the JSONL file this plugin wrote before the store
-// (`<cache>/evidence/<stem>.jsonl`). It is never written again; its import is
-// tezgah_store's (`import_session`), asked once per session in this process
-// before the first read or write, so its rows stay ahead of the new ones. The
-// CLI path imports it on every call, as every Python reader does.
+// (`<cache>/evidence/<stem>.jsonl`), and a row the store refuses lands there
+// (legacyAppend, tezgah_integrity._append). Its import is tezgah_store's
+// (`import_session`), asked before a read or write whenever the file changed
+// since the last ask, so its rows stay ahead of the new ones. The CLI path
+// imports it on every call, as every Python reader does.
 const EVIDENCE_DB = "tezgah.db"
 const EVIDENCE_VERSION = 1
 const EVIDENCE_SCHEMA = `
@@ -1441,7 +1442,8 @@ let sqliteMemo = null
 // was removed or replaced under this process (doctor, uninstall), as
 // tezgah_store._evidence_db does
 const evidenceDbs = new Map()
-// stem -> the pending or settled import of its legacy file (importLegacy)
+// stem -> { sig: the legacy file's size and mtime when last asked, done: that
+// import } (importLegacy)
 const legacyAsked = new Map()
 
 function sqlite() {
@@ -1524,17 +1526,25 @@ function storeCli(args, done) {
                  { stdio: ["ignore", "pipe", "ignore"] }, null, done)
 }
 
-// The legacy JSONL of a session into the store, asked once per session (see
-// above): every caller of one session awaits the same import, so none reads or
-// writes before it has landed.
+// The legacy JSONL of a session into the store (see above), asked again only
+// when the file's size or mtime changed since the last ask - a Python process
+// whose row the store refused appends to it (tezgah_integrity._append), and so
+// does legacyAppend. Every caller that sees one state awaits the same import,
+// so none reads or writes before it has landed.
 function importLegacy(sessionID) {
   const stem = ledgerStem(sessionID)
-  if (!legacyAsked.has(stem)) {
-    const path = ledgerPath(sessionID)
-    legacyAsked.set(stem, existsSync(path)
-      ? storeCli(["import", path], () => undefined) : Promise.resolve())
-  }
-  return legacyAsked.get(stem)
+  const path = ledgerPath(sessionID)
+  let sig = null
+  try {
+    const st = statSync(path)
+    sig = st.size + ":" + st.mtimeMs
+  } catch {}
+  const held = legacyAsked.get(stem)
+  if (held && held.sig === sig) return held.done
+  const done = sig === null ? Promise.resolve()
+    : storeCli(["import", path], () => undefined)
+  legacyAsked.set(stem, { sig, done })
+  return done
 }
 
 function parseRows(texts) {
@@ -1580,7 +1590,7 @@ async function appendRow(sessionID, row) {
 // The row the store refused, appended to the session's legacy JSONL file marked
 // `unlocked`, as hooks/tezgah_integrity._append falls back: a lost `began` row
 // would turn an honest pass into an orphan, and the mark is what exempts the
-// pairing. The next import takes it, so this process asks for one again.
+// pairing. The next import takes it (importLegacy sees the file change).
 async function legacyAppend(sessionID, row) {
   try {
     const path = ledgerPath(sessionID)
@@ -1588,7 +1598,6 @@ async function legacyAppend(sessionID, row) {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 })
     await appendFile(path, JSON.stringify({ ...row, unlocked: 1 }) + "\n",
       { mode: 0o600 })
-    legacyAsked.delete(ledgerStem(sessionID))
   } catch {}
 }
 

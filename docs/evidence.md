@@ -74,13 +74,16 @@ of every other file, detached and at most once a day
 **opencode's plugin** opens the same database through node:sqlite. It uses the store's busy
 timeout, WAL switch and schema (`evidenceDb` in `hosts/opencode/plugins/tezgah.js`), so either side
 may create it. `tests/test_opencode_plugin.py::OpenCodePlugin.test_the_plugin_creates_the_store_python_creates`
-holds the two schemas equal. Before its first read or write of a session it asks the store to import
-that session's old file, once per process (`importLegacy`). A row the store refuses goes to that
-file marked `unlocked`, as the Python writer's does (`legacyAppend`). A runtime without
-node:sqlite, which is
-node before 22.5, runs `python3 hooks/tezgah_store.py evidence append|tail|first|kind|import`
+holds the two schemas equal. Before a read or write of a session it asks the store to import that
+session's old file. It asks again only when the file's size or mtime changed (`importLegacy`). A
+row the store refuses goes to that file marked `unlocked`, as the Python writer's does
+(`legacyAppend`). A runtime without node:sqlite, which is node before 22.5, runs
+`python3 hooks/tezgah_store.py evidence append|tail|first|kind|import`
 (`hooks/tezgah_store.py::_evidence_cli`) for each read or write instead. `TEZGAH_OPENCODE_NO_SQLITE=1`
-forces that path.
+forces that path. Two limits are known. node:sqlite is synchronous, so a busy database can block
+the host's event loop for up to the 5-second busy timeout. Second, the plugin's deadline can kill a
+CLI append after the CLI committed the row. The plugin then writes the row to the old file too,
+and the ledger holds it twice.
 
 Every reader skips a line that ends in a newline and does not parse (`_parse`
 `hooks/tezgah_integrity.py::_parse`). Such a line reaches the database only through an imported file,
