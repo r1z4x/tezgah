@@ -2011,7 +2011,7 @@ class OpenCodePlugin(TempHome):
         return proc.stdout.strip()
 
     def test_the_nudge_mark_is_one_key_on_both_sides(self):
-        # plan 057 (d)3: the once-per-session mark is one file per session
+        # plan 057 (d)3: the once-per-session mark is one `nudged` row per session
         # whichever side writes it - the Python gate (`first_nudge`) and this
         # plugin (`oncePerSession`) once keyed it on the raw id and on its sha1,
         # so a session that crossed the two was nudged twice.
