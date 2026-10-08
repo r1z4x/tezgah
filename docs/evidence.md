@@ -785,11 +785,12 @@ one rater's totals would show the other rater those labels.
 
 `replay --label-model --prompt <file>` is rater 2 when that rater is a model. It sends each sheet
 row to the judge seam (`hooks/tezgah_judge.py`) as one `choice` question and writes
-`labels-model.jsonl` beside the sheet. It redacts the row's text first (`ti.redact`), and it runs
-only when TypeSafe answers. The prompt file holds each set's instructions and criteria. A reply
+`labels-model.jsonl` beside the sheet. It redacts the row's text first (`ti.redact`). It runs
+only when a Jev carrier answers: TypeSafe, OpenRouter System One, Cloudflare Workers AI or a
+compatible endpoint. `--provider jev` names it, and the old name `typesafe` still works. The prompt file holds each set's instructions and criteria. A reply
 with no label from those criteria leaves its row unlabelled. The command writes each label as it
 arrives, so a run that stops early keeps what it paid for. A second run asks only the unlabelled rows. Every run prints the input tokens and their cost. The sheet rows leave the machine for
-`api.typesafe.ai`. The key and the corpus stay on it. Kappa against a model rater
+the Jev carrier's endpoint. The key and the corpus stay on it. Kappa against a model rater
 measures human-model agreement, not inter-rater reliability.
 
 `--provider deepseek --model deepseek-v4-pro` asks the same questions from the same prompt file

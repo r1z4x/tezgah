@@ -38,7 +38,9 @@ rules and all.
 The skill suggestion is the one surface a judgement writes rather than a constant.
 The roster reaches a session as an index of host-truncated one-liners, so which
 entry to look at first is the turn's own weak spot; one batched judgement request
-answers it - TypeSafe, or the OpenRouter fallback when no TypeSafe key resolves
+answers it - the session's own CLI, else the Jev model through whichever carrier
+resolves (TypeSafe, OpenRouter System One, Cloudflare Workers AI, a compatible
+endpoint), else the OpenRouter chat fallback
 (`credential()`, `hooks/tezgah_judge.py::credential`) - a Choice across the installed
 skill names plus `none`, and one Noul
 asking whether the turn wants a skill at all - and the winner is appended after

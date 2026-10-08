@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Typed decisions take any Jev carrier.** Taste's `learn`, `label`,
+  `calibrate`, `gate` and `measure --typed` require the Jev model, not
+  TypeSafe's address. So do taste's background start and replay's
+  `--label-model`. OpenRouter System One, Cloudflare Workers AI or a
+  compatible endpoint counts the same. Old `typesafe` rows keep counting.
+  `learn`'s report key `typesafe` is now `jev`. Replay's `--provider typesafe`
+  is now `--provider jev`, and the old name still works. The triage's no-judge
+  message names every carrier, the selection knob and the session CLIs.
+
 ## [1.4.0] - 2026-10-08
 
 ### Changed

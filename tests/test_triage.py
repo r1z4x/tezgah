@@ -317,6 +317,11 @@ class Fallbacks(TriageCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("no judgement", proc.stderr)
         self.assertIn("read the snapshot yourself", proc.stderr)
+        # every place a judgement can come from is named, and the knob that picks it
+        for where in ("omp", "claude", "opencode", "cursor", "codex", "TypeSafe",
+                      "OpenRouter System One", "Cloudflare Workers AI", "JEV_API_BASE_URL",
+                      "TEZGAH_JEV_PROVIDER"):
+            self.assertIn(where, proc.stderr)
         self.assertEqual(Fake.seen, [])
 
     def test_the_kill_switch_exits_1(self):

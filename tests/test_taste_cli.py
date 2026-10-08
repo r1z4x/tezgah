@@ -376,7 +376,7 @@ class Learn(support.TempHome):
         proc = self.cli("learn", "--json")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         report = json.loads(proc.stdout)
-        self.assertEqual((report["signals"], report["typesafe"], report["preference"],
+        self.assertEqual((report["signals"], report["jev"], report["preference"],
                           report["defect"], report["none"]), (4, 4, 2, 1, 1))
         [learning] = self.listed()
         self.assertEqual((learning["state"], learning["category"], learning["sessions"]),
@@ -398,11 +398,65 @@ class Learn(support.TempHome):
         proc = self.cli("learn", "--json", typesafe=False, openrouter=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         report = json.loads(proc.stdout)
-        self.assertEqual((report["typesafe"], report["unverified"]), (0, 4))
+        self.assertEqual((report["jev"], report["unverified"]), (0, 4))
         self.assertEqual(self.listed(), [])
         self.assertTrue(all(r["verified"] is False and r["provider"] == "openrouter"
                             for r in self.rows("decisions")))
         self.assertEqual(self.rows("defects"), [])
+
+    def test_a_decision_from_any_jev_carrier_is_verified_and_applied(self):
+        # the caller's logic apart from any carrier's transport: Jev reached
+        # through OpenRouter's System One endpoint is as typed as TypeSafe
+        import contextlib
+        import importlib.machinery
+        import importlib.util
+        import io
+        from unittest import mock
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_judge as tj
+        loader = importlib.machinery.SourceFileLoader("taste_jev", CLI)
+        taste = importlib.util.module_from_spec(importlib.util.spec_from_loader("taste_jev",
+                                                                                loader))
+        loader.exec_module(taste)
+        asked = []
+
+        def ask(state, questions, only=None, **_kw):
+            asked.append(only)
+            if only != ("jev",):
+                return None
+            return {"answers": Decider.answers(None, state, questions),
+                    "usage": {"input_tokens": 100, "output_tokens": 0},
+                    "model": "jev-latest", "provider": "jev-openrouter", "fallback": None}
+
+        def cli(*args):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = taste.main(["tezgah-taste", *args, "--repo", self.repo])
+            self.assertEqual(code, 0)
+            return out.getvalue()
+
+        with mock.patch.dict(os.environ, {"HOME": self.home}), \
+                mock.patch.object(tj, "JEV_CARRIERS", ("typesafe", "jev-openrouter")), \
+                mock.patch.object(tj, "available", lambda: False), \
+                mock.patch.object(tj, "named", lambda only: [("jev-openrouter", "o")]
+                                  if "jev" in only else []), \
+                mock.patch.object(tj, "ask", ask):
+            report = json.loads(cli("learn", "--json"))
+            self.assertEqual((report["signals"], report["jev"], report["unverified"],
+                              report["preference"]), (4, 4, 0, 2))
+            self.assertNotIn("typesafe", report)
+            self.assertTrue(all(r["verified"] and r["provider"] == "jev-openrouter"
+                                for r in self.rows("decisions")))
+            [learning] = self.listed()
+            self.assertEqual(learning["state"], "active")
+            # the typed rows label, calibrate and gate as TypeSafe's did
+            for row in self.rows("decisions"):
+                if row["kind"] == "preference":
+                    cli("label", row["id"], "preference")
+            self.assertEqual(json.loads(cli("calibrate", "--json"))["agree"], 2)
+            gate = json.loads(cli("gate", "--json"))
+            self.assertEqual(gate["after"]["turns"] + gate["before"]["turns"], 4)
+        self.assertIn(("jev",), asked)
 
     def test_an_activated_learning_gets_a_written_line_from_a_generative_provider(self):
         self.cli("learn", typesafe=True, openrouter=True)

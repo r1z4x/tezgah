@@ -124,7 +124,7 @@ hint's cost row and the router's `route` row also carry `judge=<provider>/<model
 
 A caller that needs one provider in particular passes `only` (`named`,
 `hooks/tezgah_judge.py::named`). `learn`'s decision has to come from a typed
-model, so it passes `only=("typesafe",)`. It gets `None` rather than another
+model, so it passes `only=("jev",)`, every Jev carrier that resolves. It gets `None` rather than another
 provider's answer. The caller named the provider, so the `vendor` order does not
 apply. `none` still keeps every third party out.
 

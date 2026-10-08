@@ -39,9 +39,11 @@ design T1P). Each prompt after a writing turn - from the capture rows in the
 from this repository's omp and Claude transcripts - becomes one structured signal
 built by code: the prompt, the files written, the agent's edits and the user's
 own edit between two agent writes. One typed decision per signal, required from
-TypeSafe (`only=("typesafe",)`): preference, defect or none; the category; the
-scope; and how it relates to each learning held. A decision any other provider
-gave is recorded `unverified` and never applied. A defect goes to the `defects`
+the Jev model (`only=("jev",)`: TypeSafe, OpenRouter System One, Cloudflare
+Workers AI or a compatible endpoint - whichever carrier the judge seam resolves):
+preference, defect or none; the category; the scope; and how it relates to each
+learning held. A decision any other provider gave is recorded `unverified` and
+never applied. A defect goes to the `defects`
 table, never into the ledger. The ledger itself is `hooks/tezgah_taste_ledger.py`. A
 learning that becomes active gets one readable line from a generative provider
 (a `text` question; the user's own words when none answers).
@@ -370,7 +372,7 @@ def cmd_measure(args):
     if not tezgah_judge.available():
         return misuse("no judge: no credential resolves or judge-off is set; nothing sent")
     got, usage = classify([text for text, _gold in pairs], args.model,
-                          only=("typesafe",) if args.typed else None)
+                          only=("jev",) if args.typed else None)
     confusion = {g: {p: 0 for p in CLASSES} for g in CLASSES}
     unjudged = 0
     for (_text, gold), pred in zip(pairs, got):
@@ -628,12 +630,12 @@ def picked(result, qid, default):
 
 
 def decide(sig, learnings, fallback=True):
-    """(decision, result): the typed decision, TypeSafe required; when it cannot
+    """(decision, result): the typed decision, the Jev model required; when it cannot
     answer, the seam's own providers, recorded unverified - only on a signal's
     first try, since an unverified answer is never applied and a rerun would pay
     for it again."""
     state, questions = decision_request(sig, learnings)
-    result = tezgah_judge.ask(state, questions, only=("typesafe",), timeout=60)
+    result = tezgah_judge.ask(state, questions, only=("jev",), timeout=60)
     if result is None and fallback:
         result = tezgah_judge.ask(state, questions, timeout=120)
     if result is None:
@@ -643,7 +645,7 @@ def decide(sig, learnings, fallback=True):
            "scope": picked(result, "scope", "repository"),
            "relations": {lr["id"]: picked(result, "rel_" + lr["id"], "unrelated")
                          for lr in learnings},
-           "verified": result.get("provider") == "typesafe"}
+           "verified": tezgah_judge.is_jev(result.get("provider"))}
     return dec, result
 
 
@@ -678,7 +680,7 @@ def learn_refusal(repo):
     """Why `learn` sends and writes nothing here, or None - read before the
     store lock, so a refused run leaves no lock file behind."""
     if tezgah_judge.tp.off("judge-off") or not (
-            tezgah_judge.available() or tezgah_judge.named(("typesafe",))):
+            tezgah_judge.available() or tezgah_judge.named(("jev",))):
         return "no judge: no credential resolves or judge-off is set; nothing sent"
     import tezgah_context
     if ".no-taste" in tezgah_context.repo_marks(repo)[1]:
@@ -692,14 +694,14 @@ def cmd_learn(args):
                else capture_signals(repo))
     decided = {}
     for r in tl.rows(repo, "decisions"):
-        decided[r.get("id")] = decided.get(r.get("id")) or r.get("provider") == "typesafe"
-    # a typed decision is final; an unverified one is retried, TypeSafe only
+        decided[r.get("id")] = decided.get(r.get("id")) or tezgah_judge.is_jev(r.get("provider"))
+    # a typed decision is final; an unverified one is retried, the Jev model only
     todo = [s for s in signals if not decided.get(s["id"])]
     if args.limit is not None:
         todo = todo[:args.limit]
     ledgers = tl.load(repo)
     before = {k for k, v in tl.every(ledgers).items() if v["state"] == "active"}
-    counts = {"signals": len(todo), "typesafe": 0, "unverified": 0, "unanswered": 0,
+    counts = {"signals": len(todo), "jev": 0, "unverified": 0, "unanswered": 0,
               "preference": 0, "defect": 0, "none": 0}
     tokens = [0, 0]
     for sig in todo:
@@ -721,7 +723,7 @@ def cmd_learn(args):
         if not dec["verified"]:
             counts["unverified"] += 1
             continue
-        counts["typesafe"] += 1
+        counts["jev"] += 1
         counts[dec["kind"][0] if dec["kind"][0] in CLASSES else "none"] += 1
         if dec["kind"][0] == "defect":
             tl.append(repo, "defects",
@@ -747,8 +749,8 @@ def cmd_learn(args):
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
-    print("signals %d: typesafe %d, unverified %d, unanswered %d" % (
-        counts["signals"], counts["typesafe"], counts["unverified"], counts["unanswered"]))
+    print("signals %d: jev %d, unverified %d, unanswered %d" % (
+        counts["signals"], counts["jev"], counts["unverified"], counts["unanswered"]))
     print("decided: preference %d, defect %d, none %d" % (
         counts["preference"], counts["defect"], counts["none"]))
     print("ledger: " + (", ".join("%s %d" % kv for kv in sorted(states.items())) or "empty"))
@@ -808,8 +810,8 @@ def cmd_label(args):
     sample of unlabelled typed decisions - drawn without regard to what was
     injected, so the calibration bound rests on an unselected sample."""
     repo = store_or_exit(args)
-    decided = {r["id"]: r for r in tl.rows(repo, "decisions", "WHERE provider = ?",
-                                            ("typesafe",)) if r.get("id")}
+    decided = {r["id"]: r for r in tl.rows(repo, "decisions", *tl.jev_rows())
+               if r.get("id")}
     labelled = {r.get("id") for r in tl.rows(repo, "labels")}
     if args.id:
         if args.label not in CLASSES:
@@ -873,7 +875,7 @@ def main(argv):
     measure.add_argument("--model", default=tezgah_judge.MODEL)
     measure.add_argument("--json", action="store_true")
     measure.add_argument("--typed", action="store_true",
-                         help="require TypeSafe (the decision T1P's ledger trusts)")
+                         help="require the Jev model (the decision T1P's ledger trusts)")
     rate = sub.add_parser("rate")
     rate.add_argument("--in", dest="inp", required=True)
     rate.add_argument("--limit", type=int)
@@ -883,7 +885,7 @@ def main(argv):
     learn.add_argument("--host", choices=("omp", "claude", "all"), default="all")
     learn.add_argument("--limit", type=int)
     learn.add_argument("--no-fallback", action="store_true",
-                       help="TypeSafe only: never pay another provider for a decision")
+                       help="the Jev model only: never pay another provider for a decision")
     listing = sub.add_parser("list")
     listing.add_argument("--all", action="store_true")
     for name in ("show", "accept", "reject", "edit"):

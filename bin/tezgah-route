@@ -12,8 +12,11 @@ A brief naming stored data, a migration, credentials, the gate or security goes 
 tezgah-frontier by rule; otherwise Jev picks the tier (one Choice, ~650 input
 tokens, ~0.4 s); with no key or `judge-off`, `--phase`
 (explore|code|mechanical|plan|review|research) picks it from the static table, and
-with neither the middle tier is used. The brief is sent to api.typesafe.ai (or the
-OpenRouter fallback) - write it in English, the language the judge reads best.
+with neither the middle tier is used. The brief is sent to the judge seam's
+provider - the session's own CLI (omp, claude, opencode, cursor, codex) or the Jev
+model through TypeSafe, OpenRouter System One, Cloudflare Workers AI or a
+compatible endpoint (TEZGAH_JEV_PROVIDER picks one), else the OpenRouter chat
+fallback - so write it in English, the language the judge reads best.
 
 Every routed call writes one `route` row to the session's ledger (TEZGAH_SESSION):
 tier, agent, what set the tier (`via`: rule|jev|phase|default), the static

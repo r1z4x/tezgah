@@ -435,18 +435,21 @@ builds it (`capture_signals`, `bin/tezgah-taste::capture_signals`). A signal
 holds the prompt, the files written, the agent's edits, and the user's own edit
 between two agent writes. That last one compares the after blob with the next
 write's pre-state, or with the file on disk (`user_diff`,
-`bin/tezgah-taste::user_diff`). `learn` asks TypeSafe for one typed decision per
-signal (`decide`, `bin/tezgah-taste::decide`, [judge](judge.md)). The decision
+`bin/tezgah-taste::user_diff`). `learn` asks the Jev model for one typed decision
+per signal (`decide`, `bin/tezgah-taste::decide`, [judge](judge.md)). Any Jev
+carrier will do: TypeSafe, OpenRouter System One, Cloudflare Workers AI or a
+compatible endpoint. The decision
 names preference, defect or none. It picks one of eleven fixed categories and a
 scope. It also says how the signal relates to each learning held: supports,
-contradicts, narrows or unrelated. When another provider answers, `learn` records
-the decision in the `decisions` table as `unverified` and never applies it. A
+contradicts, narrows or unrelated. When a provider outside the Jev family answers,
+`learn` records the decision in the `decisions` table as `unverified`. It never
+applies it. The report counts the typed decisions under `jev`. A
 defect goes to the `defects` table and never into the ledger.
 
 Armed taste also learns by itself. At session start, `learn` starts in the
 background when new signals arrived since the last start. It starts at most
 once an hour per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). It runs
-with `--no-fallback` and only when a TypeSafe key resolves, so it never pays a
+with `--no-fallback` and only when a Jev carrier resolves, so it never pays a
 generative provider for a decision it could not apply. It does not run on
 Windows, which has no ledger lock yet. The stamp is a `taste_learn` row of the
 cache's `tezgah.db`. The log lives under the cache dir, in `taste-learn/`.
@@ -661,7 +664,7 @@ or its optional tools and config, on its own initiative
 
 ## Triage: `tezgah-triage` and the `judge-off` switch
 
-One judgement seam serves five callers, each of them asking TypeSafe a batched
+One judgement seam serves five callers, each of them asking the judge a batched
 question instead of paying an agent to read a page: the analyze-app loop's snapshot
 triage (`bin/tezgah-triage`), `bin/tezgah-docs` for a query its keyword index
 cannot place, and the prompt-path skill hint (`hooks/tezgah_skill_pick.py`), the
@@ -700,9 +703,10 @@ made - no credential, the switch below, or a failed call - and the loop reads th
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py::ask`) - for the triage that is
-the snapshot's own text, so a screen carrying personal data is read by a third
-party, and for the docs fallback it is the reader's query. Nothing else goes: no
+the provider that answers (`ask()`, `hooks/tezgah_judge.py::ask`). That is the
+session's own CLI (omp, claude, opencode, cursor, codex) or a third party. For
+the triage the state is the snapshot's own text, so a third party reads a screen
+carrying personal data. For the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the
 state is not redacted because sending it is the point; the module docstring says
 the same, and `tests/test_judge.py` pins the wire (`Egress`) so the prose and the
@@ -710,10 +714,13 @@ request cannot drift. That is why the two shell callers are on-demand - an agent
 asks for a judgement, no gate does - while the skill hint asks only with its own
 marker armed, and why the switch below is the off button for the whole path.
 
-The credential resolves from `TYPESAFE_API_KEY`, else from
-`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py::credential`), and when
-neither resolves the same questions go to the OpenRouter fallback, whose key rides
-`OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
+With no session CLI, the third party is the Jev model through one of its carriers.
+TypeSafe reads `TYPESAFE_API_KEY`, else `~/.config/typesafe/key` (`credential()`,
+`hooks/tezgah_judge.py::credential`). The others are OpenRouter System One,
+Cloudflare Workers AI and a compatible endpoint named by `JEV_API_BASE_URL`.
+`TEZGAH_JEV_PROVIDER` or config `jev` picks the carrier ([judge](judge.md)).
+When no carrier answers, the same questions go to the OpenRouter chat fallback.
+Its key rides `OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
 (`openrouter_key()`, `hooks/tezgah_judge.py::openrouter_key`). The file is the channel that
 matters on a machine exporting the variable from `~/.zshenv`: a hook or a bin tool
 runs in a non-interactive shell, where that export never ran, so the file is what a
