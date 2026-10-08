@@ -27,16 +27,16 @@ class CodexHook(TempHome):
         import importlib.util
         import io
         from unittest import mock
-        spec = importlib.util.spec_from_file_location("codex_hook", support.CODEX_HOOK)
-        hook = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(hook)
         payload = json.dumps({"hook_event_name": "Noop", "cwd": self.home,
                               "session_id": "s-codex"})
+        # the module calls main() when it loads, so it loads under the patched
+        # stdin: a real stdin would block the suite on an interactive terminal
         with mock.patch.dict(os.environ, {"HOME": self.home}), \
                 mock.patch("sys.stdin", io.StringIO(payload)), \
                 contextlib.redirect_stdout(io.StringIO()):
             os.environ.pop("CODEX_THREAD_ID", None)
-            hook.main()
+            spec = importlib.util.spec_from_file_location("codex_hook", support.CODEX_HOOK)
+            spec.loader.exec_module(importlib.util.module_from_spec(spec))
             self.assertEqual(os.environ.get("CODEX_THREAD_ID"), "s-codex")
 
     def test_the_pretool_matcher_names_every_shell_spelling_the_post_side_records(self):
