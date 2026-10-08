@@ -595,7 +595,7 @@ def run_replay(cutoff=None, since=None):
                "fidelity": fidelity(items, results),
                "race_family": family,
                "deny_runs": folds}
-    tezgah_store.add_replay(run, summary, tp.CACHE)
+    tezgah_store.add_replay(_run_key(run), summary, tp.CACHE)
     return summary
 
 
@@ -1013,9 +1013,15 @@ def _run_dir(arg):
     return run
 
 
+def _run_key(run):
+    """A run's key in the replay index: its directory's real path, so a
+    relative or linked `--run` names the run its row was written under."""
+    return os.path.realpath(run)
+
+
 def _summary(run):
     """The summary the run in directory `run` was indexed with (`run_replay`)."""
-    summary = tezgah_store.replay_summary(os.path.normpath(run), tp.CACHE)
+    summary = tezgah_store.replay_summary(_run_key(run), tp.CACHE)
     if summary is None:
         raise SystemExit("replay: no indexed run at %s" % run)
     return summary

@@ -169,10 +169,12 @@ class Corpus(TempHome):
         self.assertEqual(os.path.realpath(s["run"]).split(os.sep)[:-1],
                          os.path.realpath(root).split(os.sep))
         self.assertEqual(sorted(os.listdir(s["run"])), ["corpus.jsonl", "results.jsonl"])
-        # the summary is the run's row of the cache database, the newest one
+        # the summary is the run's row of the cache database, the newest one,
+        # keyed by the run directory's real path
         cache = os.path.join(self.home, ".cache", "tezgah")
         self.assertEqual([(run, json.loads(summary)) for run, summary in support.cache_rows(
-            cache, "SELECT run, summary FROM replay_runs ORDER BY n")], [(s["run"], s)])
+            cache, "SELECT run, summary FROM replay_runs ORDER BY n")],
+            [(os.path.realpath(s["run"]), s)])
         self.assertEqual(self.tree(self.repo), before_repo)
         self.assertEqual(self.tree(self.evidence), before_ledgers)
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".tezgah")))
@@ -233,6 +235,19 @@ class Corpus(TempHome):
         self.assertEqual((rep["stop_false_refusal"]["k"], rep["stop_false_refusal"]["n"]),
                          (1, 1))
         self.assertIn("fall back to log-only", self.cli("--report", *files))
+
+    def test_a_relative_or_linked_run_finds_its_indexed_run(self):
+        s = self.replay()
+        link = os.path.join(self.home, "latest-run")
+        os.symlink(s["run"], link)
+        for cwd, run in ((self.home, os.path.relpath(s["run"], self.home)),
+                         (self.home, "latest-run"), (self.repo, link)):
+            with self.subTest(run=run):
+                proc = subprocess.run([sys.executable, CLI, "replay", "--report", "--json",
+                                       "--run", run], capture_output=True, text=True,
+                                      env=self.env(), cwd=cwd, timeout=120)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout)["run"], s["run"])
 
     def test_label_model_through_the_judge_seam(self):
         """Rater 2 (H2 amendment 2026-10-07): one choice question per sheet row
