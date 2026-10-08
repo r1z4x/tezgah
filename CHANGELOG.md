@@ -11,6 +11,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Jev through OpenRouter asks a model OpenRouter has.** The carrier sent
   `typesafe/jev-latest`, which OpenRouter answers with 400 (no such model). It
   now sends the bare `jev-latest`, which OpenRouter maps itself.
+- **Each carrier's price is now pinned by a test.** The one cost check priced a
+  TypeSafe answer at Jev's rate. It passed with or without per-carrier pricing.
+  New tests in `tezgah-taste`, `tezgah-triage` and the replay labeller price Clef
+  and Clef-flash answers at their own rates. A run with an unpriced answer prints
+  `cost unknown`.
 
 ## [1.5.0] - 2026-10-09
 

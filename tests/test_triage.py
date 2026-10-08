@@ -402,6 +402,24 @@ class JudgeCost(TriageCase):
         self.assertEqual(len(self.ledger()), 1,
                          "a row was written without a session id")
 
+    def test_the_printed_price_is_the_carrier_that_answered(self):
+        # Clef-flash bills $0.090/1M input, not Jev's $0.042: the line prints
+        # the rate of the carrier in the result
+        import contextlib
+        import importlib.machinery
+        import importlib.util
+        import io
+        loader = importlib.machinery.SourceFileLoader("triage_price", TRIAGE)
+        triage = importlib.util.module_from_spec(importlib.util.spec_from_loader(
+            "triage_price", loader))
+        loader.exec_module(triage)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            triage.judge_line({"usage": {"input_tokens": 1000, "output_tokens": 0},
+                               "latency_ms": 5, "provider": "clef-flash"})
+        self.assertEqual(out.getvalue().strip(), "judge: 1000 input tokens, 0 output, "
+                                                 "5 ms; $0.000090 at $0.090/1M input")
+
 
 if __name__ == "__main__":
     unittest.main()

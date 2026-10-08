@@ -466,6 +466,29 @@ class Corpus(TempHome):
         self.assertNotIn("dsk-stub", proc.stderr + proc.stdout)
         self.assertFalse(os.path.exists(os.path.join(s["run"], "labels-deepseek.jsonl")))
 
+    def test_label_model_bills_each_row_at_its_carriers_price(self):
+        """Rows Clef answered cost 0.24/1M input, and the printed rate is Clef's."""
+        from unittest import mock
+        s = self.replay()
+        self.cli("--sheet")
+        prompt = os.path.join(self.home, "prompt.json")
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({name: {"instructions": "RULES", "criteria": {"unsure": "u"}}
+                       for name in ("replay-gate", "replay-stop")}, fh)
+
+        def ask(state, questions, only=None, **_kw):
+            return {"answers": {"label": {"choice": "unsure",
+                                          "probabilities": {"unsure": 0.9}}},
+                    "usage": {"input_tokens": 1000, "output_tokens": 0},
+                    "model": "jev-latest", "provider": "clef", "fallback": None}
+
+        with mock.patch.object(tj, "named", lambda only: [("clef", "c")]), \
+                mock.patch.object(tj, "ask", ask):
+            got = tr.label_model(s["run"], prompt)
+        self.assertEqual(got["asked"], 5)
+        self.assertEqual(got["price"], (0.24, 0.0))
+        self.assertAlmostEqual(got["cost_usd"], 5 * 1000 * 0.24 / 1e6)
+
 
 class Stub(BaseHTTPRequestHandler):
     """A TypeSafe-shaped endpoint: `refuse` for a gate row, `honest` for a Stop
