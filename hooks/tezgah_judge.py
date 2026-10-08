@@ -32,8 +32,9 @@ export is absent there, and the key file is the channel that survives (TypeSafe
 also reads the active omp login). The resolvers live in `tezgah_paths`
 (`typesafe_key`, `jev_carriers`), so `have_judge_key()` asks the same ones.
 
-Behind the credential there are three providers, asked in this order. First the
-session's own CLI - `omp` or `claude`, the host this process runs under
+Behind the credential there are three kinds of provider, asked in this order. First the
+session's own CLI - `omp`, `claude`, `opencode`, `cursor` or `codex`, the host
+this process runs under or the one `TEZGAH_JUDGE_CLI`/`judge_cli` picks
 (`tp.session_cli()`) - run headless with no tools, so the judgement is paid
 with the session's own credential, OAuth subscription included, and answered by
 the session's own vendor. The Jev carriers (`JEV_CARRIERS`, as chosen by
