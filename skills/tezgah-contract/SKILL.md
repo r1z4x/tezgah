@@ -233,8 +233,10 @@ active --json` and track it with `orca worktree ps --json` or `tezgah-status
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout.
 Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah-cheap, -standard or
--frontier (overrides for stored data, credentials, security first; then a Jev
-judgement; the static phase table with no key). A worker that answers
+-frontier, or the specialist whose whole job the brief is (tezgah-tester,
+-docs, -security, -ui, -researcher, -reviewer) - and the spawn uses that name,
+never the host's generic task agent (overrides for stored data, credentials,
+security first; then a Jev judgement; the static phase table with no key). A worker that answers
 `ESCALATE:` is restarted on tezgah-frontier with the original brief, never
 continued; the main thread never switches model (the cache is per model). A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,

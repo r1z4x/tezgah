@@ -303,8 +303,10 @@ active --json` and track it with `orca worktree ps --json` or `tezgah-status
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout.
 Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
--frontier (overrides for stored data, credentials, security first; then a Jev
-judgement; the static phase table with no key). A worker that answers
+-frontier, or the specialist whose whole job the brief is (tezgah-tester,
+-docs, -security, -ui, -researcher, -reviewer) - and the spawn uses that name,
+never the host's generic task agent (overrides for stored data, credentials,
+security first; then a Jev judgement; the static phase table with no key). A worker that answers
 `ESCALATE:` is restarted on tezgah-frontier with the original brief, never
 continued; the main thread never switches model (the cache is per model). A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
@@ -951,9 +953,11 @@ CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph", "fanout")
 # the session had to recall, and the second list of a session was worked one
 # item at a time. It is the paragraph's own clause, cut to one sentence.
 FANOUT_ACTION = ("count the independent items, spawn one subagent per item in "
-                 "ONE message (each writing slice in its own worktree, absolute "
-                 "paths), and keep the main thread for integrating and verifying;"
-                 " a subagent does its own slice and never fans out again.")
+                 "ONE message, each the agent `tezgah-route` names - a specialist "
+                 "by name, never the generic task agent - (each writing slice in "
+                 "its own worktree, absolute paths), and keep the main thread for "
+                 "integrating and verifying; a subagent does its own slice and "
+                 "never fans out again.")
 
 # The always-on replacement for the conditional paragraphs: one line each so a
 # host without a per-turn hook still knows the rule exists and where the full

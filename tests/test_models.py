@@ -64,6 +64,56 @@ class Route(unittest.TestCase):
                             "frontier")
 
 
+def judged(tier, role):
+    """A judge stand-in answering the tier and the role in one batched reply."""
+    def ask(state, questions):
+        assert set(questions) == {"tier", "role"}, questions
+        return {"answers": {"tier": {"choice": tier, "probabilities": {tier: 0.8}},
+                            "role": {"choice": role, "probabilities": {role: 0.9}}},
+                "usage": {"input_tokens": 700, "output_tokens": 0},
+                "latency_ms": 300, "model": "clef"}
+    return ask
+
+
+class Specialists(unittest.TestCase):
+    """route() names a specialist when the brief is that specialist's job: from
+    10-07 to 10-09 the five specialists were spawned 0 times in 121 delegations,
+    because route() could only name a tier."""
+
+    def test_the_judged_role_names_its_specialist_on_its_own_tier(self):
+        for role, agent in (("tester", "tezgah-tester"), ("docs", "tezgah-docs"),
+                            ("security", "tezgah-security"), ("ui", "tezgah-ui"),
+                            ("researcher", "tezgah-researcher"),
+                            ("reviewer", "tezgah-reviewer")):
+            out = tm.route("some brief", ask=judged("standard", role))
+            self.assertEqual((out["agent"], out["tier"]), (agent, tm.AGENT_SLOT[agent]))
+            self.assertEqual(out["via"], "jev")
+
+    def test_no_specialist_keeps_the_tier_worker(self):
+        out = tm.route("Add a --json flag", ask=judged("mechanical", "none"))
+        self.assertEqual(out["agent"], "tezgah-cheap")
+
+    def test_an_unknown_role_answer_keeps_the_tier_worker(self):
+        out = tm.route("Add a --json flag", ask=judged("frontier", "chef"))
+        self.assertEqual(out["agent"], "tezgah-frontier")
+
+    def test_a_security_review_brief_goes_to_the_security_reviewer_by_rule(self):
+        # the override keeps the brief on this machine, so the rule decides
+        calls = []
+        for brief in ("Review the auth change for security holes",
+                      "Audit the credential handling in the seam"):
+            out = tm.route(brief, ask=lambda s, q: calls.append(s))
+            self.assertEqual(out["agent"], "tezgah-security", brief)
+        # writing security-sensitive code stays with the frontier writer
+        self.assertEqual(tm.route("Fix the oauth refresh bug")["agent"], "tezgah-frontier")
+        self.assertEqual(calls, [])
+
+    def test_the_review_and_research_phases_name_their_specialist_without_a_judge(self):
+        self.assertEqual(tm.route("Look at the diff", "review")["agent"], "tezgah-reviewer")
+        self.assertEqual(tm.route("Survey the sources", "research")["agent"],
+                         "tezgah-researcher")
+
+
 class OmpOverrides(unittest.TestCase):
     def overrides(self, mode, funded):
         with mock.patch.object(tm, "funded_families", return_value=list(funded)), \

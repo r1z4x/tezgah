@@ -709,6 +709,39 @@ TIER_QUESTION = {
                     "a hard-to-reverse decision",
     },
 }
+# The second question in the same batched call: whether the brief is one of the
+# specialists' jobs. Before it existed route() could only name a tier, and from
+# 2026-10-07 to 10-09 the five specialists were spawned 0 times in 121
+# delegations while the generic `task` agent took 86. Every specialist but the
+# docs writer is read-only or check-only, so a brief that changes code is `none`.
+ROLE_QUESTION = {
+    "type": "choice",
+    "instructions": (
+        "Is `task` the whole job of one of these specialist agents? Pick `none` "
+        "when the task writes or changes source code, or mixes a specialist job "
+        "with code changes."),
+    "criteria": {
+        "none": "writing or changing code, or anything not listed below",
+        "tester": "only running the checks or tests a change reaches and reporting "
+                  "their output; no edits",
+        "docs": "writing or repairing documentation pages or their path:line "
+                "citations",
+        "security": "a read-only security review of a change or surface",
+        "ui": "inspecting a running web or mobile app's screens against a design "
+              "floor or accessibility",
+        "researcher": "a research line: hypotheses, literature, experiments, a report",
+        "reviewer": "an adversarial read-only review of a diff, branch or pull request",
+    },
+}
+ROLE_AGENT = {role: "tezgah-" + role for role in ROLE_QUESTION["criteria"] if role != "none"}
+# Without a judgement, the phase names the specialist where it is one.
+PHASE_AGENT = {"review": "tezgah-reviewer", "research": "tezgah-researcher"}
+# An override brief never leaves the machine, so the rule decides the one
+# specialist it can name: a security review that writes nothing.
+REVIEW_ONLY = re.compile(r"\b(?:review|audit|assess)\w*\b", re.I)
+# `change` and `update` are left out: in "review the auth change" they are nouns.
+WRITES = re.compile(r"\b(?:fix|implement|edit|write|add|refactor|patch|migrate|"
+                    r"rename|delete|remove|rotate)\w*\b", re.I)
 
 
 def route(brief, phase=None, ask=None):
@@ -724,21 +757,35 @@ def route(brief, phase=None, ask=None):
     reply is the same as no reply and this never raises."""
     hit = OVERRIDE.search(brief or "")
     if hit:
+        if REVIEW_ONLY.search(brief) and not WRITES.search(brief):
+            return _agent("tezgah-security", "override %r, review only" % hit.group(0),
+                          "rule")
         return _pick("frontier", "override: %r" % hit.group(0), "rule")
-    result = ask({"task": ti.redact(brief or "")}, {"tier": TIER_QUESTION}) if ask else None
+    result = ask({"task": ti.redact(brief or "")},
+                 {"tier": TIER_QUESTION, "role": ROLE_QUESTION}) if ask else None
     choice = tj.choice(result, "tier")
     if choice in JEV_TIER:
         chance = tj.noul(result, "tier", choice)
-        out = _pick(JEV_TIER[choice], "jev %s%s" % (
-            choice, "" if chance is None else " %.2f" % chance), "jev")
+        why = "jev %s%s" % (choice, "" if chance is None else " %.2f" % chance)
+        role = tj.choice(result, "role")
+        out = (_agent(ROLE_AGENT[role], "%s, role %s" % (why, role), "jev")
+               if role in ROLE_AGENT else _pick(JEV_TIER[choice], why, "jev"))
         out["judge"] = "%s/%s" % (result.get("provider") or "-",
                                   result.get("model") or "-")
         out["judged"] = result
         return out
+    if phase in PHASE_AGENT:
+        return _agent(PHASE_AGENT[phase], "no judgement; phase %s names it" % phase,
+                      "phase")
     if phase in PHASE_TIER:
         return _pick(PHASE_TIER[phase], "no judgement; static table for phase %s" % phase,
                      "phase")
     return _pick("standard", "no judgement and no phase; the middle tier", "default")
+
+
+def _agent(agent, why, via):
+    """A specialist, on the tier its model slot names (`AGENT_SLOT`)."""
+    return dict(_pick(AGENT_SLOT[agent], why, via), agent=agent)
 
 
 def _pick(tier, why, via):

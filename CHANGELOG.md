@@ -8,6 +8,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`tezgah-route` names the specialists.** It could only name a tier. The
+  five specialists ran 0 times in 121 delegations. The generic task agent ran 86.
+  The judge now also answers whether a brief is a specialist's whole
+  job, and the route names that agent. `--phase review` and `--phase research`
+  name the reviewer and the researcher. A security brief that only reviews
+  goes to `tezgah-security`. The routing and fan-out text say to spawn the
+  named agent, never the generic one.
 - **Jev through OpenRouter asks a model OpenRouter has.** The carrier sent
   `typesafe/jev-latest`, which OpenRouter answers with 400 (no such model). It
   now sends the bare `jev-latest`, which OpenRouter maps itself.

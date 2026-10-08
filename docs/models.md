@@ -91,7 +91,9 @@ fixed:
    (`OVERRIDE`, `hooks/tezgah_models.py::OVERRIDE`) - the class the judge
    under-routed in its measurement, and the classes a wrong call cannot be
    undone on. A 12-brief fixture pins it: 8 high-stakes briefs route to
-   frontier, 4 near-miss controls do not (`tests/test_models.py`).
+   frontier, 4 near-miss controls do not (`tests/test_models.py`). Such a brief
+   that only reviews goes to `tezgah-security` instead (`REVIEW_ONLY`,
+   `hooks/tezgah_models.py::REVIEW_ONLY`).
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py::redact`) - goes to the judge as one Choice over three tiers (`TIER_QUESTION`,
    `hooks/tezgah_models.py::TIER_QUESTION`). The judge asks the session's own model first ([judge](judge.md)).
@@ -99,9 +101,17 @@ fixed:
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100. The session model was not measured on that set.
-3. With no judgement (`judge-off`, no key, a failed call) `--phase` picks the tier
-   from the static table (`PHASE_TIER`, `hooks/tezgah_models.py::PHASE_TIER`), and
-   with no phase the middle tier is used.
+   The same call asks a second Choice (`ROLE_QUESTION`,
+   `hooks/tezgah_models.py::ROLE_QUESTION`): is the brief the whole job of a
+   specialist? A yes names that agent on its own tier (`AGENT_SLOT`,
+   `hooks/tezgah_models.py::AGENT_SLOT`). Before this question, sessions
+   spawned the five specialists 0 times in 121 delegations (2026-10-07 to 10-09).
+   Clef agreed on 9 of 10 briefs this session labelled (2026-10-09).
+3. With no judgement (`judge-off`, no key, a failed call) `--phase review` and
+   `--phase research` name the reviewer and the researcher (`PHASE_AGENT`,
+   `hooks/tezgah_models.py::PHASE_AGENT`). Another phase picks the tier from the
+   static table (`PHASE_TIER`, `hooks/tezgah_models.py::PHASE_TIER`). With no
+   phase the middle tier is used.
 
 The brief leaves the machine for the judge, like every judgement ([judge](judge.md)).
 Every routed call writes one `route` row to the session's ledger. The row names the

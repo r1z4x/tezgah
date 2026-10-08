@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tezgah-route - which tier worker a delegated task goes to, and the model table.
+"""tezgah-route - which worker a delegated task goes to, and the model table.
 
   tezgah-route "<brief>" [--phase P] [--json]   the agent to spawn, and why
   tezgah-route --check                          the table's age and refresh flags
@@ -9,10 +9,13 @@
   tezgah-route --report                         each route's first check, by tier
 
 A brief naming stored data, a migration, credentials, the gate or security goes to
-tezgah-frontier by rule; otherwise Jev picks the tier (one Choice, ~650 input
-tokens, ~0.4 s); with no key or `judge-off`, `--phase`
-(explore|code|mechanical|plan|review|research) picks it from the static table, and
-with neither the middle tier is used. The brief is sent to the judge seam's
+tezgah-frontier by rule - or to tezgah-security when it only reviews; otherwise
+Jev answers two Choices in one call (~700 input tokens, ~0.4 s): the tier, and
+whether the brief is the whole job of a specialist (tezgah-tester, -docs,
+-security, -ui, -researcher, -reviewer), which is then the agent named. With no
+key or `judge-off`, `--phase review|research` names the reviewer or the
+researcher, another `--phase` (explore|code|mechanical|plan) picks the tier from
+the static table, and with neither the middle tier is used. The brief is sent to the judge seam's
 provider - the session's own CLI (omp, claude, opencode, cursor, codex) or the Jev
 model through TypeSafe, OpenRouter System One, Cloudflare Workers AI or a
 compatible endpoint (TEZGAH_JEV_PROVIDER picks one), else the OpenRouter chat
