@@ -218,11 +218,33 @@ CORPUS = {
     "do everything with subagents and in parallel": {"fanout"},
     "her şeyi alt ajanlarla paralel yap": {"fanout"},
     "one worktree per slice": {"fanout"},
-    # one item, or a list whose second entry is not on its own line, is not a
-    # fan-out; parallelizing code is code work, not delegation
+    # the owner's own list shapes: `1 - `, `1- `, `1:`, `a)`, `+`, and an inline
+    # `1. ... 2. ...`; a Turkish suffix on the English loanword; three files
+    # named as one list; an explicit first/second sequence
+    "1 - jev çağrılarını düzelt\n2 - review katmanı çok uzun sürüyor": {"fanout"},
+    "1- fix the parser\n2- update the release notes": {"fanout"},
+    "1: fix the parser\n2: update the release notes": {"fanout"},
+    "a) fix the parser\nb) update the release notes": {"fanout"},
+    "+ fix the parser\n+ update the release notes": {"fanout"},
+    "do these: 1. fix the parser 2. update the release notes": {"fanout"},
+    "tüm işlemleri subagentlerle tamamla": {"fanout"},
+    "update hooks/a.py, bin/tezgah-task and docs/c.md": {"fanout"},
+    "First, fix the parser. Second, update the docs.": {"fanout"},
+    "fix the parser, update the release notes, and add a test for the CLI":
+        {"fanout"},
+    "parser'ı düzelt, dokümanı güncelle, testi ekle": {"fanout"},
+    # one item, or a version number, is not a fan-out; parallelizing code is
+    # code work, not delegation
     "1. fix the parser": set(),
     "parallelize the loop in compute()": set(),
     "version 2.1 is out": set(),
+    # a timestamp, a numeric range and one file are not a list of work, and
+    # neither is a traceback that names files one per line
+    "12:30 the build broke\n13:05 it broke again": set(),
+    "pages 1-2 of the report": set(),
+    "fix hooks/a.py": set(),
+    'File "a.py", line 3\nFile "b.py", line 9\nFile "c.py", line 1': set(),
+    "fix the parser and add a test": set(),
 }
 
 
