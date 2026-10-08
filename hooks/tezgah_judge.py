@@ -143,12 +143,17 @@ def openrouter_key():
 def _jev_call(provider, model, state, questions):
     """`(model used, url, body)` for one Jev carrier: TypeSafe's own body
     (`state`, `model`, `questions`) everywhere but Cloudflare, whose run route
-    takes its one alias and the pair under `input`. Every URL routes through
-    `override()`, so a plain-http one off this machine raises here."""
-    if provider == "jev-cloudflare":
+    takes its one alias and the pair under `input`. Clef and Clef-flash, its own
+    System One models, have a route each and take the bare body with `model`
+    as the selector. Every URL routes through `override()`, so a plain-http one
+    off this machine raises here."""
+    if provider in ("jev-cloudflare", "clef", "clef-flash"):
         account = urllib.parse.quote(tp.cloudflare_account() or "", safe="")
         url = override("TEZGAH_CLOUDFLARE_URL", CLOUDFLARE_URL) + \
             "/accounts/%s/ai/run" % account
+        if provider != "jev-cloudflare":
+            return provider, url + "/@cf/cloudflare/" + provider, {
+                "model": provider, "state": state, "questions": questions}
         return CLOUDFLARE_MODEL, url, {"model": CLOUDFLARE_MODEL, "input": {
             "state": state, "questions": questions}}
     if provider == "jev-openrouter":
@@ -268,17 +273,29 @@ def _plan(only=None):
     return out
 
 
-# Every carrier that answers with the Jev model itself (a typed System One
-# reply), as opposed to a chat model asked to imitate its shape: TypeSafe
-# direct, OpenRouter's System One endpoint, Cloudflare Workers AI and any System
-# One-compatible URL. A decision a caller requires to be typed checks
-# `is_jev(result["provider"])`.
-JEV_CARRIERS = ("typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible")
+# Every carrier that answers with a typed System One model - Jev itself, or
+# Cloudflare's Clef family, which takes the same request and answers in the
+# same shape - as opposed to a chat model asked to imitate it: TypeSafe direct,
+# OpenRouter's System One endpoint, Cloudflare Workers AI, any System
+# One-compatible URL, Clef and Clef-flash. A decision a caller requires to be
+# typed checks `is_jev(result["provider"])`.
+JEV_CARRIERS = ("typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible",
+                "clef", "clef-flash")
+# Dollars per 1M input tokens, output free on every one: Jev's listed price on
+# each of its carriers, Clef's and Clef-flash's from their Workers AI pages
+# (2026-10-09).
+JEV_INPUT_PRICE = 0.042
+CLEF_INPUT_PRICE = {"clef": 0.24, "clef-flash": 0.09}
 
 
 def is_jev(provider):
-    """True when `provider` is a Jev carrier (`JEV_CARRIERS`)."""
+    """True when `provider` is a typed System One carrier (`JEV_CARRIERS`)."""
     return provider in JEV_CARRIERS
+
+
+def input_price(provider):
+    """The carrier's input price per 1M tokens, None for anything not typed."""
+    return CLEF_INPUT_PRICE.get(provider, JEV_INPUT_PRICE) if is_jev(provider) else None
 
 
 def jev_summary():

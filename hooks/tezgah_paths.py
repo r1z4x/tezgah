@@ -586,8 +586,10 @@ def cloudflare_token():
 # The Jev carrier a user may choose (`jev_choice()`), and the order `auto`
 # tries them in: TypeSafe direct, OpenRouter's System One endpoint, Cloudflare
 # Workers AI, any System One-compatible URL (JEV_API_BASE_URL + JEV_API_KEY,
-# the names the public jev-mcp server reads).
-JEV_CHOICES = ("auto", "typesafe", "openrouter", "cloudflare", "compatible")
+# the names the public jev-mcp server reads), then Cloudflare's own System One
+# models Clef and Clef-flash on Workers AI (the same Cloudflare credential).
+JEV_CHOICES = ("auto", "typesafe", "openrouter", "cloudflare", "compatible",
+               "clef", "clef-flash")
 
 
 def jev_choice():
@@ -611,13 +613,14 @@ def jev_carriers():
     why rather than substituting another carrier."""
     compatible = (os.environ.get("JEV_API_KEY", "").strip() or None
                   if os.environ.get("JEV_API_BASE_URL", "").strip() else None)
+    workers_ai = cloudflare_token() if cloudflare_account() else None
     found = [("typesafe", typesafe_key()), ("jev-openrouter", openrouter_key()),
-             ("jev-cloudflare", cloudflare_token() if cloudflare_account() else None),
-             ("jev-compatible", compatible)]
+             ("jev-cloudflare", workers_ai), ("jev-compatible", compatible),
+             ("clef", workers_ai), ("clef-flash", workers_ai)]
     choice = jev_choice()
     if choice == "auto":
         return [(name, secret) for name, secret in found if secret]
-    name = choice if choice == "typesafe" else "jev-" + choice
+    name = choice if choice in ("typesafe", "clef", "clef-flash") else "jev-" + choice
     return [(name, dict(found).get(name))]
 
 

@@ -130,7 +130,10 @@ CLI's JSON output (`_session_request`, `hooks/tezgah_judge.py::_session_request`
 omp and claude name the model. Then come the
 third parties: first the chosen Jev carriers, each a real System One transport
 (`_jev_call`, `hooks/tezgah_judge.py::_jev_call`), then the OpenRouter chat
-fallback. `JEV_CARRIERS` (`hooks/tezgah_judge.py::JEV_CARRIERS`) names the four.
+fallback. `JEV_CARRIERS` (`hooks/tezgah_judge.py::JEV_CARRIERS`) names the six.
+Two of them are not Jev. Clef and Clef-flash are Cloudflare's own decision
+models. They take the same System One request. They answer in the same typed
+shape, so a caller that needs a typed answer takes them like Jev.
 
 | Carrier | Endpoint | Credential (env, else file, stripped) | Body |
 |---|---|---|---|
@@ -138,19 +141,23 @@ fallback. `JEV_CARRIERS` (`hooks/tezgah_judge.py::JEV_CARRIERS`) names the four.
 | `jev-openrouter` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY`, else `~/.config/openrouter/key` | the same, a bare `jev-*` id sent as `typesafe/<id>` |
 | `jev-cloudflare` | `https://api.cloudflare.com/client/v4/accounts/<id>/ai/run` | `JEV_CLOUDFLARE_API_TOKEN`, else `CLOUDFLARE_API_TOKEN`, else `~/.config/cloudflare/token`; the account id from `CLOUDFLARE_ACCOUNT_ID`, else `~/.config/cloudflare/account_id` | `{model: "typesafe/jev", input: {state, questions}}`; the reply is read bare or inside `result` |
 | `jev-compatible` | `JEV_API_BASE_URL`, used verbatim | `JEV_API_KEY` | TypeSafe's, the model from `TEZGAH_JEV_MODEL` if set |
+| `clef`, `clef-flash` | `https://api.cloudflare.com/client/v4/accounts/<id>/ai/run/@cf/cloudflare/<name>` | the Cloudflare token and account id above | `{model: "<name>", state, questions}`; the reply read like Cloudflare's above |
 
 `JEV_API_BASE_URL` and `JEV_API_KEY` are the names the public jev-mcp server
 reads, so one export serves both. `TEZGAH_JEV_PROVIDER` chooses the carrier,
 else `JEV_PROVIDER`, else `jev` in `~/.config/tezgah/config.json`, else `auto`
 (`jev_choice`, `hooks/tezgah_paths.py::jev_choice`). The values are `auto`,
-`typesafe`, `openrouter`, `cloudflare` and `compatible`, and `tezgah-setup --jev
-<value>` writes the config key (`set_jev`, `bin/tezgah-setup::set_jev`). `auto`
+`typesafe`, `openrouter`, `cloudflare`, `compatible`, `clef` and `clef-flash`.
+`tezgah-setup --jev <value>` writes the config key
+(`set_jev`, `bin/tezgah-setup::set_jev`). `auto`
 asks every carrier that resolves, in the table's order (`jev_carriers`,
 `hooks/tezgah_paths.py::jev_carriers`). The seam asks a named carrier without
 its credential nothing, and nothing stands in for it: the call records
 `no credential (jev=<value>)` as a failure. `tezgah-status --judge` prints the
 choice and the carriers it resolves to (`jev_summary`,
-`hooks/tezgah_judge.py::jev_summary`).
+`hooks/tezgah_judge.py::jev_summary`). A cost row prices the carrier that
+answered (`input_price`, `hooks/tezgah_judge.py::input_price`). Per 1M input
+tokens: $0.042 for Jev, $0.24 for Clef, $0.09 for Clef-flash. Output is free.
 
 OpenRouter's chat fallback reads the OpenRouter key (`openrouter_key`,
 `hooks/tezgah_judge.py::openrouter_key`).

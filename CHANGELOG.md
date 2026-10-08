@@ -62,6 +62,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   choice and its carriers.
 - **The omp login is a TypeSafe key.** With no `TYPESAFE_API_KEY` and no key
   file, the seam reads the active omp login, read-only.
+- **Clef and Clef-flash as typed judges.** Cloudflare's own decision models
+  answer the System One API on Workers AI with the Cloudflare token and account
+  id. `--jev clef` or `--jev clef-flash` picks one, and `auto` asks them after
+  the Jev carriers. A typed decision counts them like Jev. Cost rows now price
+  the carrier that answered: $0.24 per 1M input for Clef, $0.09 for Clef-flash.
 
 ### Fixed
 

@@ -1314,6 +1314,32 @@ class JevCarriers(JudgeCase):
         self.assertEqual(Fake.seen[0]["path"], "/client/v4/accounts/file-acc/ai/run")
         self.assertEqual(Fake.seen[0]["authorization"], "Bearer file-cf")
 
+    def test_clef_runs_on_its_own_workers_ai_route_with_the_system_one_body(self):
+        # Cloudflare's own decision models answer the System One API on
+        # /ai/run/@cf/cloudflare/<model>, the body bare with `model` the selector
+        os.environ.update(CLOUDFLARE_ACCOUNT_ID="acc-1", CLOUDFLARE_API_TOKEN="cf-secret")
+        for name in ("clef", "clef-flash"):
+            os.environ["TEZGAH_JEV_PROVIDER"] = name
+            Fake.reply = {"result": dict(self.REPLY, model="@cf/cloudflare/" + name),
+                          "success": True}
+            out = self.ask(state="S", only=("jev",))
+            seen = Fake.seen[-1]
+            self.assertEqual(seen["path"], "/client/v4/accounts/acc-1/ai/run/@cf/cloudflare/"
+                             + name)
+            self.assertEqual(seen["authorization"], "Bearer cf-secret")
+            self.assertEqual(seen["body"], {"model": name, "state": "S", "questions": {
+                "urgent": {"type": "noul", "instructions": "Is it urgent?"}}})
+            self.assertEqual(out["provider"], name)
+            self.assertTrue(tezgah_judge.is_jev(name))
+            self.assertEqual(tezgah_judge.noul(out, "urgent"), 0.7)
+
+    def test_each_typed_carrier_quotes_its_own_input_price(self):
+        self.assertEqual(tezgah_judge.input_price("typesafe"), 0.042)
+        self.assertEqual(tezgah_judge.input_price("jev-cloudflare"), 0.042)
+        self.assertEqual(tezgah_judge.input_price("clef"), 0.24)
+        self.assertEqual(tezgah_judge.input_price("clef-flash"), 0.09)
+        self.assertIsNone(tezgah_judge.input_price("openrouter"))
+
     def test_a_compatible_endpoint_is_used_verbatim_with_its_own_model(self):
         os.environ.update(JEV_API_BASE_URL=self.url.replace("/v1/systemone", "/x/eval"),
                           JEV_API_KEY="cmp-secret")
@@ -1336,7 +1362,8 @@ class JevCarriers(JudgeCase):
         self.every_key()
         self.assertEqual(self.chosen(), list(tezgah_judge.JEV_CARRIERS))
         self.assertEqual(tezgah_judge.JEV_CARRIERS, (
-            "typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible"))
+            "typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible",
+            "clef", "clef-flash"))
         self.assertEqual([p for p, _ in tezgah_judge.providers()],
                          list(tezgah_judge.JEV_CARRIERS) + ["openrouter"])
 

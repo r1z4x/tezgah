@@ -201,10 +201,11 @@ def trim(line):
 
 def judge_line(result):
     usage = result["usage"]
+    # the carrier's own price (Clef's is not Jev's); Jev's for a chat stand-in
+    price = tezgah_judge.input_price(result.get("provider")) or PRICE_PER_MILLION
     print("judge: %d input tokens, %d output, %d ms; $%.6f at $%.3f/1M input"
           % (usage["input_tokens"], usage["output_tokens"], result["latency_ms"],
-             usage["input_tokens"] * PRICE_PER_MILLION / 1000000,
-             PRICE_PER_MILLION))
+             usage["input_tokens"] * price / 1000000, price))
 
 
 def units(numbered):

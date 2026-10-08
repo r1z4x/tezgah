@@ -322,7 +322,7 @@ def classify(texts, model, only=None):
 
     The rule rides the state, so each request pays for it once and the
     questions carry only their own prompt."""
-    labels, tokens_in, tokens_out, used = [], 0, 0, model
+    labels, tokens_in, tokens_out, used, spent = [], 0, 0, model, 0.0
     for start in range(0, len(texts), BATCH):
         chunk = texts[start:start + BATCH]
         questions = {"p%d" % i: {"type": "choice", "criteria": CRITERIA,
@@ -334,22 +334,34 @@ def classify(texts, model, only=None):
             tokens_in += result["usage"]["input_tokens"]
             tokens_out += result["usage"]["output_tokens"]
             used = result.get("model", used)
+            one = result_cost(result)
+            spent = None if spent is None or one is None else spent + one
         for i in range(len(chunk)):
             label = tezgah_judge.choice(result, "p%d" % i)
             labels.append(label if label in CLASSES else None)
     return labels, {"model": used, "input_tokens": tokens_in,
-                    "output_tokens": tokens_out, "cost_usd": cost(used, tokens_in,
-                                                                  tokens_out)}
+                    "output_tokens": tokens_out,
+                    "cost_usd": None if spent is None else round(spent, 6)}
 
 
-def cost(model, tokens_in, tokens_out):
-    """Dollars at the model's listed price per 1M tokens, None when unlisted."""
-    price = JEV_PRICE if model == tezgah_judge.MODEL else (
-        tezgah_models.overlay().get("prices", {}).get(model)
-        or tezgah_models.SNAPSHOT.get(model))
+def cost(model, tokens_in, tokens_out, provider=None):
+    """Dollars at the model's listed price per 1M tokens, None when unlisted. A
+    typed carrier (`tezgah_judge.input_price`) is priced by the carrier that
+    answered: Clef's price is not Jev's."""
+    typed = tezgah_judge.input_price(provider)
+    price = (typed, 0.0) if typed is not None else JEV_PRICE \
+        if model == tezgah_judge.MODEL else (
+            tezgah_models.overlay().get("prices", {}).get(model)
+            or tezgah_models.SNAPSHOT.get(model))
     if not (isinstance(price, (list, tuple)) and len(price) == 2):
         return None
     return round((tokens_in * price[0] + tokens_out * price[1]) / 1e6, 6)
+
+
+def result_cost(result):
+    """One judge result's cost, priced by the provider that answered it."""
+    return cost(result.get("model"), result["usage"]["input_tokens"],
+                result["usage"]["output_tokens"], result.get("provider"))
 
 
 def usage_line(usage):
@@ -703,7 +715,7 @@ def cmd_learn(args):
     before = {k for k, v in tl.every(ledgers).items() if v["state"] == "active"}
     counts = {"signals": len(todo), "jev": 0, "unverified": 0, "unanswered": 0,
               "preference": 0, "defect": 0, "none": 0}
-    tokens = [0, 0]
+    tokens, spent = [0, 0], 0.0
     for sig in todo:
         dec, result = decide(sig, held(ledgers),
                              fallback=not args.no_fallback and sig["id"] not in decided)
@@ -712,6 +724,8 @@ def cmd_learn(args):
             continue
         tokens[0] += result["usage"]["input_tokens"]
         tokens[1] += result["usage"]["output_tokens"]
+        one = result_cost(result)
+        spent = None if spent is None or one is None else spent + one
         day = tl.now_day()
         tl.append(repo, "decisions", {
             "id": sig["id"], "day": day, "at": sig.get("at"), "session": sig["session"],
@@ -745,7 +759,7 @@ def cmd_learn(args):
     for learning in tl.every(ledgers).values():
         states[learning["state"]] = states.get(learning["state"], 0) + 1
     report = dict(counts, states=states, input_tokens=tokens[0], output_tokens=tokens[1],
-                  cost_usd=cost(tezgah_judge.MODEL, tokens[0], tokens[1]))
+                  cost_usd=None if spent is None else round(spent, 6))
     if args.json:
         print(json.dumps(report, indent=2))
         return 0
