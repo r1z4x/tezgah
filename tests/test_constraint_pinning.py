@@ -86,9 +86,8 @@ class PinnedAcrossCompaction(TempHome):
         self.repo = self.make_repo()
 
     def stamp(self, session):
-        with open(os.path.join(self.home, ".cache", "tezgah", "turns",
-                               session + ".json")) as fh:
-            return json.load(fh)
+        return support.store_doc(os.path.join(self.home, ".cache", "tezgah"), "turns",
+                                 support.slug(session))
 
     def test_a_constraint_is_a_needle_and_the_compaction_counts_it(self):
         prompt = "fix the parser, and don't touch hooks/hooks.json while at it"

@@ -227,17 +227,14 @@ class Taste(TempHome):
             store.append(db, "signals", {"kind": "prompt"})
 
     def stamps(self):
-        base = os.path.join(tp.cache_dir(), "taste-learn")
-        return [os.path.join(base, n) for n in os.listdir(base)
-                if n.endswith(".json")] if os.path.isdir(base) else []
+        """The keys of the learn stamps (`taste_learn` documents)."""
+        return support.store_keys(tp.cache_dir(), "taste_learn")
 
     def age_stamp(self):
-        [path] = self.stamps()
-        with open(path, encoding="utf-8") as fh:
-            stamp = json.load(fh)
+        [key] = self.stamps()
+        stamp = store.doc("taste_learn", key)
         stamp["at"] -= tt.LEARN_EVERY + 1
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(stamp, fh)
+        self.assertTrue(store.put_doc("taste_learn", key, stamp))
 
     def test_session_start_spawns_a_detached_typed_learn_on_growth_at_most_hourly(self):
         spawned = self.spawns()

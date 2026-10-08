@@ -36,8 +36,9 @@ def bump(version, by=1):
 class Notice(support.TempHome):
     def setUp(self):
         super().setUp()
-        self.cache = os.path.join(self.home, ".cache", "tezgah", "update.json")
-        os.makedirs(os.path.dirname(self.cache))
+        # the check's answer is the `update_check` document of the cache database
+        self.cache = os.path.join(self.home, ".cache", "tezgah")
+        os.makedirs(self.cache)
         self.release = os.path.join(self.home, "release.json")
         self.serve(bump(CURRENT, 5))
 
@@ -52,13 +53,12 @@ class Notice(support.TempHome):
         return env
 
     def write_cache(self, latest, checked=None):
-        with open(self.cache, "w", encoding="utf-8") as fh:
-            json.dump({"checked": int(time.time()) if checked is None else checked,
-                       "latest": latest}, fh)
+        self.assertTrue(support.store().put_doc("update_check", "", {
+            "checked": int(time.time()) if checked is None else checked,
+            "latest": latest}, self.cache))
 
     def read_cache(self):
-        with open(self.cache, encoding="utf-8") as fh:
-            return json.load(fh)
+        return support.store_doc(self.cache, "update_check", "")
 
     def status(self, *args, env=None):
         proc = subprocess.run([sys.executable, STATUS, self.home] + list(args),
@@ -73,7 +73,7 @@ class Notice(support.TempHome):
 
     def wait_for_latest(self, want):
         for _ in range(100):
-            if os.path.exists(self.cache) and self.read_cache().get("latest") == want:
+            if (self.read_cache() or {}).get("latest") == want:
                 return True
             time.sleep(0.05)
         return False
@@ -112,15 +112,15 @@ class Notice(support.TempHome):
 
     def test_an_unreadable_cache_still_draws_the_line(self):
         # garbage is a stale cache: the line draws, then the check replaces it
-        with open(self.cache, "w", encoding="utf-8") as fh:
-            fh.write("{not json")
+        self.write_cache(CURRENT)
+        support.cache_rows(self.cache, "UPDATE update_check SET doc = '{not json'")
         self.assertTrue(self.status().startswith("tezgah v%s" % CURRENT))
         self.assertTrue(self.wait_for_latest(bump(CURRENT, 5)))
 
     def test_a_machine_with_no_cache_dir_yet_still_checks(self):
         # a first run has no ~/.cache/tezgah: the stamp and the answer create it,
         # or the check never starts and the chip never appears
-        os.rmdir(os.path.dirname(self.cache))
+        os.rmdir(self.cache)
         self.status()
         self.assertTrue(self.wait_for_latest(bump(CURRENT, 5)))
 
@@ -182,20 +182,20 @@ class Notice(support.TempHome):
                               text=True, timeout=30, env=self.envv())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.read_cache()["latest"], bump(CURRENT, 5))
-        self.assertEqual(os.stat(self.cache).st_mode & 0o777, 0o600)
+        self.assertEqual(os.stat(os.path.join(self.cache, "tezgah.db")).st_mode & 0o777, 0o600)
 
     def test_an_offline_check_exits_0_and_writes_nothing(self):
         env = self.envv(TEZGAH_UPDATE_URL="file://" + os.path.join(self.home, "nope"))
         proc = subprocess.run([sys.executable, UPDATE, "check"], capture_output=True,
                               text=True, timeout=30, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertFalse(os.path.exists(self.cache))
+        self.assertIsNone(self.read_cache())
 
     def test_a_tag_that_is_not_a_version_is_not_written(self):
         with open(self.release, "w", encoding="utf-8") as fh:
             json.dump({"tag_name": "nightly"}, fh)
         subprocess.run([sys.executable, UPDATE, "check"], timeout=30, env=self.envv())
-        self.assertFalse(os.path.exists(self.cache))
+        self.assertIsNone(self.read_cache())
 
 
 class Tag(unittest.TestCase):

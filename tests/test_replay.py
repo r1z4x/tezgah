@@ -168,8 +168,11 @@ class Corpus(TempHome):
         self.assertTrue(s["run"].startswith(root + os.sep))
         self.assertEqual(os.path.realpath(s["run"]).split(os.sep)[:-1],
                          os.path.realpath(root).split(os.sep))
-        self.assertEqual(sorted(os.listdir(s["run"])),
-                         ["corpus.jsonl", "results.jsonl", "summary.json"])
+        self.assertEqual(sorted(os.listdir(s["run"])), ["corpus.jsonl", "results.jsonl"])
+        # the summary is the run's row of the cache database, the newest one
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        self.assertEqual([(run, json.loads(summary)) for run, summary in support.cache_rows(
+            cache, "SELECT run, summary FROM replay_runs ORDER BY n")], [(s["run"], s)])
         self.assertEqual(self.tree(self.repo), before_repo)
         self.assertEqual(self.tree(self.evidence), before_ledgers)
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".tezgah")))

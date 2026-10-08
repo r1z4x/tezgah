@@ -162,8 +162,8 @@ class ImportLocks(Cache):
     def test_an_import_waiting_on_the_database_leaves_the_file_unlocked(self):
         # the file's writer and readers must not wait on the database's lock
         path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "ls"}])
-        db = os.path.join(self.cache, ts.EVIDENCE_DB)
-        ts.connect(db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+        db = os.path.join(self.cache, ts.CACHE_DB)
+        ts.connect(db, ts.CACHE_SCHEMA, ts.CACHE_VERSION).close()
         holder = sqlite3.connect(db, isolation_level=None)
         self.addCleanup(holder.close)
         holder.execute("BEGIN IMMEDIATE")
@@ -185,7 +185,7 @@ class ImportLocks(Cache):
         self.assertEqual(len(ts.evidence_rows(path)), 1)
         with open(path, "ab") as fh:
             fh.write(b'{"kind": "run", "det')
-        holder = sqlite3.connect(os.path.join(self.cache, ts.EVIDENCE_DB),
+        holder = sqlite3.connect(os.path.join(self.cache, ts.CACHE_DB),
                                  isolation_level=None)
         self.addCleanup(holder.close)
         holder.execute("BEGIN IMMEDIATE")
@@ -212,15 +212,15 @@ class ImportLocks(Cache):
 
 class Versions(Cache):
     def test_an_older_install_leaves_a_newer_schema_alone(self):
-        db = os.path.join(self.cache, ts.EVIDENCE_DB)
+        db = os.path.join(self.cache, ts.CACHE_DB)
         conn = sqlite3.connect(db)
-        conn.execute("PRAGMA user_version = %d" % (ts.EVIDENCE_VERSION + 1))
+        conn.execute("PRAGMA user_version = %d" % (ts.CACHE_VERSION + 1))
         conn.close()
-        ts.connect(db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+        ts.connect(db, ts.CACHE_SCHEMA, ts.CACHE_VERSION).close()
         conn = sqlite3.connect(db)
         self.addCleanup(conn.close)
         self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0],
-                         ts.EVIDENCE_VERSION + 1)
+                         ts.CACHE_VERSION + 1)
 
     def test_the_bulk_import_starts_only_while_a_legacy_file_exists(self):
         os.makedirs(os.path.join(self.cache, "evidence"))

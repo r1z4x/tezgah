@@ -1241,7 +1241,7 @@ class OpenCodePlugin(TempHome):
         # same tables, indexes and version.
         self.after("bash", {"command": "ls"})
         python_db = os.path.join(self.home, "python", "tezgah.db")
-        ts.connect(python_db, ts.EVIDENCE_SCHEMA, ts.EVIDENCE_VERSION).close()
+        ts.connect(python_db, ts.CACHE_SCHEMA, ts.CACHE_VERSION).close()
 
         def shape(path):
             conn = sqlite3.connect(path)

@@ -401,15 +401,13 @@ class ProviderDown(JudgeCase):
         self.assertEqual(len(Fake.seen), 2)
 
     def test_a_marker_from_the_future_does_not_hold_the_provider_down(self):
-        # A clock step back (or a copied cache) must not mark it down for good.
-        path = os.path.join(self.home, "future-marker")
-        open(path, "w", encoding="utf-8").close()
+        # A clock step back (or a copied cache) must not mark it down for good:
+        # a mark set at a time ahead of now expires further off than DOWN_FOR.
         later = time.time() + 10 * tezgah_judge.DOWN_FOR
-        os.utime(path, (later, later))
-        self.assertFalse(tezgah_judge._down(path))
-        now = time.time() - 1
-        os.utime(path, (now, now))
-        self.assertTrue(tezgah_judge._down(path))
+        tezgah_judge.tezgah_store.set_down("future", later + tezgah_judge.DOWN_FOR)
+        self.assertFalse(tezgah_judge._down("future"))
+        tezgah_judge.tezgah_store.set_down("future", time.time() - 1 + tezgah_judge.DOWN_FOR)
+        self.assertTrue(tezgah_judge._down("future"))
 
 
 class AnsweringModel(JudgeCase):
