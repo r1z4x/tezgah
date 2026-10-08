@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-08
+
 ### Changed
 
 - **Taste state lives in SQLite.** The repository's signals, decisions,
@@ -862,7 +864,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.4.0
 [1.3.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.3.0
 [1.2.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.2.0
 [1.1.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.1.0
