@@ -6,6 +6,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **One Acceptance rule.** A plan enters a writing phase only when each
+  Acceptance item names its command or says `unverifiable` and why. Before, one
+  command-bearing item let the move through. `render_table --acceptance
+  --strict` then refused the same plan. Both now read one predicate,
+  `tezgah_task.unproven`, and the refusal names each item's line.
+
+### Added
+
+- **Plan order and progress in `tezgah-task status`.** A plan can name the
+  plans it waits on with `after:`. `status` prints each open plan's ticked
+  Acceptance boxes and what it still waits on. A `parallel:` line names the
+  ready plans whose `allowed_paths:` share no prefix. Those can run at once.
+  An open plan whose `status:` is not open or blocked is a `FAIL` line, and so
+  is an `after:` id no plan carries. `--json` adds `open` and `parallel`.
+
 ## [1.4.0] - 2026-10-08
 
 ### Changed

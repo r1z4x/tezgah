@@ -15,7 +15,12 @@ description: >
 1. Resolve the root: `ROOT=$(git rev-parse --show-toplevel)`. If it fails, stop and
    say plans need a git repo. If `$ROOT/.tezgah/plans/open` is missing, say so and stop.
 2. For each `.tezgah/plans/open/*.md`: read the frontmatter (id, title, status, branch, pr)
-   and the first line of the `## Next` section.
+   and the first line of the `## Next` section. Then run
+   `~/.config/tezgah/bin/tezgah-task status`: per open plan it prints the
+   Acceptance boxes ticked, the plans its `after:` still waits on, and a
+   `parallel:` line naming the ready plans that share no `allowed_paths:`
+   prefix; a `FAIL` line (a status outside open|blocked, an `after:` id no plan
+   carries, a phase no reader accepts) goes into the report as it printed.
 3. If `pr:` is set, run
    `gh pr view <pr> --json state,mergedAt,reviewDecision,statusCheckRollup -q '[.state, .reviewDecision, ([.statusCheckRollup[]?.conclusion] | unique | join(","))] | map(select(. != null and . != "")) | join(" | ")'`
    and append the result to that row's `pr` cell, e.g. `#12 (OPEN | APPROVED | SUCCESS)`.
@@ -37,16 +42,19 @@ description: >
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Print the table, then one line per plan with `status: blocked` quoting its
-   `BLOCKED: <reason>`, then any gh failures.
+   `BLOCKED: <reason>`, then one line per plan that waits on another (`waits on
+   NNN (open)`), then any gh failures and `FAIL` lines.
 9. End with exactly one recommendation: "Work on NNN <slug> next: <reason>". No menu.
    Prefer plans with an approved PR and green CI, then open plans with no blocker,
-   oldest first.
+   oldest first; never a plan that still waits on another. When the `parallel:`
+   line names it with others, add one sentence: those plans can run at once, one
+   worktree each.
 
 ## Format
 
 Plan file `.tezgah/plans/open/NNN-slug.md` (status open|blocked) or `.tezgah/plans/done/NNN-slug.md`
 (status done|discarded). Frontmatter: id, title, status, branch (`plan/NNN-slug`),
-pr, created, updated, allowed_paths, plus phase/allowed_from/review when set. Sections: `## Goal`, `## Acceptance` (checkboxes), `## State`
+pr, created, updated, allowed_paths, plus after/phase/allowed_from/checkpoint/review/review_round/reviewed_sha and the spike keys when set. Sections: `## Goal`, `## Acceptance` (checkboxes), `## State`
 (evidence), `## Next` (one action or `BLOCKED: <reason>`). README table lives between
 `<!-- status:start -->` and `<!-- status:end -->` with columns
 `| id | title | status | branch | pr | next |`.

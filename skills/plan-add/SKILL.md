@@ -40,9 +40,10 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    Acceptance: checkable criteria, each with the command that proves it - or the
    word `unverifiable` and why, since *when possible* is the loophole
    (`~/.config/tezgah/bin/tezgah-render-table --acceptance` reports the items that
-   name no command). A plan whose every item names no command cannot enter a
-   writing phase at all (`tezgah-task` refuses it), so this is the plan's own
-   check, not a report read later. State: `not started` plus the findings from
+   name no command). An item that names no command keeps the plan out of a
+   writing phase (`tezgah-task` refuses it, through the predicate `--strict`
+   refuses on), so this is the plan's own check, not a report read later. State:
+   `not started` plus the findings from
    step 4. Next: the first concrete action. Dates: `date +%F`. `allowed_paths:`:
    the globs the work will write, from the files step 4 found (`apps/admin/**`,
    `packages/ui/src/**`), narrow enough that a write outside them is a surprise
@@ -50,7 +51,10 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    holds the task to it. A plan that has to spike an assumption first (does the
    approach work at all?) writes the four `spike:` keys below: `implementation`
    is refused while `spike_recorded:` names no answer, so the answer is recorded
-   before the build rather than after it.
+   before the build rather than after it. `after:`: the ids of the open plans
+   this one cannot start before (`after: 012, 015`), only when step 4 found a
+   real dependency - a plan with none can run beside the others, and
+   `tezgah-task status` names which ready plans share no `allowed_paths:` prefix.
 6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). A new plan has no PR
    state to enrich, so no `--pr-info` here; that enrichment belongs to plan-status.
@@ -72,7 +76,7 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    user passes `--any-path`, so tell the user the exact command - the plan's
    scope included - and never suggest dropping it. Three more refusals land at
    the same moment, and the user fixes them in the plan, not the command: a
-   writing phase whose every Acceptance item names no command, and
+   writing phase while any Acceptance item names no command, and
    `implementation` while the plan's spike is unanswered (both refused with the
    file and the reader that reported it); and `implementation` is refused while
    the tree is dirty, because the phase starts by recording `checkpoint:` - the
@@ -111,6 +115,7 @@ created: YYYY-MM-DD
 updated: YYYY-MM-DD
 allowed_paths:
   - <glob>
+after:
 ---
 ## Goal
 <1-3 sentences>
@@ -133,6 +138,14 @@ acceptance commands run unpiped, and a fresh reviewer (the host's
 `tezgah-reviewer` subagent) reading the diff, whose verdict
 `tezgah-task review NNN <reviewer> approve|changes` records as `review:`.
 `tezgah-task close NNN done` (plan-sync) refuses without an `approve`.
+
+`after:` names the plans that must be done before this one starts - a `- NNN`
+block or `after: 012, 015`. `tezgah-task status` reads it: each open plan's
+Acceptance boxes ticked (`acceptance 3/8 checked`), what it still waits on
+(`waits on 012 (open)`), and a `parallel:` line naming the ready plans whose
+`allowed_paths:` share no prefix, which can run at once in separate worktrees.
+An `after:` id no plan carries, or an open plan whose `status:` is not open or
+blocked, is a `FAIL` line there.
 
 `checkpoint:` is written by `tezgah-task` when the phase moves to
 `implementation`: the sha of the commit the work returns to, or `pending` while
@@ -163,7 +176,8 @@ Small self-contained edits do not get a plan.
   `allowed_paths` (the plan's scope), `phase` while it is the active task,
   `checkpoint` in the implementation phase (the commit the work returns to) and
   `review` once a fresh reviewer read its diff, plus the optional `spike` keys
-  on a plan that answers one question before building,
+  on a plan that answers one question before building and `after` (the plan ids
+  it waits on),
   sections Goal, Acceptance (checkboxes: each item carries the command that proves
   it, or `unverifiable` and why), State (evidence), Next (one action or BLOCKED).
 - Work for a plan happens on branch `plan/NNN-slug`; a merged PR (or a branch merged

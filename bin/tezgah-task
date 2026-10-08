@@ -5,7 +5,7 @@
   tezgah-task phase P [--any-path]                            change the active task's phase
   tezgah-task allow GLOB ... | --any-path                     replace the allowlist
   tezgah-task stop                                            deactivate (clear phase)
-  tezgah-task status [--json]                                 the active task, or "no active task"
+  tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
   tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
   tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done
 
@@ -32,11 +32,17 @@ refuses the active task - that one is the user's to stop first.
 
 Two things the plan owes are asked here, at the only moment they can still be
 fixed - the phase move - because the record is the user's and the refusal is
-this CLI's: a writing phase needs at least one Acceptance item that names the
-command proving it (or says `unverifiable` and why), since the report CI runs
-afterwards reads the same items and refuses the same plan too late; and
-`implementation` needs the plan's spike answered, so the build starts on
-evidence rather than on the guess the spike exists to retire.
+this CLI's: a writing phase needs every Acceptance item to name the command
+proving it (or say `unverifiable` and why), since the report CI runs afterwards
+refuses an open plan on any one item that does neither, through the same
+predicate (`tezgah_task.unproven`); and `implementation` needs the plan's spike
+answered, so the build starts on evidence rather than on the guess the spike
+exists to retire.
+
+`status` lists every open plan after the active task: its Acceptance boxes
+ticked, the plans its `after:` still waits on, and - on a `parallel:` line - the
+ready plans whose `allowed_paths:` share no prefix, which can run at once. A
+status outside open|blocked, or an `after:` id no plan carries, is a `FAIL` line.
 
 Entering `implementation` also records where the risky work returns to: a
 `checkpoint:` field holding the pre-work commit's sha, or `pending <sha>` while
@@ -279,13 +285,14 @@ def phase_problems(phase, text, path):
         items = tt.acceptance_gap(text)
         if items:
             out.append(
-                "%s cannot enter %s: all %d of its Acceptance items name no "
-                "command and none declares `unverifiable` (read by "
-                "hooks/tezgah_task.py:acceptance_items), so the work has no check "
-                "to be held to. Give at least one item the command that proves "
+                "%s cannot enter %s: %d of its %d Acceptance items name no "
+                "command and declare no `unverifiable` (read by "
+                "hooks/tezgah_task.py:acceptance_items; at %s), so that work has "
+                "no check to be held to. Give each one the command that proves "
                 "it, or `unverifiable` and why; "
-                "`tezgah-render-table --acceptance` reports the same items"
-                % (path, phase, len(items)))
+                "`tezgah-render-table --acceptance --strict` refuses the same items"
+                % (path, phase, len(items), len(tt.acceptance_items(text)),
+                   ", ".join("%s:%d" % (path, i["line"]) for i in items)))
     if phase == "implementation" and tt.spike_unanswered(text):
         out.append(
             "%s cannot enter implementation: its spike is unanswered - `spike:` "
@@ -561,22 +568,50 @@ def cmd_status(args):
     bad = []
     for path in plans(root):
         fields = tt.frontmatter(read(path))
+        ident = fields.get("id") or os.path.basename(path).split("-")[0]
         phase = fields.get("phase") or ""
         if phase and phase not in tt.TASK_PHASES:
-            bad.append({"id": fields.get("id") or os.path.basename(path).split("-")[0],
-                        "phase": phase, "path": path})
+            bad.append({"id": ident, "phase": phase, "path": path,
+                        "problem": "phase %r is not one of %s, so the plan is ignored (%s)"
+                        % (phase, ", ".join(tt.TASK_PHASES), path)})
+        status = fields.get("status") or ""
+        if status not in tt.OPEN_STATUSES:
+            bad.append({"id": ident, "path": path,
+                        "problem": "status %r is not one of %s, which is what a plan "
+                        "under .tezgah/plans/open carries (%s)"
+                        % (status, ", ".join(tt.OPEN_STATUSES), path)})
+    rows = tt.queue(root)
+    for row in rows:
+        for ident, state in row["after"]:
+            if state == "missing":
+                bad.append({"id": row["id"], "path": row["path"],
+                            "problem": "`after: %s` names no plan under .tezgah/plans "
+                            "(%s)" % (ident, row["path"])})
+    together = tt.parallel(rows)
     if task:
         task["allowed_from"] = allow_source(read(task["path"]))[1]
     if as_json:
-        print(json.dumps({"active": task, "malformed": bad}, indent=2))
+        print(json.dumps({"active": task, "malformed": bad, "open": rows,
+                          "parallel": together}, indent=2))
     else:
         if task:
             show(task["path"])
         else:
             print("no active task")
+        if rows:
+            print("open plans: %d, %d ready" % (len(rows), sum(r["ready"] for r in rows)))
+        for row in rows:
+            waits = ["%s (%s)" % (ident, state) for ident, state in row["after"]
+                     if state != "done"]
+            print("  %s %s, acceptance %d/%d checked, %s" % (
+                row["id"], row["status"] or "(no status)", row["checked"], row["items"],
+                "ready" if row["ready"] else
+                "waits on %s" % ", ".join(waits) if waits else row["status"]))
+        if together:
+            print("parallel: %s - ready, and no two share an allowed_paths prefix"
+                  % ", ".join(together))
         for row in bad:
-            print("FAIL %s: phase %r is not one of %s, so the plan is ignored (%s)"
-                  % (row["id"], row["phase"], ", ".join(tt.TASK_PHASES), row["path"]))
+            print("FAIL %s: %s" % (row["id"], row["problem"]))
     return 1 if bad else 0
 
 

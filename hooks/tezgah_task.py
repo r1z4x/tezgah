@@ -21,14 +21,19 @@ before it happens is decided once. This module is on the gate's hot path for
 every write, so it imports nothing from tezgah_context and shells out to
 nothing.
 
-A plan's body is read here too, and only here: the acceptance report
+A plan's body is read here too: the acceptance report
 (`tezgah-render-table --acceptance`) counts the items that name no command, so
 the record the gate reads and the items the report counts have one reader. Two
 readers of the body were added beside it and read in the same place - the
-`## Acceptance` items a plan cannot enter a writing phase without
-(`acceptance_gap`), and the spike a plan declares and has not answered
-(`spike_unanswered`) - for the same reason: the CLI refuses the phase move and
-the CI report counts the same items, and one module keeps them agreeing.
+`## Acceptance` items a plan cannot enter a writing phase with while any of them
+names no command (`acceptance_gap`, the predicate `--strict` refuses on too),
+and the spike a plan declares and has not answered (`spike_unanswered`) - for
+the same reason: the CLI refuses the phase move and the CI report counts the
+same items, and one module keeps them agreeing. The open plans' progress (the
+ticked boxes), the plans each one waits on (`after:`) and which ready plans can
+run at once (`queue`, `parallel`) are read here for `tezgah-task status`. The
+injected open-plans block keeps its own small reader
+(`hooks/tezgah_context.py::_plan_row`: id, title, the first `## Next` line).
 
 The `checkpoint:` key is read here for the same reason again: bin/tezgah-task
 writes it when the phase moves to `implementation` - the pre-work commit's sha
@@ -100,8 +105,9 @@ def frontmatter(text):
     return out
 
 
-def allowed_paths(text):
-    """The `allowed_paths:` list as a list of globs, [] when absent."""
+def _list_field(text, key):
+    """One frontmatter key's `- item` block as a list of strings, [] when the key
+    is absent or carries no block."""
     out = []
     collecting = False
     for line in _frontmatter_lines(text):
@@ -110,8 +116,22 @@ def allowed_paths(text):
             out.append(stripped[2:].strip())
             continue
         collecting = (not stripped.startswith("- ") and ":" in stripped
-                      and stripped.partition(":")[0].strip() == "allowed_paths")
+                      and stripped.partition(":")[0].strip() == key)
     return out
+
+
+def allowed_paths(text):
+    """The `allowed_paths:` list as a list of globs, [] when absent."""
+    return _list_field(text, "allowed_paths")
+
+
+def after(text):
+    """The plan ids this plan waits on (`after:`), in the order written: the
+    `- NNN` block `set_fields` writes, or the inline `after: 012, 015` a person
+    types. [] when the plan waits on nothing - which is what lets it run beside
+    the others."""
+    return (_list_field(text, "after")
+            or frontmatter(text).get("after", "").replace(",", " ").split())
 
 
 def section_lines(text, heading):
@@ -129,7 +149,7 @@ def section_lines(text, heading):
     return out
 
 
-_ITEM = re.compile(r"^\s*- \[[ xX]\]\s*(.*)$")
+_ITEM = re.compile(r"^\s*- \[([ xX])\]\s*(.*)$")
 # The word `unverifiable`, as a word: the lookahead is a boundary a hyphen and a
 # letter both fail, so `unverifiable-ness` is not a marker.
 _MARKER = re.compile(r"unverifiable(?![-\w])", re.I)
@@ -191,10 +211,11 @@ def unverifiable_reason(text):
 
 def acceptance_items(text):
     """One plan file's `## Acceptance` items: a list of
-    {"line", "text", "state"}, plus "reason" when the state is "unverifiable".
-    One field and not two - "checkable" (the item names a command),
-    "unverifiable" (it says so and why) or "missing" (neither) - so no caller can
-    read two answers about one item.
+    {"line", "text", "checked", "state"}, plus "reason" when the state is
+    "unverifiable". One field and not two - "checkable" (the item names a
+    command), "unverifiable" (it says so and why) or "missing" (neither) - so no
+    caller can read two answers about one item. "checked" is the box (`- [x]`),
+    which is the plan's progress and says nothing about the item's proof.
 
     An item is one `- [ ]`/`- [x]` line plus the lines it wraps onto, up to the
     next item or a blank line: the format wraps at 79 columns, so an item is more
@@ -204,8 +225,8 @@ def acceptance_items(text):
     for number, line in section_lines(text, "Acceptance"):
         found = _ITEM.match(line)
         if found:
-            out.append({"line": number, "text": " ".join(found.group(1).split()),
-                        "state": "missing"})
+            out.append({"line": number, "text": " ".join(found.group(2).split()),
+                        "checked": found.group(1) != " ", "state": "missing"})
         elif out and line.strip():
             out[-1]["text"] = " ".join((out[-1]["text"] + " " + line).split())
     for item in out:
@@ -217,19 +238,27 @@ def acceptance_items(text):
     return out
 
 
-def acceptance_gap(text):
-    """The plan's Acceptance items when nothing in them can check the work: every
-    item the section carries is `missing`, so none names a command and none
-    declares itself `unverifiable`. [] otherwise, and [] when the plan has no
-    Acceptance items at all.
+def unproven(items):
+    """The items that name no command and declare no `unverifiable` - the one
+    predicate both the phase move (`acceptance_gap`) and `render_table
+    --acceptance --strict` refuse on, so the two cannot let through different
+    plans."""
+    return [item for item in items if item["state"] == "missing"]
 
-    A plan with an empty or absent section is a different defect - the format asks
-    plan-add to write the items, and the render_table report does not gate that
-    case either - so refusing it here would tax every plan that predates the rule
-    while the two readers still agreed about every item either of them can see.
-    Returns the items so a refusal can count them."""
-    items = acceptance_items(text)
-    return items if items and all(item["state"] == "missing" for item in items) else []
+
+def acceptance_gap(text):
+    """The plan's Acceptance items that nothing can check: each one names no
+    command and declares no `unverifiable`. [] when every item names its proof,
+    and [] when the plan has no Acceptance items at all.
+
+    Any such item is a gap, not only a section made of them: the format asks for
+    the proof per item, and the strict report refuses an open plan on one, so a
+    phase move that let one through would be refused later by the reader it was
+    meant to answer first. A plan with an empty or absent section is a different
+    defect - the format asks plan-add to write the items, and the report does not
+    gate that case either - so refusing it here would tax every plan that
+    predates the rule. Returns the items so a refusal can name them."""
+    return unproven(acceptance_items(text))
 
 
 # The `checkpoint:` values a plan can carry: a commit sha (the tree was clean at
@@ -295,6 +324,30 @@ def spike_unanswered(text):
 
 
 ACCEPTANCE_DIRS = ("open", "done")
+# The `status:` a plan carries in each directory (plan-add's format): a plan
+# under open/ is open or blocked, one under done/ is done or discarded.
+OPEN_STATUSES = ("open", "blocked")
+
+
+def _plan_files(root, sub):
+    """(name, path, text) for every readable `*.md` under
+    `<root>/.tezgah/plans/<sub>`, sorted by name; an absent directory or an
+    unreadable file is skipped, so a reader built on it never raises."""
+    directory = os.path.join(root, ".tezgah", "plans", sub)
+    try:
+        names = sorted(os.listdir(directory))
+    except OSError:
+        return
+    for name in names:
+        if not name.endswith(".md"):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        yield name, path, text
 
 
 def acceptance_report(root):
@@ -310,25 +363,78 @@ def acceptance_report(root):
     items = []
     plans = 0
     for sub in ACCEPTANCE_DIRS:
-        directory = os.path.join(root, ".tezgah", "plans", sub)
-        try:
-            names = sorted(os.listdir(directory))
-        except OSError:
-            continue
-        for name in names:
-            if not name.endswith(".md"):
-                continue
-            path = os.path.join(directory, name)
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    text = fh.read()
-            except OSError:
-                continue
+        for name, _, text in _plan_files(root, sub):
             plans += 1
             for item in acceptance_items(text):
                 item["plan"] = ".tezgah/plans/%s/%s" % (sub, name)
                 items.append(item)
     return {"plans": plans, "items": items}
+
+
+def _plan_id(fields, name):
+    return fields.get("id") or name.split("-")[0]
+
+
+def _prefix(glob):
+    """The literal head of a glob: everything before its first `*`."""
+    return glob.split("*", 1)[0]
+
+
+def scopes_overlap(first, second):
+    """Could two allowlists name one file? An empty list is every path, and two
+    globs can only meet when one literal head is a prefix of the other's - so
+    `hooks/a*.py` and `hooks/b*.py` never do, and `**/x` meets everything.
+    ponytail: prefix test, not glob intersection - it says "overlap" for
+    `hooks/*.py` against `hooks/x/y.md`, which only costs a missed pairing."""
+    if not first or not second:
+        return True
+    return any(a.startswith(b) or b.startswith(a)
+               for a in map(_prefix, first) for b in map(_prefix, second))
+
+
+def queue(root):
+    """Every open plan as a row: {"id", "status", "path", "checked", "items" (the
+    Acceptance boxes ticked, and their count), "after" ([id, state] per plan it
+    waits on: `done`, `discarded`, `open` or `missing` when no plan carries the
+    id), "ready" (not blocked, and everything it waits on is done), "overlaps"
+    (the other open plans whose allowed_paths can name one of its files)}.
+
+    The plans' progress and order had no reader: the boxes were counted nowhere
+    and nothing said which plans could run beside each other. Never raises."""
+    state = {}
+    for name, _, text in _plan_files(root, "done"):
+        fields = frontmatter(text)
+        state[_plan_id(fields, name)] = ("discarded" if fields.get("status") == "discarded"
+                                         else "done")
+    rows = []
+    scopes = {}
+    for name, path, text in _plan_files(root, "open"):
+        fields = frontmatter(text)
+        ident = _plan_id(fields, name)
+        state[ident] = "open"
+        items = acceptance_items(text)
+        scopes[ident] = allowed_paths(text)
+        rows.append({"id": ident, "status": fields.get("status", ""), "path": path,
+                     "checked": sum(1 for item in items if item["checked"]),
+                     "items": len(items), "after": after(text)})
+    for row in rows:
+        row["after"] = [[ident, state.get(ident, "missing")] for ident in row["after"]]
+        row["ready"] = (row["status"] != "blocked"
+                        and all(dep == "done" for _, dep in row["after"]))
+        row["overlaps"] = [other["id"] for other in rows if other is not row
+                           and scopes_overlap(scopes[row["id"]], scopes[other["id"]])]
+    return rows
+
+
+def parallel(rows):
+    """The ready plans that can run at once, in id order: each one shares no
+    allowed_paths prefix with any other picked (greedy, first id first). [] when
+    fewer than two qualify - one plan is not a fan-out."""
+    picked = []
+    for row in rows:
+        if row["ready"] and not any(other in row["overlaps"] for other in picked):
+            picked.append(row["id"])
+    return picked if len(picked) > 1 else []
 
 
 def active(cwd, base):

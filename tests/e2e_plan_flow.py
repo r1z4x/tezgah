@@ -7,7 +7,7 @@ runs the CLI half, end to end, in a real `git` repository built under tempfile
 with HOME and TEZGAH_ROOTS redirected into it, so the machine's own config, its
 ledger and its `.tezgah/` are never read - the same isolation the suite uses.
 
-Five rules, each a step below:
+Seven rules, each a step below:
 
   1. a plan whose Acceptance names no command cannot enter `implementation`, and
      `tezgah-render-table --acceptance --strict` exits 1 on the same item, so
@@ -20,7 +20,11 @@ Five rules, each a step below:
   4. a plan whose `spike:` has no `spike_recorded:` is refused the same way,
      because the build would start on the guess the spike exists to retire;
   5. an ADR with no `status:` is refused, and the same record with one is
-     printed.
+     printed;
+  6. one command-bearing item does not carry one that names none: the phase
+     move and the strict report both refuse that plan;
+  7. `tezgah-task status` names the plan an `after:` still waits on, and the
+     ready plans whose `allowed_paths:` share nothing as the ones to run at once.
 
 Not collected by the stdlib suite (the name does not match `test*.py`), the same
 shape as `tests/e2e_packaged_install.py`. Needs `git` on PATH: without it it
@@ -113,13 +117,13 @@ class Project:
                     exist_ok=True)
 
 
-def plan_body(pid, extra="", items=()):
+def plan_body(pid, extra="", items=(), allowed="hooks/**"):
     """A plan file: the frontmatter the CLI reads plus the Acceptance items.
 
     `allowed_paths:` is the list the plan declares its own scope in, so `start`
     without `--allow` is held to it - the shape `plan-add` writes."""
     text = ["---", "id: %s" % pid, "title: a plan under test",
-            "status: open", "phase: discovery", "allowed_paths:", "  - hooks/**"]
+            "status: open", "phase: discovery", "allowed_paths:", "  - %s" % allowed]
     text.extend(extra.splitlines() if extra else [])
     text.extend(["---", "", "## Acceptance", ""])
     text.extend("- [ ] %s" % item for item in items)
@@ -235,6 +239,43 @@ def check_adr_status(project):
     return "; ".join(problems)
 
 
+def check_mixed_items_agree(project):
+    """6: a plan with one item that names its command and one that names none is
+    refused by the phase move and by the strict report alike."""
+    project.write(".tezgah/plans/open/004-mixed.md",
+                  plan_body("004", items=["`python3 -m unittest` is green",
+                                          "the thing works and looks right"]))
+    project.cli(TASK, "start", "004", "--phase", "discovery")
+    moved = project.cli(TASK, "phase", "implementation")
+    report = project.run(argv(ACCEPTANCE) + ["--acceptance", "--strict"])
+    problems = []
+    if moved.returncode == 0 or "1 of its 2 Acceptance items" not in moved.stdout:
+        problems.append("the move was allowed: %s" % first_line(moved))
+    if report.returncode != 1 or "004-mixed.md" not in report.stdout:
+        problems.append("the report read %d: %s" % (report.returncode, first_line(report)))
+    return "; ".join(problems)
+
+
+def check_order_and_parallel(project):
+    """7: `after:` holds a plan back until the one it names is done, and the
+    ready plans whose scopes share nothing are named as one fan-out."""
+    project.write(".tezgah/plans/open/005-after.md",
+                  plan_body("005", extra="after: 004",
+                            items=["`python3 -m unittest` is green"]))
+    project.write(".tezgah/plans/open/006-docs.md",
+                  plan_body("006", items=["`python3 -m unittest` is green"],
+                            allowed="docs/**"))
+    status = project.cli(TASK, "status")
+    problems = []
+    if status.returncode != 0:
+        problems.append("status exited %d: %s" % (status.returncode, status.stdout))
+    if "005 open, acceptance 0/1 checked, waits on 004 (open)" not in status.stdout:
+        problems.append("no wait named: %s" % status.stdout)
+    if "parallel: 001, 006" not in status.stdout:
+        problems.append("no fan-out named: %s" % status.stdout)
+    return "; ".join(problems)
+
+
 CHECKS = (
     ("a plan whose Acceptance names no command cannot enter implementation",
      check_acceptance_gap),
@@ -246,6 +287,10 @@ CHECKS = (
      check_spike_blocks),
     ("an ADR with no status is refused, with one it is printed",
      check_adr_status),
+    ("a command-bearing item does not carry one that names none",
+     check_mixed_items_agree),
+    ("after: holds a plan back, disjoint ready plans run at once",
+     check_order_and_parallel),
 )
 
 

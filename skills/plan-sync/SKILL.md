@@ -28,8 +28,10 @@ description: >
    - gh returned `[]`: fallback `git branch -r --merged origin/main | grep -q "origin/<branch>"`.
      If it matches, treat as done and append `merged without PR`.
    - otherwise: leave the plan untouched.
-5. For every plan marked done: if `## Acceptance` still has `- [ ]` boxes, still move
-   it but append the line `acceptance boxes unchecked at sync` to `## State`.
+5. For every plan marked done: if `## Acceptance` still has `- [ ]` boxes (the
+   `acceptance N/M checked` count `~/.config/tezgah/bin/tezgah-task status` prints
+   per open plan), still move it but append the line
+   `acceptance boxes unchecked at sync (N/M checked)` to `## State`.
 6. Move each done or discarded plan with
    `~/.config/tezgah/bin/tezgah-task close NNN done|discarded`: it sets `status:` and
    `updated:` and moves the file to `.tezgah/plans/done/`. It refuses `done` unless the
@@ -55,14 +57,17 @@ description: >
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 9. Report four lists: moved plans (with done/discarded and the evidence line),
-   plans `close` refused (with its reason), still-open plans, and gh failures. Never delete branches, never edit code outside
+   plans `close` refused (with its reason), still-open plans - each with what
+   `tezgah-task status` says it waits on, so a plan whose `after:` names one just
+   discarded (`waits on NNN (discarded)`) is named for the user to re-plan - and
+   gh failures. Never delete branches, never edit code outside
    `.tezgah/plans/`.
 
 ## Format
 
 Plan file `.tezgah/plans/open/NNN-slug.md` (status open|blocked) or `.tezgah/plans/done/NNN-slug.md`
 (status done|discarded). Frontmatter: id, title, status, branch (`plan/NNN-slug`),
-pr, created, updated, allowed_paths, plus phase/allowed_from/review when set.
+pr, created, updated, allowed_paths, plus after/phase/allowed_from/checkpoint/review/review_round/reviewed_sha and the spike keys when set.
 Sections: `## Goal`, `## Acceptance` (checkboxes), `## State`
 (evidence), `## Next` (one action or `BLOCKED: <reason>`). README table lives between
 `<!-- status:start -->` and `<!-- status:end -->` with columns
