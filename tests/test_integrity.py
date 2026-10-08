@@ -1540,16 +1540,18 @@ class HarnessDrift(unittest.TestCase):
 
     def setUp(self):
         import tezgah_attest as ta
+        import tezgah_paths as tp
         self.dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.dir, True)
         self.addCleanup(setattr, ti, "_path", ti._path)
         ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
-        self.addCleanup(setattr, ta, "drift_mark", ta.drift_mark)
-        mark = os.path.join(self.dir, "drift")
-        ta.drift_mark = lambda session, host: (mark if host == "codex"
-                                               else mark + "-" + host)
-        with open(mark, "w") as fh:
-            fh.write("codex PreToolUse entry removed\n")
+        # the drift mark is read from the cache dir's database, so the cache
+        # dir is this test's
+        self.addCleanup(setattr, tp, "CACHE", tp.CACHE)
+        tp.CACHE = self.dir
+        self.assertTrue(support.store().put_doc(
+            "harness_drift", ta.drift_key("s", "codex"), "codex PreToolUse entry removed\n",
+            self.dir))
 
     def claims(self):
         return [r for r in ti.events("s") if r["kind"] == "claim"]

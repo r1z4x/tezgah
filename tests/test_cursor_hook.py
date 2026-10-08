@@ -112,12 +112,8 @@ class CursorHook(TempHome):
 
     # ---- used marks (what the status line turns green on) -------------------
     def kinds(self, session="s"):
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug(session) + ".jsonl")
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line)["kind"] for line in fh if line.strip()]
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug(session)))
 
     def test_a_mention_of_consult_is_not_a_use_of_it(self):
         # The mark means the tool ran. A grep whose argument names it, or a path
@@ -200,10 +196,10 @@ class CursorHook(TempHome):
         payload.update(extra)
         return self.call(payload)
 
-    def answer_file(self):
-        """The file `remember_answer` writes for this test's conversation."""
-        return os.path.join(self.home, ".cache", "tezgah", "answer",
-                            support.slug("s"))
+    def answer(self):
+        """The reply `remember_answer` stored for this test's conversation."""
+        return support.store_doc(os.path.join(self.home, ".cache", "tezgah"),
+                                 "cursor_answer", support.slug("s"))
 
     def test_stop_blocks_a_done_claim_no_check_backs(self):
         self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
@@ -307,8 +303,7 @@ class CursorHook(TempHome):
                       + "\nİşte kapanış satırı. Doğrulanmadı.")
         self.assertGreater(len(long_reply), 4000)
         self.response(long_reply)
-        with open(self.answer_file()) as fh:
-            stored = fh.read()
+        stored = self.answer()
         self.assertTrue(stored.startswith("Haklısın,"))
         self.assertTrue(stored.rstrip().endswith("Doğrulanmadı."))
         self.assertIn("characters dropped", stored)
@@ -320,8 +315,7 @@ class CursorHook(TempHome):
         # The cut is for the over-budget reply only: applying it to a short one
         # would hand the rule a marker it never wrote and lose the reply's text.
         self.response("Toplam 5 dosya incelendi.")
-        with open(self.answer_file()) as fh:
-            self.assertEqual(fh.read(), "Toplam 5 dosya incelendi.")
+        self.assertEqual(self.answer(), "Toplam 5 dosya incelendi.")
 
 
 class CursorProvenance(TempHome):

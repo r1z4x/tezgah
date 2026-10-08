@@ -152,12 +152,10 @@ class CaptureStore(Snap):
     def test_the_cap_evicts_the_oldest_and_keeps_the_newest(self):
         with mock.patch.object(ts, "CAP", 3):
             ids = [self.cap("f%d.py" % i, "%d\n" % i) for i in range(3)]
-            for i, sid in enumerate(ids):  # capture order, made explicit
-                stamp = 1000 + i
-                os.utime(os.path.join(tp.CACHE, "snapshots", sid),
-                         (stamp, stamp))
             newest = self.cap("f3.py", "3\n")
         self.assertEqual(self.store(), sorted([ids[1], ids[2], newest]))
+        self.assertEqual(support.cache_rows(tp.CACHE, "SELECT id FROM snapshots ORDER BY n"),
+                         [(ids[1],), (ids[2],), (newest,)])
         # the evicted snapshot's row stays on the ledger - evidence is not
         # deleted with the bytes - and a rollback of it refuses by name
         self.assertIn(ids[0], [r["id"] for r in self.rows("snapshot")])
@@ -196,8 +194,6 @@ class CaptureStore(Snap):
         self.addCleanup(os.umask, old)
         sid = self.cap("a.py", "x = 1\n")
         for path, mode in ((self.blob(sid), 0o600),
-                           (os.path.join(os.path.dirname(self.blob(sid)),
-                                         "meta.json"), 0o600),
                            (os.path.dirname(self.blob(sid)), 0o700),
                            (os.path.join(tp.CACHE, "snapshots"), 0o700),
                            (os.path.join(os.path.dirname(os.path.dirname(

@@ -3,7 +3,7 @@
 of the JSON and JSONL files a store replaces. No caller opens a store file
 itself.
 
-It holds the taste stores and the evidence ledger:
+It holds the taste stores, the evidence ledger and the cache stores:
 - `<repo>/.tezgah/taste/taste.db`: the capture signals, the typed decisions,
   the defects, the calibration labels, the injection rows, the benefit gate's
   state, the repository's learnings with their meta, and the learnings each
@@ -11,8 +11,13 @@ It holds the taste stores and the evidence ledger:
 - `~/.config/tezgah/taste/taste.db`: the user-scope learnings with their meta.
 - `<cache>/tezgah.db`: the evidence ledger, one `evidence` row per ledger line
   of every session (`tezgah_integrity` writes and reads it, through the
-  functions under "the evidence ledger" below, and so does opencode's plugin,
-  through node:sqlite or the `evidence` CLI in `main`).
+  functions under "the cache database" below, and so does opencode's plugin,
+  through node:sqlite or the `evidence` CLI in `main`), and the small stores
+  the hooks kept as files beside it before (CACHE_LEGACY): the used-tool
+  marks, the turn stamps, the switch baselines, the status marks, the judge's
+  last use and down marks, the skill hints, the update check, the lesson-taint
+  index, Cursor's marks, the replay and snapshot indexes and the taste-learn
+  stamps (the functions under "the cache stores").
 
 A row keeps its JSON payload in `row`, so its fields stay what the old files
 held; the columns beside it are the fields a query filters on. WAL and a busy
@@ -400,22 +405,61 @@ def mark_seen(conn, session, ids):
                          [(session, lid) for lid in ids])
 
 
-# --- the evidence ledger ------------------------------------------------------------
-# One database per cache dir. A caller names a session's ledger by the path its
-# JSONL file had, `<cache>/evidence/<session>.jsonl` (`tezgah_integrity._path`):
-# the cache is two directories up and the session is the file's stem. A JSONL
-# file still at that path is the session's legacy file, written before this
-# database (or by an opencode process still running a plugin from before it),
-# imported past the bytes already in before every read or write of that session
-# and never renamed aside, because that writer may still append to it.
-EVIDENCE_DB = "tezgah.db"
-EVIDENCE_VERSION = 1
+# --- the cache database -------------------------------------------------------------
+# One database per cache dir, `<cache>/tezgah.db`: the evidence ledger and the
+# small cache stores below it (CACHE_SCHEMA).
+#
+# The evidence ledger: a caller names a session's ledger by the path its JSONL
+# file had, `<cache>/evidence/<session>.jsonl` (`tezgah_integrity._path`): the
+# cache is two directories up and the session is the file's stem. A JSONL file
+# still at that path is the session's legacy file, written before this database
+# (or by an opencode process still running a plugin from before it), imported
+# past the bytes already in before every read or write of that session and
+# never renamed aside, because that writer may still append to it.
+CACHE_DB = "tezgah.db"
+CACHE_VERSION = 2
 EVIDENCE_SCHEMA = IMPORT_SCHEMA + """
 CREATE TABLE IF NOT EXISTS evidence (n INTEGER PRIMARY KEY, session TEXT NOT NULL,
                                      kind TEXT, ts INTEGER, row TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS evidence_session ON evidence (session, n);
 CREATE INDEX IF NOT EXISTS evidence_ts ON evidence (ts);
 """
+# The cache stores, each the table of one kind of file the hooks wrote before
+# (CACHE_LEGACY). A document store keeps one JSON `doc` per `key`, a mark store
+# only the key; `at` is the epoch second of the last write, the mtime the file
+# had. The key is the name the file had, so a legacy file imports under it.
+DOC_STORES = ("turns", "switches", "harness_drift", "import_crash", "judge_last",
+              "skill_pick", "section_hint", "update_check", "cursor_answer",
+              "taste_learn")
+MARK_STORES = ("gate_inactive", "nudged", "cursor_reinforced")
+CACHE_SCHEMA = EVIDENCE_SCHEMA + "".join(
+    "CREATE TABLE IF NOT EXISTS %s (key TEXT PRIMARY KEY, at REAL NOT NULL, doc TEXT NOT NULL);\n"
+    % table for table in DOC_STORES) + "".join(
+    "CREATE TABLE IF NOT EXISTS %s (key TEXT PRIMARY KEY, at REAL NOT NULL);\n"
+    % table for table in MARK_STORES) + """
+CREATE TABLE IF NOT EXISTS used (session TEXT NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL,
+                                 PRIMARY KEY (session, kind));
+CREATE TABLE IF NOT EXISTS judge_down (key TEXT PRIMARY KEY, until REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS lesson_taint (root TEXT NOT NULL, key TEXT NOT NULL,
+                                         source TEXT, ts INTEGER, PRIMARY KEY (root, key));
+CREATE TABLE IF NOT EXISTS snapshots (n INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE,
+                                      meta TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_runs (n INTEGER PRIMARY KEY, run TEXT NOT NULL UNIQUE,
+                                        summary TEXT NOT NULL);
+"""
+# Where each cache store's files were, under the cache dir (`_import_cache`).
+CACHE_LEGACY = {
+    "used": "sessions", "turns": "turns", "switches": "switches",
+    "gate_inactive": "gate-inactive", "nudged": "nudged", "harness_drift": "harness-drift",
+    "import_crash": "import-crash", "judge_down": "judge-down",
+    "judge_last": "judge-last.json", "skill_pick": "skill-pick",
+    "section_hint": "skill-section-hint", "update_check": "update.json",
+    "lesson_taint": "lessons", "cursor_reinforced": "reinforced", "cursor_answer": "answer",
+    "replay_runs": "replay", "snapshots": "snapshots", "taste_learn": "taste-learn",
+}
+# tezgah_judge.DOWN_FOR when the judge-down markers were files: a marker's
+# mtime plus this is the expiry it imports with
+LEGACY_DOWN_FOR = 300
 # the bulk import's stamp in the cache dir, and how often session start may
 # launch it (`import_later`)
 IMPORT_STAMP = "evidence-import.stamp"
@@ -424,7 +468,7 @@ IMPORT_EVERY = 86400
 # (dev, ino), {legacy path: its (dev, ino, size) once fully imported}). A
 # database removed or replaced under the process (doctor, uninstall, a test's
 # fresh cache) is reopened on the next call.
-_EVIDENCE = {}
+_HELD = {}
 
 
 def _ledger(path):
@@ -433,29 +477,31 @@ def _ledger(path):
     return os.path.dirname(folder), name[:-len(".jsonl")] if name.endswith(".jsonl") else name
 
 
-def _evidence_db(cache, create=True):
-    """The held evidence database of `cache`; None when it does not exist and
-    not `create`."""
-    path = os.path.join(cache, EVIDENCE_DB)
+def _cache_db(cache, create=True):
+    """The held database of `cache`, the cache stores' legacy files imported
+    on its open (`_import_cache`); None when it does not exist and not
+    `create`."""
+    path = os.path.join(cache, CACHE_DB)
     try:
         st = os.stat(path)
         here = (st.st_dev, st.st_ino)
     except OSError:
         here = None
-    held = _EVIDENCE.get(path)
+    held = _HELD.get(path)
     if held and held[1] == here:
         return held
     if held:
-        del _EVIDENCE[path]
+        del _HELD[path]
         held[0].close()
     if here is None and not create:
         return None
-    conn = connect(path, EVIDENCE_SCHEMA, EVIDENCE_VERSION)
+    conn = connect(path, CACHE_SCHEMA, CACHE_VERSION)
     # no fsync per commit under WAL: a crash can lose the newest rows but never
     # corrupts the file, the durability the JSONL append had
     conn.execute("PRAGMA synchronous = NORMAL")
     st = os.stat(path)
-    held = _EVIDENCE[path] = (conn, (st.st_dev, st.st_ino), {})
+    held = _HELD[path] = (conn, (st.st_dev, st.st_ino), {})
+    _import_cache(conn, cache)
     return held
 
 
@@ -523,7 +569,7 @@ def _session(path, create=False):
     imported first; the database is None when neither it nor a legacy file
     exists and not `create`, so a read leaves no file behind."""
     cache, session = _ledger(path)
-    held = _evidence_db(cache, create or os.path.exists(path))
+    held = _cache_db(cache, create or os.path.exists(path))
     if held:
         _sync(held, path)
     return held, session
@@ -577,7 +623,7 @@ def has_evidence(path):
     if os.path.exists(path):
         return True
     cache, session = _ledger(path)
-    held = _evidence_db(cache, create=False)
+    held = _cache_db(cache, create=False)
     return bool(held and held[0].execute(
         "SELECT 1 FROM evidence WHERE session = ? LIMIT 1", (session,)).fetchone())
 
@@ -598,7 +644,7 @@ def import_evidence(cache):
     except OSError:
         return 0
     if found:
-        held = _evidence_db(cache)
+        held = _cache_db(cache)
         for _mtime, path in sorted(found):
             _sync(held, path)
     return len(found)
@@ -608,7 +654,7 @@ def sessions(cache):
     """[(session, its newest ts)] of every ledger in `cache`, the one written
     last first, after the bulk import (`import_evidence`)."""
     import_evidence(cache)
-    held = _evidence_db(cache, create=False)
+    held = _cache_db(cache, create=False)
     return held[0].execute(
         "SELECT session, max(ts) FROM evidence GROUP BY session "
         "ORDER BY max(ts) DESC, max(n) DESC").fetchall() if held else []
@@ -628,7 +674,7 @@ def recent_rows(cache, since, kinds, but):
                 continue
     except OSError:
         pass
-    held = _evidence_db(cache, create=bool(fresh))
+    held = _cache_db(cache, create=bool(fresh))
     if held is None:
         return []
     for path in fresh:
@@ -655,7 +701,7 @@ def forget_session(path):
     """Delete the ledger at `path`: its rows and its legacy file; the count of
     rows deleted."""
     cache, session = _ledger(path)
-    held = _evidence_db(cache, create=False)
+    held = _cache_db(cache, create=False)
     if held is None:
         try:
             os.remove(path)
@@ -672,7 +718,7 @@ def sweep_evidence(cache, cutoff, keep=None):
     session is the unit, as the file was: a ledger cut short at its start would
     lose the first row the switch latch reads."""
     import_evidence(cache)
-    held = _evidence_db(cache, create=False)
+    held = _cache_db(cache, create=False)
     if held is None:
         return 0, 0
     with transaction(held[0]) as conn:
@@ -703,6 +749,414 @@ def import_later(cache):
                          stderr=subprocess.DEVNULL, start_new_session=True)
     except (OSError, ValueError):
         pass
+
+
+# --- the cache stores ---------------------------------------------------------------
+# Each function takes the cache dir as `cache`, `tezgah_paths.cache_dir()` when
+# it is None. A read never creates the database: with neither it nor the
+# store's legacy files there, it answers as an empty store.
+
+def _cache_dir():
+    import tezgah_paths
+    return tezgah_paths.cache_dir()
+
+
+def _store(cache, table, create):
+    """The connection of the database holding `table`, or None when it does
+    not exist, the store has no legacy file to import, and not `create`."""
+    cache = cache or _cache_dir()
+    held = _cache_db(cache, create=False) or (
+        (create or os.path.exists(os.path.join(cache, CACHE_LEGACY[table])))
+        and _cache_db(cache))
+    return held[0] if held else None
+
+
+def doc(table, key, cache=None):
+    """The JSON value a document store holds under `key`, or None: none
+    stored, or the database cannot be read."""
+    try:
+        conn = _store(cache, table, False)
+        found = conn and conn.execute("SELECT doc FROM %s WHERE key = ?" % table,
+                                      (key,)).fetchone()
+        return json.loads(found[0]) if found else None
+    except ERRORS + (ValueError,):
+        return None
+
+
+def put_doc(table, key, value, cache=None):
+    """`value` (JSON) under `key` in a document store; False when it was not
+    written."""
+    try:
+        _store(cache, table, True).execute(
+            "INSERT OR REPLACE INTO %s (key, at, doc) VALUES (?, ?, ?)" % table,
+            (key, time.time(), json.dumps(value)))
+        return True
+    except ERRORS + (TypeError, ValueError):
+        return False
+
+
+def drop(table, key, cache=None):
+    """`key` out of a document or mark store. Total."""
+    try:
+        conn = _store(cache, table, False)
+        if conn:
+            conn.execute("DELETE FROM %s WHERE key = ?" % table, (key,))
+    except ERRORS:
+        pass
+
+
+def mark(table, key, cache=None):
+    """Set `key` in a mark store: True when this call set it, False when it
+    was set already. One INSERT, so of two callers exactly one gets True.
+    Raises ERRORS."""
+    return _store(cache, table, True).execute(
+        "INSERT OR IGNORE INTO %s (key, at) VALUES (?, ?)" % table,
+        (key, time.time())).rowcount == 1
+
+
+def marked(table, key, cache=None):
+    """True when a mark store holds `key`. Total: an unreadable store is
+    unmarked."""
+    try:
+        conn = _store(cache, table, False)
+        return bool(conn and conn.execute("SELECT 1 FROM %s WHERE key = ?" % table,
+                                          (key,)).fetchone())
+    except ERRORS:
+        return False
+
+
+def use(session, kind, cache=None):
+    """Record that `session` used `kind`, stamped now. Raises ERRORS."""
+    _store(cache, "used", True).execute(
+        "INSERT OR REPLACE INTO used (session, kind, at) VALUES (?, ?, ?)",
+        (session, kind, time.time()))
+
+
+def used(session, cache=None):
+    """The kinds `session` used, a set. Total."""
+    try:
+        conn = _store(cache, "used", False)
+        return {kind for (kind,) in conn.execute(
+            "SELECT kind FROM used WHERE session = ?", (session,))} if conn else set()
+    except ERRORS:
+        return set()
+
+
+def used_sessions(window, cache=None):
+    """(the kind sets of the `window` sessions that recorded last, newest
+    first; the count of sessions recorded). Total."""
+    try:
+        conn = _store(cache, "used", False)
+        if not conn:
+            return [], 0
+        newest = [s for (s,) in conn.execute(
+            "SELECT session FROM used GROUP BY session ORDER BY max(at) DESC LIMIT ?",
+            (window,))]
+        total = conn.execute("SELECT count(DISTINCT session) FROM used").fetchone()[0]
+        return [used(s, cache) for s in newest], total
+    except ERRORS:
+        return [], 0
+
+
+def down_until(key, cache=None):
+    """The epoch second the judge-down mark `key` expires at, or None. Total."""
+    try:
+        conn = _store(cache, "judge_down", False)
+        found = conn and conn.execute("SELECT until FROM judge_down WHERE key = ?",
+                                      (key,)).fetchone()
+        return found[0] if found else None
+    except ERRORS:
+        return None
+
+
+def set_down(key, until, cache=None):
+    """Mark `key` down until the epoch second `until`. Total."""
+    try:
+        _store(cache, "judge_down", True).execute(
+            "INSERT OR REPLACE INTO judge_down (key, until) VALUES (?, ?)", (key, until))
+    except ERRORS:
+        pass
+
+
+def taint(root, cache=None):
+    """{lesson key: source} of the lesson-taint rows of `root` (a key the
+    caller derives from the repository). Total."""
+    try:
+        conn = _store(cache, "lesson_taint", False)
+        return {key: source or "" for key, source in conn.execute(
+            "SELECT key, source FROM lesson_taint WHERE root = ?", (root,))} if conn else {}
+    except ERRORS:
+        return {}
+
+
+def write_taint(root, keep, rows, cache=None):
+    """In one transaction: drop the rows of `root` whose key is not in `keep`,
+    then store `rows` ({key, source, ts}), a later row over an earlier one of
+    its key. Total."""
+    try:
+        conn = _store(cache, "lesson_taint", True)
+        with transaction(conn):
+            gone = [(root, key) for (key,) in conn.execute(
+                "SELECT key FROM lesson_taint WHERE root = ?", (root,)) if key not in keep]
+            conn.executemany("DELETE FROM lesson_taint WHERE root = ? AND key = ?", gone)
+            conn.executemany(
+                "INSERT OR REPLACE INTO lesson_taint (root, key, source, ts) VALUES (?, ?, ?, ?)",
+                [(root, str(r["key"]), _column(r.get("source")), _column(r.get("ts")))
+                 for r in rows])
+    except ERRORS:
+        pass
+
+
+def add_snapshot(sid, meta, cap, cache=None):
+    """Index snapshot `sid` (its manifest `meta`) and drop the oldest rows past
+    `cap`, in one transaction; the ids dropped, whose blobs the caller removes.
+    Raises ERRORS."""
+    conn = _store(cache, "snapshots", True)
+    with transaction(conn):
+        conn.execute("INSERT INTO snapshots (id, meta) VALUES (?, ?)", (sid, json.dumps(meta)))
+        old = [i for (i,) in conn.execute(
+            "SELECT id FROM snapshots ORDER BY n DESC LIMIT -1 OFFSET ?", (cap,))]
+        conn.executemany("DELETE FROM snapshots WHERE id = ?", [(i,) for i in old])
+    return old
+
+
+def snapshots(sid=None, cache=None):
+    """The snapshot manifests, oldest first, or the one of `sid`. Total."""
+    try:
+        conn = _store(cache, "snapshots", False)
+        found = [] if conn is None else conn.execute(
+            "SELECT meta FROM snapshots %s ORDER BY n" % ("WHERE id = ?" if sid else ""),
+            (sid,) if sid else ())
+        return [json.loads(meta) for (meta,) in found]
+    except ERRORS + (ValueError,):
+        return []
+
+
+def add_replay(run, summary, cache=None):
+    """Index replay run `run` (its directory) with its summary; the newest
+    indexed run is the latest. Raises ERRORS."""
+    _store(cache, "replay_runs", True).execute(
+        "INSERT OR REPLACE INTO replay_runs (run, summary) VALUES (?, ?)",
+        (run, json.dumps(summary)))
+
+
+def replay_latest(cache=None):
+    """The directory of the latest replay run, or None. Total."""
+    try:
+        conn = _store(cache, "replay_runs", False)
+        found = conn and conn.execute(
+            "SELECT run FROM replay_runs ORDER BY n DESC LIMIT 1").fetchone()
+        return found[0] if found else None
+    except ERRORS:
+        return None
+
+
+def replay_summary(run, cache=None):
+    """The summary replay run `run` was indexed with, or None. Total."""
+    try:
+        conn = _store(cache, "replay_runs", False)
+        found = conn and conn.execute("SELECT summary FROM replay_runs WHERE run = ?",
+                                      (run,)).fetchone()
+        return json.loads(found[0]) if found else None
+    except ERRORS + (ValueError,):
+        return None
+
+
+def sweep_cache(cache, cutoff, keep=None):
+    """Delete the turn stamps and the used-kind sessions of `cache` last
+    written before `cutoff` (epoch seconds), all but session `keep` (its
+    `tezgah_context.slug`), after importing their legacy files; the count of
+    rows deleted. The two stores the doctor swept as files. Raises ERRORS."""
+    conn = _store(cache, "turns", False) or _store(cache, "used", False)
+    if conn is None:
+        return 0
+    with transaction(conn):
+        rows = conn.execute("DELETE FROM turns WHERE at < ? AND key IS NOT ?",
+                            (cutoff, keep)).rowcount
+        return rows + conn.execute(
+            "DELETE FROM used WHERE session IN (SELECT session FROM used GROUP BY session "
+            "HAVING max(at) < ?) AND session IS NOT ?", (cutoff, keep)).rowcount
+
+
+def _files(folder):
+    """[(name, path, mtime)] of the regular files directly in `folder`."""
+    out = []
+    try:
+        with os.scandir(folder) as found:
+            for entry in found:
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        out.append((entry.name, entry.path, entry.stat().st_mtime))
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def _dirs(folder):
+    """[(mtime_ns, name, path)] of the directories directly in `folder`, oldest
+    first."""
+    out = []
+    try:
+        with os.scandir(folder) as found:
+            for entry in found:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        out.append((entry.stat().st_mtime_ns, entry.name, entry.path))
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return sorted(out)
+
+
+def _read_text(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except (OSError, ValueError):  # UnicodeDecodeError is a ValueError
+        return None
+
+
+def _read_json(path):
+    try:
+        return json.loads(_read_text(path) or "")
+    except ValueError:
+        return None
+
+
+DOC_SQL = "INSERT OR IGNORE INTO %s (key, at, doc) VALUES (?, ?, ?)"
+MARK_SQL = "INSERT OR IGNORE INTO %s (key, at) VALUES (?, ?)"
+
+
+def _legacy(cache, table):
+    """(the INSERTs, the files) of one cache store's legacy files under
+    `cache`. A file that cannot be read or parsed brings no row, as its old
+    reader read nothing from it, and goes with the rest."""
+    src = os.path.join(cache, CACHE_LEGACY[table])
+    put, gone = [], []
+    if table in ("judge_last", "update_check"):
+        if os.path.isfile(src):
+            value = _read_json(src)
+            if isinstance(value, dict):
+                put.append((DOC_SQL % table, ("", os.path.getmtime(src), json.dumps(value))))
+            gone.append(src)
+    elif table == "snapshots":
+        # the capture order is each directory's mtime; the blob stays
+        for _ns, name, path in _dirs(src):
+            meta = os.path.join(path, "meta.json")
+            value = _read_json(meta)
+            if isinstance(value, dict):
+                put.append(("INSERT OR IGNORE INTO snapshots (id, meta) VALUES (?, ?)",
+                            (name, json.dumps(value))))
+            if os.path.exists(meta):
+                gone.append(meta)
+    elif table == "replay_runs":
+        latest = (_read_text(os.path.join(src, "latest")) or "").strip()
+        # by name (the run's start time), the one `latest` named last
+        for _ns, _name, path in sorted(_dirs(src), key=lambda d: (d[2] == latest, d[1])):
+            summary = os.path.join(path, "summary.json")
+            value = _read_json(summary)
+            if isinstance(value, dict):
+                put.append(("INSERT OR IGNORE INTO replay_runs (run, summary) VALUES (?, ?)",
+                            (path, json.dumps(value))))
+            if os.path.exists(summary):
+                gone.append(summary)
+        if os.path.exists(os.path.join(src, "latest")):
+            gone.append(os.path.join(src, "latest"))
+    elif table == "cursor_reinforced":
+        for _ns, session, folder in _dirs(src):
+            for name, path, at in _files(folder):
+                put.append((MARK_SQL % table, (session + "/" + name, at)))
+                gone.append(path)
+    else:
+        for name, path, at in _files(src):
+            if table == "used" and name.endswith(".jsonl"):
+                for line in (_read_text(path) or "").splitlines():
+                    try:
+                        kind = json.loads(line)["kind"]
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if isinstance(kind, str):
+                        put.append(("INSERT OR IGNORE INTO used (session, kind, at) "
+                                    "VALUES (?, ?, ?)", (name[:-len(".jsonl")], kind, at)))
+            elif table == "lesson_taint" and name.endswith(".jsonl"):
+                for line in (_read_text(path) or "").splitlines():
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(row, dict) and row.get("key"):
+                        put.append(("INSERT OR REPLACE INTO lesson_taint (root, key, source, "
+                                    "ts) VALUES (?, ?, ?, ?)",
+                                    (name[:-len(".jsonl")], str(row["key"]),
+                                     _column(row.get("source")), _column(row.get("ts")))))
+            elif table == "judge_down":
+                put.append(("INSERT OR IGNORE INTO judge_down (key, until) VALUES (?, ?)",
+                            (name, at + LEGACY_DOWN_FOR)))
+            elif table in MARK_STORES:
+                put.append((MARK_SQL % table, (name, at)))
+            elif table in ("harness_drift", "import_crash", "cursor_answer"):
+                text = _read_text(path)
+                if text is not None:
+                    put.append((DOC_SQL % table, (name, at, json.dumps(text))))
+            elif name.endswith(".json"):  # taste-learn keeps its logs beside them
+                value = _read_json(path)
+                if value is not None:
+                    put.append((DOC_SQL % table, (name[:-len(".json")], at, json.dumps(value))))
+            else:
+                continue
+            gone.append(path)
+    return put, gone
+
+
+def _legacy_done(conn):
+    return {name[len("legacy:"):] for (name,) in conn.execute(
+        "SELECT name FROM imported WHERE name >= 'legacy:' AND name < 'legacy;'")}
+
+
+def _import_cache(conn, cache):
+    """Bring each cache store's legacy files (CACHE_LEGACY) in, once per
+    database: a store is done when `imported` holds its `legacy:<table>` row,
+    written in the transaction that takes its rows. The files are read before
+    that transaction and removed after it commits, so a process killed in
+    between imports them again into rows that ignore a second copy. With every
+    store done this is one indexed lookup per open. ponytail: a file a writer
+    from before this release adds after the import is never read (an opencode
+    plugin started before the upgrade, until it restarts). Total: a failure
+    leaves the store for the next open."""
+    try:
+        todo = [table for table in CACHE_LEGACY if table not in _legacy_done(conn)]
+        if not todo:
+            return
+        work = {table: _legacy(cache, table) for table in todo}
+        with transaction(conn):
+            mine = [table for table in todo if table not in _legacy_done(conn)]
+            for table in mine:
+                for sql, args in work[table][0]:
+                    conn.execute(sql, args)
+                conn.execute("INSERT OR IGNORE INTO imported (name, dev, ino, bytes) "
+                             "VALUES (?, 0, 0, 0)", ("legacy:" + table,))
+    except ERRORS:
+        return
+    for table in mine:
+        for path in work[table][1]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        folder = os.path.join(cache, CACHE_LEGACY[table])
+        for _ns, _name, path in _dirs(folder) if table == "cursor_reinforced" else ():
+            try:
+                os.rmdir(path)
+            except OSError:
+                pass
+        try:
+            os.rmdir(folder)  # only an emptied one: blobs, runs and logs stay
+        except OSError:
+            pass
+
 
 
 # `evidence VERB LEDGER [ARG]`: the ledger reads and writes for a caller that
@@ -749,14 +1203,41 @@ def _evidence_cli(args):
     return 0
 
 
+# `mark CACHE TABLE KEY` and `use CACHE SESSION KIND`: the two cache-store
+# writes opencode's plugin makes (the once-per-session nudge and the used-kind
+# marks), for the same caller as `evidence`. `mark` prints 1 when it set the
+# mark and 0 when it was set already.
+STORE_USAGE = "usage: tezgah_store.py mark CACHE TABLE KEY | use CACHE SESSION KIND"
+
+
+def _store_cli(args):
+    if len(args) != 4 or args[0] not in ("mark", "use") or (
+            args[0] == "mark" and args[2] not in MARK_STORES):
+        print(STORE_USAGE, file=sys.stderr)
+        return 2
+    verb, cache, name, value = args
+    try:
+        if verb == "use":
+            use(name, value, cache)
+        else:
+            print(1 if mark(name, value, cache) else 0)
+    except ERRORS as exc:
+        print("tezgah_store: %s" % exc, file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv):
     """`import-evidence [CACHE...]`: the bulk import, for the given cache dirs
-    or for the cache and its temp fallback. `evidence ...`: `_evidence_cli`."""
+    or for the cache and its temp fallback. `evidence ...`: `_evidence_cli`;
+    `mark ...` and `use ...`: `_store_cli`."""
     if argv[1:2] == ["evidence"]:
         return _evidence_cli(argv[2:])
+    if argv[1:2] in (["mark"], ["use"]):
+        return _store_cli(argv[1:])
     if argv[1:2] != ["import-evidence"]:
-        print("usage: tezgah_store.py import-evidence [CACHE_DIR...]\n" + EVIDENCE_USAGE,
-              file=sys.stderr)
+        print("usage: tezgah_store.py import-evidence [CACHE_DIR...]\n" + EVIDENCE_USAGE
+              + "\n" + STORE_USAGE, file=sys.stderr)
         return 2
     caches = argv[2:]
     if not caches:

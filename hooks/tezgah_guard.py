@@ -135,13 +135,11 @@ def attest_session(host, session_id, cwd):
     return tezgah_attest.run(host, session_id, cwd)
 
 
-def import_crash_mark(session_id):
-    """The mark an import failure leaves for the status line, one per session.
-    Built here from stdlib alone (the same `~/.cache/tezgah` as
-    `tezgah_paths.CACHE`), because the module that failed may be tezgah_paths."""
+def import_crash_key(session_id):
+    """The key of the mark an import failure leaves for the status line, one
+    per session: the `import_crash` store of the cache database."""
     import hashlib
-    return os.path.join(os.path.expanduser("~"), ".cache", "tezgah", "import-crash",
-                        hashlib.sha256(str(session_id).encode()).hexdigest()[:16])
+    return hashlib.sha256(str(session_id).encode()).hexdigest()[:16]
 
 
 def import_failed(exc, code=0):
@@ -154,7 +152,7 @@ def import_failed(exc, code=0):
     the rename that crashed every omp hook). A hook fails open (`code` 0) like
     every other caught fault, so the dead core must be visible elsewhere: one
     stderr line always, a `crash` row when the ledger's own modules still
-    import, and a mark the status line draws (`import_crash_mark`). A CLI a
+    import, and a mark the status line draws (`import_crash_key`). A CLI a
     person or a tool asks for a verdict (`tezgah-gate check`) passes a non-zero
     `code`: an empty answer from it would read as a pass."""
     detail = "import: %s: %s" % (type(exc).__name__, str(exc)[:120])
@@ -163,10 +161,10 @@ def import_failed(exc, code=0):
                      % (os.path.basename(sys.argv[0] if sys.argv else "hook"), detail))
     session = _payload_session()
     try:
-        mark = import_crash_mark(session)
-        os.makedirs(os.path.dirname(mark), exist_ok=True)
-        with open(mark, "w", encoding="utf-8") as fh:
-            fh.write(detail + "\n")
+        # the store's own import may be what failed: then no mark, as no
+        # status line that imports it can draw one either
+        import tezgah_store
+        tezgah_store.put_doc("import_crash", import_crash_key(session), detail)
     except Exception:
         pass
     try:

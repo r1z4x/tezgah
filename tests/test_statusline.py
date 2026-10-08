@@ -59,7 +59,8 @@ class Statusline(TempHome):
         payload = {"cwd": self.repo, "session_id": "s"}
         before = run([support.STATUSLINE], payload, env=self.envv).stdout
         self.assertNotIn("gate", before)
-        self.touch(os.path.join(self.home, ".cache", "tezgah", "gate-inactive", "s"))
+        self.assertTrue(support.store().mark("gate_inactive", "s",
+                                             os.path.join(self.home, ".cache", "tezgah")))
         after = run([support.STATUSLINE], payload, env=self.envv).stdout
         self.assertIn("gate\u2717", after)
 
@@ -323,19 +324,16 @@ class SkillRecording(TempHome):
         self.envv = self.env()
         self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
 
-    def session(self, name, kinds, mtime=None):
-        """One recorded session file: the store's own row, `{"kind": kind}`."""
-        d = os.path.join(self.cache, "sessions")
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, name + ".jsonl")
-        with open(path, "w", encoding="utf-8") as fh:
-            for kind in kinds:
-                fh.write(json.dumps({"kind": kind}) + "\n")
-        if mtime is not None:
-            # the window is files by mtime, so a test that picks the newest has
-            # to set it rather than hope two writes land in different clock ticks
-            os.utime(path, (mtime, mtime))
-        return path
+    def session(self, name, kinds, at=None):
+        """One recorded session: the store's own rows, one per kind."""
+        for kind in kinds:
+            support.store().use(name, kind, self.cache)
+        if at is not None:
+            # the window is the time each session last recorded, so a test that
+            # picks the newest has to set it rather than hope two writes land in
+            # different clock ticks
+            support.cache_rows(self.cache, "UPDATE used SET at = ? WHERE session = ?",
+                               (at, name))
 
     def opened(self, *sessions):
         """The rows the CLI prints for the sessions given, `--skill-fitness`."""
@@ -402,9 +400,9 @@ class SkillRecording(TempHome):
                                       "skill it never opened has to be named")
 
     def test_the_window_is_the_newest_sessions_and_says_so(self):
-        self.session("old", ["skill:harness"], mtime=1000)
-        self.session("mid", ["pony"], mtime=2000)
-        self.session("new", ["consult"], mtime=3000)
+        self.session("old", ["skill:harness"], at=1000)
+        self.session("mid", ["pony"], at=2000)
+        self.session("new", ["consult"], at=3000)
         fit = tc.skill_fitness(window=2)
         self.assertEqual((fit["sessions"], fit["recorded"]), (2, 3))
         self.assertEqual([s["name"] for s in fit["skills"]], ["ponytail"])

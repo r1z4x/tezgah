@@ -27,6 +27,7 @@ import json
 import os
 
 import tezgah_paths as tp
+import tezgah_store
 
 ROOT = tp.PLUGIN_ROOT
 CONTRACT_SHA = os.path.join(tp.CONFIG_DIR, "contract.sha256")
@@ -194,13 +195,13 @@ def drift(host, root=ROOT, shas=None):
     return found, unknown
 
 
-def drift_mark(session_id, host):
-    """The mark one host's drifted session start leaves; its text is the drift
-    list. Keyed by session AND host: two hosts can share a session id (a
-    `tezgah-context attest` run by hand, a host whose ids collide), and a clean
-    start on one must not clear the other's mark."""
-    return os.path.join(tp.cache_dir(), "harness-drift", "%s.%s" % (
-        hashlib.sha256(str(session_id).encode()).hexdigest()[:16], host))
+def drift_key(session_id, host):
+    """The key of the mark one host's drifted session start leaves in the
+    `harness_drift` store; its value is the drift list. Keyed by session AND
+    host: two hosts can share a session id (a `tezgah-context attest` run by
+    hand, a host whose ids collide), and a clean start on one must not clear
+    the other's mark."""
+    return "%s.%s" % (hashlib.sha256(str(session_id).encode()).hexdigest()[:16], host)
 
 
 def mark_text(session_id):
@@ -209,11 +210,8 @@ def mark_text(session_id):
         return ""
     texts = []
     for host in CODE_TARGETS:
-        try:
-            with open(drift_mark(session_id, host), encoding="utf-8") as fh:
-                text = fh.read().strip()
-        except OSError:
-            continue
+        text = tezgah_store.doc("harness_drift", drift_key(session_id, host))
+        text = text.strip() if isinstance(text, str) else ""
         if text and text not in texts:
             texts.append(text)
     return "; ".join(texts)
@@ -242,14 +240,9 @@ def run(host, session_id, cwd=None):
     import tezgah_integrity
     tezgah_integrity.note(session_id, "attest", detail, host=host,
                           switches=",".join(switches()) or None)
-    mark = drift_mark(session_id, host)
-    try:
-        if found:
-            os.makedirs(os.path.dirname(mark), exist_ok=True)
-            with open(mark, "w", encoding="utf-8") as fh:
-                fh.write("; ".join(found) + "\n")
-        elif os.path.exists(mark):
-            os.remove(mark)
-    except OSError:
-        pass
+    key = drift_key(session_id, host)
+    if found:
+        tezgah_store.put_doc("harness_drift", key, "; ".join(found))
+    else:
+        tezgah_store.drop("harness_drift", key)
     return found

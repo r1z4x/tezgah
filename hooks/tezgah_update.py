@@ -22,16 +22,13 @@ import sys
 import time
 
 import tezgah_paths as tp
+import tezgah_store
 
 REPO = os.environ.get("TEZGAH_REPO") or "r1z4x/tezgah"
 CHECK_EVERY = 24 * 3600
 TIMEOUT = 5
 SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 ARROW = "\u2191"  # ↑: East Asian width Ambiguous, one cell, never an emoji
-
-
-def cache_path():
-    return os.path.join(tp.cache_dir(), "update.json")
 
 
 def endpoint():
@@ -73,32 +70,15 @@ def disabled():
 
 
 def read_cache():
-    try:
-        with open(cache_path(), encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    """The `update_check` store's one document, `{checked, latest}`, or {}."""
+    data = tezgah_store.doc("update_check", "")
+    return data if isinstance(data, dict) else {}
 
 
 def write_cache(data):
-    """Write the cache whole, owner-only, through a rename, so a redraw reading it
+    """Write the cache whole, in one statement, so a redraw reading it
     mid-write sees the old answer or the new one and never half of either."""
-    path = cache_path()
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    try:
-        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-        os.replace(tmp, path)
-        return True
-    except OSError:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-        return False
+    return tezgah_store.put_doc("update_check", "", data)
 
 
 # Every 0.x ever published, retired by 1.0.0: npm served 0.17.0 through 0.32.0

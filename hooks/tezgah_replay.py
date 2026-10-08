@@ -40,8 +40,10 @@ call's own output.
 
 **Output.** Everything is written under `~/.cache/tezgah/replay/<run>/`, owner
 only, and never leaves the machine: `corpus.jsonl` (the items, with their
-inputs), `results.jsonl`, `summary.json`, and the sheet files. The sandbox HOME
-and the row stream are deleted when the child returns.
+inputs), `results.jsonl` and the sheet files. The run's summary is its row in
+the cache database's replay index (`tezgah_store.add_replay`), whose newest
+row is the latest run. The sandbox HOME and the row stream are deleted when
+the child returns.
 """
 import argparse
 import datetime
@@ -64,6 +66,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
+import tezgah_store  # noqa: E402
 
 # The one rule-label derivation; nothing in this module maps text to a rule.
 rule_of = ti._deny_rule
@@ -425,8 +428,6 @@ def child(run):
     import tezgah_gate as tg
     items = {it["i"]: it for it in _read_jsonl(os.path.join(run, "corpus.jsonl"))}
     evidence = os.path.join(ti.cache_dir(), "evidence")
-    nudged = os.path.join(ti.cache_dir(), "nudged")
-    os.makedirs(nudged, mode=0o700, exist_ok=True)
     now = [0.0]
 
     def frozen():
@@ -458,8 +459,8 @@ def child(run):
             ti._append(os.path.join(evidence, fname), json.dumps(row) + "\n")
             if row.get("kind") == "nudge":
                 # the once-per-session nudge mark the live gate wrote with this
-                # row (`first_nudge`): disk state the ledger records
-                open(tg.nudge_mark(sid), "w", encoding="utf-8").close()
+                # row (`first_nudge`): cache state the ledger records
+                tezgah_store.mark("nudged", tg.nudge_key(sid))
     _write_jsonl(os.path.join(run, "results.jsonl"), results)
 
 
@@ -594,8 +595,7 @@ def run_replay(cutoff=None, since=None):
                "fidelity": fidelity(items, results),
                "race_family": family,
                "deny_runs": folds}
-    _owner_write(os.path.join(run, "summary.json"), json.dumps(summary, indent=2) + "\n")
-    _owner_write(os.path.join(replay_root(), "latest"), run + "\n")
+    tezgah_store.add_replay(run, summary, tp.CACHE)
     return summary
 
 
@@ -668,7 +668,7 @@ def sheet(run, seed=SEED, rules=None):
     """The blind sample: `sheet.jsonl` ({set, n, text}), `sheet-key.jsonl` (the
     hidden live verdicts) and `instructions.md`. Returns (paths, counts)."""
     items = _read_jsonl(os.path.join(run, "corpus.jsonl"))
-    summary = json.load(open(os.path.join(run, "summary.json"), encoding="utf-8"))
+    summary = _summary(run)
     rng = random.Random(seed)
     pools = defaultdict(list)
     # A race deny written before the ledger stored `target` cannot show its
@@ -787,7 +787,7 @@ def _rate(k, n):
 
 
 def report(run, label_files=()):
-    summary = json.load(open(os.path.join(run, "summary.json"), encoding="utf-8"))
+    summary = _summary(run)
     out = {k: summary[k] for k in ("run", "cutoff", "cutoff_local", "ledgers", "candidates",
                                    "excluded", "items", "joined", "join",
                                    "stop_text_fidelity", "fidelity", "race_family",
@@ -1007,8 +1007,18 @@ def _pct(k, n):
 def _run_dir(arg):
     if arg:
         return arg
-    with open(os.path.join(replay_root(), "latest"), encoding="utf-8") as fh:
-        return fh.read().strip()
+    run = tezgah_store.replay_latest(tp.CACHE)
+    if not run:
+        raise SystemExit("replay: no run yet; run `tezgah-gate replay` first")
+    return run
+
+
+def _summary(run):
+    """The summary the run in directory `run` was indexed with (`run_replay`)."""
+    summary = tezgah_store.replay_summary(os.path.normpath(run), tp.CACHE)
+    if summary is None:
+        raise SystemExit("replay: no indexed run at %s" % run)
+    return summary
 
 
 def main(argv):

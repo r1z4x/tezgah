@@ -18,7 +18,7 @@ import tezgah_embed
 import tezgah_orca
 import tezgah_research
 import tezgah_store
-from tezgah_guard import import_crash_mark
+from tezgah_guard import import_crash_key
 from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
                               _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
@@ -1056,32 +1056,18 @@ def state_stamp(root):
             "lessons": _lessons_state(root)}
 
 
-def _stamp_path(session_id):
-    return os.path.join(cache_dir(), "turns", slug(str(session_id)) + ".json")
-
-
 def read_stamp(session_id):
     """The stamp this session's previous turn wrote, or None when there is none."""
     if not session_id:
         return None
-    try:
-        with open(_stamp_path(session_id), encoding="utf-8") as fh:
-            got = json.load(fh)
-    except (OSError, ValueError):
-        return None
+    got = tezgah_store.doc("turns", slug(str(session_id)))
     return got if isinstance(got, dict) and got.get("root") else None
 
 
 def write_stamp(session_id, root, stamp):
     """Remember this turn's stamp. Best effort: a host may sandbox hook writes."""
-    if not session_id:
-        return
-    try:
-        os.makedirs(os.path.join(cache_dir(), "turns"), exist_ok=True)
-        with open(_stamp_path(session_id), "w", encoding="utf-8") as fh:
-            json.dump(dict(stamp, root=root), fh)
-    except OSError:
-        pass
+    if session_id:
+        tezgah_store.put_doc("turns", slug(str(session_id)), dict(stamp, root=root))
 
 
 def forget_seen(session_id):
@@ -1674,12 +1660,10 @@ def _ledger_since(session_id):
     return None, False
 
 
-def _gate_mark(session_id):
-    return os.path.join(cache_dir(), "gate-inactive", slug(str(session_id)))
-
-
-def _switch_baseline(session_id):
-    return os.path.join(cache_dir(), "switches", slug(str(session_id)) + ".json")
+def gate_marked(session_id):
+    """True when the prompt hook left the disarmed-gate mark for this session
+    (`gate_inactive`)."""
+    return tezgah_store.marked("gate_inactive", slug(str(session_id)))
 
 
 def disarmed(session_id):
@@ -1696,24 +1680,17 @@ def disarmed(session_id):
     # the files alone (`armed`, unlatched): a switch the latch ignores is still
     # the tamper shape this records
     now = sorted(n for n in SWITCHES if armed(n))
-    path = _switch_baseline(session_id)
+    state = tezgah_store.doc("switches", slug(str(session_id)))
     try:
-        with open(path, encoding="utf-8") as fh:
-            state = json.load(fh)
         start, seen = list(state["start"]), list(state["seen"])
-    except (OSError, ValueError, KeyError, TypeError):
+    except (KeyError, TypeError):
         start, seen = now, []
     moved = [n for n in now if n not in start]
     for name in moved:
         if name not in seen:
             note(session_id, "disarm", name)
             seen.append(name)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"start": start, "seen": seen}, fh)
-    except OSError:
-        pass
+    tezgah_store.put_doc("switches", slug(str(session_id)), {"start": start, "seen": seen})
     return moved
 
 
@@ -1732,14 +1709,13 @@ def gate_inactive(session_id, payload):
         calls = 0 if since is None or rows else _transcript_calls(
             p.get("transcript_path"), since)
     inactive = calls >= GATE_MIN_CALLS
-    mark = _gate_mark(session_id)
+    key = slug(str(session_id))
     try:
         if inactive or moved:
-            os.makedirs(os.path.dirname(mark), exist_ok=True)
-            open(mark, "w", encoding="utf-8").close()
-        elif os.path.exists(mark):
-            os.remove(mark)
-    except OSError:
+            tezgah_store.mark("gate_inactive", key)
+        else:
+            tezgah_store.drop("gate_inactive", key)
+    except tezgah_store.ERRORS:
         pass
     return GATE_INACTIVE % calls if inactive else ""
 
@@ -2414,60 +2390,20 @@ def record(session_id, kind):
     if kind == "orch":
         note(session_id, "orch")
     try:
-        d = os.path.join(cache_dir(), "sessions")
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, slug(session_id) + ".jsonl"), "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"kind": kind}) + "\n")
-    except OSError:
+        tezgah_store.use(slug(session_id), kind)
+    except tezgah_store.ERRORS:
         pass
-
-
-# Past this size `used()` compacts the store to one row per kind. Every reader
-# of the store takes it as a set, so nothing is lost, and the next read is a
-# few hundred bytes however long the session ran.
-USED_MAX_BYTES = 65536
 
 
 def used(session_id):
-    if not session_id:
-        return set()
-    out = set()
-    path = os.path.join(cache_dir(), "sessions", slug(session_id) + ".jsonl")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            size = os.fstat(fh.fileno()).st_size
-            for line in fh:
-                try:
-                    out.add(json.loads(line)["kind"])
-                except (ValueError, KeyError):
-                    pass
-        # a row appended since the open changes the size: skip, never lose it
-        if size > USED_MAX_BYTES and os.path.getsize(path) == size:
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                fh.writelines(json.dumps({"kind": k}) + "\n"
-                              for k in sorted(k for k in out
-                                              if isinstance(k, str)))
-            os.replace(tmp, path)
-    except OSError:
-        pass
-    return out
+    """The kinds this session recorded, a set (one `used` row per kind)."""
+    return tezgah_store.used(slug(session_id)) if session_id else set()
 
 
-# How many of the newest recorded session files a fitness report reads. A row is
-# `{"kind": kind}` and carries no timestamp, so the window can only be files by
-# mtime - the moment the session last recorded anything, which for a used-kind
-# store is its last event.
+# How many of the sessions that recorded last a fitness report reads, by the
+# time each last recorded anything, which for a used-kind store is its last
+# event.
 FITNESS_WINDOW = 200
-
-
-def _mtime(path):
-    """A file's mtime, or 0 when it is gone: the window is a sort key, and a
-    session that vanished mid-report must not crash the report."""
-    try:
-        return os.path.getmtime(path)
-    except OSError:
-        return 0.0
 
 
 def skill_fitness(window=FITNESS_WINDOW):
@@ -2480,45 +2416,29 @@ def skill_fitness(window=FITNESS_WINDOW):
     skill a read opened). This is a measurement, not a gate - it names the
     candidates, and retiring one stays the owner's call.
 
-    The window is the newest `window` session files by mtime, because the rows
-    carry no timestamp. A session counts as having opened a skill when it
+    The window is the `window` sessions that recorded last. A session counts
+    as having opened a skill when it
     recorded that skill's kind: `skill:<name>`, or the mark the status line draws
     for the two marked skills, so reads recorded before `SKILL_KIND` existed
     still count. Sessions on a host that cannot see a read record neither, and
     the report cannot tell that session from one that read nothing - the number
     is a floor, not a census.
 
-    Returns `sessions` and `recorded` (the files read and the files present),
-    `skills` (the opened ones ranked by session count, each with the mark the
-    line draws for it, or None), and `never` (the shipped skills no session in
-    the window opened)."""
+    Returns `sessions` and `recorded` (the sessions read and the sessions
+    recorded), `skills` (the opened ones ranked by session count, each with the
+    mark the line draws for it, or None), and `never` (the shipped skills no
+    session in the window opened)."""
     catalog = shipped_skills()
-    d = os.path.join(cache_dir(), "sessions")
-    try:
-        files = sorted((os.path.join(d, n) for n in os.listdir(d)
-                        if n.endswith(".jsonl")),
-                       key=_mtime, reverse=True)
-    except OSError:
-        files = []
+    window_kinds, recorded = tezgah_store.used_sessions(window)
     opened = {}
-    for path in files[:window]:
-        kinds = set()
-        try:
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    try:
-                        kinds.add(json.loads(line)["kind"])
-                    except (ValueError, KeyError, TypeError):
-                        pass  # a torn line, the way `used` reads one
-        except OSError:
-            continue
+    for kinds in window_kinds:
         for name in catalog:
             mark = SKILL_MARKS.get(name)
             if (SKILL_KIND + name) in kinds or (mark and mark in kinds):
                 opened[name] = opened.get(name, 0) + 1
     return {
-        "sessions": len(files[:window]),
-        "recorded": len(files),
+        "sessions": len(window_kinds),
+        "recorded": recorded,
         "skills": [{"name": name, "mark": SKILL_MARKS.get(name),
                     "sessions": count}
                    for name, count in sorted(opened.items(),
@@ -2807,7 +2727,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     segs = with_update_notice(version_segment())
     # Shown only when the prompt hook found the gate disarmed (gate_inactive):
     # first, because it says every other mark is not being enforced.
-    if session_id and os.path.exists(_gate_mark(session_id)):
+    if session_id and gate_marked(session_id):
         segs.append({"key": "gate", "state": "off", "glyph": GLYPHS["off"],
                      "text": "gate", "group": 0})
     # Shown when this session's start found tezgah's own hook entries changed
@@ -2825,7 +2745,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
                      "text": "drift", "group": 0})
     # A hook of this session could not import its core (tezgah_guard.
     # import_failed): it failed open, so what it guards did not run.
-    if session_id and os.path.exists(import_crash_mark(session_id)):
+    if session_id and tezgah_store.doc("import_crash", import_crash_key(session_id)) is not None:
         segs.append({"key": "crash", "state": "off", "glyph": GLYPHS["off"],
                      "text": "crash", "group": 0})
     for name, on, meas in flags:

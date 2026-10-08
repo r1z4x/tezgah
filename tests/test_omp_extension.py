@@ -496,12 +496,8 @@ class OmpExtension(TempHome):
 
     def store(self):
         """The used-kind store the status line and the fitness report read."""
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug("s") + ".jsonl")
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line)["kind"] for line in fh if line.strip()]
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug("s")))
 
     def test_the_idx_glyph_rides_the_per_tool_redraw(self):
         # the redraw after a watched tool must not pay for the git probe: the

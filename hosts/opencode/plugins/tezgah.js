@@ -1397,27 +1397,34 @@ async function postWrite(sessionID, args, cwd) {
   return { hash: after, changed: before !== after }
 }
 
-// The evidence ledger: `<cache>/tezgah.db`, the SQLite store the Python gate and
-// the Stop hook write and read (hooks/tezgah_store.py, "the evidence ledger").
-// A session's rows are the `evidence` rows whose `session` is its ledger stem,
-// each one the JSON text this file writes, in append order (`n`). The plugin
-// opens the file itself through node:sqlite with tezgah_store's settings - the
-// busy timeout, WAL with its switch retried (`_wal`), EVIDENCE_SCHEMA at
-// EVIDENCE_VERSION (`connect`) - so either side may be the one that creates it;
-// tests/test_opencode_plugin.py holds the two schemas equal. A runtime without
-// node:sqlite (node before 22.5, a build that does not expose it) asks
-// tezgah_store's `evidence` CLI instead, one process per read or write, and
-// TEZGAH_OPENCODE_NO_SQLITE=1 forces that path.
+// The cache database: `<cache>/tezgah.db`, the SQLite store the Python gate and
+// the Stop hook write and read (hooks/tezgah_store.py, "the cache database").
+// A session's evidence rows are the `evidence` rows whose `session` is its
+// ledger stem, each one the JSON text this file writes, in append order (`n`).
+// The plugin also writes two of the cache stores beside it: the used-tool marks
+// (`used`, record) and the once-per-session nudge marks (`nudged`,
+// oncePerSession). It opens the file itself through node:sqlite with
+// tezgah_store's settings - the busy timeout, WAL with its switch retried
+// (`_wal`), CACHE_SCHEMA at CACHE_VERSION (`connect`) - so either side may be
+// the one that creates it; tests/test_opencode_plugin.py holds the two schemas
+// equal. A runtime without node:sqlite (node before 22.5, a build that does not
+// expose it) asks tezgah_store's `evidence`, `mark` and `use` CLI instead, one
+// process per read or write, and TEZGAH_OPENCODE_NO_SQLITE=1 forces that path.
 //
 // A session may still have the JSONL file this plugin wrote before the store
 // (`<cache>/evidence/<stem>.jsonl`), and a row the store refuses lands there
 // (legacyAppend, tezgah_integrity._append). Its import is tezgah_store's
 // (`import_session`), asked before a read or write whenever the file changed
 // since the last ask, so its rows stay ahead of the new ones. The CLI path
-// imports it on every call, as every Python reader does.
-const EVIDENCE_DB = "tezgah.db"
-const EVIDENCE_VERSION = 1
-const EVIDENCE_SCHEMA = `
+// imports it on every call, as every Python reader does. The other stores'
+// old files are imported by the first Python process that opens the database
+// (tezgah_store._import_cache).
+const CACHE_DB = "tezgah.db"
+const CACHE_VERSION = 2
+const DOC_STORES = ["turns", "switches", "harness_drift", "import_crash", "judge_last",
+  "skill_pick", "section_hint", "update_check", "cursor_answer", "taste_learn"]
+const MARK_STORES = ["gate_inactive", "nudged", "cursor_reinforced"]
+const CACHE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS imported (name TEXT NOT NULL, dev INTEGER NOT NULL,
                                      ino INTEGER NOT NULL, bytes INTEGER NOT NULL,
                                      PRIMARY KEY (name, dev, ino));
@@ -1428,6 +1435,19 @@ CREATE TABLE IF NOT EXISTS evidence (n INTEGER PRIMARY KEY, session TEXT NOT NUL
                                      kind TEXT, ts INTEGER, row TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS evidence_session ON evidence (session, n);
 CREATE INDEX IF NOT EXISTS evidence_ts ON evidence (ts);
+` + DOC_STORES.map((table) => `CREATE TABLE IF NOT EXISTS ${table} ` +
+  "(key TEXT PRIMARY KEY, at REAL NOT NULL, doc TEXT NOT NULL);\n").join("") +
+  MARK_STORES.map((table) => `CREATE TABLE IF NOT EXISTS ${table} ` +
+  "(key TEXT PRIMARY KEY, at REAL NOT NULL);\n").join("") + `
+CREATE TABLE IF NOT EXISTS used (session TEXT NOT NULL, kind TEXT NOT NULL, at REAL NOT NULL,
+                                 PRIMARY KEY (session, kind));
+CREATE TABLE IF NOT EXISTS judge_down (key TEXT PRIMARY KEY, until REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS lesson_taint (root TEXT NOT NULL, key TEXT NOT NULL,
+                                         source TEXT, ts INTEGER, PRIMARY KEY (root, key));
+CREATE TABLE IF NOT EXISTS snapshots (n INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE,
+                                      meta TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_runs (n INTEGER PRIMARY KEY, run TEXT NOT NULL UNIQUE,
+                                        summary TEXT NOT NULL);
 `
 const BUSY_MS = 5000
 const LOCK_POLL_MS = 20
@@ -1440,8 +1460,8 @@ const READS = {
 let sqliteMemo = null
 // db path -> { db, id }: one connection per database, reopened when the file
 // was removed or replaced under this process (doctor, uninstall), as
-// tezgah_store._evidence_db does
-const evidenceDbs = new Map()
+// tezgah_store._cache_db does
+const cacheDbs = new Map()
 // stem -> { sig: the legacy file's size and mtime when last asked, done: that
 // import } (importLegacy)
 const legacyAsked = new Map()
@@ -1464,13 +1484,13 @@ function fileId(path) {
 
 // The open database, or null when it does not exist and `create` is false (a
 // read creates nothing). Throws what SQLite throws.
-function evidenceDb(mod, create) {
-  const path = join(cacheDir(), EVIDENCE_DB)
+function cacheDb(mod, create) {
+  const path = join(cacheDir(), CACHE_DB)
   const id = fileId(path)
-  const held = evidenceDbs.get(path)
+  const held = cacheDbs.get(path)
   if (held && held.id === id) return held.db
   if (held) {
-    evidenceDbs.delete(path)
+    cacheDbs.delete(path)
     try { held.db.close() } catch {}
   }
   if (id === null && !create) return null
@@ -1481,11 +1501,11 @@ function evidenceDb(mod, create) {
   try {
     db.exec("PRAGMA busy_timeout = " + BUSY_MS)
     walMode(db)
-    if (db.prepare("PRAGMA user_version").get().user_version < EVIDENCE_VERSION) {
+    if (db.prepare("PRAGMA user_version").get().user_version < CACHE_VERSION) {
       // the write lock first, so a second opener waits on the busy timeout
       db.exec("BEGIN IMMEDIATE")
       try {
-        db.exec(EVIDENCE_SCHEMA + "PRAGMA user_version = " + EVIDENCE_VERSION + ";")
+        db.exec(CACHE_SCHEMA + "PRAGMA user_version = " + CACHE_VERSION + ";")
         db.exec("COMMIT")
       } catch (err) {
         try { db.exec("ROLLBACK") } catch {}
@@ -1497,7 +1517,7 @@ function evidenceDb(mod, create) {
     db.close()
     throw err
   }
-  evidenceDbs.set(path, { db, id: fileId(path) })
+  cacheDbs.set(path, { db, id: fileId(path) })
   return db
 }
 
@@ -1517,12 +1537,13 @@ function walMode(db) {
   }
 }
 
-// hooks/tezgah_store.py's `evidence` CLI for one ledger, settled by `done`
-// like every collect; a missing script is a spawn failure.
+// hooks/tezgah_store.py's CLI (`evidence` for one ledger, `mark` and `use` for
+// the cache stores), settled by `done` like every collect; a missing script is
+// a spawn failure.
 function storeCli(args, done) {
   const script = hookScript("tezgah_store.py")
   if (!script) return Promise.resolve(done(null, "", "spawn"))
-  return collect([script, "evidence", ...args],
+  return collect([script, ...args],
                  { stdio: ["ignore", "pipe", "ignore"] }, null, done)
 }
 
@@ -1542,7 +1563,7 @@ function importLegacy(sessionID) {
   const held = legacyAsked.get(stem)
   if (held && held.sig === sig) return held.done
   const done = sig === null ? Promise.resolve()
-    : storeCli(["import", path], () => undefined)
+    : storeCli(["evidence", "import", path], () => undefined)
   legacyAsked.set(stem, { sig, done })
   return done
 }
@@ -1571,14 +1592,14 @@ async function appendRow(sessionID, row) {
     const text = JSON.stringify(row)
     const mod = await sqlite()
     if (!mod) {
-      stored = await storeCli(["append", ledgerPath(sessionID), text],
+      stored = await storeCli(["evidence", "append", ledgerPath(sessionID), text],
         (code) => code === 0)
     } else {
       await importLegacy(sessionID)
       // the two columns beside the text, as tezgah_store._insert fills them
       const kind = typeof row.kind === "string" ? row.kind : null
       const ts = Number.isFinite(row.ts) ? Math.trunc(row.ts) : null
-      evidenceDb(mod, true).prepare(
+      cacheDb(mod, true).prepare(
         "INSERT INTO evidence (session, kind, ts, row) VALUES (?, ?, ?, ?)")
         .run(ledgerStem(sessionID), kind, ts, text)
       stored = true
@@ -1609,11 +1630,11 @@ async function ledgerRead(sessionID, verb, arg) {
   try {
     const mod = await sqlite()
     if (!mod) {
-      return await storeCli([verb, ledgerPath(sessionID), ...more.map(String)],
+      return await storeCli(["evidence", verb, ledgerPath(sessionID), ...more.map(String)],
         (code, out) => (code === 0 ? parseRows(out.split("\n")) : []))
     }
     await importLegacy(sessionID)
-    const db = evidenceDb(mod, false)
+    const db = cacheDb(mod, false)
     if (!db) return []
     return parseRows(db.prepare(READS[verb]).all(ledgerStem(sessionID), ...more)
       .map((found) => found.row))
@@ -2331,28 +2352,40 @@ function permissionToolArgs(input) {
   return { tool, args }
 }
 
-// The mark's name is hooks/tezgah_gate.nudge_mark's: sha1(id)[:16], so a session
-// nudged on either side is spent on both (test_the_nudge_mark_is_one_key_on_both_sides).
+// The mark's key is hooks/tezgah_gate.nudge_key's: sha1(id)[:16] in the
+// `nudged` store, so a session nudged on either side is spent on both
+// (test_the_nudge_mark_is_one_key_on_both_sides). One INSERT OR IGNORE, so of
+// two calls exactly one is first; spent when it cannot be written.
 async function oncePerSession(sessionID) {
   const key = createHash("sha1").update(String(sessionID || "nosession")).digest("hex").slice(0, 16)
-  const dir = join(cacheDir(), "nudged")
-  const mark = join(dir, key)
-  if (existsSync(mark)) return false
   try {
-    await mkdir(dir, { recursive: true })
-    await writeFile(mark, "")
-    return true // consume before denying: later greps pass
+    const mod = await sqlite()
+    if (!mod) {
+      return await storeCli(["mark", cacheDir(), "nudged", key],
+        (code, out) => code === 0 && out.trim() === "1")
+    }
+    // consume before denying: later greps pass
+    return cacheDb(mod, true).prepare(
+      "INSERT OR IGNORE INTO nudged (key, at) VALUES (?, ?)").run(key, Date.now() / 1000)
+      .changes === 1
   } catch {
     return false
   }
 }
 
+// One used-tool kind for the status line, the row hooks/tezgah_context.record
+// writes: `used` keyed by the plain slug of the session id. Best effort.
 async function record(sessionID, kind) {
   if (!sessionID || !kind) return
   try {
-    const dir = join(cacheDir(), "sessions")
-    await mkdir(dir, { recursive: true })
-    await appendFile(join(dir, slug(sessionID) + ".jsonl"), JSON.stringify({ kind }) + "\n")
+    const mod = await sqlite()
+    if (!mod) {
+      await storeCli(["use", cacheDir(), slug(sessionID), String(kind)], () => undefined)
+      return
+    }
+    cacheDb(mod, true).prepare(
+      "INSERT OR REPLACE INTO used (session, kind, at) VALUES (?, ?, ?)")
+      .run(slug(sessionID), String(kind), Date.now() / 1000)
   } catch {}
 }
 

@@ -98,6 +98,8 @@ import re
 import shlex
 import time
 
+import tezgah_store
+
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
@@ -587,25 +589,22 @@ def git_head(repo):
     return None
 
 
-def nudge_mark(session_id):
-    """The once-per-session mark: sha1(id)[:16], the key opencode's oncePerSession writes."""
-    return os.path.join(cache_dir(), "nudged", hashlib.sha1(
-        (session_id or "nosession").encode("utf-8")).hexdigest()[:16])
+def nudge_key(session_id):
+    """The once-per-session mark's key in the `nudged` store: sha1(id)[:16],
+    the key opencode's oncePerSession writes."""
+    return hashlib.sha1((session_id or "nosession").encode("utf-8")).hexdigest()[:16]
 
 
 def first_nudge(session_id):
     """Consume the once-per-session nudge. False when already spent/unwritable.
 
-    The mark lands in cache_dir(), so a sandboxed host (dsh) still gets the
-    one-shot nudge instead of the write failing open."""
-    mark = nudge_mark(session_id)
-    if os.path.exists(mark):
-        return False
+    The mark lands in cache_dir()'s database, so a sandboxed host (dsh) still
+    gets the one-shot nudge instead of the write failing open. One INSERT, so
+    of two calls at once exactly one is first."""
     try:
-        os.makedirs(os.path.dirname(mark), exist_ok=True)
-        open(mark, "w", encoding="utf-8").close()  # consume BEFORE denying: later greps pass
-        return True
-    except OSError:
+        # consume BEFORE denying: later greps pass
+        return tezgah_store.mark("nudged", nudge_key(session_id))
+    except tezgah_store.ERRORS:
         return False
 
 
@@ -1867,12 +1866,12 @@ SHELL_NAMES = frozenset(("sh", "bash", "zsh", "dash", "ksh"))
 SHELL_KEYWORDS = frozenset(("if", "then", "elif", "else", "do", "while",
                             "until", "!", "{", "time"))
 SHELL_OPS = re.compile(r"^[;&|()<>]+$")
-# The cache subtrees whose rows the rules read: the evidence ledger (its
-# database with its WAL files, and the JSONL files it imports), the session
-# store, the switch baseline (tezgah_context.disarmed), the gate mark, and the
-# marks the status line reads for a drifted hook entry
-# (tezgah_attest.drift_mark) and a core that failed to import
-# (tezgah_guard.import_crash_mark).
+# The cache subtrees whose rows the rules read: the cache database with its WAL
+# files (the evidence ledger, the used-kind marks, the switch baselines of
+# tezgah_context.disarmed, the gate mark, and the marks the status line reads
+# for a drifted hook entry and a core that failed to import), the evidence
+# JSONL files it imports, and the files the other stores it imports once
+# (tezgah_store.CACHE_LEGACY) had, until that import reads them.
 CONTROL_CACHE = ("evidence", "tezgah.db", "tezgah.db-wal", "tezgah.db-shm", "sessions",
                  "switches", "gate-inactive", "harness-drift", "import-crash",
                  "workspace-index.json")
@@ -2832,7 +2831,7 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
 
     g.update(note=lambda *a, **k: None, write_taint=lambda *a, **k: None,
              capture=None,
-             first_nudge=lambda sid: not os.path.exists(nudge_mark(sid)))
+             first_nudge=lambda sid: not tezgah_store.marked("nudged", nudge_key(sid)))
     try:
         return decision(tool, inp, cwd, session_id, agent=agent)
     finally:

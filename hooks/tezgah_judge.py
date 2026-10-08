@@ -55,6 +55,7 @@ import urllib.parse
 import urllib.request
 
 import tezgah_paths as tp
+import tezgah_store
 
 URL = "https://api.typesafe.ai/v1/systemone"
 KEY_FILE = "~/.config/typesafe/key"
@@ -308,8 +309,8 @@ def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop)
             def send():
                 left = timeout if stop is None else max(0.1, min(timeout, stop - time.monotonic()))
                 return _session_request(provider, secret, prompt, left, questions)
-        marker = _down_marker(provider, url, secret)
-        if _down(marker):
+        down = _down_key(provider, url, secret)
+        if _down(down):
             return None, "marked down for %ds after a refusal" % DOWN_FOR
     except Exception as exc:
         return None, _why(exc)
@@ -324,7 +325,7 @@ def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop)
                 code = getattr(exc, "code", None)
                 if code in (401, 402) or (isinstance(code, int) and code >= 500) \
                         or isinstance(exc, SessionFailed):
-                    _mark_down(marker)
+                    _mark_down(down)
                 return None, _why(exc)
             continue
         named = result.get("model")
@@ -535,35 +536,29 @@ def cheap_default():
 # How long a provider stays marked down after a 401, 402 or 5xx: five minutes,
 # so a dead key or an empty account costs one refusal per five minutes rather
 # than one per prompt, and a provider that comes back is asked again within the
-# same working session. The marker is keyed on the provider, the endpoint and a
-# digest of the credential, so a rotated key is asked at once.
+# same working session. The mark is keyed on the provider, the endpoint and a
+# digest of the credential, so a rotated key is asked at once; the store keeps
+# the time it expires.
 DOWN_FOR = 300
 
 
-def _down_marker(provider, url, secret):
+def _down_key(provider, url, secret):
     import hashlib
-    digest = hashlib.sha256("\0".join((provider, url, secret)).encode()).hexdigest()
-    return os.path.join(tp.cache_dir(), "judge-down", digest[:16])
+    return hashlib.sha256("\0".join((provider, url, secret)).encode()).hexdigest()[:16]
 
 
-def _down(marker):
-    """True while the marker is younger than `DOWN_FOR`; a marker dated in the
-    future (a clock step back, a copied cache) and any read error are up."""
-    try:
-        return 0 <= time.time() - os.path.getmtime(marker) < DOWN_FOR
-    except OSError:
-        return False
+def _down(key):
+    """True while the mark of `key` has not expired; one expiring more than
+    `DOWN_FOR` from now (a clock step back, a copied cache) and any read error
+    are up."""
+    until = tezgah_store.down_until(key)
+    return until is not None and 0 < until - time.time() <= DOWN_FOR
 
 
-def _mark_down(marker):
-    """Best effort, like every other write a hook makes: a cache that cannot be
+def _mark_down(key):
+    """Best effort, like every other write a hook makes: a store that cannot be
     written costs the next call a request, never an exception."""
-    try:
-        os.makedirs(os.path.dirname(marker), exist_ok=True)
-        with open(marker, "w", encoding="utf-8"):
-            pass
-    except OSError:
-        pass
+    tezgah_store.set_down(key, time.time() + DOWN_FOR)
 
 
 def _bounded(send, stop):
@@ -666,11 +661,6 @@ def _why(exc):
     return ("%s: %s" % (type(exc).__name__, exc))[:200]
 
 
-# The last judgement's record, one file: what answered, and why it was not the
-# session's own CLI when it was not. `tezgah-status --judge` prints it.
-LAST = "judge-last.json"
-
-
 def _say(line):
     try:
         import sys
@@ -680,9 +670,11 @@ def _say(line):
 
 
 def _record(provider, model, fallback=None, failed=None, refused=None):
-    """Write the last-use record and say any fallback or refusal on stderr.
-    Best effort like every hook write: a cache that cannot be written loses
-    the record, never the answer."""
+    """Write the last-use record (the `judge_last` store's one document: what
+    answered, and why it was not the session's own CLI when it was not;
+    `tezgah-status --judge` prints it) and say any fallback or refusal on
+    stderr. Best effort like every hook write: a store that cannot be written
+    loses the record, never the answer."""
     if fallback and provider:
         _say("answered by %s/%s - %s" % (provider, model, fallback))
     elif refused:
@@ -690,20 +682,10 @@ def _record(provider, model, fallback=None, failed=None, refused=None):
     row = {"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "provider": provider,
            "model": model, "fallback": fallback, "failed": failed or None,
            "refused": refused, "policy": tp.fallback_policy()}
-    try:
-        path = os.path.join(tp.cache_dir(), LAST)
-        with open(path + ".tmp", "w", encoding="utf-8") as fh:
-            json.dump(row, fh)
-        os.replace(path + ".tmp", path)
-    except (OSError, TypeError, ValueError):
-        pass
+    tezgah_store.put_doc("judge_last", "", row)
 
 
 def last_use():
     """The last judgement's record (see `_record`), or None when none was kept."""
-    try:
-        with open(os.path.join(tp.cache_dir(), LAST), encoding="utf-8") as fh:
-            row = json.load(fh)
-    except (OSError, ValueError):
-        return None
+    row = tezgah_store.doc("judge_last", "")
     return row if isinstance(row, dict) else None

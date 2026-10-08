@@ -168,11 +168,8 @@ class Lineage(LedgerCase):
         self.assertIsNone(self.gate("Write", {
             "file_path": self.ledger, "content": "new rule - x\n"}, record=False))
         self.assertEqual(self.rows("lesson_tainted"), [])
-        code = ("import json, os, sys\nsys.path.insert(0, %r)\nimport tezgah_lessons\n"
-                "print(json.dumps(os.path.exists(tezgah_lessons.taint_path(%r))))"
-                % (support.HOOKS, self.repo))
-        self.assertIs(run_json(["-c", code], None,
-                               env=self.envv)[0], False)
+        self.assertEqual(support.cache_rows(os.path.join(self.home, ".cache", "tezgah"),
+                                            "SELECT * FROM lesson_taint"), [])
 
     def test_the_row_fields_survive_note(self):
         self.assertTrue({"key", "source", "target", "agent", "workspace"}
@@ -239,34 +236,25 @@ class Label(LedgerCase):
         self.assertEqual(keys, [KEY("zebra rule - crossing")])
         self.assertIn("- " + LABEL + "zebra rule - crossing\n", block)
 
-    def test_the_index_is_read_once_while_it_is_unchanged(self):
-        # a prompt is one hook process: the session block, the per-turn block
-        # and the digest share one read, and a later call reads it again only
-        # once the file changed
+    def test_the_index_labels_only_its_own_repository(self):
+        # one table holds every repository's taint rows, keyed by the
+        # repository: the same line in another repository's ledger is not
+        # labelled by this one's row
         self.turn()
         self.post("WebFetch", {"url": "https://example.com"})
         self.assertIsNone(self.gate("Write", {
             "file_path": self.ledger, "content": "zebra rule - crossing\n"}))
-        self.land(["zebra rule - crossing"]
-                  + ["recent rule %d - shown" % i for i in range(5)])
-        code = ("import builtins, json, sys\nsys.path.insert(0, %r)\n"
-                "import tezgah_context as tc, tezgah_lessons as tl\n"
-                "path, real, n = tl.taint_path(%r), builtins.open, []\n"
-                "def counted(f, *a, **k):\n"
-                "    n.append(f) if f == path else None\n"
-                "    return real(f, *a, **k)\n"
-                "builtins.open = counted\n"
-                "for event, sid, want in (('session_start', 'o1', 'recent rule 4'),\n"
-                "                         ('user_prompt', 'o2', 'zebra rule')):\n"
-                "    n.clear()\n"
-                "    out = tc.context_for(event, %r, {'session_id': sid,\n"
-                "                                     'prompt': 'zebra crossing'})\n"
-                "    assert want in out, out\n"
-                "    print(len(n))\n"
-                % (support.HOOKS, self.repo, self.repo))
-        proc = support.run(["-c", code], env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(proc.stdout.split(), ["1", "0"])
+        self.land(["zebra rule - crossing"])
+        other = self.make_repo("other")
+        ledger = tezgah_lessons.ledger(other)
+        os.makedirs(os.path.dirname(ledger), exist_ok=True)
+        with open(ledger, "w", encoding="utf-8") as fh:
+            fh.write("zebra rule - crossing\n")
+        self.assertIn("- " + LABEL + "zebra rule - crossing\n",
+                      self.context("lessons(%r)" % self.repo))
+        theirs = self.context("lessons(%r)" % other)
+        self.assertIn("- zebra rule - crossing\n", theirs)
+        self.assertNotIn(LABEL, theirs)
 
 
 if __name__ == "__main__":

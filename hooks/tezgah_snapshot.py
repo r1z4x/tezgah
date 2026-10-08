@@ -24,11 +24,12 @@ import time
 import uuid
 
 import tezgah_integrity as ti
+import tezgah_store
 from tezgah_paths import cache_dir, root_for
 
 # A snapshot id is exactly what `capture` generates: 12 hex chars. Validated
 # before it is used as a path segment, so an id typed at a shell cannot walk out
-# of the store with `..` or an absolute path and read some other file's manifest.
+# of the store with `..` or an absolute path and read some other file as a blob.
 SNAPSHOT_ID = re.compile(r"\A[0-9a-f]{12}\Z")
 
 # The store is capped, because copying every file the agent touches with no
@@ -41,7 +42,9 @@ SNAPSHOT_ID = re.compile(r"\A[0-9a-f]{12}\Z")
 # mistake is most likely and most expensive, while the snapshot anyone actually
 # asks for is about a recent mistake - the oldest one is what nobody is coming
 # back for. Worst case on disk is CAP * MAX_BYTES = 400 MB; the realistic case
-# is a few MB, because source files are kilobytes.
+# is a few MB, because source files are kilobytes. Each blob is a file in its
+# own directory; the manifests are the `snapshots` rows of the cache database,
+# in capture order, and that order is what eviction reads.
 #
 # MAX_BYTES per file, above which nothing is captured at all. `capture` runs
 # synchronously in the gate a host calls before the write, so copying a
@@ -61,10 +64,10 @@ HASH_MAX_BYTES = 8 * MAX_BYTES
 
 
 def _store():
-    """Where the pre-write bytes go: beside the evidence ledger, in whichever
-    cache dir tezgah settled on for this environment (a sandboxed host has no
-    writable ~/.cache and falls back to temp), so all tezgah state sits under
-    one root."""
+    """Where the pre-write bytes go: beside the cache database that indexes
+    them, in whichever cache dir tezgah settled on for this environment (a
+    sandboxed host has no writable ~/.cache and falls back to temp), so all
+    tezgah state sits under one root."""
     return os.path.join(cache_dir(), "snapshots")
 
 
@@ -76,34 +79,13 @@ def _blob(snapshot_id):
     return os.path.join(_dir(snapshot_id), "file")
 
 
-def _manifest(snapshot_id):
-    return os.path.join(_dir(snapshot_id), "meta.json")
-
-
-def _dirs():
-    try:
-        return [os.path.join(_store(), n) for n in os.listdir(_store())]
-    except OSError:
-        return []
-
-
-def _evict(keep=None):
-    """Drop snapshot directories, oldest first, until `keep` (CAP) remain.
-
-    The order is each directory's own mtime, which is when its capture created
-    it - nothing writes inside a snapshot directory afterwards. Best effort: an
-    entry that cannot be read or removed costs the cap, never the capture the
-    gate is waiting on."""
-    keep = CAP if keep is None else keep
-    try:
-        # ns rather than the float mtime: two captures inside one tick must not
-        # evict an arbitrary one of the pair
-        entries = sorted((os.stat(p).st_mtime_ns, p) for p in _dirs())
-    except OSError:
-        return
-    for _, path in entries[:-keep]:
-        import shutil  # deferred: ~3.7 ms of import for a path only a write takes
-        shutil.rmtree(path, ignore_errors=True)
+def _drop(snapshot_ids):
+    """Remove the blob directories of `snapshot_ids`. Best effort: an entry
+    that cannot be removed costs disk, never the capture the gate is waiting
+    on."""
+    import shutil  # deferred: ~3.7 ms of import for a path only a write takes
+    for sid in snapshot_ids:
+        shutil.rmtree(_dir(sid), ignore_errors=True)
 
 
 def _hash_file(path):
@@ -222,21 +204,19 @@ def _capture_one(path, cwd, session_id):
 
 
 def _save(data, meta):
-    """Write one blob and its manifest under a fresh id, evict past CAP, and
-    return the id - or None, with nothing left behind, when the write failed."""
+    """Write one blob, index it with its manifest, evict past CAP, and return
+    the id - or None, with nothing left behind, when the write failed."""
     sid = uuid.uuid4().hex[:12]
     try:
         os.makedirs(_store(), mode=0o700, exist_ok=True)
         os.makedirs(_dir(sid), mode=0o700, exist_ok=True)
         with _private_open(_blob(sid)) as fh:
             fh.write(data)
-        with _private_open(_manifest(sid)) as fh:
-            fh.write(json.dumps(dict(meta, id=sid)).encode("utf-8"))
-    except OSError:
-        import shutil  # deferred: see _evict
-        shutil.rmtree(_dir(sid), ignore_errors=True)  # no half a snapshot
+        evicted = tezgah_store.add_snapshot(sid, dict(meta, id=sid), CAP)
+    except tezgah_store.ERRORS:
+        _drop([sid])  # no half a snapshot
         return None
-    _evict()
+    _drop(evicted)
     return sid
 
 
@@ -321,14 +301,13 @@ def restore(snapshot_id, force=False, expect=None):
     sid = str(snapshot_id or "")
     meta, data = None, b""
     if SNAPSHOT_ID.match(sid):
+        meta = next(iter(tezgah_store.snapshots(sid)), None)
         try:
-            with open(_manifest(sid), encoding="utf-8") as fh:
-                meta = json.load(fh)
             with open(_blob(sid), "rb") as fh:
                 data = fh.read()
-        except (OSError, ValueError):
+        except OSError:
             meta = None
-    if not meta:
+    if not isinstance(meta, dict):
         raise SnapshotError(
             "unknown snapshot id %r: the store holds no snapshot for it (CAP "
             "keeps the newest %d, and an evicted one is gone for good)"

@@ -19,14 +19,9 @@ class OmpHook(TempHome):
         return run_json([support.OMP_HOOK], payload, env=env or self.env())
 
     def kinds(self, session):
-        """The used kinds this session's ledger recorded, in order."""
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug(session) + ".jsonl")
-        try:
-            with open(path) as fh:
-                return [json.loads(line)["kind"] for line in fh if line.strip()]
-        except OSError:
-            return []
+        """The used kinds this session recorded, sorted."""
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug(session)))
 
     def indexed(self, repo):
         """Make the fixture repo's idx mark resolvable: the repo's own index db,
@@ -391,11 +386,10 @@ class OmpHook(TempHome):
         repo = self.make_repo()
         self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
                     "tool": "task", "input": {"prompt": "x"}})
-        ledger = os.path.join(self.home, ".cache", "tezgah", "sessions")
-        files = os.listdir(ledger)
-        self.assertEqual(len(files), 1, files)
-        with open(os.path.join(ledger, files[0])) as fh:
-            self.assertIn("orch", fh.read())
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        self.assertEqual(support.cache_rows(cache, "SELECT DISTINCT session FROM used"),
+                         [(support.slug("s"),)])
+        self.assertIn("orch", self.kinds("s"))
 
     def test_a_skill_url_read_marks_the_skill_as_read(self):
         # omp's read tool reaches a skill as `skill://<name>`, not as its path

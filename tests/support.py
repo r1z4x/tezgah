@@ -114,6 +114,49 @@ def seed_ledger(path, rows, append=False):
         tezgah_store.append_evidence(path, json.dumps(row))
 
 
+def store():
+    """hooks/tezgah_store, for a test that seeds a cache store the way its hook
+    writes it (every function takes the cache dir as `cache`)."""
+    if HOOKS not in sys.path:
+        sys.path.insert(0, HOOKS)
+    import tezgah_store
+    return tezgah_store
+
+
+def cache_rows(cache, sql, args=()):
+    """The rows `sql` returns from `<cache>/tezgah.db`, committed (a test sets a
+    column the hooks set from the clock); [] without a database."""
+    db = os.path.join(cache, "tezgah.db")
+    if not os.path.exists(db):
+        return []
+    conn = sqlite3.connect(db)
+    try:
+        found = conn.execute(sql, args).fetchall()
+        conn.commit()
+        return found
+    finally:
+        conn.close()
+
+
+def store_doc(cache, table, key):
+    """The JSON value a document store of `<cache>/tezgah.db` holds under
+    `key` (`tezgah_store.doc`), or None."""
+    found = cache_rows(cache, "SELECT doc FROM %s WHERE key = ?" % table, (key,))
+    return json.loads(found[0][0]) if found else None
+
+
+def store_keys(cache, table):
+    """The keys of a document or mark store of `<cache>/tezgah.db`, sorted."""
+    return sorted(k for (k,) in cache_rows(cache, "SELECT key FROM %s" % table))
+
+
+def used_kinds(cache, session):
+    """The used-tool kinds `<cache>/tezgah.db` holds for `session` (its
+    `tezgah_context.slug`), a set."""
+    return {k for (k,) in cache_rows(cache, "SELECT kind FROM used WHERE session = ?",
+                                     (session,))}
+
+
 # The variables a Windows process needs to start at all (base_env keeps them).
 WINDOWS_ENV = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP",
                "USERPROFILE", "APPDATA", "LOCALAPPDATA")

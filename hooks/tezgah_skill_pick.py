@@ -58,6 +58,7 @@ import tezgah_integrity as ti
 import tezgah_judge
 import tezgah_rank
 import tezgah_paths as tp
+import tezgah_store
 
 ARM = "skill-suggest-on"
 # Below this, the turn's own gate question says no skill is wanted and nothing is
@@ -216,17 +217,8 @@ def judge(prompt, names, session_id=""):
                             roots=[os.path.join(tp.PLUGIN_ROOT, "skills")]))
 
 
-def _path(session_id):
-    return os.path.join(tp.cache_dir(), "skill-pick",
-                        slug(session_id) + ".json")
-
-
 def _remembered(session_id):
-    try:
-        with open(_path(session_id), encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    data = tezgah_store.doc("skill_pick", slug(session_id))
     return data if isinstance(data, dict) else {}
 
 
@@ -237,13 +229,7 @@ def _remember(session_id, digest, line):
     data[digest] = line
     for old in list(data)[:max(0, len(data) - KEPT)]:
         del data[old]
-    path = _path(session_id)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(data, fh)
-    except OSError:
-        pass
+    tezgah_store.put_doc("skill_pick", slug(session_id), data)
 
 
 def suggest(prompt, session_id=""):
@@ -617,31 +603,16 @@ def top_section(prompt, roots=None):
     return tuple(hit), covered, len(known)
 
 
-def _hint_path(session_id):
-    return os.path.join(tp.cache_dir(), "skill-section-hint",
-                        slug(session_id) + ".json")
-
-
 def _shown(session_id):
     """The sections this session was already pointed at, ["path:start"]."""
-    try:
-        with open(_hint_path(session_id), encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (OSError, ValueError):
-        return []
+    data = tezgah_store.doc("section_hint", slug(session_id))
     return data if isinstance(data, list) else []
 
 
 def _remember_shown(session_id, shown):
-    """Bounded and best effort, like the judgement's cache: a dir that cannot
+    """Bounded and best effort, like the judgement's cache: a store that cannot
     be written costs a repeated line, never the turn."""
-    path = _hint_path(session_id)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(shown[-KEPT:], fh)
-    except OSError:
-        pass
+    tezgah_store.put_doc("section_hint", slug(session_id), shown[-KEPT:])
 
 
 def section_hint(prompt, session_id="", host=None, roots=None):

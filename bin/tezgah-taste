@@ -467,18 +467,13 @@ def iso_day(ts):
 
 
 def _snapshots():
-    """{absolute path: [(ts, id, after)]} over the snapshot store, oldest first."""
-    import tezgah_snapshot as ts
+    """{absolute path: [(ts, id, after)]} over the snapshot index, oldest first."""
+    import tezgah_store
     out = {}
-    for d in ts._dirs():
-        try:
-            with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
-                meta = json.load(fh)
-        except (OSError, ValueError):
-            continue
-        if isinstance(meta, dict) and meta.get("path"):
+    for meta in tezgah_store.snapshots():
+        if isinstance(meta, dict) and meta.get("path") and meta.get("id"):
             out.setdefault(meta["path"], []).append(
-                (int(meta.get("ts") or 0), os.path.basename(d), bool(meta.get("after"))))
+                (int(meta.get("ts") or 0), meta["id"], bool(meta.get("after"))))
     for rows in out.values():
         rows.sort()
     return out

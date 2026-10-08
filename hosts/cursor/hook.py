@@ -52,7 +52,8 @@ try:
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
         stop_reason)
-    from tezgah_paths import cache_dir, off  # noqa: E402
+    from tezgah_paths import off  # noqa: E402
+    import tezgah_store  # noqa: E402
     from tezgah_taste import write_note  # noqa: E402
     from tezgah_untrusted import marks  # noqa: E402
 except Exception as exc:
@@ -215,25 +216,21 @@ def first_time(session_id, tag):
     """True the first time a tag is seen for a session; fail-open when unwritable."""
     if not session_id:
         return True
-    mark = os.path.join(cache_dir(), "reinforced", slug(str(session_id)), tag)
-    if os.path.exists(mark):
-        return False
     try:
-        os.makedirs(os.path.dirname(mark), exist_ok=True)
-        open(mark, "w", encoding="utf-8").close()
-    except OSError:
-        pass
-    return True
+        return tezgah_store.mark("cursor_reinforced", "%s/%s" % (slug(str(session_id)), tag))
+    except tezgah_store.ERRORS:
+        return True
 
 
-def answer_path(session_id):
-    """Where the last assistant text of a conversation is kept.
+def answer_key(session_id):
+    """The key of the last assistant text of a conversation in the
+    `cursor_answer` store.
 
     Cursor's `stop` payload carries only `status`/`loop_count`, so the reply the
     Stop rule has to read arrives on the earlier `afterAgentResponse`, which
-    documents `{"text": "<assistant final text>"}`. One file per conversation,
-    overwritten."""
-    return os.path.join(cache_dir(), "answer", slug(str(session_id or "nosession")))
+    documents `{"text": "<assistant final text>"}`. One document per
+    conversation, overwritten."""
+    return slug(str(session_id or "nosession"))
 
 
 # A long reply is kept by its two ends rather than by one slice: the Stop rule's
@@ -255,29 +252,20 @@ def remember_answer(session_id, text):
     count of what was dropped, then `ANSWER_TAIL` characters of its tail - so
     both the opener the Stop rule reads and the closing marker it must not lose
     survive the round trip. A reply with no `conversation_id` is not stored; a
-    file that cannot be written is not fatal."""
+    store that cannot be written is not fatal."""
     if not session_id or not text:
         return
-    path = answer_path(session_id)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        text = str(text)
-        dropped = len(text) - ANSWER_HEAD - ANSWER_TAIL
-        if dropped > 0:
-            text = text[:ANSWER_HEAD] + ANSWER_CUT % dropped + text[-ANSWER_TAIL:]
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-    except OSError:
-        pass
+    text = str(text)
+    dropped = len(text) - ANSWER_HEAD - ANSWER_TAIL
+    if dropped > 0:
+        text = text[:ANSWER_HEAD] + ANSWER_CUT % dropped + text[-ANSWER_TAIL:]
+    tezgah_store.put_doc("cursor_answer", answer_key(session_id), text)
 
 
 def last_answer(session_id):
     """The reply remembered for this conversation, or ""."""
-    try:
-        with open(answer_path(session_id), encoding="utf-8") as fh:
-            return fh.read()
-    except OSError:
-        return ""
+    text = tezgah_store.doc("cursor_answer", answer_key(session_id))
+    return text if isinstance(text, str) else ""
 
 
 def dispatch(payload):

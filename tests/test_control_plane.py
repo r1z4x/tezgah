@@ -121,13 +121,16 @@ class ControlPlane(unittest.TestCase):
                 self.refused("Bash", {"command": command})
 
     def test_the_attestation_state_is_control_plane(self):
-        # plan 059's state: a drift mark the next clean start clears, the
-        # import-crash mark, the `hook:<host>:...` rows install records in
-        # contract.sha256, and the CLI that re-attests a session by hand
+        # plan 059's state: a drift mark the next clean start clears and the
+        # import-crash mark (rows of the cache database, and the directories
+        # their files had until the import reads them), the `hook:<host>:...`
+        # rows install records in contract.sha256, and the CLI that re-attests
+        # a session by hand
         import tezgah_attest as ta
-        import tezgah_guard as tgd
-        paths = (ta.drift_mark("s1", "claude"), tgd.import_crash_mark("s1"),
-                 ta.CONTRACT_SHA)
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        paths = (os.path.join(cache, "tezgah.db"),
+                 os.path.join(cache, "harness-drift", "abc.claude"),
+                 os.path.join(cache, "import-crash", "abc"), ta.CONTRACT_SHA)
         for path in paths:
             for tool, inp in (("Write", {"file_path": path, "content": "x"}),
                               ("Edit", {"file_path": path, "old_string": "a",

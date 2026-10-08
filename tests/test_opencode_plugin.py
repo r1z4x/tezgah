@@ -205,13 +205,9 @@ class OpenCodePlugin(TempHome):
         return [entry["kind"] for entry in self.ledger(session)]
 
     def used(self, session="s1"):
-        """The used-tool kinds recorded for the status line (session ledger)."""
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug(session) + ".jsonl")
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line)["kind"] for line in fh if line.strip()]
+        """The used-tool kinds recorded for the status line, sorted."""
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug(session)))
 
     # ---- the core child -----------------------------------------------------
     def test_a_core_that_exits_before_reading_its_input_does_not_crash(self):

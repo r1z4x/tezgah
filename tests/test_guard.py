@@ -187,9 +187,9 @@ class ImportGuard(TempHome):
                 self.assertTrue(crashes, "%s left no crash row" % name)
                 self.assertTrue(crashes[-1]["detail"].startswith("import: ImportError"))
                 # and the status line's mark for the session
-                mark = os.path.join(self.home, ".cache", "tezgah", "import-crash",
-                                    hashlib.sha256(b"imp").hexdigest()[:16])
-                self.assertTrue(os.path.exists(mark), name)
+                self.assertIsNotNone(support.store_doc(
+                    os.path.join(self.home, ".cache", "tezgah"), "import_crash",
+                    hashlib.sha256(b"imp").hexdigest()[:16]), name)
 
     def test_an_unimportable_ledger_leaves_one_stderr_line_and_no_row(self):
         root = self.make_repo()

@@ -58,12 +58,10 @@ class AttestBase(TempHome):
         rows = support.ledger_rows(path)
         attest = [r for r in rows if r["kind"] == "attest"]
         self.assertEqual(len(attest), 1, rows)
-        mark = os.path.join(self.home, ".cache", "tezgah", "harness-drift", "%s.%s" % (
-            hashlib.sha256(session.encode()).hexdigest()[:16], host))
-        text = ""
-        if os.path.exists(mark):
-            with open(mark) as fh:
-                text = fh.read()
+        text = support.store_doc(os.path.join(self.home, ".cache", "tezgah"),
+                                 "harness_drift", "%s.%s" % (
+                                     hashlib.sha256(session.encode()).hexdigest()[:16], host))
+        text = text or ""
         return attest[0], text
 
     def assert_drift(self, host, session, needle, tree=support.REPO):

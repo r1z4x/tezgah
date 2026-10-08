@@ -216,8 +216,9 @@ def write_note(session_id, inp, cwd, tool=None):
 def learn_later(root):
     """Start `tezgah-taste learn --repo <root> --no-fallback` detached when the
     signals of `root` (the git root `enabled` returned) grew since the last
-    start and an hour has passed; the stamp keeps the newest signal's append
-    number. Only when TypeSafe resolves: the automatic run never pays a
+    start and an hour has passed; the stamp (a `taste_learn` document of the
+    cache database) keeps the newest signal's append number. Only when
+    TypeSafe resolves: the automatic run never pays a
     generative provider for a decision it may not apply. Not on a
     machine without flock (Windows), where two background runs in two
     repositories would race on the user ledger. ponytail: no Windows lock; add
@@ -233,12 +234,8 @@ def learn_later(root):
             count = store.last(db, "signals")
         base = os.path.join(tezgah_paths.cache_dir(), "taste-learn")
         name = re.sub(r"[^A-Za-z0-9]+", "-", root).strip("-")
-        stamp = os.path.join(base, name + ".json")
-        try:
-            with open(stamp, encoding="utf-8") as fh:
-                last = json.load(fh)
-        except (OSError, ValueError):
-            last = {}
+        last = store.doc("taste_learn", name)
+        last = last if isinstance(last, dict) else {}
         now = time.time()
         if count <= last.get("rows", 0) or now - last.get("at", 0) < LEARN_EVERY:
             return
@@ -248,9 +245,9 @@ def learn_later(root):
         if tezgah_taste_ledger.fcntl is None or tezgah_paths.off("judge-off") \
                 or not tezgah_judge.named(("typesafe",)):
             return
+        if not store.put_doc("taste_learn", name, {"rows": count, "at": now}):
+            return
         os.makedirs(base, exist_ok=True)
-        with open(stamp, "w", encoding="utf-8") as fh:
-            json.dump({"rows": count, "at": now}, fh)
         with open(os.path.join(base, name + ".log"), "ab") as log:
             subprocess.Popen([sys.executable, BIN, "learn", "--repo", root,
                               "--no-fallback"],

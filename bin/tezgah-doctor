@@ -34,11 +34,11 @@ this tree.
   tezgah-doctor --coverage         the tracked files the graph index does not hold
   tezgah-doctor --coverage --repo ~/Projects/x
   tezgah-doctor --clean            vacuum the opencode database, and delete the
-                                   hook state (evidence ledgers, turns/,
-                                   sessions/, classify.log, context-drops.log,
-                                   debug.log) idle > 30 days
-                                   (--retention-days N); $TEZGAH_SESSION's
-                                   own files are always kept
+                                   hook state (evidence ledgers, turn
+                                   stamps, used-tool marks, classify.log,
+                                   context-drops.log, debug.log) idle > 30
+                                   days (--retention-days N);
+                                   $TEZGAH_SESSION's own state is always kept
   tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
   tezgah-doctor --import-evidence  import the legacy JSONL evidence ledgers
                                    into the evidence database now
@@ -81,8 +81,11 @@ GRAPH_DB = CODEGRAPH + ".db"
 # The per-session state the hooks write and nothing else removes: the evidence
 # ledgers, the per-turn stamps, the used-tool marks and the two capped logs.
 # Audit L-11 (GAP-10) measured 2,000 of each, 400 days old, surviving a full
-# cycle and `--clean`. Snapshots are not here: tezgah_snapshot caps them itself.
-STATE_DIRS = ("evidence", "turns", "sessions")
+# cycle and `--clean`. The stamps and the marks are rows of the cache database
+# (`tezgah_store.sweep_cache`); the evidence directory holds the legacy ledger
+# files its import has not taken. Snapshots are not here: tezgah_snapshot caps
+# them itself.
+STATE_DIRS = ("evidence",)
 STATE_LOGS = ("classify.log", "context-drops.log", "debug.log")
 RETENTION_DAYS = 30
 
@@ -280,11 +283,13 @@ def prune_sessions(days):
 def sweep_state(days, session=None):
     """Delete the hook state not modified for `days`, in the global cache and
     the temp fallback; (files removed, bytes freed, evidence sessions deleted,
-    evidence rows deleted).
+    evidence rows deleted, turn-stamp and used-mark rows deleted).
 
     The evidence ledger is swept in its database (`tezgah_store.sweep_evidence`,
     after importing the legacy JSONL files): every session whose newest row is
-    older than the cutoff loses its rows. The other files go by mtime, because
+    older than the cutoff loses its rows. The turn stamps and the used-tool
+    marks are swept there too, by the time each was last written
+    (`tezgah_store.sweep_cache`). The other files go by mtime, because
     every writer appends or rewrites in place, so a file's mtime is its
     session's last activity. The current session (`TEZGAH_SESSION`, the id omp
     and the judgement CLIs export) is kept whatever its age: a session idle past
@@ -292,10 +297,9 @@ def sweep_state(days, session=None):
     import tezgah_store
     from tezgah_context import slug
     from tezgah_integrity import _slug
-    keep = ({_slug(session) + ".jsonl", slug(session) + ".json",
-             slug(session) + ".jsonl"} if session else set())
+    keep = {_slug(session) + ".jsonl"} if session else set()
     cutoff = time.time() - days * 86400
-    removed = freed = sessions = rows = 0
+    removed = freed = sessions = rows = marks = 0
     for base in dict.fromkeys((CACHE, fallback_cache())):
         try:
             swept = tezgah_store.sweep_evidence(base, cutoff,
@@ -303,6 +307,10 @@ def sweep_state(days, session=None):
         except tezgah_store.ERRORS:
             swept = (0, 0)
         sessions, rows = sessions + swept[0], rows + swept[1]
+        try:
+            marks += tezgah_store.sweep_cache(base, cutoff, slug(session) if session else None)
+        except tezgah_store.ERRORS:
+            pass
         paths = [os.path.join(base, name) for name in STATE_LOGS]
         for sub in STATE_DIRS:
             try:
@@ -322,7 +330,7 @@ def sweep_state(days, session=None):
                 continue
             removed += 1
             freed += st.st_size
-    return removed, freed, sessions, rows
+    return removed, freed, sessions, rows, marks
 
 
 def import_evidence():
@@ -441,7 +449,7 @@ def main():
                     help="a saved `codegraph files -j` dump to read for --coverage")
     ap.add_argument("--clean", action="store_true",
                     help="vacuum the opencode database and delete tezgah hook "
-                         "state (ledgers, turns/, sessions/, classify.log, "
+                         "state (ledgers, turn stamps, used-tool marks, classify.log, "
                          "context-drops.log, debug.log) not "
                          "modified for --retention-days; the current session "
                          "($TEZGAH_SESSION) is kept (opt-in)")
@@ -507,12 +515,13 @@ def main():
                 except sqlite3.Error as exc:
                     cleaned["vacuum"] = "failed: %s" % exc
         if args.clean:
-            removed, freed, sessions, rows = sweep_state(args.retention_days,
-                                                         os.environ.get("TEZGAH_SESSION"))
+            removed, freed, sessions, rows, marks = sweep_state(
+                args.retention_days, os.environ.get("TEZGAH_SESSION"))
             cleaned["state"] = {"removed": removed, "bytes": freed,
                                 "days": args.retention_days}
             cleaned["evidence"] = {"sessions": sessions, "rows": rows,
                                    "days": args.retention_days}
+            cleaned["marks"] = {"rows": marks, "days": args.retention_days}
         rep = collect(pairs)
 
     if args.json:
@@ -542,6 +551,9 @@ def main():
         if ev:
             print("  evidence      %d session(s) idle > %d days deleted (%d rows)"
                   % (ev["sessions"], ev["days"], ev["rows"]))
+        mk = cleaned.get("marks")
+        if mk:
+            print("  stamps/marks  %d row(s) idle > %d days deleted" % (mk["rows"], mk["days"]))
     elif rep["opencode_db_bytes"] > 500 * 1024 * 1024:
         print("\nrun with --clean to vacuum; --prune-sessions DAYS to shrink the db")
     return 0

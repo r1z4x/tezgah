@@ -1755,10 +1755,9 @@ class GateLiveness(ChildCall):
         self.assertIn("gate", [s["key"] for s in self.segments()])
 
     def test_an_import_crash_mark_draws_the_crash_segment(self):
-        self.child("import json, os, tezgah_guard as g\n"
-                   "p = g.import_crash_mark('g1')\n"
-                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
-                   "open(p, 'w').write('import: SyntaxError: x')\n"
+        self.child("import tezgah_guard as g, tezgah_store as s\n"
+                   "s.put_doc('import_crash', g.import_crash_key('g1'), "
+                   "'import: SyntaxError: x')\n"
                    "print('null')\n")
         crash = [s for s in self.segments() if s["key"] == "crash"]
         self.assertEqual(crash, [{"key": "crash", "state": "off", "glyph": "\u2717",
@@ -1809,10 +1808,9 @@ class GateLiveness(ChildCall):
         self.assertIn("gate", [s["key"] for s in self.segments()])
 
     def test_a_drift_mark_draws_the_drift_segment(self):
-        self.child("import json, os, tezgah_attest as ta\n"
-                   "p = ta.drift_mark('g1', 'codex')\n"
-                   "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
-                   "open(p, 'w').write('codex PreToolUse entry removed')\n"
+        self.child("import tezgah_attest as ta, tezgah_store as s\n"
+                   "s.put_doc('harness_drift', ta.drift_key('g1', 'codex'), "
+                   "'codex PreToolUse entry removed')\n"
                    "print('null')\n")
         drift = [s for s in self.segments() if s["key"] == "drift"]
         self.assertEqual(drift, [{"key": "drift", "state": "off", "glyph": "\u2717",
@@ -1936,13 +1934,11 @@ class StateDelta(ChildCall):
         # the fallback, not a wrong delta: an unusable stamp must not be read as
         # "the state moved"
         self.turn()
-        turns = os.path.join(self.home, ".cache", "tezgah", "turns")
-        path = os.path.join(turns, os.listdir(turns)[0])
-        with open(path) as fh:
-            stamp = json.load(fh)
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        [key] = support.store_keys(cache, "turns")
+        stamp = support.store_doc(cache, "turns", key)
         stamp["root"] = "/somewhere/else"
-        with open(path, "w") as fh:
-            json.dump(stamp, fh)
+        self.assertTrue(support.store().put_doc("turns", key, stamp, cache))
         self.touch(os.path.join(self.repo, "g"))
         self.commit("second")
         self.assertNotIn("State since your last turn", self.turn())
@@ -2327,12 +2323,8 @@ class RecordKinds(TempHome):
         return self.ledger(session_id)
 
     def ledger(self, session_id):
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug(session_id) + ".jsonl")
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line)["kind"] for line in fh if line.strip()]
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug(session_id)))
 
     def test_a_tool_that_is_not_one_of_ours_is_not_an_event(self):
         self.assertEqual(self.record("s1", None), [])
@@ -2369,12 +2361,8 @@ class PostToolUseUsedKind(TempHome):
                             "tool_name": tool, "tool_input": inp,
                             "session_id": session}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        path = os.path.join(self.home, ".cache", "tezgah", "sessions",
-                            support.slug(session) + ".jsonl")
-        if not os.path.exists(path):
-            return []
-        with open(path) as fh:
-            return [json.loads(line)["kind"] for line in fh if line.strip()]
+        return sorted(support.used_kinds(os.path.join(self.home, ".cache", "tezgah"),
+                                         support.slug(session)))
 
     def test_a_codegraph_mcp_call_marks_the_graph(self):
         self.assertEqual(self.kinds("mcp__codegraph__codegraph_explore",
@@ -2415,12 +2403,9 @@ class StatusCli(TempHome):
         self.touch(os.path.join(self.home, ".config", "openrouter", "key"))
 
     def record(self, sid, kinds):
-        d = os.path.join(self.home, ".cache", "tezgah", "sessions")
-        os.makedirs(d, exist_ok=True)
         slug = "-".join(re.findall(r"[A-Za-z0-9]+", sid))
-        with open(os.path.join(d, slug + ".jsonl"), "w") as fh:
-            for kind in kinds:
-                fh.write(json.dumps({"kind": kind}) + "\n")
+        for kind in kinds:
+            support.store().use(slug, kind, os.path.join(self.home, ".cache", "tezgah"))
 
     def status(self, *args, env=None):
         cli = os.path.join(support.REPO, "bin", "tezgah-status")
@@ -3228,13 +3213,13 @@ class DropRecordKind(ChildCall):
         self.assertIn("dropped=lessons:5", row)
 
 
-class UsedReadIsBounded(ChildCall):
-    """used() runs on every status-line draw and read the session's used-kind
-    store to EOF, which grows by one row per tool call. Past USED_MAX_BYTES the
-    store is compacted to one row per kind, so the next read is a few hundred
-    bytes and no kind is lost."""
+class UsedStoreImport(ChildCall):
+    """used() runs on every status-line draw. The used-kind store is one row
+    per (session, kind), so a read is one indexed lookup however long the
+    session ran; a session file from before the database is imported once,
+    every kind of it, and removed."""
 
-    def store(self, sid):
+    def legacy(self, sid):
         return os.path.join(self.home, ".cache", "tezgah", "sessions",
                             support.slug(sid) + ".jsonl")
 
@@ -3242,21 +3227,21 @@ class UsedReadIsBounded(ChildCall):
         return set(self.child("import json, tezgah_context as tc\n"
                               "print(json.dumps(sorted(tc.used(%r))))\n" % sid))
 
-    def test_an_oversized_store_keeps_every_kind_and_shrinks(self):
-        rows = ([{"kind": "consult"}] + [{"kind": "graph"}] * 100000
+    def test_a_legacy_file_imports_every_kind_once_and_goes(self):
+        rows = ([{"kind": "consult"}] + [{"kind": "graph"}] * 1000
                 + [{"kind": "orch"}])
-        write_bytes(self.store("s-big"),
+        write_bytes(self.legacy("s-big"),
                     "".join(json.dumps(r) + "\n" for r in rows).encode())
         self.assertEqual(self.used("s-big"), {"consult", "graph", "orch"})
-        self.assertLess(os.path.getsize(self.store("s-big")), 1024)
+        self.assertFalse(os.path.exists(self.legacy("s-big")))
+        cache = os.path.join(self.home, ".cache", "tezgah")
+        self.assertEqual(support.cache_rows(
+            cache, "SELECT count(*) FROM used WHERE session = ?", ("s-big",)), [(3,)])
         self.assertEqual(self.used("s-big"), {"consult", "graph", "orch"})
 
-    def test_a_small_store_is_left_as_written(self):
-        body = b'{"kind": "graph"}\n{"kind": "graph"}\n'
-        write_bytes(self.store("s-small"), body)
-        self.assertEqual(self.used("s-small"), {"graph"})
-        with open(self.store("s-small"), "rb") as fh:
-            self.assertEqual(fh.read(), body)
+    def test_a_torn_line_costs_only_itself(self):
+        write_bytes(self.legacy("s-torn"), b'{"kind": "graph"}\n{"kind": "gra')
+        self.assertEqual(self.used("s-torn"), {"graph"})
 
 
 if __name__ == "__main__":

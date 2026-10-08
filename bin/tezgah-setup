@@ -4162,17 +4162,6 @@ def _denied(host, stdout):
     return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
 
 
-def _live_cleanup(slug):
-    """Remove every cache file the synthetic session left (named by its slug)."""
-    for dirpath, _dirs, files in os.walk(tp.cache_dir()):
-        for name in files:
-            if slug in name:
-                try:
-                    os.remove(os.path.join(dirpath, name))
-                except OSError:
-                    pass
-
-
 def live_probe(host, deny=False):
     """(state, line) for one host: ok, miss or unverified. `deny` sends the
     PreToolUse probe: the host's deny envelope and a deny row must both appear;
@@ -4220,7 +4209,6 @@ def live_probe(host, deny=False):
             tezgah_store.forget_session(ledger)
         except tezgah_store.ERRORS:
             pass
-        _live_cleanup(slug)
         shutil.rmtree(root, ignore_errors=True)
     err = (proc.stderr or "").strip().splitlines()
     tail = " (exit %d%s)" % (proc.returncode, ": " + err[-1][:160] if err else "")
