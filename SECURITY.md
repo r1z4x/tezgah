@@ -27,7 +27,7 @@ an adversarial agent, and it does not claim to be one.
 - **What is protected, and how.** The gate's `control` rule
   (`hooks/tezgah_gate.py`, `docs/gate.md`) refuses a write tool, and the shell
   shapes it reads (a redirect, `touch`, `rm`, `mv`, `cp`, `chmod`, `tee`,
-  `sed -i`, `cp -t`, `curl -o`, `tar -C`, `unzip -d`, `git config
+  `sed -i`, `sqlite3`, `cp -t`, `curl -o`, `tar -C`, `unzip -d`, `git config
   core.hooksPath`, with `cd`, `if`/`for`/`!`, `eval` and `bash -c` read
   through), on the path as written and through a link, on:
   - the kill switches and opt-in markers (`hooks/tezgah_paths.py` `SWITCHES`,

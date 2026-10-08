@@ -145,6 +145,19 @@ class ControlPlane(unittest.TestCase):
             with self.subTest(command=command):
                 self.refused("Bash", {"command": command})
 
+    def test_the_sqlite3_shell_cannot_reach_the_cache_database(self):
+        # the cache stores are rows of tezgah.db: the sqlite3 shell rewrites
+        # them as `rm` would remove the files they were
+        db = os.path.join(self.home, ".cache", "tezgah", "tezgah.db")
+        for command in ("sqlite3 ~/.cache/tezgah/tezgah.db 'DELETE FROM gate_inactive'",
+                        "sqlite3 -cmd .timeout %s 'DELETE FROM used'" % db,
+                        "cd ~/.cache/tezgah && sqlite3 tezgah.db .dump"):
+            with self.subTest(command=command):
+                self.refused("Bash", {"command": command})
+        # a database that is not tezgah's stays the session's
+        other = os.path.join(self.repo, "app.db")
+        self.assertIsNone(self.decide("Bash", {"command": "sqlite3 %s .tables" % other}))
+
     def test_a_cd_and_compound_syntax_do_not_hide_the_target(self):
         for command in ("cd ~/.config/tezgah && touch verify-off",
                         "cd ~/.config && touch tezgah/verify-off",

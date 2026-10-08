@@ -1840,11 +1840,13 @@ HOOK_ENTRIES = frozenset(("projects-auto-init", "projects-pretooluse",
 HOOK_HOSTS = frozenset(("codex", "cursor", "omp"))
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
-# `sed`/`perl` count only with an in-place flag.
+# `sed`/`perl` count only with an in-place flag. `sqlite3` rewrites the cache
+# stores, rows of `tezgah.db`, as `rm` would remove the files they were; its
+# SQL argument names no protected path.
 CONTROL_PROGRAMS = frozenset(("touch", "rm", "rmdir", "unlink", "shred",
                               "truncate", "chmod", "chown", "chgrp", "mv",
                               "mkdir", "tee", "cp", "ln", "install", "rsync",
-                              "dd", "sed", "perl"))
+                              "dd", "sed", "perl", "sqlite3"))
 CONTROL_COPIERS = frozenset(("cp", "mv", "ln", "install", "rsync"))
 # The programs that remove, disable or move a path. A directory that holds
 # protected state, a repository's husky hooks and the open plans (evidence) are
