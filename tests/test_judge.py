@@ -13,6 +13,7 @@ never ran there.
 """
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -150,15 +151,30 @@ class JudgeCase(unittest.TestCase):
                                                             "tezgah"))
         cache.start()
         self.addCleanup(cache.stop)
-        # The seam has three providers, so "no credential of this machine" means
+        # The seam has these providers, so "no credential of this machine" means
         # every channel: leaving OPENROUTER_API_KEY set here made the fallback
         # reach the live network from a case that promises it does not, and the
         # host's OMPCODE/CLAUDECODE would run the developer's real session CLI.
+        # The Jev carriers' own channels and the carrier choice are cleared too.
         for name in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY",
-                     "TEZGAH_JUDGE_MODEL", "OMPCODE", "CLAUDECODE"):
+                     "TEZGAH_JUDGE_MODEL", "OMPCODE", "CLAUDECODE",
+                     "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN",
+                     "JEV_CLOUDFLARE_API_TOKEN", "JEV_API_BASE_URL", "JEV_API_KEY",
+                     "JEV_PROVIDER", "TEZGAH_JEV_PROVIDER", "TEZGAH_JEV_MODEL"):
             os.environ.pop(name, None)
         for name in PROXIES:
             os.environ.pop(name, None)
+        # Every Jev carrier's host is this fake too, so a key set by a case can
+        # never reach OpenRouter or Cloudflare; and the config file is the
+        # throwaway HOME's, so this machine's `jev` or `fallback` choice never
+        # decides a case.
+        os.environ["TEZGAH_JEV_OPENROUTER_URL"] = self.url.replace(
+            "/v1/systemone", "/api/v1/systemone")
+        os.environ["TEZGAH_CLOUDFLARE_URL"] = self.url.replace(
+            "/v1/systemone", "/client/v4")
+        conf = mock.patch.object(tp, "CONFIG", os.path.join(self.home, "config.json"))
+        conf.start()
+        self.addCleanup(conf.stop)
         # What the seam says on stderr is collected, not printed into the run.
         self.said = []
         say = mock.patch.object(tezgah_judge, "_say", self.said.append)
@@ -373,8 +389,10 @@ class ProviderDown(JudgeCase):
         self.assertEqual(len(Fake.seen), 2)
 
     def test_an_empty_account_and_a_failing_upstream_mark_it_too(self):
+        # 403 is OpenRouter's answer to a key past its spending limit (measured
+        # 2026-10-09 on /api/v1/systemone): it fails identically on every call.
         os.environ["TYPESAFE_API_KEY"] = "test"
-        for code, sent in ((402, 1), (503, 2)):
+        for code, sent in ((402, 1), (403, 1), (503, 2)):
             with self.subTest(code=code):
                 Fake.seen, Fake.status = [], code
                 os.environ["TEZGAH_TYPESAFE_URL"] = self.url + "?" + str(code)
@@ -514,8 +532,16 @@ class EndpointOverride(JudgeCase):
         """The key and the state would cross the network in clear: every URL
         override routes through one check, and a refused one sends nothing."""
         os.environ["TYPESAFE_API_KEY"] = "ts-secret"
+        def carrier(provider):
+            return lambda: tezgah_judge._jev_call(provider, MODEL, "S", {})[1]
+
+        os.environ["CLOUDFLARE_ACCOUNT_ID"] = "acc"
         for name, read in (("TEZGAH_TYPESAFE_URL", tezgah_judge.endpoint),
-                           ("TEZGAH_OPENROUTER_URL", tezgah_judge.openrouter_url)):
+                           ("TEZGAH_OPENROUTER_URL", tezgah_judge.openrouter_url),
+                           ("TEZGAH_JEV_OPENROUTER_URL", carrier("jev-openrouter")),
+                           ("TEZGAH_CLOUDFLARE_URL", lambda: carrier("jev-cloudflare")()
+                            .replace("/accounts/acc/ai/run", "")),
+                           ("JEV_API_BASE_URL", carrier("jev-compatible"))):
             with self.subTest(name), mock.patch.dict(os.environ, {
                     name: "http://example.invalid/v1/x"}):
                 with self.assertRaises(ValueError):
@@ -528,7 +554,8 @@ class EndpointOverride(JudgeCase):
             self.assertIsNone(self.ask())
         os.environ.pop("TYPESAFE_API_KEY")
         with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "or-secret",
-                                          "TEZGAH_OPENROUTER_URL": "http://example.invalid/c"}):
+                                          "TEZGAH_OPENROUTER_URL": "http://example.invalid/c",
+                                          "TEZGAH_JEV_OPENROUTER_URL": "http://example.invalid/s"}):
             self.assertIsNone(self.ask())
         self.assertEqual(Fake.seen, [])
         self.assertEqual(tezgah_judge.override("TEZGAH_NO_SUCH_URL", "https://d.example/x"),
@@ -757,6 +784,9 @@ class OpenRouterFallback(JudgeCase):
         super().setUp()
         os.environ["TEZGAH_OPENROUTER_URL"] = self.url.replace(
             "/v1/systemone", "/v1/chat/completions")
+        # An OpenRouter key is also the `jev-openrouter` carrier's; this class
+        # is about the chat fallback, so the Jev choice is pinned to TypeSafe.
+        os.environ["TEZGAH_JEV_PROVIDER"] = "typesafe"
 
     def chat(self, answers, prompt_tokens=11, completion_tokens=3):
         """Point the fake at a chat reply carrying `answers` as JSON text."""
@@ -1062,6 +1092,174 @@ class SessionFirst(JudgeCase):
         self.assertEqual(out["provider"], "omp")
         self.assertEqual(tezgah_judge.text(out, "rule"), "Prefer pathlib over os.path.")
         self.assertEqual(Fake.seen, [])
+
+
+class JevCarriers(JudgeCase):
+    """The Jev model reached through each carrier beside TypeSafe direct:
+    OpenRouter's System One endpoint, Cloudflare Workers AI and any System
+    One-compatible URL. Every host is the loopback fake, so the assertions are
+    on the URL, the bearer and the body each one was sent."""
+
+    REPLY = {"model": "jev-1.13.0", "answers": {"urgent": {"type": "noul", "noul": 0.7}},
+             "usage": {"input_tokens": 9, "output_tokens": 1}}
+
+    def setUp(self):
+        super().setUp()
+        Fake.reply = dict(self.REPLY)
+
+    def every_key(self):
+        os.environ.update(TYPESAFE_API_KEY="ts", OPENROUTER_API_KEY="or",
+                          CLOUDFLARE_ACCOUNT_ID="acc", CLOUDFLARE_API_TOKEN="cf",
+                          JEV_API_BASE_URL=self.url.replace("/v1/systemone", "/compat"),
+                          JEV_API_KEY="cmp")
+
+    def write(self, rel, value):
+        path = os.path.join(self.home, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(value)
+
+    def chosen(self):
+        return [p for p, _ in tezgah_judge.named(("jev",))]
+
+    def test_openrouter_carries_the_typesafe_body_with_a_namespaced_model(self):
+        os.environ["OPENROUTER_API_KEY"] = "or-secret"
+        out = self.ask(state="S", model="jev-latest")
+        seen = Fake.seen[0]
+        self.assertEqual(seen["path"], "/api/v1/systemone")
+        self.assertEqual(seen["authorization"], "Bearer or-secret")
+        self.assertEqual(seen["body"], {"state": "S", "model": "typesafe/jev-latest",
+                                        "questions": {"urgent": {
+                                            "type": "noul", "instructions": "Is it urgent?"}}})
+        self.assertEqual(out["provider"], "jev-openrouter")
+        self.assertTrue(tezgah_judge.is_jev(out["provider"]))
+        self.assertEqual(tezgah_judge.noul(out, "urgent"), 0.7)
+        self.assertEqual(out["usage"], {"input_tokens": 9, "output_tokens": 1})
+        self.assertEqual(out["model"], "jev-1.13.0")
+        # an id already in a namespace is sent as it is
+        self.ask(model="typesafe/jev-1.13")
+        self.assertEqual(Fake.seen[1]["body"]["model"], "typesafe/jev-1.13")
+
+    def test_cloudflare_wraps_the_input_and_unwraps_the_result(self):
+        os.environ.update(CLOUDFLARE_ACCOUNT_ID="acc-1", CLOUDFLARE_API_TOKEN="cf-secret")
+        Fake.reply = {"result": dict(self.REPLY), "success": True}
+        out = self.ask(state="S", model="jev-latest")
+        seen = Fake.seen[0]
+        self.assertEqual(seen["path"], "/client/v4/accounts/acc-1/ai/run")
+        self.assertEqual(seen["authorization"], "Bearer cf-secret")
+        self.assertEqual(seen["body"], {"model": "typesafe/jev", "input": {
+            "state": "S", "questions": {"urgent": {
+                "type": "noul", "instructions": "Is it urgent?"}}}})
+        self.assertEqual(out["provider"], "jev-cloudflare")
+        self.assertEqual(tezgah_judge.noul(out, "urgent"), 0.7)
+        self.assertEqual(out["model"], "jev-1.13.0")
+        # the documented bare body is read too
+        Fake.reply = dict(self.REPLY)
+        self.assertEqual(tezgah_judge.noul(self.ask(), "urgent"), 0.7)
+
+    def test_cloudflare_reads_its_own_token_first_and_needs_an_account(self):
+        os.environ.update(CLOUDFLARE_API_TOKEN="cf", JEV_CLOUDFLARE_API_TOKEN="jev-cf")
+        self.assertEqual(self.chosen(), [], "a token without an account resolved")
+        os.environ["CLOUDFLARE_ACCOUNT_ID"] = "acc"
+        self.ask()
+        self.assertEqual(Fake.seen[0]["authorization"], "Bearer jev-cf")
+
+    def test_cloudflare_key_files_are_the_hook_shell_channel(self):
+        self.write(".config/cloudflare/token", "file-cf\n")
+        self.write(".config/cloudflare/account_id", "file-acc\n")
+        self.ask()
+        self.assertEqual(Fake.seen[0]["path"], "/client/v4/accounts/file-acc/ai/run")
+        self.assertEqual(Fake.seen[0]["authorization"], "Bearer file-cf")
+
+    def test_a_compatible_endpoint_is_used_verbatim_with_its_own_model(self):
+        os.environ.update(JEV_API_BASE_URL=self.url.replace("/v1/systemone", "/x/eval"),
+                          JEV_API_KEY="cmp-secret")
+        out = self.ask(state="S", model="jev-latest")
+        seen = Fake.seen[0]
+        self.assertEqual(seen["path"], "/x/eval")
+        self.assertEqual(seen["authorization"], "Bearer cmp-secret")
+        self.assertEqual(seen["body"]["model"], "jev-latest")
+        self.assertEqual(sorted(seen["body"]), ["model", "questions", "state"])
+        self.assertEqual(out["provider"], "jev-compatible")
+        os.environ["TEZGAH_JEV_MODEL"] = "jev-1.13"
+        self.ask()
+        self.assertEqual(Fake.seen[1]["body"]["model"], "jev-1.13")
+
+    def test_a_compatible_url_without_a_key_is_no_carrier(self):
+        os.environ["JEV_API_BASE_URL"] = self.url
+        self.assertEqual(self.chosen(), [])
+
+    def test_auto_tries_every_resolving_carrier_in_order_then_the_chat(self):
+        self.every_key()
+        self.assertEqual(self.chosen(), list(tezgah_judge.JEV_CARRIERS))
+        self.assertEqual(tezgah_judge.JEV_CARRIERS, (
+            "typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible"))
+        self.assertEqual([p for p, _ in tezgah_judge.providers()],
+                         list(tezgah_judge.JEV_CARRIERS) + ["openrouter"])
+
+    def test_the_choice_env_beats_the_interop_env_beats_the_config(self):
+        self.every_key()
+        with open(tp.CONFIG, "w") as fh:
+            json.dump({"jev": "cloudflare"}, fh)
+        self.assertEqual(self.chosen(), ["jev-cloudflare"])
+        os.environ["JEV_PROVIDER"] = "compatible"
+        self.assertEqual(self.chosen(), ["jev-compatible"])
+        os.environ["TEZGAH_JEV_PROVIDER"] = "openrouter"
+        self.assertEqual(self.chosen(), ["jev-openrouter"])
+        os.environ["TEZGAH_JEV_PROVIDER"] = "typesafe"
+        self.assertEqual(self.chosen(), ["typesafe"])
+        self.assertEqual([p for p, _ in tezgah_judge.providers()],
+                         ["typesafe", "openrouter"])
+
+    def test_a_forced_carrier_without_its_credential_is_no_carrier_and_says_why(self):
+        os.environ.update(TYPESAFE_API_KEY="ts", TEZGAH_JEV_PROVIDER="cloudflare")
+        self.assertEqual(self.chosen(), [])
+        self.assertFalse(tezgah_judge.available())
+        self.assertIsNone(self.ask())
+        self.assertEqual(Fake.seen, [], "another carrier stood in for the forced one")
+        self.assertIn("jev-cloudflare", tezgah_judge.last_use()["failed"])
+
+    def test_the_omp_login_store_is_the_third_typesafe_channel(self):
+        path = os.path.join(self.home, ".omp", "agent", "agent.db")
+        os.makedirs(os.path.dirname(path))
+        conn = sqlite3.connect(path)
+        conn.execute("create table auth_credentials (id integer primary key, provider "
+                     "text, credential_type text, data text, disabled_cause text)")
+        conn.execute("insert into auth_credentials (provider, credential_type, data, "
+                     "disabled_cause) values ('typesafe', 'api_key', ?, 'revoked')",
+                     (json.dumps({"key": "dead"}),))
+        conn.execute("insert into auth_credentials (provider, credential_type, data) "
+                     "values ('typesafe', 'api_key', ?)", (json.dumps({"key": " omp-ts\n"}),))
+        conn.commit()
+        conn.close()
+        self.ask()
+        self.assertEqual(Fake.seen[0]["authorization"], "Bearer omp-ts")
+        self.key_file()
+        self.ask()
+        self.assertEqual(Fake.seen[1]["authorization"], "Bearer file-secret")
+
+    def test_a_text_question_skips_every_jev_carrier(self):
+        self.every_key()
+        os.environ["TEZGAH_OPENROUTER_URL"] = self.url.replace(
+            "/v1/systemone", "/v1/chat/completions")
+        Fake.reply = {"choices": [{"message": {"content": json.dumps(
+            {"answers": {"line": {"text": "Prefer pathlib."}}})}}], "usage": {}}
+        out = self.ask(questions={"line": {"type": "text", "instructions": "One line."}})
+        self.assertEqual(out["provider"], "openrouter")
+        self.assertEqual([s["path"] for s in Fake.seen], ["/v1/chat/completions"])
+        self.assertIsNone(self.ask(questions={"line": {"type": "text"}}, only=("jev",)))
+
+    def test_a_refused_fallback_counts_any_third_party_credential(self):
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        omp = os.path.join(bindir, "omp")
+        with open(omp, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(omp, 0o755)
+        os.environ.update(TEZGAH_OMP_BIN=omp, OMPCODE="1", CLOUDFLARE_ACCOUNT_ID="a",
+                          CLOUDFLARE_API_TOKEN="cf")
+        self.assertIsNone(self.ask())
+        self.assertIn("refuses a third-party judge", tezgah_judge.last_use()["refused"])
 
 
 if __name__ == "__main__":

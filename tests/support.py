@@ -187,6 +187,10 @@ def base_env(home, roots=None, extra=None):
         # no release check from a test: a stale cache would start a detached
         # network fetch; tests/test_update.py turns it on where it is the subject
         "TEZGAH_UPDATE_CHECK": "0",
+        # an OpenRouter key also resolves the `jev-openrouter` carrier: a test
+        # that sets one for the chat fallback must not reach OpenRouter's System
+        # One endpoint, so its default is a refused loopback port
+        "TEZGAH_JEV_OPENROUTER_URL": "http://127.0.0.1:9/api/v1/systemone",
     }
     if os.name == "nt":
         # a child without these cannot start on Windows: node aborts in its
