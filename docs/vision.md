@@ -22,11 +22,16 @@ the workspace's own records; every number below names where it came from.
    runs, 106 minutes, 10 of them green confirmations, in one session - the rule
    "run the full suite once, on the final tree" was already written down and
    `AGENTS.md` said "before every commit".)
-3. **A review loop reads every fix.** A round that confirms a defect gets a
-   round over the fix. The loop ends when a round confirms none
-   (`hooks/tezgah_agents.py::_reviewer_body`). The same defect family three times means the
-   design changes. (Measured: two of four severe defects in one internal plan came from
-   fixes, after round two.)
+3. **One review per plan, two rounds, fanned out.** Reviewers read the plan's
+   whole diff once, in its verification phase. Round one spawns them together,
+   one per dimension. Only a confirmed critical or major finding opens round two,
+   and round two reads the fix's delta. After round two the user gets what is
+   left, or the plan lists it as fix-later. `tezgah-task review` refuses a third
+   round (`hooks/tezgah_agents.py::_reviewer_body`, `bin/tezgah-task::cmd_review`).
+   (Measured: the old loop opened a round on any finding and ended only on a
+   clean round. It reviewed one finished plan round after round. In another plan,
+   fixes brought two of four severe defects. So round two reads the fix, and a
+   severe finding left after it blocks.)
 4. **Doubt lowers nothing and hides nothing.** An unverifiable check never
    downgrades a finding, an unknown criterion never relaxes a cap, and a line
    whose own criteria are unmet is reported as unanswered rather than concluded.

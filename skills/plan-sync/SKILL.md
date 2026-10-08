@@ -33,11 +33,16 @@ description: >
 6. Move each done or discarded plan with
    `~/.config/tezgah/bin/tezgah-task close NNN done|discarded`: it sets `status:` and
    `updated:` and moves the file to `.tezgah/plans/done/`. It refuses `done` unless the
-   plan records `review: <reviewer> approve` - a fresh reviewer (the host's
-   `tezgah-reviewer` subagent) read `git diff <base>..HEAD` and
-   `tezgah-task review NNN <reviewer> approve` wrote the verdict - and it refuses
-   the active task. A refused plan stays open: report it with the refusal, never
-   move it by hand.
+   plan records `review: <reviewer> approve` - fresh reviewers (the host's
+   `tezgah-reviewer` subagent, one per dimension in one message for a large diff)
+   read `git diff <base>..HEAD` and `tezgah-task review NNN <reviewer> approve`
+   wrote the verdict - and it refuses the active task. A refused plan stays open:
+   report it with the refusal, never move it by hand, and never start a review
+   round from here. One review per plan, over its whole diff in the verification
+   phase; at most two rounds - only a confirmed critical or major finding opens
+   round two, a minor or suggestion one is recorded fix-later, and after round two
+   what is left goes to the user or is recorded fix-later, never a third round.
+   A plan refused with a spent budget is the user's decision.
 7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). No `--pr-info` here:
    the row's `pr` cell comes from the plan files, and review/check enrichment

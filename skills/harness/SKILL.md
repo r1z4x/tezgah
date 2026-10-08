@@ -60,6 +60,10 @@ is reported as such, and an empty list beside it is not evidence of absence.
 `graph-review` splits findings into `confirmed` (no refuter refuted it), `refuted` (do not report as bugs),
 and `unverified` (hit the cap, or every refuter failed - label them as such). Never promote a refuted or unverified finding.
 
+`graph-review` is one review round, not a loop: inside a plan it is round one or round two of the
+plan's single review (two rounds at most, `tezgah-task review` refuses a third), never one run per
+task, and never re-run on a diff it already read.
+
 `graph-impact`'s `graph_blind_spots` are call sites the graph could not see - string dispatch, config,
 templates, generated code. They are usually where a migration actually breaks. Lead with them.
 

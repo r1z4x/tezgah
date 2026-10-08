@@ -272,7 +272,8 @@ guards against.
 
 ### The gate, for anything either tier produces
 Read the diff yourself. Then tests, lint and type check must pass, and anything
-non-trivial gets an independent review before it lands. A delegate's output is
+non-trivial gets an independent review before it lands - once per plan, not
+per task or commit. A delegate's output is
 a draft until the router has evidence; "the agent said it works" is not
 evidence.
 
@@ -519,12 +520,20 @@ rewrite it plainly.
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
 merge, move the plan to `.tezgah/plans/done/`, and report the outcome. Bring it back
-to the user only on a critical or high-severity finding, or a failing test.
+to the user only on a critical or major finding left after round two, or a
+failing test. One review per plan, over its whole diff in the verification
+phase; at most two rounds - only a confirmed critical or major finding opens
+round two, a minor or suggestion one is recorded fix-later, and after round two
+what is left goes to the user or is recorded fix-later, never a third round.
+A round spawns its reviewers in ONE message, one per dimension (correctness
+and contract, security, tests and performance) or file group; a diff under 300
+changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
+`tezgah-task review` refuses a third round.
 
-**Review population: a change with an executable oracle.** The single FRESH
-reviewer above stays the rule for every change except one whose correctness can
+**Review population: a change with an executable oracle.** The fresh review
+above stays the rule for every change except one whose correctness can
 be executed - a checker, a gate rule, a parser - where each claim can be built as
-a fixture. There the fresh-review step becomes a population:
+a fixture. There round one becomes a population:
 1. One agent that has seen no known defect writes four failure directions from
    the code alone.
 2. Four reviewers, one direction each, run at once; every claim names an exact
@@ -534,9 +543,11 @@ a fixture. There the fresh-review step becomes a population:
    kind - a false accept and a false refusal alike. Only a confirmed claim counts.
 4. Confirmed claims are grouped by root mechanism, and each group gets a
    failing-first test.
-5. A population round reviews one revision and does not replace re-review of
-   the fix: every round that confirms a defect is followed by a round over that
-   fix's delta, until a round confirms none.
+5. The population is round one and spends the same two-round budget: a fix
+   for a confirmed critical or major claim carries its failing-first test, and
+   round two reads that fix's delta, the round-one hunks and the direct callers
+   of what it touches. After round two what is left goes to the user or is
+   recorded fix-later, never a third round.
 
 Status: a tentative default, measured on two changes. E1
 (an internal prove-verify experiment): directed reviewers found 3 of 3 ground-truth defects,

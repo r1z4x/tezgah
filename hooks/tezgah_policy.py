@@ -237,7 +237,15 @@ rewrite it plainly.
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
 merge, move the plan to `.tezgah/plans/done/`, and report the outcome. Bring it back
-to the user only on a critical or high-severity finding, or a failing test.
+to the user only on a critical or major finding left after round two, or a
+failing test. One review per plan, over its whole diff in the verification
+phase; at most two rounds - only a confirmed critical or major finding opens
+round two, a minor or suggestion one is recorded fix-later, and after round two
+what is left goes to the user or is recorded fix-later, never a third round.
+A round spawns its reviewers in ONE message, one per dimension (correctness
+and contract, security, tests and performance) or file group; a diff under 300
+changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
+`tezgah-task review` refuses a third round.
 
 **Attribution: none, anywhere, ever.** Nothing you persist or publish may name
 the assistant, model, vendor or "AI" as author, co-author, generator or helper -
@@ -330,7 +338,8 @@ guards against.
 
 ### The gate, for anything either tier produces
 Read the diff yourself. Then tests, lint and type check must pass, and anything
-non-trivial gets an independent review before it lands. A delegate's output is
+non-trivial gets an independent review before it lands - once per plan, not
+per task or commit. A delegate's output is
 a draft until the router has evidence; "the agent said it works" is not
 evidence.
 

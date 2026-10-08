@@ -158,11 +158,14 @@ never told this; and a ledger with no such row costs no bytes. `verify-off` drop
 it with the integrity rule it restates.
 
 The on-demand contract also carries detail the core has no budget for. One is
-the review rule: a change with an executable oracle - a checker, a gate rule, a
-parser - is reviewed by four direction-led reviewers whose every claim is built
-as a fixture and run before it counts, a tentative default measured on two
-research lines with a written flip; everything else keeps one fresh reviewer
-(`skills/tezgah-contract/SKILL.md:503-527`).
+the review rule. A plan gets one review over its whole diff, in at most two
+rounds. Round one fans out one reviewer per dimension. Only a confirmed critical
+or major finding opens round two, and `tezgah-task review` refuses a third. A
+change with an executable oracle - a checker, a gate rule, a parser - spends the
+same budget. Its round one is four direction-led reviewers, and each claim
+becomes a fixture that runs before it counts. That population is a tentative
+default, measured on two research lines with a written flip
+(`skills/tezgah-contract/SKILL.md:519-550`).
 
 ## Composition order of the always-on core
 

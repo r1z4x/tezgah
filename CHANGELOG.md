@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A plan gets one review, at most two rounds.** The review reads the plan's
+  whole diff once, in its verification phase. Round one spawns its reviewers in
+  one message, one per dimension, or one reviewer for a diff under 300 lines.
+  Only a confirmed critical or major finding opens round two. Round two reads
+  the fix's delta. A minor finding goes on the fix-later list. `tezgah-task review`
+  refuses a third round. What is left after round two goes to the user. The
+  reviewer agent, the contract and plan-sync now state this one rule. Before,
+  the reviewer looped until a round confirmed nothing.
+
 ## [1.4.0] - 2026-10-08
 
 ### Changed
