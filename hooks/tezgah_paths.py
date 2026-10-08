@@ -544,16 +544,39 @@ def fallback_policy():
     return value if value in FALLBACKS else "vendor"
 
 
+# The session CLIs the judgement seam can ask, in detection order, each with
+# the env vars its host sets in the processes it spawns. omp sets CLAUDECODE
+# too, so it comes first. opencode sets OPENCODE=1 in its own process at start
+# (`process.env.OPENCODE="1"` in the 1.18.31 binary), so its plugin's children
+# and its shell tool inherit it. cursor-agent gives its shell tool CURSOR_AGENT=1
+# and its hooks CURSOR_VERSION (`buildHookEnvironment` in the 2026.10.01
+# bundle). codex gives its shell tool CODEX_THREAD_ID (codex-rs
+# protocol/src/shell_environment.rs `populate_env`); its hooks get only codex's
+# own process env (codex-rs hooks/src/registry.rs), so a codex hook names no
+# session - `judge_cli` picks it there.
+SESSION_CLIS = (("omp", ("OMPCODE",)), ("claude", ("CLAUDECODE",)),
+                ("opencode", ("OPENCODE",)), ("cursor", ("CURSOR_AGENT", "CURSOR_VERSION")),
+                ("codex", ("CODEX_THREAD_ID",)))
+
+
 def session_cli():
-    """`omp` or `claude` - the CLI of the host this process runs under, when it
-    is installed - else None. omp sets CLAUDECODE too, so OMPCODE is read first,
-    and an omp session whose binary is missing is None rather than Claude: the
-    session's credential is omp's, not whatever `claude` is logged in as."""
-    if os.environ.get("OMPCODE"):
-        return "omp" if omp_bin() else None
-    if os.environ.get("CLAUDECODE"):
-        return "claude" if claude_bin() else None
-    return None
+    """The session CLI the judgement seam asks - `omp`, `claude`, `opencode`,
+    `cursor` or `codex` - else None.
+
+    TEZGAH_JUDGE_CLI, else config.json `judge_cli`, picks one by name; `auto`
+    (the default, and any other value) reads the host this process runs under:
+    the first CLI in SESSION_CLIS whose marker is set. Either way the answer is
+    None when that CLI's binary is missing - an omp session is not handed to
+    whatever `claude` is logged in as, and a picked CLI has no stand-in."""
+    bins = {"omp": omp_bin, "claude": claude_bin, "opencode": opencode_bin,
+            "cursor": cursor_bin, "codex": codex_bin}
+    cfg = config()
+    pick = (os.environ.get("TEZGAH_JUDGE_CLI", "").strip()
+            or (cfg.get("judge_cli") if isinstance(cfg, dict) else None))
+    if pick not in bins:
+        pick = next((name for name, markers in SESSION_CLIS
+                     if any(os.environ.get(m) for m in markers)), None)
+    return pick if pick and bins[pick]() else None
 
 
 def orx_bin():
@@ -582,6 +605,24 @@ def claude_bin():
     lookup `omp_bin()` makes. The installer registers tezgah's plugin through
     `claude plugin`, so the suite must be able to keep the real CLI out."""
     return which_user(os.environ.get("TEZGAH_CLAUDE_BIN") or "claude")
+
+
+def opencode_bin():
+    """The opencode CLI (TEZGAH_OPENCODE_BIN, else `opencode`), or None - the
+    lookup `omp_bin()` makes."""
+    return which_user(os.environ.get("TEZGAH_OPENCODE_BIN") or "opencode")
+
+
+def cursor_bin():
+    """Cursor's agent CLI (TEZGAH_CURSOR_BIN, else `cursor-agent`), or None -
+    the lookup `omp_bin()` makes."""
+    return which_user(os.environ.get("TEZGAH_CURSOR_BIN") or "cursor-agent")
+
+
+def codex_bin():
+    """The Codex CLI (TEZGAH_CODEX_BIN, else `codex`), or None - the lookup
+    `omp_bin()` makes."""
+    return which_user(os.environ.get("TEZGAH_CODEX_BIN") or "codex")
 
 
 # The values `reply_lang` (config.json) takes. The value itself is the switch:

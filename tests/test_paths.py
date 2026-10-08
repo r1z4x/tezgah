@@ -603,5 +603,82 @@ class EnsureWorkspace(TempHome):
         self.assertIsNone(tp.ensure_workspace(plain))
         self.assertEqual(os.listdir(plain), [])
 
+
+class SessionCli(TempHome):
+    """`session_cli()`: the host's own marker names its CLI (omp, claude,
+    opencode, cursor, codex, in that order), only when its binary resolves;
+    TEZGAH_JUDGE_CLI, else config.json `judge_cli`, picks one instead, and a
+    pick whose binary is missing is None - never a silent substitute."""
+
+    CLIS = ("omp", "claude", "opencode", "cursor", "codex")
+    MARKERS = ("OMPCODE", "CLAUDECODE", "OPENCODE", "CURSOR_AGENT",
+               "CURSOR_VERSION", "CODEX_THREAD_ID")
+
+    def setUp(self):
+        super().setUp()
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        self.bins = {}
+        for name in self.CLIS:
+            path = os.path.join(bindir, name)
+            with open(path, "w") as fh:
+                fh.write("#!/bin/sh\nexit 0\n")
+            os.chmod(path, 0o755)
+            self.bins["TEZGAH_%s_BIN" % name.upper()] = path
+
+    def cli(self, missing=(), **markers):
+        env = self.env(extra=dict(self.bins, **markers))
+        for name in missing:
+            env["TEZGAH_%s_BIN" % name.upper()] = os.path.join(self.home, "no-such")
+        for name in self.MARKERS + ("TEZGAH_JUDGE_CLI",):
+            if name not in markers:
+                env.pop(name, None)
+        proc = subprocess.run(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "import tezgah_paths as tp; print(tp.session_cli())", support.HOOKS],
+            capture_output=True, text=True, timeout=60, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip()
+
+    def test_each_host_marker_names_its_cli(self):
+        for marker, name in (("OMPCODE", "omp"), ("CLAUDECODE", "claude"),
+                             ("OPENCODE", "opencode"), ("CURSOR_AGENT", "cursor"),
+                             ("CURSOR_VERSION", "cursor"), ("CODEX_THREAD_ID", "codex")):
+            self.assertEqual(self.cli(**{marker: "1"}), name, marker)
+
+    def test_no_marker_is_none(self):
+        self.assertEqual(self.cli(), "None")
+
+    def test_detection_order(self):
+        self.assertEqual(self.cli(OMPCODE="1", CLAUDECODE="1"), "omp")
+        self.assertEqual(self.cli(CLAUDECODE="1", OPENCODE="1"), "claude")
+        self.assertEqual(self.cli(OPENCODE="1", CURSOR_AGENT="1"), "opencode")
+        self.assertEqual(self.cli(CURSOR_AGENT="1", CODEX_THREAD_ID="t"), "cursor")
+
+    def test_a_marked_host_without_its_binary_is_none(self):
+        self.assertEqual(self.cli(missing=("opencode",), OPENCODE="1"), "None")
+        self.assertEqual(self.cli(missing=("codex",), CODEX_THREAD_ID="t"), "None")
+
+    def test_the_env_override_wins_over_the_marker_and_the_config(self):
+        self.config({"judge_cli": "cursor"})
+        self.assertEqual(self.cli(OMPCODE="1", TEZGAH_JUDGE_CLI="codex"), "codex")
+
+    def test_the_config_override_wins_over_the_marker(self):
+        self.config({"judge_cli": "opencode"})
+        self.assertEqual(self.cli(OMPCODE="1"), "opencode")
+        self.assertEqual(self.cli(), "opencode")
+
+    def test_auto_and_an_unknown_value_detect(self):
+        self.config({"judge_cli": "nope"})
+        self.assertEqual(self.cli(CLAUDECODE="1"), "claude")
+        self.assertEqual(self.cli(CLAUDECODE="1", TEZGAH_JUDGE_CLI="auto"), "claude")
+
+    def test_an_override_naming_a_missing_cli_is_none(self):
+        self.assertEqual(self.cli(missing=("codex",), OMPCODE="1",
+                                  TEZGAH_JUDGE_CLI="codex"), "None")
+        self.config({"judge_cli": "cursor"})
+        self.assertEqual(self.cli(missing=("cursor",), CLAUDECODE="1"), "None")
+
+
 if __name__ == "__main__":
     unittest.main()

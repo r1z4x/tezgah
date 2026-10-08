@@ -250,13 +250,15 @@ os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude
 # deleted the developer's own Codex config (2026-10-06).
 # Orca's markers likewise: a suite run from an Orca terminal would tell every
 # in-process session it runs in Orca (hooks/tezgah_orca.py::session).
-# OMPCODE/CLAUDECODE name the host session the judgement seam asks first, so a
-# suite started inside omp or Claude Code would run the developer's real CLI on
-# their tokens.
+# The session markers (OMPCODE, CLAUDECODE, OPENCODE, CURSOR_AGENT,
+# CURSOR_VERSION, CODEX_THREAD_ID) and the TEZGAH_JUDGE_CLI pick name the CLI
+# the judgement seam asks first, so a suite started inside a host would run the
+# developer's real CLI on their tokens.
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
               "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA", "ORCA_WORKTREE_ID",
               "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_CLI_COMMAND",
-              "ORCA_CLI_BIN_DIR", "OMPCODE", "CLAUDECODE"):
+              "ORCA_CLI_BIN_DIR", "OMPCODE", "CLAUDECODE", "OPENCODE", "CURSOR_AGENT",
+              "CURSOR_VERSION", "CODEX_THREAD_ID", "TEZGAH_JUDGE_CLI"):
     os.environ.pop(_name, None)
 if os.environ.get("TERM_PROGRAM") == "Orca":
     del os.environ["TERM_PROGRAM"]
