@@ -6,7 +6,7 @@ code, a blind label sheet drawn from them, and the report that reads the labels
   tezgah-gate replay [--cutoff WHEN] [--since WHEN] [--json]
   tezgah-gate replay --report [--run DIR] [--labels FILE ...] [--json]
   tezgah-gate replay --sheet [--run DIR] [--seed N] [--rules FILE]
-  tezgah-gate replay --label-model --prompt FILE [--provider typesafe|deepseek]
+  tezgah-gate replay --label-model --prompt FILE [--provider jev|deepseek]
                      [--model ID] [--run DIR]
 
 **Corpus.** Every ledger under the cache's `evidence/` is read read-only; a
@@ -864,9 +864,9 @@ def report(run, label_files=()):
 
 # ----------------------------------------------------------------- raters --
 
-# Rater 2 (H2 amendment 2026-10-07): a model through the judge seam, TypeSafe
-# only, billed per million input tokens and nothing for output, at the price
-# `bin/tezgah-triage::PRICE_PER_MILLION` quotes.
+# Rater 2 (H2 amendment 2026-10-07): the Jev model through the judge seam, any
+# Jev carrier (`tezgah_judge.JEV_CARRIERS`), billed per million input tokens and
+# nothing for output, at the price `bin/tezgah-triage::PRICE_PER_MILLION` quotes.
 RATER_MODEL = "jev-latest"
 JEV_PRICE_PER_MILLION = 0.042
 LABEL_WORKERS = 4
@@ -903,9 +903,10 @@ def _deepseek(secret, model):
     return ask
 
 
-def label_model(run, prompt_file, provider="typesafe", model=None):
+def label_model(run, prompt_file, provider="jev", model=None):
     """One `choice` question per blind sheet row, the row's text redacted
-    (`ti.redact`). `typesafe` asks through the judge seam and writes
+    (`ti.redact`). `jev` (old name `typesafe`) asks the Jev model through the
+    judge seam, whichever carrier resolves, and writes
     `labels-model.jsonl` (rater 2); `deepseek` asks DeepSeek's chat endpoint and
     writes `labels-deepseek.jsonl` (rater 1). Rows already labelled there are not
     asked again; a reply without a label among the prompt's criteria stays
@@ -920,13 +921,15 @@ def label_model(run, prompt_file, provider="typesafe", model=None):
         ask, rater = _deepseek(secret, model or "deepseek-v4-pro"), "deepseek"
         price = DEEPSEEK_PRICE_PER_MILLION
     else:
-        used = tj.credential()[0]
-        if used != "typesafe" or not tj.available():
-            raise SystemExit("label-model: the judge seam must answer through TypeSafe "
-                             "(provider: %s)" % used)
+        if tj.tp.off("judge-off") or not tj.named(("jev",)):
+            raise SystemExit("label-model: the judge seam must answer through a Jev "
+                             "carrier (TypeSafe, OpenRouter System One, Cloudflare "
+                             "Workers AI or JEV_API_BASE_URL; TEZGAH_JEV_PROVIDER picks "
+                             "one), and none resolves")
 
         def ask(state, questions):
-            return tj.ask(state, questions, model=model or RATER_MODEL, timeout=60)
+            return tj.ask(state, questions, model=model or RATER_MODEL, timeout=60,
+                          only=("jev",))
         rater, price = "model", (JEV_PRICE_PER_MILLION, 0.0)
     with open(prompt_file, encoding="utf-8") as fh:
         prompt = json.load(fh)
@@ -1034,7 +1037,8 @@ def main(argv):
     p.add_argument("--report", action="store_true")
     p.add_argument("--label-model", action="store_true")
     p.add_argument("--prompt")
-    p.add_argument("--provider", choices=("typesafe", "deepseek"), default="typesafe")
+    # `typesafe` is the old name of `jev`, kept for the commands already written down
+    p.add_argument("--provider", choices=("jev", "typesafe", "deepseek"), default="jev")
     p.add_argument("--model")
     p.add_argument("--sheet", action="store_true")
     p.add_argument("--run")

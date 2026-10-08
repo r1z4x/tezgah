@@ -4,7 +4,8 @@
 A `browser_snapshot` / `mobile_list_elements_on_screen` result is the whole screen
 as text - one measured 40-row work-order table came back as 13,045 characters in
 356 lines - and the analyze-app loop pays for all of it to find the dozen lines
-that carry the controls. This flattens the snapshot, asks TypeSafe about the
+that carry the controls. This flattens the snapshot, asks the judge seam (the
+session's own CLI or the Jev model through any carrier) about the
 units of the tree (a row, a table cell, a control on its own) in ONE batched
 request, and prints the line ids under the selected units with their original
 element refs.
@@ -90,10 +91,13 @@ MEASURED = ("100% of the control lines at a 94% read on a reproduced 356-line "
             "screen")
 CUT = 96
 USAGE = "tezgah-triage --select FILE --task TEXT | --states FILE [--component TEXT]"
-NO_CREDENTIAL = ("no judge: no session CLI (omp or claude, from OMPCODE/CLAUDECODE), "
-                 "and no third party the `fallback` setting allows (TYPESAFE_API_KEY "
-                 "or ~/.config/typesafe/key, or the OpenRouter fallback's "
-                 "OPENROUTER_API_KEY or ~/.config/openrouter/key), or the judge-off "
+NO_CREDENTIAL = ("no judge: no session CLI (omp, claude, opencode, cursor or codex, "
+                 "the one this session runs under), and no third party the `fallback` "
+                 "setting allows - the Jev model through TypeSafe (TYPESAFE_API_KEY or "
+                 "~/.config/typesafe/key), OpenRouter System One or the OpenRouter chat "
+                 "fallback (OPENROUTER_API_KEY or ~/.config/openrouter/key), Cloudflare "
+                 "Workers AI, or a compatible endpoint (JEV_API_BASE_URL), the carrier "
+                 "picked by TEZGAH_JEV_PROVIDER or config `jev` - or the judge-off "
                  "switch is on")
 TRIAGE_OFF = "the triage-off switch is on"
 FAILED = ("the call failed - a timeout, a refusal, or a reply that is not the "

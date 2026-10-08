@@ -135,6 +135,15 @@ def rows(root, table, where="", args=()):
         return store.rows(db, table, where, args) if db else []
 
 
+def jev_rows():
+    """(where, args) for `rows`: the rows a Jev carrier (`tezgah_judge.JEV_CARRIERS`)
+    decided, whichever one answered - an old `typesafe` row included. Imported
+    here, not at the top: the write hook loads this module and never asks."""
+    import tezgah_judge
+    carriers = tuple(tezgah_judge.JEV_CARRIERS)
+    return "WHERE provider IN (%s)" % ", ".join("?" * len(carriers)), carriers
+
+
 def append(root, table, row, strict=False):
     """One row into a taste table. A hook drops a row it cannot write; `strict`
     (the CLI's decision, defect and label rows) raises instead, so `learn` stops
@@ -193,10 +202,10 @@ class locked:
 def calibration(root):
     """(x, n, bound): of the labelled signals the typed decision called a
     preference, how many the label agrees with, and the Clopper-Pearson lower
-    bound on that precision. Only typed-provider decisions count; the labels are
+    bound on that precision. Only Jev decisions count; the labels are
     a sample drawn independently of what was injected (`tezgah-taste label`)."""
     x = n = 0
-    for row in rows(root, "labels", "WHERE provider = ?", ("typesafe",)):
+    for row in rows(root, "labels", *jev_rows()):
         if row.get("decided") != "preference":
             continue
         n += 1
@@ -258,7 +267,7 @@ def apply(ledgers, sig, dec, day, applied=()):
 
     `dec` is the typed decision: `kind`, `category`, `scope` as (choice,
     probability), `relations` {learning id: (relation, probability)} and
-    `verified`, True only when TypeSafe answered - any other provider's decision
+    `verified`, True only when the Jev model answered - any other provider's decision
     is never applied. `applied` are the ids injected in the signal's session."""
     if not dec.get("verified"):
         return "unverified"
@@ -571,7 +580,7 @@ def gate(root, need=980, alpha=0.1):
     lower at one-sided p < `alpha`. Returns the report."""
     first = first_injection(root)
     arms = {"before": [0, 0], "after": [0, 0]}
-    for row in rows(root, "decisions", "WHERE provider = ?", ("typesafe",)):
+    for row in rows(root, "decisions", *jev_rows()):
         at = row.get("at")
         if not isinstance(at, (int, float)):
             continue

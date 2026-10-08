@@ -21,6 +21,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   command-bearing item let the move through. `render_table --acceptance
   --strict` then refused the same plan. Both now read one predicate,
   `tezgah_task.unproven`, and the refusal names each item's line.
+- **Typed decisions take any Jev carrier.** Taste's `learn`, `label`,
+  `calibrate`, `gate` and `measure --typed` require the Jev model, not
+  TypeSafe's address. So do taste's background start and replay's
+  `--label-model`. OpenRouter System One, Cloudflare Workers AI or a
+  compatible endpoint counts the same. Old `typesafe` rows keep counting.
+  `learn`'s report key `typesafe` is now `jev`. Replay's `--provider typesafe`
+  is now `--provider jev`, and the old name still works. The triage's no-judge
+  message names every carrier, the selection knob and the session CLIs.
 
 ### Added
 

@@ -218,7 +218,7 @@ def learn_later(root):
     signals of `root` (the git root `enabled` returned) grew since the last
     start and an hour has passed; the stamp (a `taste_learn` document of the
     cache database) keeps the newest signal's append number. Only when
-    TypeSafe resolves: the automatic run never pays a
+    the Jev model resolves through any carrier: the automatic run never pays a
     generative provider for a decision it may not apply. Not on a
     machine without flock (Windows), where two background runs in two
     repositories would race on the user ledger. ponytail: no Windows lock; add
@@ -243,7 +243,7 @@ def learn_later(root):
         import tezgah_judge
         import tezgah_taste_ledger
         if tezgah_taste_ledger.fcntl is None or tezgah_paths.off("judge-off") \
-                or not tezgah_judge.named(("typesafe",)):
+                or not tezgah_judge.named(("jev",)):
             return
         if not store.put_doc("taste_learn", name, {"rows": count, "at": now}):
             return

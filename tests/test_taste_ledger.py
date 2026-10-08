@@ -301,6 +301,21 @@ class Ledger(TempHome):
         self.assertEqual(tl.block(self.repo, DAY), ("", []))
         self.assertTrue(tl.stopped(self.repo))
 
+    def test_every_jev_carrier_counts_and_a_chat_provider_does_not(self):
+        # the typed rows are the Jev family's, whichever carrier answered; an
+        # old `typesafe` row keeps counting
+        import tezgah_judge
+        with mock.patch.object(tezgah_judge, "JEV_CARRIERS", ("typesafe", "jev-cloudflare")):
+            for provider in ("typesafe", "jev-cloudflare", "openrouter"):
+                tl.append(self.repo, "labels", {"id": provider, "provider": provider,
+                                                "decided": "preference",
+                                                "label": "preference"})
+                tl.append(self.repo, "decisions", {"id": provider, "provider": provider,
+                                                   "at": DAY, "kind": "preference"})
+            self.assertEqual(tl.calibration(self.repo)[:2], (2, 2))
+            report = tl.gate(self.repo, need=10)
+        self.assertEqual(report["before"]["turns"] + report["after"]["turns"], 2)
+
     # --- the store
 
     def test_the_legacy_files_import_and_are_renamed(self):

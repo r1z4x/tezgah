@@ -24,7 +24,7 @@ every word is part of the query.
 
 Matching is word-based and case-insensitive against an entry's title, its
 questions, its sources and its path; every word must match, so a second word
-narrows. A query that matches nothing is the last resort of one TypeSafe Choice
+narrows. A query that matches nothing is the last resort of one judge-seam Choice
 question over the pages themselves; it answers `none` for a query no page
 covers. When that question gives no judgement - unavailable (`docs-judge-off`,
 the seam's `judge-off`, no credential) or a call that failed or came back
@@ -1036,7 +1036,7 @@ def record(result):
 
 
 def judge_pick(query):
-    """(judged, page): whether a TypeSafe Choice question came back with one of
+    """(judged, page): whether a judge-seam Choice question came back with one of
     its options, and the page it named (None for `none`).
 
     The last resort for a query the index could not place: a word the index does

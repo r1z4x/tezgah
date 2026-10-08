@@ -196,13 +196,31 @@ def named(only):
     in `only` that resolves, in `only`'s order. The `vendor` policy's
     session-first order does not apply - the caller named the provider, so
     nothing is a silent fallback - but `none` still keeps every third party
-    out."""
+    out. The name `jev` stands for every Jev carrier that resolves
+    (`JEV_CARRIERS`), so a caller that needs a typed answer names the model
+    family, not one carrier's address."""
     session = tp.session_cli()
     third = tp.fallback_policy() != "none"
     found = {session: getattr(tp, session + "_bin")()} if session else {}
     if third:
         found.update(typesafe=key(), openrouter=openrouter_key())
-    return [(name, found[name]) for name in only if found.get(name)]
+    out = []
+    for name in only:
+        for one in (JEV_CARRIERS if name == "jev" else (name,)):
+            if found.get(one) and (one, found[one]) not in out:
+                out.append((one, found[one]))
+    return out
+
+
+# Every carrier that answers with the Jev model itself (a typed System One
+# reply), as opposed to a chat model asked to imitate its shape. A decision a
+# caller requires to be typed checks `is_jev(result["provider"])`.
+JEV_CARRIERS = ("typesafe",)
+
+
+def is_jev(provider):
+    """True when `provider` is a Jev carrier (`JEV_CARRIERS`)."""
+    return provider in JEV_CARRIERS
 
 
 def credential():

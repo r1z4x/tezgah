@@ -328,6 +328,41 @@ class Corpus(TempHome):
         self.assertEqual(sorted(r["n"] for r in kept),
                          sorted(r["n"] for r in rows if r["set"] == "replay-gate"))
 
+    def test_label_model_through_any_jev_carrier(self):
+        """Rater 2 is the Jev model whichever carrier answers; `--provider
+        typesafe` stays the old name of `jev`, and no carrier refuses the run."""
+        import contextlib
+        import io
+        from unittest import mock
+        s = self.replay()
+        self.cli("--sheet")
+        prompt = os.path.join(self.home, "prompt.json")
+        with open(prompt, "w", encoding="utf-8") as fh:
+            json.dump({name: {"instructions": "RULES", "criteria": {"unsure": "u"}}
+                       for name in ("replay-gate", "replay-stop")}, fh)
+        asked = []
+
+        def ask(state, questions, only=None, **_kw):
+            asked.append(only)
+            return {"answers": {"label": {"choice": "unsure",
+                                          "probabilities": {"unsure": 0.9}}},
+                    "usage": {"input_tokens": 10, "output_tokens": 0},
+                    "model": "jev-latest", "provider": "jev-compatible", "fallback": None}
+
+        out = io.StringIO()
+        with mock.patch.object(tj, "JEV_CARRIERS", ("typesafe", "jev-compatible")), \
+                mock.patch.object(tj, "named", lambda only: [("jev-compatible", "c")]
+                                  if "jev" in only else []), \
+                mock.patch.object(tj, "ask", ask), contextlib.redirect_stdout(out):
+            self.assertEqual(tr.main(["--label-model", "--provider", "typesafe", "--run",
+                                      s["run"], "--prompt", prompt]), 0)
+        self.assertIn("jev-compatible/jev-latest", out.getvalue())
+        self.assertEqual(set(asked), {("jev",)})
+        with mock.patch.object(tj, "named", lambda only: []), \
+                self.assertRaises(SystemExit) as raised:
+            tr.label_model(s["run"], prompt)
+        self.assertIn("Jev", str(raised.exception.code))
+
     def test_label_model_through_an_openai_compatible_provider(self):
         """Rater 1 (H2 amendment 2026-10-07, ADR 018): `--provider deepseek` asks
         the same prompt's question over DeepSeek's chat endpoint (a local stub),

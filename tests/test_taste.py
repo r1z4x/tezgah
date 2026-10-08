@@ -279,6 +279,17 @@ class Taste(TempHome):
         self.start()
         self.assertEqual((spawned, self.stamps()), ([], []))
 
+    def test_any_jev_carrier_starts_the_typed_learn(self):
+        # no TypeSafe key, but Jev resolves through another carrier
+        import tezgah_judge
+        spawned = self.spawns(typesafe=False)
+        self.arm()
+        self.grow()
+        with mock.patch.object(tezgah_judge, "named",
+                               lambda only: [("jev-cloudflare", "c")] if "jev" in only else []):
+            self.start()
+        self.assertEqual(len(spawned), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
