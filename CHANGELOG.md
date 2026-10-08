@@ -24,6 +24,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   store's `evidence` CLI. The old files stay in place: an opencode process
   started before the upgrade may still append to one. `tezgah-doctor --clean`
   deletes a session idle past the retention window.
+- **The small cache stores live in the same database.** They move from files
+  under `~/.cache/tezgah/` to tables of `~/.cache/tezgah/tezgah.db`. These are
+  the turn stamps, switch baselines, used-tool marks and status marks. The
+  nudge marks, the judge's marks, the skill hints and the update check move
+  too. So do the lesson-taint index, Cursor's marks and replies, the snapshot
+  and replay indexes and the taste-learn stamps. The first open of the
+  database imports each store's old files once and deletes them. Snapshot
+  blobs, replay runs and logs stay files. `tezgah-doctor --clean` sweeps the
+  stamps and marks there.
 
 ## [1.3.0] - 2026-10-07
 

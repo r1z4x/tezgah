@@ -43,7 +43,7 @@ answers it - TypeSafe, or the OpenRouter fallback when no TypeSafe key resolves
 skill names plus `none`, and one Noul
 asking whether the turn wants a skill at all - and the winner is appended after
 the armed paragraphs as a hint to look at first, never as an instruction to load
-(`hooks/tezgah_skill_pick.py:41-75` is the whole configuration, wired into
+(`hooks/tezgah_skill_pick.py:41-76` is the whole configuration, wired into
 `context_for` at `hooks/tezgah_context.py::context_for`). Measured cost of the line
 itself: 455-523 characters, about 115-130 tokens of prompt (the section address
 added ~150 characters over the name-only line; `bin/tezgah-skill` is the same

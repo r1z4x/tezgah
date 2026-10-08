@@ -202,8 +202,8 @@ fetch, the flip and the re-arm and runs none of the three
 
 The status line says when a newer release is out. A `↑X.Y.Z` chip sits beside
 the logo, in the version's own group, on every surface (`notice_segments()`,
-`hooks/tezgah_update.py`). A redraw only reads `~/.cache/tezgah/update.json`.
-When that file is a day old, the redraw stamps it and starts one detached
+`hooks/tezgah_update.py`). A redraw only reads the `update_check` row of
+`~/.cache/tezgah/tezgah.db`. When that row is a day old, the redraw stamps it and starts one detached
 check against the GitHub releases endpoint. An offline check writes nothing,
 and the next day asks again. `tezgah update` is the command the chip points
 at, and it is the only thing that moves the install. The
@@ -225,7 +225,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2633-2637`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2666-2670`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -370,7 +370,7 @@ does not hold.
 | Invocation | What it does |
 |---|---|
 | `tezgah-doctor` | nothing: sizes, session and event counts, whether opencode is running, the two context-hygiene settings, the `.codegraph` bytes and index presence per repository, and the three host state dirs (`bin/tezgah-doctor::collect`, `bin/tezgah-doctor::report`) |
-| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`bin/tezgah-doctor::vacuum_db`, `bin/tezgah-doctor::main`); deletes every evidence ledger whose newest row is older than `--retention-days` (default 30), rows, import offsets and old JSONL file together (`hooks/tezgah_store.py::sweep_evidence`); and deletes the other hook state not modified for that long - `turns/`, `sessions/`, `classify.log`, `context-drops.log` and `debug.log` - in the cache and its sandbox fallback, keeping the current session's (`$TEZGAH_SESSION`) ledger and files whatever their age (`sweep_state`) |
+| `tezgah-doctor --clean` | vacuums opencode's database, and only when opencode is not running (`bin/tezgah-doctor::vacuum_db`, `bin/tezgah-doctor::main`); deletes every evidence ledger whose newest row is older than `--retention-days` (default 30), rows, import offsets and old JSONL file together (`hooks/tezgah_store.py::sweep_evidence`), and the turn stamps and used-tool marks last written before then (`hooks/tezgah_store.py::sweep_cache`); and deletes the logs not modified for that long - `classify.log`, `context-drops.log` and `debug.log` - in the cache and its sandbox fallback, keeping the current session's (`$TEZGAH_SESSION`) ledger, stamp and marks whatever their age (`sweep_state`) |
 | `tezgah-doctor --import-evidence` | imports every old `evidence/*.jsonl` file into the cache's `tezgah.db` now, in the cache and its sandbox fallback (`bin/tezgah-doctor::import_evidence`); session start runs the same import detached at most once a day (`hooks/tezgah_store.py::import_later`) |
 | `tezgah-doctor --coverage` | every tracked file the codegraph index does not hold, in two classes — a supported extension the index is missing, and a shebang-only script with no `.py` twin — with the file counts it read, so an empty result cannot read as "everything is covered" |
 | `tezgah-doctor --stack` | per host: the context files in load order, the skill dirs and which copy wins, the hook rows per event with their owner, the MCP servers, and every conflict; exits 1 on one ([hosts](hosts.md#precedence-what-each-host-loads-and-in-which-order), `hooks/tezgah_stack.py::report`) |
@@ -413,7 +413,7 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2380-2390`).
+`hosts/opencode/plugins/tezgah.js:2413-2423`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
@@ -448,8 +448,8 @@ background when new signals arrived since the last start. It starts at most
 once an hour per repository (`learn_later`, `hooks/tezgah_taste.py::learn_later`). It runs
 with `--no-fallback` and only when a TypeSafe key resolves, so it never pays a
 generative provider for a decision it could not apply. It does not run on
-Windows, which has no ledger lock yet. The stamp and the log live under the
-cache dir, in `taste-learn/`.
+Windows, which has no ledger lock yet. The stamp is a `taste_learn` row of the
+cache's `tezgah.db`. The log lives under the cache dir, in `taste-learn/`.
 
 The repository's learnings live in the same `taste.db`. User-scope learnings live in
 `~/.config/tezgah/taste/taste.db` (`hooks/tezgah_taste_ledger.py`). Confidence is

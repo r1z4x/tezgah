@@ -96,9 +96,9 @@ measure the surface cannot see, then armed-and-used or armed-not-used.
 | `graph` | a code-graph tool call (an `mcp__…codegraph…` tool) | `.no-graph` — a missing binary is `idx`'s report, not this mark's |
 | `orch` | a delegate call (`Task`/`Agent`/`spawn_agent`) or a subagent start | `orchestrate-off` |
 | `judge` | a shell command really ran `tezgah-triage` or `tezgah-docs` | `judge-off`, or no credential: no `TYPESAFE_API_KEY` and no non-empty `~/.config/typesafe/key`, and neither the fallback's `OPENROUTER_API_KEY` nor its `~/.config/openrouter/key` |
-| `gate` | never `on`: shown only as `gate✗`, right after the version, in two cases. One: the prompt hook found at least 3 gated calls in this session's transcript since its first turn: write and shell calls, every one of which the gate answers with a `began` or a `deny` row (Bash/PowerShell/Edit/Write/MultiEdit/NotebookEdit on Claude, `exec_command`/`shell`/`apply_patch` on Codex). Over the same span the ledger holds no row from the gate. A PostToolUse row is no proof: that hook keeps writing while a broken PreToolUse lets every call through. The same prompt carries the line "tezgah gate inactive on this host: ...". Two: a kill switch appeared after the session's first prompt; the prompt hook writes one `disarm` row naming it (`disarmed`, baseline `<cache>/switches/<session>.json`). Mark file `<cache>/gate-inactive/<session>` (`gate_inactive`, audit Phase 1.3) | a row from the gate appears and no switch armed mid-session is still armed |
-| `drift` | never `on`: shown as `drift✗` when a session start found tezgah's own hook entries changed since install (`hooks/tezgah_attest.py::run`). One mark per session and host, `<cache>/harness-drift/<session hash>.<host>`; the session's `attest` row names what drifted | the next clean start of that host in that session |
-| `crash` | never `on`: shown as `crash✗` when a hook of this session could not import its core and ran without tezgah (`hooks/tezgah_guard.py::import_failed`, mark `~/.cache/tezgah/import-crash/<session hash>`). When `tezgah_context` itself is the module that failed, `statusline.py` prints `tezgah ✗ core import failed` instead of the line | never by itself: the mark stays for the session |
+| `gate` | never `on`: shown only as `gate✗`, right after the version, in two cases. One: the prompt hook found at least 3 gated calls in this session's transcript since its first turn: write and shell calls, every one of which the gate answers with a `began` or a `deny` row (Bash/PowerShell/Edit/Write/MultiEdit/NotebookEdit on Claude, `exec_command`/`shell`/`apply_patch` on Codex). Over the same span the ledger holds no row from the gate. A PostToolUse row is no proof: that hook keeps writing while a broken PreToolUse lets every call through. The same prompt carries the line "tezgah gate inactive on this host: ...". Two: a kill switch appeared after the session's first prompt; the prompt hook writes one `disarm` row naming it (`disarmed`, baseline a `switches` row of `<cache>/tezgah.db`). The mark is a `gate_inactive` row of the same database (`gate_inactive`, audit Phase 1.3) | a row from the gate appears and no switch armed mid-session is still armed |
+| `drift` | never `on`: shown as `drift✗` when a session start found tezgah's own hook entries changed since install (`hooks/tezgah_attest.py::run`). One mark per session and host, a `harness_drift` row of `<cache>/tezgah.db` keyed `<session hash>.<host>`; the session's `attest` row names what drifted | the next clean start of that host in that session |
+| `crash` | never `on`: shown as `crash✗` when a hook of this session could not import its core and ran without tezgah (`hooks/tezgah_guard.py::import_failed`, mark an `import_crash` row of `~/.cache/tezgah/tezgah.db` keyed `<session hash>`). When `tezgah_context` itself is the module that failed, `statusline.py` prints `tezgah ✗ core import failed` instead of the line | never by itself: the mark stays for the session |
 
 Read `on` for `consult`/`research`/`judge` as "installed and usable", not "you
 must use it": a missing key or binary reads the same red as a kill switch
@@ -147,9 +147,9 @@ have written: a mark the literal omits reads `info` there rather than a claim.
 
 ## The used-kinds channel
 
-A used measure is one append to the session store,
-`<cache_dir>/sessions/<slug(session_id)>.jsonl`, one `{"kind": …}` per line
+A used measure is one row of the session store, keyed by `slug(session_id)` and kind
 (`record()`, `hooks/tezgah_context.py::record`; `used()` reads it back, `hooks/tezgah_context.py::used`).
+The store is the `used` table of `<cache_dir>/tezgah.db`.
 `cache_dir()` is `~/.cache/tezgah` with a temp fallback for sandboxed hosts
 (`hooks/tezgah_paths.py::CACHE`, `hooks/tezgah_paths.py::fallback_cache`, `hooks/tezgah_paths.py::cache_dir`); a missing kind is not an event, so only
 the five kinds are ever written (`hooks/tezgah_context.py::record`).
@@ -160,8 +160,8 @@ the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, `hooks/tezgah_context.py::shell_kind`)
 — plus `hooks/projects-auto-init.py::main`
 (`orch` on subagent start), `hosts/codex/hook.py::main`,
-`hosts/cursor/hook.py::dispatch`, hosts/opencode/plugins/tezgah.js:2123-2130,
-hosts/opencode/plugins/tezgah.js:2669, `hosts/omp/hook.py::handle`. Both Claude (hooks/hooks.json) and dsh
+`hosts/cursor/hook.py::dispatch`, hosts/opencode/plugins/tezgah.js:2144-2151,
+hosts/opencode/plugins/tezgah.js:2702, `hosts/omp/hook.py::handle`. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:33-37).
