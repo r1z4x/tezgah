@@ -768,7 +768,9 @@ def cmd_learn(args):
     print("decided: preference %d, defect %d, none %d" % (
         counts["preference"], counts["defect"], counts["none"]))
     print("ledger: " + (", ".join("%s %d" % kv for kv in sorted(states.items())) or "empty"))
-    print("typed decisions: %d input tokens, $%s" % (tokens[0], report["cost_usd"]))
+    money = report["cost_usd"]
+    print("typed decisions: %d input tokens, %s" % (
+        tokens[0], "$%s" % money if money is not None else "cost unknown (no listed price)"))
     return 0
 
 

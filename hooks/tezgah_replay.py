@@ -945,7 +945,7 @@ def label_model(run, prompt_file, provider="jev", model=None):
         label = tj.choice(result, "label")
         return row, result, label if label in question["criteria"] else None
 
-    tokens, out_tokens, models, new, spent = 0, 0, Counter(), 0, 0.0
+    tokens, out_tokens, models, new, spent, prices = 0, 0, Counter(), 0, 0.0, set()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     os.fchmod(fd, 0o600)
     # Each answered row is appended as it arrives, so a run that dies mid-way
@@ -959,6 +959,7 @@ def label_model(run, prompt_file, provider="jev", model=None):
                 # a typed carrier is billed at its own price (Clef's is not Jev's)
                 typed = tj.input_price(result["provider"])
                 row_price = (typed, 0.0) if typed is not None else price
+                prices.add(row_price)
                 spent += (result["usage"]["input_tokens"] * row_price[0]
                           + result["usage"]["output_tokens"] * row_price[1]) / 1e6
             if label:
@@ -970,7 +971,8 @@ def label_model(run, prompt_file, provider="jev", model=None):
                 new += 1
     return {"path": path, "asked": len(todo), "labelled": new,
             "total": len(done) + new, "input_tokens": tokens, "output_tokens": out_tokens,
-            "price": price,
+            # the printed formula names the rate the rows were billed at, when one
+            "price": prices.pop() if len(prices) == 1 else price,
             "cost_usd": spent,
             "models": dict(models)}
 
