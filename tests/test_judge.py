@@ -1064,5 +1064,136 @@ class SessionFirst(JudgeCase):
         self.assertEqual(Fake.seen, [])
 
 
+# The three other session CLIs, each printing the output shape its real CLI
+# printed on 2026-10-09 (opencode 1.18.31 `run --format json`, cursor-agent
+# 2026.10.01 `-p --output-format json`, codex-cli 0.153.4 `exec --json`). None
+# takes a system prompt, so the prompt is the system prompt, a blank line and
+# the JSON packet: the packet starts at its last '{"state"'.
+FAKE_OTHER_CLI = r'''#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["FAKE_CLI_LOG"], "a") as fh:
+    fh.write(json.dumps(sys.argv) + "\n")
+name = os.path.basename(sys.argv[0])
+mode = os.environ.get("FAKE_CLI_MODE", "")
+if mode == "exit":
+    if name == "codex":
+        sys.stderr.write("Reading additional input from stdin...\n")
+        print(json.dumps({"type": "turn.failed", "error": {
+            "message": "The model is not supported"}}))
+    else:
+        sys.stderr.write("not logged in\n")
+    sys.exit(1)
+prompt = sys.argv[-1]
+asked = json.loads(prompt[prompt.rfind('{"state"'):])["questions"]
+answers = {q: {"choice": sorted(spec["criteria"])[0], "confidence": 0.9}
+           for q, spec in asked.items()}
+text = "" if mode == "silent" else json.dumps({"answers": answers})
+if name == "opencode":
+    print(json.dumps({"type": "step_start", "part": {"type": "step-start"}}))
+    if text:
+        print(json.dumps({"type": "text", "part": {"type": "text", "text": text}}))
+    print(json.dumps({"type": "step_finish", "part": {"type": "step-finish", "tokens": {
+        "total": 13, "input": 7, "output": 2, "reasoning": 1,
+        "cache": {"write": 0, "read": 3}}}}))
+elif name == "cursor":
+    print(json.dumps({"type": "result", "subtype": "success",
+                      "is_error": mode == "error", "result": text,
+                      "usage": {"inputTokens": 7, "outputTokens": 2,
+                                "cacheReadTokens": 3, "cacheWriteTokens": 0}}))
+else:
+    print(json.dumps({"type": "thread.started", "thread_id": "t"}))
+    print(json.dumps({"type": "turn.started"}))
+    if text:
+        print(json.dumps({"type": "item.completed", "item": {
+            "id": "item_1", "type": "agent_message", "text": text}}))
+    print(json.dumps({"type": "turn.completed", "usage": {
+        "input_tokens": 10, "cached_input_tokens": 3, "output_tokens": 2,
+        "reasoning_output_tokens": 1}}))
+'''
+
+
+class OtherSessionClis(JudgeCase):
+    """opencode, cursor-agent and codex answer as the session CLI the way omp
+    and claude do: headless, the answer and the usage read from their own JSON
+    output, a non-zero exit or no answer a SessionFailed. Fakes on
+    TEZGAH_<NAME>_BIN; no case reaches a model."""
+
+    QUESTION = {"pick": {"type": "choice", "instructions": "Which?",
+                         "criteria": {"alpha": "first", "beta": "second"}}}
+    MARKERS = ("OMPCODE", "CLAUDECODE", "OPENCODE", "CURSOR_AGENT",
+               "CURSOR_VERSION", "CODEX_THREAD_ID", "TEZGAH_JUDGE_CLI",
+               "FAKE_CLI_MODE")
+
+    def setUp(self):
+        super().setUp()
+        for name in self.MARKERS:
+            os.environ.pop(name, None)
+        self.log = os.path.join(self.home, "cli.log")
+        bindir = os.path.join(self.home, "bin")
+        os.makedirs(bindir)
+        for name in ("opencode", "cursor", "codex"):
+            path = os.path.join(bindir, name)
+            with open(path, "w") as fh:
+                fh.write(FAKE_OTHER_CLI)
+            os.chmod(path, 0o755)
+            os.environ["TEZGAH_%s_BIN" % name.upper()] = path
+        os.environ["FAKE_CLI_LOG"] = self.log
+        conf = mock.patch.object(tp, "CONFIG", os.path.join(self.home, "config.json"))
+        conf.start()
+        self.addCleanup(conf.stop)
+
+    def argv(self):
+        with open(self.log) as fh:
+            return [json.loads(line) for line in fh]
+
+    def check(self, marker, name, usage):
+        os.environ[marker] = "1"
+        out = self.ask(questions=self.QUESTION)
+        os.environ.pop(marker)
+        self.assertEqual(out["provider"], name)
+        self.assertEqual(out["answers"], {"pick": {"choice": "alpha", "confidence": 0.9}})
+        self.assertEqual(out["usage"], usage)
+        self.assertEqual(out["model"], "-")
+        self.assertIsNone(out["fallback"])
+        self.assertEqual(Fake.seen, [])
+        argv = self.argv()[-1]
+        self.assertEqual(argv[1:-1], tezgah_judge.SESSION_ARGV[name])
+        self.assertTrue(argv[-1].startswith(tezgah_judge.CHAT_SYSTEM + "\n\n"), argv[-1])
+
+    def test_opencode_answers_through_its_json_events(self):
+        self.check("OPENCODE", "opencode", {"input_tokens": 10, "output_tokens": 3})
+
+    def test_cursor_answers_through_its_json_result(self):
+        self.check("CURSOR_AGENT", "cursor", {"input_tokens": 10, "output_tokens": 2})
+
+    def test_codex_answers_through_its_jsonl_events(self):
+        self.check("CODEX_THREAD_ID", "codex", {"input_tokens": 10, "output_tokens": 2})
+
+    def test_the_override_picks_the_cli_without_a_marker(self):
+        os.environ["TEZGAH_JUDGE_CLI"] = "codex"
+        self.addCleanup(os.environ.pop, "TEZGAH_JUDGE_CLI", None)
+        self.assertEqual(self.ask(questions=self.QUESTION)["provider"], "codex")
+
+    def test_a_failing_or_silent_cli_raises_session_failed(self):
+        packet = json.dumps({"state": "S", "questions": self.QUESTION})
+        for name in ("opencode", "cursor", "codex"):
+            exe = os.environ["TEZGAH_%s_BIN" % name.upper()]
+            for mode in ("exit", "silent") + (("error",) if name == "cursor" else ()):
+                os.environ["FAKE_CLI_MODE"] = mode
+                with self.assertRaises(tezgah_judge.SessionFailed, msg=(name, mode)):
+                    tezgah_judge._session_request(name, exe, packet, 30, self.QUESTION)
+        os.environ.pop("FAKE_CLI_MODE")
+
+    def test_codex_names_why_it_failed(self):
+        # codex exits 1 with a stdin banner on stderr and the reason as the
+        # last JSONL event on stdout, as the real run of 2026-10-09 did
+        os.environ["FAKE_CLI_MODE"] = "exit"
+        packet = json.dumps({"state": "S", "questions": self.QUESTION})
+        with self.assertRaises(tezgah_judge.SessionFailed) as caught:
+            tezgah_judge._session_request("codex", os.environ["TEZGAH_CODEX_BIN"],
+                                          packet, 30, self.QUESTION)
+        self.assertIn("model is not supported", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_ORCA_BIN` | `hooks/tezgah_orca.py::cli` | `ORCA_CLI_COMMAND`, then `$ORCA_CLI_BIN_DIR/orca`, then `orca` on PATH (`orca-ide` on Linux outside Orca), then the macOS app's CLI | The Orca CLI `tezgah-status --orca` and `tezgah-setup --status` ask. A missing path is no CLI, never a fallback: the test suite points it at one. |
 | `TEZGAH_OMP_BIN` | `hooks/tezgah_paths.py::omp_bin` | `omp` on PATH | The omp binary the installer, the model table, consult's session-model lookup and the judgement seam's session call run; tests point it at a stand-in. |
 | `TEZGAH_CLAUDE_BIN` | `claude_bin`, `hooks/tezgah_paths.py::claude_bin` | `claude` on PATH | The Claude Code CLI `--install` registers the plugin with (`claude plugin`) and the judgement seam asks in a Claude Code session; the test suite points it at a path that does not exist, or at a stand-in. |
+| `TEZGAH_OPENCODE_BIN`, `TEZGAH_CURSOR_BIN`, `TEZGAH_CODEX_BIN` | `hooks/tezgah_paths.py::opencode_bin`, `hooks/tezgah_paths.py::cursor_bin`, `hooks/tezgah_paths.py::codex_bin` | `opencode`, `cursor-agent`, `codex` on PATH or a per-user bin dir | The CLI the judgement seam asks in that host's session; tests point them at stand-ins. |
 | `TEZGAH_DSH_BIN` | `bin/tezgah-setup::reconcile_json_servers` | the profile-local entry, then `bin/tezgah-dsh`, then npx | How the installer invokes the dsh CLI. |
 | `TEZGAH_INDEX_BIN` | `bin/tezgah-dsh:19`, `bin/tezgah-dsh.cmd` | `~/.config/tezgah/bin/tezgah-index` | The index worker `tezgah-dsh` warms before it starts dsh. |
 | `TEZGAH_STATUS_BIN` | `hosts/dsh/statusline/lib/index.js:24`, `hosts/opencode/tui/tezgah-tui.tsx` | `~/.config/tezgah/bin/tezgah-status` | The status renderer the dsh status line and the opencode TUI call. |
@@ -73,7 +74,7 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `OMPCODE`, `CLAUDECODE` | `hooks/tezgah_paths.py::session_cli`, `bin/consult`, `hooks/tezgah_models.py::worker_model` | set by the host | Name the host session: the judgement seam asks that host's CLI first (`OMPCODE` wins, omp sets both). The test suite unsets both. |
+| `OMPCODE`, `CLAUDECODE`, `OPENCODE`, `CURSOR_AGENT`, `CURSOR_VERSION`, `CODEX_THREAD_ID` | `hooks/tezgah_paths.py::session_cli` (all), `bin/consult`, `hooks/tezgah_models.py::worker_model` (the first two) | set by the host | Name the host session: the judgement seam asks that host's CLI first, in the order listed (omp sets both of the first two, so `OMPCODE` wins; Cursor sets `CURSOR_AGENT` in its shell tool and `CURSOR_VERSION` in its hooks; Codex sets `CODEX_THREAD_ID` in its shell tool only). The test suite unsets all of them. |
 | `TYPESAFE_API_KEY` | `hooks/tezgah_judge.py::key`, `hooks/tezgah_paths.py` | `~/.config/typesafe/key` | The judgement seam's first third-party credential, used as `fallback` in `config.json` allows ([judge](judge.md)); omp also reads it for its own judge. |
 | `OPENROUTER_API_KEY` | `hooks/tezgah_judge.py::openrouter_key`, `bin/consult`, `bin/codegen`, `hooks/tezgah_models.py` | `~/.config/openrouter/key` | The seam's chat fallback, consult's and codegen's `openrouter` provider, and omp's `any` family. |
 | `DEEPSEEK_API_KEY`, `INCEPTION_API_KEY` | `bin/consult`, `bin/codegen`, `hooks/tezgah_replay.py::label_model` | `~/.config/deepseek/key`, `~/.config/inception/key` | The `deepseek` and `inception` providers of consult and codegen; `DEEPSEEK_API_KEY` alone is also the replay sheet's `--provider deepseek` rater. |
@@ -82,6 +83,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_OPENROUTER_URL` | `hooks/tezgah_judge.py::openrouter_url` | OpenRouter's chat-completions URL | Repoints the seam's chat fallback (tests). Plain `http` is refused unless the host is this machine. |
 | `TEZGAH_DEEPSEEK_URL` | `hooks/tezgah_replay.py::_deepseek` | `https://api.deepseek.com/chat/completions` | Repoints the replay sheet's `--provider deepseek` rater (tests). Plain `http` is refused unless the host is this machine. |
 | `TEZGAH_JUDGE_MODEL` | `hooks/tezgah_judge.py::fallback_model` | the cheap `any` row of the models table | The model the seam's chat fallback asks. |
+| `TEZGAH_JUDGE_CLI` | `hooks/tezgah_paths.py::session_cli` | `judge_cli` in `config.json`, else `auto` | The session CLI the judgement seam asks: `omp`, `claude`, `opencode`, `cursor` or `codex`, or `auto` to read the host's marker. A named CLI that is not installed means no session CLI, never another one. |
 
 ## consult and codegen
 

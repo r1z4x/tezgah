@@ -170,8 +170,27 @@ SESSION_ARGV = {
                "--strict-mcp-config", "--disable-slash-commands",
                "--setting-sources", "", "--output-format", "json",
                "--system-prompt", CHAT_SYSTEM],
+    # None of the next three takes a system prompt or drops its tools, so
+    # `_session_request` puts the system prompt in front of the prompt text and
+    # the empty temp cwd is what keeps tools from reaching a repository. Each
+    # set is from the CLI's own `--help` (checked 2026-10-09). opencode 1.18.31
+    # `run`: `--pure` "run without external plugins", `--format json` "raw JSON
+    # events"; it has no flag that skips the session record.
+    "opencode": ["run", "--pure", "--format", "json"],
+    # cursor-agent 2026.10.01: `-p` print, `--output-format json` (only with
+    # --print), `--mode ask` "Q&A style ... (read-only)", `--trust` "Trust the
+    # current workspace without prompting" - the temp cwd is never trusted.
+    "cursor": ["-p", "--output-format", "json", "--mode", "ask", "--trust"],
+    # codex-cli 0.153.4 `exec`: `--json` "Print events to stdout as JSONL",
+    # `--ephemeral` "without persisting session files", `--skip-git-repo-check`
+    # (the temp cwd is no repository), `--ignore-rules` (no execpolicy rules),
+    # `-s read-only`, `--color never`: consult's argv (`tp.CONSULT_CLIS`) plus
+    # `--json` and `--ignore-rules`.
+    "codex": ["exec", "--json", "--ephemeral", "--skip-git-repo-check",
+              "--ignore-rules", "-s", "read-only", "--color", "never"],
 }
-NO_SESSION = "no session CLI to ask (OMPCODE/CLAUDECODE unset or the CLI missing)"
+NO_SESSION = ("no session CLI to ask (no omp, Claude Code, opencode, Cursor or Codex "
+              "session marker or TEZGAH_JUDGE_CLI/judge_cli pick, or that CLI missing)")
 
 
 def providers():
@@ -619,10 +638,13 @@ def _session_request(name, exe, prompt, timeout, questions):
     on the prompt alone, and a CLI that wants a login exits instead of waiting -
     with TEZGAH_NESTED set so tezgah's own hooks stand down in the child. The
     answer is read from the CLI's JSON output: the model and the usage it names
-    are what the call really used."""
+    are what the call really used. A CLI with no system-prompt flag gets the
+    system prompt in front of the prompt text instead."""
     import shutil
     import subprocess
     import tempfile
+    if CHAT_SYSTEM not in SESSION_ARGV[name]:
+        prompt = CHAT_SYSTEM + "\n\n" + prompt
     cwd = tempfile.mkdtemp(prefix="tezgah-judge-")
     started = time.monotonic()
     try:
@@ -633,8 +655,10 @@ def _session_request(name, exe, prompt, timeout, questions):
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode:
-        raise SessionFailed("%s exit %d: %s" % (name, proc.returncode,
-                                                 (proc.stderr or proc.stdout).strip()[-200:]))
+        # stdout last: codex prints a stdin banner on stderr and its reason as
+        # the last JSON event on stdout
+        raise SessionFailed("%s exit %d: %s" % (name, proc.returncode, (
+            (proc.stderr or "") + (proc.stdout or "")).strip()[-200:]))
     if name == "claude":
         data = json.loads(proc.stdout)
         if data.get("is_error"):
@@ -645,7 +669,7 @@ def _session_request(name, exe, prompt, timeout, questions):
         tokens_in = sum(int(usage.get(k) or 0) for k in (
             "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
         tokens_out = int(usage.get("output_tokens") or 0)
-    else:
+    elif name == "omp":
         message = None
         for line in proc.stdout.splitlines():
             try:
@@ -663,12 +687,60 @@ def _session_request(name, exe, prompt, timeout, questions):
         usage = message.get("usage") or {}
         tokens_in = sum(int(usage.get(k) or 0) for k in ("input", "cacheRead", "cacheWrite"))
         tokens_out = int(usage.get("output") or 0)
+    else:
+        model = None  # none of the three names the model it ran
+        text, tokens_in, tokens_out = _cli_answer(name, proc.stdout)
+        if not text.strip():
+            raise SessionFailed("%s printed no answer" % name)
     # A chat model may fence its object; the outermost braces are the object.
     answers = _chat_answers(json.loads(text[text.find("{"):text.rfind("}") + 1]), questions)
     return {"answers": answers,
             "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out},
             "latency_ms": int((time.monotonic() - started) * 1000),
             "model": model}
+
+
+def _cli_answer(name, out):
+    """(text, input tokens, output tokens) from opencode's, cursor-agent's
+    or codex's JSON output, the shapes each printed on 2026-10-09; text is ""
+    when no answer came. None of the three names the model it ran. Input counts
+    the cache reads and writes, as the claude and omp branches do: opencode and
+    cursor-agent report them beside the input (opencode's `total` is the sum of
+    all its fields), codex inside `input_tokens` (`cached_input_tokens` is a
+    share of it, as `reasoning_output_tokens` is of `output_tokens`)."""
+    text, tokens_in, tokens_out = "", 0, 0
+    for line in out.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind = event.get("type")
+        part, item = event.get("part") or {}, event.get("item") or {}
+        usage = event.get("usage") or {}
+        if name == "cursor" and kind == "result":
+            if event.get("is_error"):
+                raise SessionFailed("cursor: %s" % str(event.get("result"))[:200])
+            text = event.get("result") or ""
+            tokens_in = sum(int(usage.get(k) or 0) for k in (
+                "inputTokens", "cacheReadTokens", "cacheWriteTokens"))
+            tokens_out = int(usage.get("outputTokens") or 0)
+        elif name == "opencode" and kind == "text":
+            text = part.get("text") or text
+        elif name == "opencode" and kind == "step_finish":
+            tokens = part.get("tokens") or {}
+            cache = tokens.get("cache") or {}
+            tokens_in += sum(int(v or 0) for v in (tokens.get("input"), cache.get("read"),
+                                                   cache.get("write")))
+            tokens_out += int(tokens.get("output") or 0) + int(tokens.get("reasoning") or 0)
+        elif name == "codex" and kind == "item.completed" \
+                and item.get("type") == "agent_message":
+            text = item.get("text") or text
+        elif name == "codex" and kind == "turn.completed":
+            tokens_in += int(usage.get("input_tokens") or 0)
+            tokens_out += int(usage.get("output_tokens") or 0)
+    return text, tokens_in, tokens_out
 
 
 def _why(exc):

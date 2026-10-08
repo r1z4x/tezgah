@@ -89,13 +89,35 @@ background `learn` that armed taste starts.
 
 `providers()` (`hooks/tezgah_judge.py::providers`) is the order `ask()` tries.
 The next one is asked only when the previous failed. First comes the session's own
-CLI (`tp.session_cli`, `hooks/tezgah_paths.py::session_cli`): `omp` when
-`OMPCODE` is set, else `claude` when `CLAUDECODE` is. It runs headless with no
-tools, rules, skills, extensions, MCP servers or settings (`SESSION_ARGV`,
-`hooks/tezgah_judge.py::SESSION_ARGV`). Measured 2026-10-07, a call cost $0.007
-on claude and $0.015 on omp. The session's own credential pays, OAuth subscription
-included. The model and usage are read from the CLI's JSON output
-(`_session_request`, `hooks/tezgah_judge.py::_session_request`). Then come the
+CLI (`tp.session_cli`, `hooks/tezgah_paths.py::session_cli`). The host's marker
+names it, in this order:
+
+| CLI | Marker | Set by |
+|---|---|---|
+| `omp` | `OMPCODE` | omp, which sets `CLAUDECODE` too |
+| `claude` | `CLAUDECODE` | Claude Code |
+| `opencode` | `OPENCODE` | opencode, in its own process |
+| `cursor` (runs `cursor-agent`) | `CURSOR_AGENT`, `CURSOR_VERSION` | Cursor: the first in its shell tool, the second in its hooks |
+| `codex` | `CODEX_THREAD_ID` | Codex, in its shell tool only, not its hooks |
+
+A marked host whose binary is missing has no session CLI. No other CLI stands
+in. `TEZGAH_JUDGE_CLI`, else `judge_cli` in `~/.config/tezgah/config.json`,
+names one of the five instead. `auto`, the default, reads the marker. A named CLI
+that is not installed is no session CLI either.
+
+The CLI runs headless in an empty temp dir. Its flags are `SESSION_ARGV`
+(`hooks/tezgah_judge.py::SESSION_ARGV`). The omp and claude runs drop tools,
+rules, skills, extensions, MCP servers and settings. The other three have no flag
+that drops their tools or takes a system prompt. They run with the least their
+`--help` offers: opencode `--pure`, cursor-agent `--mode ask`, codex
+`-s read-only --ephemeral`. Their prompt starts with the system prompt.
+Measured 2026-10-07, a call cost $0.007 on claude and $0.015 on omp. Measured
+2026-10-09 on one choice question, opencode read 28,646 input tokens ($0.004 by
+its own report), cursor-agent 17,095 and codex 20,919. The session's own
+credential pays, OAuth subscription included. The answer and usage come from the
+CLI's JSON output (`_session_request`, `hooks/tezgah_judge.py::_session_request`).
+`_cli_answer` (`hooks/tezgah_judge.py::_cli_answer`) reads the last three. Only
+omp and claude name the model. Then come the
 third parties. TypeSafe reads `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`
 (`key`, `hooks/tezgah_judge.py::key`). OpenRouter reads `OPENROUTER_API_KEY`, else
 `~/.config/openrouter/key` (`openrouter_key`, `hooks/tezgah_judge.py::openrouter_key`).

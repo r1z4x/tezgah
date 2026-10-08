@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The judge asks opencode, Cursor and Codex sessions too.** The judgement
+  seam's session CLI was omp or claude only. It now also runs `opencode run`,
+  `cursor-agent -p` and `codex exec` headless when their host's marker is set
+  (`OPENCODE`, `CURSOR_AGENT`/`CURSOR_VERSION`, `CODEX_THREAD_ID`).
+  `TEZGAH_JUDGE_CLI`, else `judge_cli` in `config.json`, picks one of the five
+  by name. A picked CLI that is not installed means no session CLI.
+
 ## [1.4.0] - 2026-10-08
 
 ### Changed
