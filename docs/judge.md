@@ -14,9 +14,10 @@ the kill-switch paragraph and nothing else (`CORE`,
 One seam, five callers, one provider order, one egress boundary, one price, one
 redirect guard. The module is stdlib only and total - a failure is a `None`, never
 an exception, because a hook imports it and a hook that raises takes a session
-down (`_request`, `hooks/tezgah_judge.py::_request`). One endpoint and one key path
-are module constants (`URL`, `hooks/tezgah_judge.py::URL`; `KEY_FILE`,
-`hooks/tezgah_judge.py::KEY_FILE`), one opener is shared by every call (`OPENER`,
+down (`_request`, `hooks/tezgah_judge.py::_request`). The carriers' endpoints are
+module constants: `URL` (`hooks/tezgah_judge.py::URL`), `JEV_OPENROUTER_URL`
+(`hooks/tezgah_judge.py::JEV_OPENROUTER_URL`) and `CLOUDFLARE_URL`
+(`hooks/tezgah_judge.py::CLOUDFLARE_URL`). One opener serves every call (`OPENER`,
 `hooks/tezgah_judge.py::OPENER`), and it refuses a redirect that leaves the
 endpoint's host, so a `Location` cannot carry the bearer (`guarded_opener`,
 `hooks/tezgah_paths.py`, the one copy `bin/consult` and `bin/codegen` use too). A
@@ -25,15 +26,18 @@ attempt. A 4xx, a session CLI's non-zero exit and a malformed reply never do
 (`_transient`, `hooks/tezgah_judge.py::_transient`). A hook caller asks for one
 attempt and a wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py::ask`).
 A session CLI answers in 4-10 s (measured 2026-10-07), so the skill hint's
-4 s deadline usually ends first. `TEZGAH_TYPESAFE_URL`, `TEZGAH_OPENROUTER_URL`
-and `TEZGAH_OMP_BIN`/`TEZGAH_CLAUDE_BIN` are the test seams.
+4 s deadline usually ends first. `TEZGAH_TYPESAFE_URL`, `TEZGAH_JEV_OPENROUTER_URL`,
+`TEZGAH_CLOUDFLARE_URL`, `TEZGAH_OPENROUTER_URL` and
+`TEZGAH_OMP_BIN`/`TEZGAH_CLAUDE_BIN` are the test seams. Each URL override goes
+through `override` (`hooks/tezgah_judge.py::override`), which refuses plain http
+off this machine.
 
 Every caller reads an answer through the same accessors rather than reaching
 into the raw reply, so a Choice and a Noul are read one way for all five
 (`choice`, `hooks/tezgah_judge.py::choice`; `noul`,
 `hooks/tezgah_judge.py::noul`). A `text` question is the one shape that asks
 for prose. `bin/tezgah-taste` asks it for a learning's readable line, and only
-a generative provider answers one. TypeSafe is never sent one (`text`,
+a generative provider answers one. No Jev carrier is sent one (`text`,
 `hooks/tezgah_judge.py::text`). All three are total: a missing or
 wrongly-typed answer is a `None`, never an exception.
 
@@ -44,9 +48,11 @@ are untouched, so a model answer can never license a "done" (`STEP_KINDS`,
 
 The state leaves the machine. By default it goes to the session's own vendor,
 through the session's own CLI and credential ([below](#the-providers-and-their-order)).
-A third party - `api.typesafe.ai` or `openrouter.ai` (`OPENROUTER_URL`,
-`hooks/tezgah_judge.py::OPENROUTER_URL`) - reads it only as the `fallback`
-setting allows. For the triage the state is the screen's own text, so whoever
+A third party reads it only as the `fallback` setting allows. The third parties
+are the Jev carriers' hosts - `api.typesafe.ai`, `openrouter.ai`,
+`api.cloudflare.com` or a user's `JEV_API_BASE_URL` - and the chat endpoint
+(`OPENROUTER_URL`, `hooks/tezgah_judge.py::OPENROUTER_URL`).
+For the triage the state is the screen's own text, so whoever
 answers reads any personal data on it. For the docs fallback it is the query.
 Nothing else goes: no session id, no
 workspace path, no environment. The seam does not rewrite the state, because
@@ -96,11 +102,34 @@ tools, rules, skills, extensions, MCP servers or settings (`SESSION_ARGV`,
 on claude and $0.015 on omp. The session's own credential pays, OAuth subscription
 included. The model and usage are read from the CLI's JSON output
 (`_session_request`, `hooks/tezgah_judge.py::_session_request`). Then come the
-third parties. TypeSafe reads `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`
-(`key`, `hooks/tezgah_judge.py::key`). OpenRouter reads `OPENROUTER_API_KEY`, else
-`~/.config/openrouter/key` (`openrouter_key`, `hooks/tezgah_judge.py::openrouter_key`).
+third parties: first the chosen Jev carriers, each a real System One transport
+(`_jev_call`, `hooks/tezgah_judge.py::_jev_call`), then the OpenRouter chat
+fallback. `JEV_CARRIERS` (`hooks/tezgah_judge.py::JEV_CARRIERS`) names the four.
+
+| Carrier | Endpoint | Credential (env, else file, stripped) | Body |
+|---|---|---|---|
+| `typesafe` | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY`, else `~/.config/typesafe/key`, else the active omp login (`~/.omp/agent/agent.db`, read-only; `typesafe_key`, `hooks/tezgah_paths.py::typesafe_key`) | `{state, model, questions}` |
+| `jev-openrouter` | `https://openrouter.ai/api/v1/systemone` | `OPENROUTER_API_KEY`, else `~/.config/openrouter/key` | the same, a bare `jev-*` id sent as `typesafe/<id>` |
+| `jev-cloudflare` | `https://api.cloudflare.com/client/v4/accounts/<id>/ai/run` | `JEV_CLOUDFLARE_API_TOKEN`, else `CLOUDFLARE_API_TOKEN`, else `~/.config/cloudflare/token`; the account id from `CLOUDFLARE_ACCOUNT_ID`, else `~/.config/cloudflare/account_id` | `{model: "typesafe/jev", input: {state, questions}}`; the reply is read bare or inside `result` |
+| `jev-compatible` | `JEV_API_BASE_URL`, used verbatim | `JEV_API_KEY` | TypeSafe's, the model from `TEZGAH_JEV_MODEL` if set |
+
+`JEV_API_BASE_URL` and `JEV_API_KEY` are the names the public jev-mcp server
+reads, so one export serves both. `TEZGAH_JEV_PROVIDER` chooses the carrier,
+else `JEV_PROVIDER`, else `jev` in `~/.config/tezgah/config.json`, else `auto`
+(`jev_choice`, `hooks/tezgah_paths.py::jev_choice`). The values are `auto`,
+`typesafe`, `openrouter`, `cloudflare` and `compatible`, and `tezgah-setup --jev
+<value>` writes the config key (`set_jev`, `bin/tezgah-setup::set_jev`). `auto`
+asks every carrier that resolves, in the table's order (`jev_carriers`,
+`hooks/tezgah_paths.py::jev_carriers`). The seam asks a named carrier without
+its credential nothing, and nothing stands in for it: the call records
+`no credential (jev=<value>)` as a failure. `tezgah-status --judge` prints the
+choice and the carriers it resolves to (`jev_summary`,
+`hooks/tezgah_judge.py::jev_summary`).
+
+OpenRouter's chat fallback reads the OpenRouter key (`openrouter_key`,
+`hooks/tezgah_judge.py::openrouter_key`).
 It asks the table's cheap row unless `TEZGAH_JUDGE_MODEL` names another
-(`fallback_model`, `hooks/tezgah_judge.py::fallback_model`). The key file is
+(`fallback_model`, `hooks/tezgah_judge.py::fallback_model`). The key files are
 read because a hook runs where `~/.zshenv` never did. A chat answer is asked for in prose
 (`CHAT_SYSTEM`, `hooks/tezgah_judge.py::CHAT_SYSTEM`) and filtered to the ids
 asked, a wrongly typed answer dropped (`_chat_answers`,
@@ -111,8 +140,8 @@ asked, a wrongly typed answer dropped (`_chat_answers`,
 
 | `fallback` | Session CLI present | No session CLI |
 |---|---|---|
-| `vendor` (default) | the session CLI only; when it fails, no judgement | TypeSafe, then OpenRouter |
-| `any` | the session CLI, then TypeSafe, then OpenRouter | TypeSafe, then OpenRouter |
+| `vendor` (default) | the session CLI only; when it fails, no judgement | the Jev carriers, then the chat fallback |
+| `any` | the session CLI, then the Jev carriers, then the chat fallback | the Jev carriers, then the chat fallback |
 | `none` | the session CLI only | nobody: `available()` is false |
 
 Nothing that stands in is silent. A result carries `provider`, the `model`
@@ -124,7 +153,7 @@ hint's cost row and the router's `route` row also carry `judge=<provider>/<model
 
 A caller that needs one provider in particular passes `only` (`named`,
 `hooks/tezgah_judge.py::named`). `learn`'s decision has to come from a typed
-model, so it passes `only=("typesafe",)`. It gets `None` rather than another
+model, so it passes `only=("jev",)`, every Jev carrier that resolves. It gets `None` rather than another
 provider's answer. The caller named the provider, so the `vendor` order does not
 apply. `none` still keeps every third party out.
 
@@ -173,8 +202,9 @@ known (`note`, `hooks/tezgah_integrity.py::note`), counted by the row's kind
    costs a fraction of a cent, so a cache is not worth its state file, and a naive
    one would make two runs of the same command disagree. Beside the last-use
    record, the seam keeps a failure marker (`DOWN_FOR`, 300 s, in `hooks/tezgah_judge.py`). A
-   call that ends on a 401, 402, 5xx or a session CLI's non-zero exit marks that
-   provider, endpoint and credential down for five minutes. Until the marker
+   401, 402, 403, 5xx or a session CLI's non-zero exit marks that
+   provider, endpoint and credential down for five minutes. A 403 is OpenRouter's
+   answer to a key past its limit. Until the marker
    expires, that provider is skipped and sent no request. A dead key or an empty account then costs
    one refusal per five minutes, not one per prompt. A rotated key gets a new
    marker, so the seam asks it at once.
@@ -193,8 +223,11 @@ known (`note`, `hooks/tezgah_integrity.py::note`), counted by the row's kind
 
 ## Source of truth
 
-- `hooks/tezgah_judge.py` — the seam: endpoint, key path, `available()`, `ask()`,
-  the answer accessors, the retry class and the provider-down marker.
+- `hooks/tezgah_judge.py` — the seam: the carriers' endpoints and bodies,
+  `available()`, `ask()`, the answer accessors, the retry class and the
+  provider-down marker.
+- `hooks/tezgah_paths.py` — the key channels (`typesafe_key`, `jev_carriers`)
+  and the carrier choice (`jev_choice`).
 - `bin/tezgah-triage` — the snapshot triage and the per-state matrix; prints the
   unit it selected, the characters it saved and the cost it paid.
 - `bin/tezgah-docs` — the page router; its index match, then its one fallback

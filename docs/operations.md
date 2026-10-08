@@ -700,7 +700,9 @@ made - no credential, the switch below, or a failed call - and the loop reads th
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-`api.typesafe.ai` (`ask()`, `hooks/tezgah_judge.py::ask`) - for the triage that is
+the host of whichever provider answers - the session's vendor, or the chosen Jev
+carrier's (`api.typesafe.ai`, `openrouter.ai`, `api.cloudflare.com` or a
+`JEV_API_BASE_URL`, see [judge](judge.md)) (`ask()`, `hooks/tezgah_judge.py::ask`) - for the triage that is
 the snapshot's own text, so a screen carrying personal data is read by a third
 party, and for the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the
@@ -710,11 +712,15 @@ request cannot drift. That is why the two shell callers are on-demand - an agent
 asks for a judgement, no gate does - while the skill hint asks only with its own
 marker armed, and why the switch below is the off button for the whole path.
 
-The credential resolves from `TYPESAFE_API_KEY`, else from
-`~/.config/typesafe/key` (`credential()`, `hooks/tezgah_judge.py::credential`), and when
-neither resolves the same questions go to the OpenRouter fallback, whose key rides
-`OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
-(`openrouter_key()`, `hooks/tezgah_judge.py::openrouter_key`). The file is the channel that
+TypeSafe's credential resolves from `TYPESAFE_API_KEY`, else from
+`~/.config/typesafe/key`, else from the active omp login (`typesafe_key()`,
+`hooks/tezgah_paths.py::typesafe_key`). `jev` chooses which of the other Jev
+carriers the seam asks - OpenRouter's System One endpoint, Cloudflare Workers AI
+and any System One-compatible URL (`jev_carriers()`,
+`hooks/tezgah_paths.py::jev_carriers`). The OpenRouter chat fallback's key rides
+`OPENROUTER_API_KEY` and then `~/.config/openrouter/key` (`openrouter_key()`,
+`hooks/tezgah_judge.py::openrouter_key`).
+The file is the channel that
 matters on a machine exporting the variable from `~/.zshenv`: a hook or a bin tool
 runs in a non-interactive shell, where that export never ran, so the file is what a
 judgement actually resolves. Cost is input tokens alone - $0.042 per
