@@ -257,12 +257,17 @@ os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude
 # The session markers (OMPCODE, CLAUDECODE, OPENCODE, CURSOR_AGENT,
 # CURSOR_VERSION, CODEX_THREAD_ID) and the TEZGAH_JUDGE_CLI pick name the CLI
 # the judgement seam asks first, so a suite started inside a host would run the
-# developer's real CLI on their tokens.
+# developer's real CLI on their tokens. The provider credentials and the Jev
+# carrier pick go too: with OPENROUTER_API_KEY exported, `jev-openrouter`
+# resolved in-process and a "no Jev carrier" case saw one.
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
               "CODEX_HOME", "DSH_HOME", "TEZGAH_OPENCODE_DATA", "ORCA_WORKTREE_ID",
               "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_CLI_COMMAND",
               "ORCA_CLI_BIN_DIR", "OMPCODE", "CLAUDECODE", "OPENCODE", "CURSOR_AGENT",
-              "CURSOR_VERSION", "CODEX_THREAD_ID", "TEZGAH_JUDGE_CLI"):
+              "CURSOR_VERSION", "CODEX_THREAD_ID", "TEZGAH_JUDGE_CLI",
+              "TYPESAFE_API_KEY", "OPENROUTER_API_KEY", "CLOUDFLARE_API_TOKEN",
+              "JEV_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "JEV_API_BASE_URL",
+              "JEV_API_KEY", "JEV_PROVIDER", "TEZGAH_JEV_PROVIDER", "TEZGAH_JEV_MODEL"):
     os.environ.pop(_name, None)
 if os.environ.get("TERM_PROGRAM") == "Orca":
     del os.environ["TERM_PROGRAM"]
