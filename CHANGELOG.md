@@ -52,6 +52,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`OPENCODE`, `CURSOR_AGENT`/`CURSOR_VERSION`, `CODEX_THREAD_ID`).
   `TEZGAH_JUDGE_CLI`, else `judge_cli` in `config.json`, picks one of the five
   by name. A picked CLI that is not installed means no session CLI.
+- **Jev through any carrier.** The judge reaches Jev through TypeSafe,
+  OpenRouter, Cloudflare Workers AI or a System One-compatible URL
+  (`JEV_API_BASE_URL`, `JEV_API_KEY`).
+  `TEZGAH_JEV_PROVIDER`, `JEV_PROVIDER` or config.json `jev` picks the carrier,
+  and `tezgah-setup --jev <value>` writes the config key. `auto` asks every
+  carrier that resolves. A named carrier without its credential gets no
+  request, and no other carrier stands in. `tezgah-status --judge` prints the
+  choice and its carriers.
+- **The omp login is a TypeSafe key.** With no `TYPESAFE_API_KEY` and no key
+  file, the seam reads the active omp login, read-only.
+
+### Fixed
+
+- **A spent key stops costing a request.** OpenRouter answers 403 to a key
+  past its limit. A 403 now marks a provider down for five minutes, like a 401.
 
 ## [1.4.0] - 2026-10-08
 

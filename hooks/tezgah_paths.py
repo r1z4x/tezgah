@@ -499,32 +499,126 @@ def have_typesafe_key():
 def have_judge_key():
     """True when tezgah's own judgement seam can ask anyone: the session's own
     CLI (`session_cli()`), else - when the `fallback` setting lets a third party
-    answer - the TypeSafe env var or key file, then the OpenRouter fallback's own
-    two channels (`OPENROUTER_API_KEY`, `~/.config/openrouter/key`), which are
-    the channels `hooks/tezgah_judge.py`'s `providers()` picks between. This is
-    what `bin/tezgah-triage`, `bin/tezgah-docs` and the skill picker spend. Never
-    omp's login store: the seam does not open it.
+    answer - a chosen Jev carrier's credential (`jev_carriers()`) or the
+    OpenRouter chat fallback's own two channels (`OPENROUTER_API_KEY`,
+    `~/.config/openrouter/key`), which are the channels `hooks/tezgah_judge.py`'s
+    `providers()` picks between. This is what `bin/tezgah-triage`,
+    `bin/tezgah-docs` and the skill picker spend.
 
     Kept next to `have_typesafe_key()` because the two are asked together and a
     report that showed one answer under both questions was wrong in both
-    directions - a key file alone (seam works, omp does not) and a login-store
-    record alone (omp works, seam does not). A blank file is not a credential
-    here either, so this stays in step with the seam's own `strip() or None`."""
+    directions - a key file alone serves the seam and not omp. A blank file is
+    not a credential here either, so this stays in step with the seam's own
+    `strip() or None`."""
     if session_cli():
         return True
     if fallback_policy() == "none":
         return False
-    for env, home in (("TYPESAFE_API_KEY", ".config/typesafe/key"),
-                      ("OPENROUTER_API_KEY", ".config/openrouter/key")):
-        if os.environ.get(env, "").strip():
-            return True
+    return bool(openrouter_key() or any(s for _, s in jev_carriers()))
+
+
+def key_from(envs, path):
+    """The first non-blank env var of `envs`, else the file at `path` (`~`
+    expanded), else None - stripped either way, because a newline inside an
+    Authorization header is an injection, not a typo. The file is the channel a
+    hook needs: it runs where `~/.zshenv` never exported the variable."""
+    for env in envs:
+        value = os.environ.get(env, "").strip()
+        if value:
+            return value
+    try:
+        with open(os.path.expanduser(path), encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def omp_login_key(provider):
+    """The API key omp's login store holds for `provider` (`omp auth login`),
+    stripped, else None: the newest enabled `api_key` row's `data.key`, read
+    read-only. Any error - no store, another schema, a locked file - is None."""
+    import sqlite3  # deferred: see have_typesafe_key()
+    store = os.path.join(os.path.expanduser("~"), ".omp", "agent", "agent.db")
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % store, uri=True)
         try:
-            with open(os.path.join(HOME, home), encoding="utf-8") as fh:
-                if fh.read().strip():
-                    return True
-        except OSError:
-            pass
-    return False
+            rows = conn.execute(
+                "select data from auth_credentials where provider = ? and "
+                "disabled_cause is null order by id desc", (provider,)).fetchall()
+        finally:
+            conn.close()
+    except (sqlite3.Error, OSError):
+        return None
+    for (data,) in rows:
+        try:
+            value = json.loads(data).get("key")
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def typesafe_key():
+    """TypeSafe's credential: TYPESAFE_API_KEY, else `~/.config/typesafe/key`,
+    else the active omp login (`omp_login_key("typesafe")`), else None."""
+    return (key_from(("TYPESAFE_API_KEY",), "~/.config/typesafe/key")
+            or omp_login_key("typesafe"))
+
+
+def openrouter_key():
+    """OpenRouter's credential: OPENROUTER_API_KEY, else its key file."""
+    return key_from(("OPENROUTER_API_KEY",), "~/.config/openrouter/key")
+
+
+def cloudflare_account():
+    """The Workers AI account id: CLOUDFLARE_ACCOUNT_ID, else its file."""
+    return key_from(("CLOUDFLARE_ACCOUNT_ID",), "~/.config/cloudflare/account_id")
+
+
+def cloudflare_token():
+    """The Workers AI token: JEV_CLOUDFLARE_API_TOKEN, else CLOUDFLARE_API_TOKEN,
+    else `~/.config/cloudflare/token`."""
+    return key_from(("JEV_CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN"),
+                    "~/.config/cloudflare/token")
+
+
+# The Jev carrier a user may choose (`jev_choice()`), and the order `auto`
+# tries them in: TypeSafe direct, OpenRouter's System One endpoint, Cloudflare
+# Workers AI, any System One-compatible URL (JEV_API_BASE_URL + JEV_API_KEY,
+# the names the public jev-mcp server reads).
+JEV_CHOICES = ("auto", "typesafe", "openrouter", "cloudflare", "compatible")
+
+
+def jev_choice():
+    """TEZGAH_JEV_PROVIDER, else JEV_PROVIDER (jev-mcp's name), else config.json
+    `jev`, else `auto` - lowercased. An unknown value is kept, so it resolves to
+    no carrier instead of silently to another one."""
+    for env in ("TEZGAH_JEV_PROVIDER", "JEV_PROVIDER"):
+        value = os.environ.get(env, "").strip().lower()
+        if value:
+            return value
+    cfg = config()
+    value = cfg.get("jev") if isinstance(cfg, dict) else None
+    value = value.strip().lower() if isinstance(value, str) else ""
+    return value or "auto"
+
+
+def jev_carriers():
+    """[(carrier, secret), ...] the chosen Jev carriers in the order the seam
+    asks them. `auto`: every carrier whose credential resolves. A named one: that
+    carrier alone, its secret None when it does not resolve - the seam records
+    why rather than substituting another carrier."""
+    compatible = (os.environ.get("JEV_API_KEY", "").strip() or None
+                  if os.environ.get("JEV_API_BASE_URL", "").strip() else None)
+    found = [("typesafe", typesafe_key()), ("jev-openrouter", openrouter_key()),
+             ("jev-cloudflare", cloudflare_token() if cloudflare_account() else None),
+             ("jev-compatible", compatible)]
+    choice = jev_choice()
+    if choice == "auto":
+        return [(name, secret) for name, secret in found if secret]
+    name = choice if choice == "typesafe" else "jev-" + choice
+    return [(name, dict(found).get(name))]
 
 
 # How far a model call may leave the session's own vendor (config.json

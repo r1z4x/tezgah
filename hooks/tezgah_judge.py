@@ -10,8 +10,10 @@ attempt and no more; a 4xx and a malformed reply never do (`ask()` below). A hoo
 may import this module, and a hook that raises takes a session down, so every
 failure is a `None` instead.
 
-Privacy, plainly: the state and the questions leave this machine for
-`api.typesafe.ai` - for the triage the state IS the screen's own text (an admin
+Privacy, plainly: the state and the questions leave this machine for the host
+of whichever provider answers - the session's vendor, or the chosen Jev
+carrier's (`api.typesafe.ai`, `openrouter.ai`, `api.cloudflare.com`, or the
+`JEV_API_BASE_URL` a user set) - for the triage the state IS the screen's own text (an admin
 table or a mobile view as captured, plus the `--select` task sentence), so a
 screen carrying personal data is read by a third party. Nothing else leaves -
 no session id, no workspace path, no environment - and the seam does not
@@ -23,17 +25,19 @@ prompt-path skill hint sends the user's prompt redacted and cut at 2,000
 characters, because a brief or a prompt can quote a token and neither is a
 state a person chose to send.
 
-The credential has two channels on purpose. `~/.zshenv` exports the env var for
-an interactive shell, but a hook or a bin tool started by a host runs in a
-non-interactive shell where `.zshenv` never runs - the export is absent there,
-and the key file is the channel that survives. That is why the file is read
-rather than the environment trusted.
+Each credential has a file channel beside its env var on purpose. `~/.zshenv`
+exports the env var for an interactive shell, but a hook or a bin tool started
+by a host runs in a non-interactive shell where `.zshenv` never runs - the
+export is absent there, and the key file is the channel that survives (TypeSafe
+also reads the active omp login). The resolvers live in `tezgah_paths`
+(`typesafe_key`, `jev_carriers`), so `have_judge_key()` asks the same ones.
 
 Behind the credential there are three providers, asked in this order. First the
 session's own CLI - `omp` or `claude`, the host this process runs under
 (`tp.session_cli()`) - run headless with no tools, so the judgement is paid
 with the session's own credential, OAuth subscription included, and answered by
-the session's own vendor. TypeSafe and OpenRouter are third parties: they are
+the session's own vendor. The Jev carriers (`JEV_CARRIERS`, as chosen by
+`tp.jev_choice()`) and the OpenRouter chat fallback are third parties: they are
 asked only as the `fallback` setting allows (`tp.fallback_policy()`): by
 default (`vendor`) only when there is no session CLI at all, with `any` also
 after the session CLI failed, with `none` never. A third party that answers,
@@ -58,13 +62,19 @@ import tezgah_paths as tp
 import tezgah_store
 
 URL = "https://api.typesafe.ai/v1/systemone"
-KEY_FILE = "~/.config/typesafe/key"
 MODEL = "jev-latest"
+# The other Jev carriers (`JEV_CARRIERS`): OpenRouter's System One endpoint,
+# which takes TypeSafe's body and namespaces the model `typesafe/<id>`; and
+# Cloudflare Workers AI, whose run route wraps the state and questions in
+# `input` and serves the one alias `typesafe/jev`. A System One-compatible URL
+# is the user's own (`JEV_API_BASE_URL`), so it has no constant here.
+JEV_OPENROUTER_URL = "https://openrouter.ai/api/v1/systemone"
+CLOUDFLARE_URL = "https://api.cloudflare.com/client/v4"
+CLOUDFLARE_MODEL = "typesafe/jev"
 # The fallback provider: an OpenAI-compatible chat endpoint, its own key
 # channels, and the cheap judge model this repository already quotes in its
 # measured arm rows (`openrouter/deepseek/deepseek-v4-flash`).
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_KEY_FILE = "~/.config/openrouter/key"
 FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
 # The contract the fallback asks a chat model to answer in, one shape per
 # question type this repository's callers send (`bin/tezgah-triage` and
@@ -110,19 +120,11 @@ def endpoint():
 
 
 def key():
-    """The credential: TYPESAFE_API_KEY, else the key file, else None.
-
-    The file is stripped: it is written with a trailing newline, and a newline
-    inside an Authorization header is a header-injection attempt to the HTTP
-    layer, not a typo it will forgive."""
-    value = os.environ.get("TYPESAFE_API_KEY", "").strip()
-    if value:
-        return value
-    try:
-        with open(os.path.expanduser(KEY_FILE), encoding="utf-8") as fh:
-            return fh.read().strip() or None
-    except OSError:
-        return None
+    """TypeSafe's credential: TYPESAFE_API_KEY, else `~/.config/typesafe/key`,
+    else the active omp login, else None (`tp.typesafe_key`). Stripped: a
+    newline inside an Authorization header is a header-injection attempt to
+    the HTTP layer, not a typo it will forgive."""
+    return tp.typesafe_key()
 
 
 def openrouter_url():
@@ -131,19 +133,32 @@ def openrouter_url():
 
 
 def openrouter_key():
-    """The fallback credential: OPENROUTER_API_KEY, else the key file, else None.
+    """OpenRouter's credential, for its System One carrier and the chat
+    fallback alike: OPENROUTER_API_KEY, else `~/.config/openrouter/key`, else
+    None (`tp.openrouter_key`), stripped for the same reason as `key()`."""
+    return tp.openrouter_key()
 
-    The same two channels as the TypeSafe key and for the same reason - a hook
-    runs where `~/.zshenv` never did - and the same `strip()`, because a newline
-    inside an Authorization header is an injection, not a typo."""
-    value = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if value:
-        return value
-    try:
-        with open(os.path.expanduser(OPENROUTER_KEY_FILE), encoding="utf-8") as fh:
-            return fh.read().strip() or None
-    except OSError:
-        return None
+
+def _jev_call(provider, model, state, questions):
+    """`(model used, url, body)` for one Jev carrier: TypeSafe's own body
+    (`state`, `model`, `questions`) everywhere but Cloudflare, whose run route
+    takes its one alias and the pair under `input`. Every URL routes through
+    `override()`, so a plain-http one off this machine raises here."""
+    if provider == "jev-cloudflare":
+        account = urllib.parse.quote(tp.cloudflare_account() or "", safe="")
+        url = override("TEZGAH_CLOUDFLARE_URL", CLOUDFLARE_URL) + \
+            "/accounts/%s/ai/run" % account
+        return CLOUDFLARE_MODEL, url, {"model": CLOUDFLARE_MODEL, "input": {
+            "state": state, "questions": questions}}
+    if provider == "jev-openrouter":
+        used = model if "/" in model else "typesafe/" + model
+        url = override("TEZGAH_JEV_OPENROUTER_URL", JEV_OPENROUTER_URL)
+    elif provider == "jev-compatible":
+        used = os.environ.get("TEZGAH_JEV_MODEL", "").strip() or model
+        url = override("JEV_API_BASE_URL", "")
+    else:
+        used, url = model, endpoint()
+    return used, url, {"state": state, "model": used, "questions": questions}
 
 
 def fallback_model():
@@ -197,17 +212,12 @@ def providers():
     """[(provider, secret), ...] in the order `ask()` tries them, or [].
 
     The session's own CLI first (its `secret` is the binary's path); then the
-    third parties - TypeSafe, then OpenRouter - only as `tp.fallback_policy()`
-    allows: `vendor` (the default) asks them only when no session CLI exists,
-    `any` after the session CLI too, `none` never. TypeSafe still wins over
-    OpenRouter whenever both resolve."""
-    session = tp.session_cli()
-    policy = tp.fallback_policy()
-    out = [(session, getattr(tp, session + "_bin")())] if session else []
-    if policy == "none" or (session and policy == "vendor"):
-        return out
-    return out + [(name, secret) for name, secret in
-                  (("typesafe", key()), ("openrouter", openrouter_key())) if secret]
+    third parties - the chosen Jev carriers (`tp.jev_carriers()`), then the
+    OpenRouter chat fallback - only as `tp.fallback_policy()` allows: `vendor`
+    (the default) asks them only when no session CLI exists, `any` after the
+    session CLI too, `none` never. A Jev carrier still wins over the chat
+    model whenever both resolve."""
+    return [(p, s) for p, s in _plan() if s]
 
 
 def named(only):
@@ -215,31 +225,55 @@ def named(only):
     in `only` that resolves, in `only`'s order. The `vendor` policy's
     session-first order does not apply - the caller named the provider, so
     nothing is a silent fallback - but `none` still keeps every third party
-    out. The name `jev` stands for every Jev carrier that resolves
-    (`JEV_CARRIERS`), so a caller that needs a typed answer names the model
-    family, not one carrier's address."""
+    out. The name `jev` stands for every chosen Jev carrier that resolves
+    (`tp.jev_carriers()`, in the chosen order), so a caller that needs a typed
+    answer names the model family, not one carrier's address."""
+    return [(p, s) for p, s in _plan(only) if s]
+
+
+def _plan(only=None):
+    """`providers()` (`only` None) or `named(only)`, with one difference: a
+    forced Jev carrier whose credential is missing stays in as `(carrier,
+    None)`, so `ask()` records why no Jev carrier was asked instead of
+    silently asking another one."""
     session = tp.session_cli()
-    third = tp.fallback_policy() != "none"
+    policy = tp.fallback_policy()
+    jev = tp.jev_carriers() if policy != "none" else []
+    if only is None:
+        out = [(session, getattr(tp, session + "_bin")())] if session else []
+        if policy == "none" or (session and policy == "vendor"):
+            return out
+        return out + jev + [("openrouter", s) for s in (openrouter_key(),) if s]
     found = {session: getattr(tp, session + "_bin")()} if session else {}
-    if third:
-        found.update(typesafe=key(), openrouter=openrouter_key())
+    if policy != "none":
+        found.update(jev, openrouter=openrouter_key())
     out = []
     for name in only:
-        for one in (JEV_CARRIERS if name == "jev" else (name,)):
-            if found.get(one) and (one, found[one]) not in out:
-                out.append((one, found[one]))
+        for one, secret in (jev if name == "jev" else [(name, found.get(name))]):
+            if (secret or one in dict(jev)) and (one, secret) not in out:
+                out.append((one, secret))
     return out
 
 
 # Every carrier that answers with the Jev model itself (a typed System One
-# reply), as opposed to a chat model asked to imitate its shape. A decision a
-# caller requires to be typed checks `is_jev(result["provider"])`.
-JEV_CARRIERS = ("typesafe",)
+# reply), as opposed to a chat model asked to imitate its shape: TypeSafe
+# direct, OpenRouter's System One endpoint, Cloudflare Workers AI and any System
+# One-compatible URL. A decision a caller requires to be typed checks
+# `is_jev(result["provider"])`.
+JEV_CARRIERS = ("typesafe", "jev-openrouter", "jev-cloudflare", "jev-compatible")
 
 
 def is_jev(provider):
     """True when `provider` is a Jev carrier (`JEV_CARRIERS`)."""
     return provider in JEV_CARRIERS
+
+
+def jev_summary():
+    """One line naming the Jev choice and the carriers it resolves to now, for
+    `tezgah-status --judge` and `tezgah-setup --jev`: a forced carrier without
+    its credential is named as such, never hidden."""
+    names = ", ".join(p if s else p + " (no credential)" for p, s in tp.jev_carriers())
+    return "jev=%s: %s" % (tp.jev_choice(), names or "no carrier resolves")
 
 
 def credential():
@@ -266,7 +300,8 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
     beside it because the provider that answers is not the caller's choice. The
     model is the one the reply names, else the one asked for: an alias such as
     `jev-latest` hides a silent upgrade the reply's own field shows. `model` is
-    TypeSafe's alone; the session CLI and the chat fallback ignore it.
+    the Jev carriers' alone (Cloudflare serves its one alias whatever is asked);
+    the session CLI and the chat fallback ignore it.
 
     The providers are tried in `providers()` order - the session's own CLI
     first - and the next one is asked only when the previous failed. `fallback`
@@ -281,7 +316,7 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
     and a `deadline` in seconds: urllib's `timeout` bounds one socket operation,
     not the call, so only the deadline bounds its wall time.
 
-    A call that ends on a 401, 402, 5xx or a session CLI's non-zero exit marks
+    A call that ends on a 401, 402, 403, 5xx or a session CLI's non-zero exit marks
     that provider down for `DOWN_FOR` seconds, and until then it is skipped
     without a request (`_down`), so a dead credential is not re-paid on every
     prompt.
@@ -291,17 +326,22 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
     exception.
 
     `only` names the providers the caller requires (`named()`); a caller whose
-    decision must come from a typed model passes `only=("typesafe",)` and gets
-    None rather than another provider's answer."""
-    tried = providers() if only is None else named(only)
+    decision must come from a typed model passes `only=("jev",)` and gets
+    None rather than another provider's answer. A forced Jev carrier
+    (`tp.jev_choice()`) whose credential is missing is asked nothing and
+    recorded as a failure, never replaced by another carrier."""
+    tried = _plan(only)
     if any(isinstance(q, dict) and q.get("type") == "text" for q in questions.values()):
-        # TypeSafe answers no prose: left out up front, not logged as a failure
-        tried = [(p, s) for p, s in tried if p != "typesafe"]
-    if not tried or not tried[0][1]:
+        # no Jev carrier answers prose: left out up front, not logged as a failure
+        tried = [(p, s) for p, s in tried if not is_jev(p)]
+    if not tried:
         return None
     stop = None if deadline is None else time.monotonic() + deadline
     failed = []
     for provider, secret in tried:
+        if not secret:
+            failed.append("%s: no credential (jev=%s)" % (provider, tp.jev_choice()))
+            continue
         result, why = _ask_one(provider, secret, state, questions, model,
                                timeout, attempts, stop)
         if result is None:
@@ -316,7 +356,7 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
         return result
     refused = None
     session = tp.session_cli()
-    if session and (key() or openrouter_key()):
+    if session and (openrouter_key() or any(s for _, s in tp.jev_carriers())):
         refused = ("fallback=%s refuses a third-party judge after %s failed"
                    % (tp.fallback_policy(), session))
     _record(None, None, failed="; ".join(failed), refused=refused)
@@ -326,13 +366,12 @@ def ask(state, questions, *, model=MODEL, timeout=30, attempts=2, deadline=None,
 def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop):
     """One provider's attempts: `(result, None)`, or `(None, why)`."""
     try:
-        if provider == "typesafe":
-            used, url = model, endpoint()
-            body = json.dumps({"state": state, "model": used,
-                               "questions": questions}).encode()
+        if is_jev(provider):
+            used, url, payload = _jev_call(provider, model, state, questions)
+            body = json.dumps(payload).encode()
 
             def send():
-                return _request(secret, body, timeout)
+                return _request(secret, body, timeout, url)
         elif provider == "openrouter":
             used, url = fallback_model(), openrouter_url()
             body = json.dumps(_chat_body(state, questions, used)).encode()
@@ -360,7 +399,7 @@ def _ask_one(provider, secret, state, questions, model, timeout, attempts, stop)
             late = stop is not None and time.monotonic() >= stop
             if attempt + 1 >= attempts or late or not _transient(exc):
                 code = getattr(exc, "code", None)
-                if code in (401, 402) or (isinstance(code, int) and code >= 500) \
+                if code in (401, 402, 403) or (isinstance(code, int) and code >= 500) \
                         or isinstance(exc, SessionFailed):
                     _mark_down(down)
                 return None, _why(exc)
@@ -434,19 +473,24 @@ def _transient(exc):
     return isinstance(exc, OSError)
 
 
-def _request(secret, body, timeout):
-    """One POST: the documented return, or the exception `ask()` decides on.
+def _request(secret, body, timeout, url=None):
+    """One POST to a Jev carrier - TypeSafe's unless `url` names another: the
+    documented return, or the exception `ask()` decides on. Cloudflare's REST
+    API may wrap the documented body as `{"result": {...}, "success": true}`;
+    both shapes are read.
 
     Split from `ask()` so the retry re-sends the body already serialized rather
     than rebuilding it, and so the URL parse stays inside `ask()`'s try: a
     scheme-less override raises ValueError there and becomes a None like any
     other failure rather than escaping."""
-    request = urllib.request.Request(endpoint(), data=body, headers={
+    request = urllib.request.Request(url or endpoint(), data=body, headers={
         "Authorization": "Bearer " + secret,
         "Content-Type": "application/json"})
     started = time.monotonic()
     with OPENER.open(request, timeout=timeout) as response:
         data = json.load(response)
+    if "answers" not in data and isinstance(data.get("result"), dict):
+        data = data["result"]
     usage = data["usage"]
     return {"answers": data["answers"],
             "usage": {"input_tokens": int(usage["input_tokens"]),
@@ -570,7 +614,7 @@ def cheap_default():
     return row[0] if row else FALLBACK_MODEL
 
 
-# How long a provider stays marked down after a 401, 402 or 5xx: five minutes,
+# How long a provider stays marked down after a 401, 402, 403 or 5xx: five minutes,
 # so a dead key or an empty account costs one refusal per five minutes rather
 # than one per prompt, and a provider that comes back is asked again within the
 # same working session. The mark is keyed on the provider, the endpoint and a

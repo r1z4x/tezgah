@@ -298,7 +298,9 @@ def main():
         last = tj.last_use()
         if "--json" in flags:
             print(json.dumps(last, sort_keys=True))
-        elif not last:
+            return 0
+        print(tj.jev_summary())
+        if not last:
             print("judge: no judgement recorded")
         elif last.get("provider"):
             print("judge: %s answered with %s/%s (fallback=%s)%s" % (

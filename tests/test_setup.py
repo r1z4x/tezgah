@@ -744,19 +744,22 @@ class OmpTypeSafeRow(SetupBase):
 
     The judgement seam's own key is a second row, because its channel set
     differs from omp's in both directions: a key file alone serves the seam
-    while omp falls back, and a login-store record alone serves omp while the
-    seam has no credential. One row carrying one answer under both questions
-    read wrong in whichever of the two shapes the reader was in."""
+    while omp falls back, and a login-store record without an enabled key
+    serves omp's record check while the seam has no credential. One row
+    carrying one answer under both questions read wrong in whichever of the two
+    shapes the reader was in."""
 
     OMP = "TypeSafe (Jev) key resolvable"
     SEAM = "judgement seam key resolvable"
 
-    def login_store(self):
+    def login_store(self, data=None):
         p = self.path(".omp", "agent", "agent.db")
         os.makedirs(os.path.dirname(p), exist_ok=True)
         conn = sqlite3.connect(p)
-        conn.execute("create table auth_credentials (provider text)")
-        conn.execute("insert into auth_credentials values ('typesafe')")
+        conn.execute("create table auth_credentials (id integer primary key, "
+                     "provider text, data text, disabled_cause text)")
+        conn.execute("insert into auth_credentials (provider, data) "
+                     "values ('typesafe', ?)", (data,))
         conn.commit()
         conn.close()
 
@@ -776,8 +779,26 @@ class OmpTypeSafeRow(SetupBase):
         proc = self.setup("--hosts", "omp")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertRow(proc.stdout, self.OMP, True)
-        # The mirror divergence: omp is served, the seam is not.
+        # The mirror divergence: a record with no key serves omp's check only.
         self.assertRow(proc.stdout, self.SEAM, False)
+
+    def test_an_enabled_login_with_a_key_serves_both_rows(self):
+        self.login_store('{"key": "omp-ts"}')
+        proc = self.setup("--hosts", "omp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertRow(proc.stdout, self.OMP, True)
+        self.assertRow(proc.stdout, self.SEAM, True)
+
+    def test_the_jev_setter_persists_the_choice_and_names_the_carriers(self):
+        self.env["TYPESAFE_API_KEY"] = "test"
+        proc = self.setup("--jev", "cloudflare")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(self.path(".config", "tezgah", "config.json")) as fh:
+            self.assertEqual(json.load(fh)["jev"], "cloudflare")
+        self.assertIn("jev-cloudflare (no credential)", proc.stdout)
+        proc = self.setup("--jev", "auto")
+        self.assertIn("typesafe", proc.stdout)
+        self.assertNotEqual(self.setup("--jev", "nope").returncode, 0)
 
     def test_a_missing_key_reads_as_missing(self):
         os.makedirs(self.path(".omp", "agent"), exist_ok=True)

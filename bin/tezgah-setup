@@ -884,6 +884,22 @@ def save_features(ids):
     return True
 
 
+def set_jev(value):
+    """Persist `value` as config.json["jev"] - this key's only writer - and print
+    the carriers it resolves to now. An unchanged value writes nothing, like
+    `save_features`; a config that does not parse is refused, not replaced."""
+    import tezgah_judge
+    cfg = read_config(tp.CONFIG, {})
+    if cfg is None:
+        sys.stderr.write("tezgah-setup: %s is not valid JSON; jev not set\n" % tp.CONFIG)
+        return 1
+    if cfg.get("jev") != value:
+        cfg["jev"] = value
+        write_json(tp.CONFIG, cfg)
+    print("%s %s  %s" % (OK, tp.CONFIG, tezgah_judge.jev_summary()))
+    return 0
+
+
 def app_servers(selected=None):
     """The app-analysis MCP servers to wire this run (shared spec)."""
     return tezgah_apps.servers(selection() if selected is None else selected)
@@ -4767,7 +4783,7 @@ def host_checks_omp():
          tp.have_typesafe_key()),
         # One row per channel: the two disagree in both directions - a key file
         # alone serves the seam, an omp login-store record alone serves omp.
-        ("judgement seam key resolvable (env or key file)",
+        ("judgement seam key resolvable (session CLI, Jev carrier or OpenRouter)",
          tp.have_judge_key()),
         ("status line answers", omp_hook_answers()), ("tier models in task.agentModelOverrides and modelRoles.plan/slow", tier_models_current()),
     ]
@@ -5679,6 +5695,11 @@ def main(argv):
                     help="with --install: the language replies are asked for and "
                          "the Stop rule checks (config.json `reply_lang`; `tr` "
                          "when unset, `any` checks none)")
+    ap.add_argument("--jev", choices=tp.JEV_CHOICES,
+                    help="the carrier the judgement seam reaches the Jev model "
+                         "through (config.json `jev`; `auto` tries every one "
+                         "that resolves); TEZGAH_JEV_PROVIDER and JEV_PROVIDER "
+                         "still win over it")
     # `--version` is argparse's print-and-exit action, so `--upgrade --version V`
     # would print the current version, exit 0 and move nothing at all - the
     # "reads as done, did nothing" shape this repo hunts. Refused by name here,
@@ -5731,6 +5752,8 @@ def main(argv):
     if args.features:
         features_report()
         return 0
+    if args.jev:
+        return set_jev(args.jev)
     if args.refresh:
         paths = refresh_contract()
         for path in paths:

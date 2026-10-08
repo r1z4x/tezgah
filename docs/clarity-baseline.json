@@ -61,9 +61,9 @@
   },
   "docs/judge.md": {
     "long_sentences": 22,
-    "passive": 15,
+    "passive": 14,
     "replace_words": 0,
-    "semicolons": 14
+    "semicolons": 13
   },
   "docs/layers.md": {
     "long_sentences": 20,
@@ -78,7 +78,7 @@
     "semicolons": 9
   },
   "docs/operations.md": {
-    "long_sentences": 67,
+    "long_sentences": 66,
     "passive": 21,
     "replace_words": 3,
     "semicolons": 42

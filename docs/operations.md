@@ -703,10 +703,12 @@ made - no credential, the switch below, or a failed call - and the loop reads th
 tree directly instead.
 
 The state leaves the machine. A judgement sends the state and the questions to
-the provider that answers (`ask()`, `hooks/tezgah_judge.py::ask`). That is the
-session's own CLI (omp, claude, opencode, cursor, codex) or a third party. For
-the triage the state is the snapshot's own text, so a third party reads a screen
-carrying personal data. For the docs fallback it is the reader's query. Nothing else goes: no
+the host of whichever provider answers - the session's own CLI (omp, claude,
+opencode, cursor, codex), or the chosen Jev
+carrier's (`api.typesafe.ai`, `openrouter.ai`, `api.cloudflare.com` or a
+`JEV_API_BASE_URL`, see [judge](judge.md)) (`ask()`, `hooks/tezgah_judge.py::ask`) - for the triage that is
+the snapshot's own text, so a screen carrying personal data is read by a third
+party, and for the docs fallback it is the reader's query. Nothing else goes: no
 session id, no workspace path, no credential beyond the bearer header, and the
 state is not redacted because sending it is the point; the module docstring says
 the same, and `tests/test_judge.py` pins the wire (`Egress`) so the prose and the
@@ -715,13 +717,15 @@ asks for a judgement, no gate does - while the skill hint asks only with its own
 marker armed, and why the switch below is the off button for the whole path.
 
 With no session CLI, the third party is the Jev model through one of its carriers.
-TypeSafe reads `TYPESAFE_API_KEY`, else `~/.config/typesafe/key` (`credential()`,
-`hooks/tezgah_judge.py::credential`). The others are OpenRouter System One,
-Cloudflare Workers AI and a compatible endpoint named by `JEV_API_BASE_URL`.
-`TEZGAH_JEV_PROVIDER` or config `jev` picks the carrier ([judge](judge.md)).
-When no carrier answers, the same questions go to the OpenRouter chat fallback.
-Its key rides `OPENROUTER_API_KEY` and then `~/.config/openrouter/key`
-(`openrouter_key()`, `hooks/tezgah_judge.py::openrouter_key`). The file is the channel that
+TypeSafe's credential resolves from `TYPESAFE_API_KEY`, else from
+`~/.config/typesafe/key`, else from the active omp login (`typesafe_key()`,
+`hooks/tezgah_paths.py::typesafe_key`). `jev` chooses which of the other Jev
+carriers the seam asks - OpenRouter's System One endpoint, Cloudflare Workers AI
+and any System One-compatible URL (`jev_carriers()`,
+`hooks/tezgah_paths.py::jev_carriers`). The OpenRouter chat fallback's key rides
+`OPENROUTER_API_KEY` and then `~/.config/openrouter/key` (`openrouter_key()`,
+`hooks/tezgah_judge.py::openrouter_key`). When no carrier answers, the same
+questions go to that chat fallback. The file is the channel that
 matters on a machine exporting the variable from `~/.zshenv`: a hook or a bin tool
 runs in a non-interactive shell, where that export never ran, so the file is what a
 judgement actually resolves. Cost is input tokens alone - $0.042 per

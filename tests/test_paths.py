@@ -372,13 +372,13 @@ class TypeSafeKey(TempHome):
 
 
 class JudgeKey(TempHome):
-    """`have_judge_key()` is the seam's own channel: the env var, else the key
-    file `hooks/tezgah_judge.key()` reads, which is what tezgah-triage,
-    tezgah-docs and the skill picker spend. It is not omp's channel, and the
-    installer's report carried one answer under both questions until a measured
-    divergence showed in the file-only shape: omp on its fallback chat model,
-    the seam working. Every case asserts both booleans, so the two definitions
-    cannot drift apart again in either direction."""
+    """`have_judge_key()` is the seam's own channel set: TypeSafe's env var, key
+    file and the active omp login, the other Jev carriers' credentials, and the
+    OpenRouter chat fallback - what tezgah-triage, tezgah-docs and the skill
+    picker spend. It is not omp's question, and the installer's report carried
+    one answer under both until a measured divergence showed in the file-only
+    shape: omp on its fallback chat model, the seam working. Every case asserts
+    both booleans, so the two definitions cannot drift apart again."""
 
     # Both modules under the throwaway HOME in one process: 'path' is the
     # paths-side predicate, the rest is the seam's own answer.
@@ -406,12 +406,18 @@ class JudgeKey(TempHome):
         with open(p, "w") as fh:
             fh.write(content)
 
-    def omp_login_store(self):
+    def omp_login_store(self, data='{"key": "omp-ts"}', disabled=None):
         p = os.path.join(self.home, ".omp", "agent", "agent.db")
         os.makedirs(os.path.dirname(p), exist_ok=True)
+        if os.path.exists(p):
+            os.remove(p)
         conn = sqlite3.connect(p)
-        conn.execute("create table auth_credentials (provider text)")
-        conn.execute("insert into auth_credentials values ('typesafe')")
+        conn.execute("create table auth_credentials (id integer primary key, "
+                     "provider text, credential_type text, data text, "
+                     "disabled_cause text)")
+        conn.execute("insert into auth_credentials (provider, credential_type, data, "
+                     "disabled_cause) values ('typesafe', 'api_key', ?, ?)",
+                     (data, disabled))
         conn.commit()
         conn.close()
 
@@ -433,13 +439,45 @@ class JudgeKey(TempHome):
         self.assertTrue(got["available"], got)
         self.assertFalse(got["omp"], got)
 
-    def test_the_omp_store_alone_serves_omp_only(self):
-        # The mirror image, and the reason the seam's row cannot just widen
-        # have_typesafe_key(): a login-store record is a path the seam never opens.
+    def test_the_omp_login_serves_both(self):
+        # The active omp login is the seam's third TypeSafe channel, read
+        # read-only, so a user logged in to omp has a judge with no export.
         self.omp_login_store()
         got = self.answers()
+        self.assertTrue(got["path"], got)
+        self.assertTrue(got["seam"], got)
+        self.assertTrue(got["available"], got)
+        self.assertTrue(got["omp"], got)
+
+    def test_a_disabled_or_keyless_login_serves_omp_only(self):
+        # omp counts any record; the seam spends a key, so a disabled row or
+        # one without `data.key` is no credential to it.
+        for data, disabled in (('{"key": "k"}', "revoked"), ('{"access": "t"}', None)):
+            with self.subTest(data=data, disabled=disabled):
+                self.omp_login_store(data, disabled)
+                got = self.answers()
+                self.assertFalse(got["path"], got)
+                self.assertFalse(got["seam"], got)
+                self.assertTrue(got["omp"], got)
+
+    def test_every_jev_carrier_credential_serves_the_seam(self):
+        for extra in ({"CLOUDFLARE_ACCOUNT_ID": "a", "CLOUDFLARE_API_TOKEN": "t"},
+                      {"JEV_API_BASE_URL": "https://j.example/v1/systemone",
+                       "JEV_API_KEY": "k"}):
+            with self.subTest(extra=sorted(extra)):
+                got = self.answers(extra=extra)
+                self.assertTrue(got["path"], got)
+                self.assertTrue(got["available"], got)
+                self.assertFalse(got["seam"], got)
+        # half a pair is no carrier
+        got = self.answers(extra={"CLOUDFLARE_API_TOKEN": "t", "JEV_API_KEY": "k"})
         self.assertFalse(got["path"], got)
-        self.assertFalse(got["seam"], got)
+        self.assertFalse(got["available"], got)
+
+    def test_a_forced_carrier_without_its_credential_reads_false(self):
+        got = self.answers(extra={"TYPESAFE_API_KEY": "k",
+                                  "TEZGAH_JEV_PROVIDER": "cloudflare"})
+        self.assertFalse(got["path"], got)
         self.assertFalse(got["available"], got)
         self.assertTrue(got["omp"], got)
 
@@ -458,14 +496,15 @@ class JudgeKey(TempHome):
                           "provider": None, "available": False})
 
     def test_an_openrouter_key_alone_serves_the_seam_through_the_fallback(self):
-        # The second provider's env channel. `seam` stays False because it asks
+        # The second provider's env channel: it answers first as the Jev carrier
+        # on OpenRouter's System One endpoint. `seam` stays False because it asks
         # the TypeSafe channel specifically, which is the distinction the two
         # questions are kept apart for; `path` and `available` follow the seam,
         # so a machine holding only an OpenRouter key still has a judge.
         got = self.answers(extra={"OPENROUTER_API_KEY": "or"})
         self.assertTrue(got["path"], got)
         self.assertTrue(got["available"], got)
-        self.assertEqual(got["provider"], "openrouter")
+        self.assertEqual(got["provider"], "jev-openrouter")
         self.assertFalse(got["seam"], got)
         self.assertFalse(got["omp"], got)
 
@@ -477,7 +516,7 @@ class JudgeKey(TempHome):
         got = self.answers()
         self.assertTrue(got["path"], got)
         self.assertTrue(got["available"], got)
-        self.assertEqual(got["provider"], "openrouter")
+        self.assertEqual(got["provider"], "jev-openrouter")
         self.assertFalse(got["omp"], got)
 
     def test_a_type_safe_key_still_picks_the_type_safe_provider(self):
