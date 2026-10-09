@@ -503,22 +503,6 @@ def render_md_cursor(name, description, readonly, body):
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
 
-def plugin_agents():
-    """{filename: text} for the plugin's own tracked `agents/` dir.
-
-    The graph roles' Claude render, from the same body the per-repo files get,
-    so the shipped copy cannot drift from the generated one. The MARKER line is
-    dropped: the copy is tracked, never swept by `_remove_stale`, and its
-    manifest sha would turn every edit of this module into a stale file.
-    `tezgah-setup --write-plugin-agents` writes it; a test pins it."""
-    out = {}
-    for name, desc, _cap, body, readonly in ROLES:
-        if name in GRAPH_ROLES:
-            lines = render_md(name, desc, readonly, body("claude")).split("\n")
-            out[name + ".md"] = "\n".join(lines[:1] + lines[2:])
-    return out
-
-
 def render_md_opencode(name, description, readonly, body):
     """opencode `.opencode/agents/*.md`. opencode validates `tools` as an object
     (the Claude `Agent(...)` string is rejected), so this uses opencode's own

@@ -161,6 +161,12 @@ class Registration(ClaudeHome):
             ["plugin", "install", "tezgah@%s" % market["name"]]])
         source = self.registry("known_marketplaces.json")[market["name"]]["source"]
         self.assertEqual(source, {"source": "directory", "path": self.tree})
+        # The plugin ships no agent: Claude namespaces a plugin's `agents/*.md`
+        # as `tezgah:<name>` beside the generated reviewer and never shadows it,
+        # so a shipped copy listed the reviewer twice.
+        copy = self.registry("installed_plugins.json")["plugins"][
+            "tezgah@%s" % market["name"]][0]["installPath"]
+        self.assertFalse(os.path.exists(os.path.join(copy, "agents")), copy)
         # the arming row reads the copy Claude now loads
         self.assertTrue(self.row(out, "plugin copy current").strip().startswith("ok"), out)
 

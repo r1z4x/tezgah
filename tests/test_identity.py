@@ -20,7 +20,7 @@ import tezgah_paths as tp  # noqa: E402
 # wrote it. Both are checked wherever a commit command can live.
 FABRICATED = re.compile(r"tezgah@localhost|user\.name=tezgah|"
                         r"-c\s+user\.(?:name|email)=")
-SCANNED = ("hooks", "bin", "hosts", "skills", "docs", "agents", "statusline.py")
+SCANNED = ("hooks", "bin", "hosts", "skills", "docs", "statusline.py")
 
 
 def shipped_files():

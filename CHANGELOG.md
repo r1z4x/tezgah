@@ -47,6 +47,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   New tests in `tezgah-taste`, `tezgah-triage` and the replay labeller price Clef
   and Clef-flash answers at their own rates. A run with an unpriced answer prints
   `cost unknown`.
+- **Claude lists the reviewer once.** The plugin shipped its own
+  `agents/tezgah-reviewer.md`, which Claude shows as `tezgah:tezgah-reviewer`
+  beside the generated reviewer and never shadows. The plugin now ships no
+  agent, and its release-time renderer is gone with it.
 
 ## [1.5.0] - 2026-10-09
 

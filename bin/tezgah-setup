@@ -13,7 +13,6 @@
   tezgah-setup --adopt                 move the predecessor wiring aside
   tezgah-setup --sync                  dev: copy this checkout over the Claude plugin copy
   tezgah-setup --write-manifest        release: regenerate the tracked MANIFEST from git
-  tezgah-setup --write-plugin-agents   release: re-render the plugin's agents/ from the role source
   tezgah-setup --status [PATH]         print the armed/used checklist
   tezgah-setup --agents [PATH]         regenerate this repo's subagent set
   tezgah-setup --deps [--dry-run]      install missing optional tools only
@@ -4972,24 +4971,6 @@ def write_manifest():
     return 0
 
 
-def write_plugin_agents():
-    """Re-render the plugin's tracked `agents/*.md` from tezgah_agents' role
-    bodies, the source the per-repo agents are generated from. A plain write,
-    not write_if_changed: a tracked file needs no `.tezgah-bak` beside it."""
-    for name, text in tezgah_agents.plugin_agents().items():
-        path = os.path.join(HERE, "agents", name)
-        try:
-            with open(path, encoding="utf-8") as fh:
-                if fh.read() == text:
-                    continue
-        except OSError:
-            pass
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        print("%s %s" % (OK, path))
-    return 0
-
-
 def tree_sha(root, files):
     """sha256 over each relpath and its bytes, or None when one is unreadable."""
     h = hashlib.sha256()
@@ -5690,8 +5671,6 @@ def main(argv):
                     help="regenerate this repo's subagent set (default: cwd)")
     ap.add_argument("--write-manifest", action="store_true",
                     help="release: regenerate the tracked MANIFEST from git")
-    ap.add_argument("--write-plugin-agents", action="store_true",
-                    help="release: re-render the plugin's agents/ from the role source")
     ap.add_argument("--deps", action="store_true")
     ap.add_argument("--mcp-schemas", action="store_true",
                     help="measure the MCP tool-schema band by asking each server")
@@ -5806,8 +5785,6 @@ def main(argv):
         return 0
     if args.write_manifest:
         return write_manifest()
-    if args.write_plugin_agents:
-        return write_plugin_agents()
     if args.status:
         print(tezgah_context.health_lines(os.path.realpath(expand(args.status))))
         # The install-health half of this report, from the same function the
