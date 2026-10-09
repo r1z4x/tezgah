@@ -157,9 +157,12 @@ one selector per component:
 }
 ```
 
-Add `outline-style`, `outline-width`, `box-shadow` and `transition-duration` for a
-focusable or animated component: the `focus-visible` and `reduced-motion` rules read
-them. `states` is filled from what was observed, never from source: a computed
+For a focusable component, read `outline-style`, `outline-width` and `box-shadow`
+only after focusing it from the keyboard (`browser_press_key` Tab until it has
+focus, so `:focus-visible` applies): at rest they are `none`, and the
+`focus-visible` rule reads a resting `none` as a missing focus ring. For an animated
+component add `transition-duration`, which the `reduced-motion` rule reads.
+`states` is filled from what was observed, never from source: a computed
 style shows only the state the page is in, so each state name goes in after the
 component was driven or routed into it and read again. The file is this shape - an
 object with a `components` list, or the bare list:

@@ -19,13 +19,13 @@ not named its user.
 
 Name the question each view answers, then pick the encoding:
 
-| The question | Encoding |
-|---|---|
-| comparison - which is bigger? | bars on a common baseline |
-| trend - how did it move over time? | a line over a time axis |
-| part-to-whole - what share is each? | a stacked bar, or a bar of shares |
-| distribution - how is it spread? | a histogram or a box plot |
-| relationship - does one move with another? | a scatter plot |
+| The question | Encoding | Source |
+|---|---|---|
+| comparison - which is bigger? | bars on a common baseline | NN/g (length on a common scale) |
+| trend - how did it move over time? | a line over a time axis | NN/g (position) |
+| part-to-whole - what share is each? | a stacked bar, or a bar of shares | tezgah's own: no primary source read |
+| distribution - how is it spread? | a histogram or a box plot | tezgah's own: no primary source read |
+| relationship - does one move with another? | a scatter plot | NN/g (position on two axes) |
 
 Length and position carry quantity, because people compare them accurately; area
 and angle (pie, gauge, radar) do not (NN/g, after Cleveland and McGill). Colour

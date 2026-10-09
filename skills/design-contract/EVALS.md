@@ -84,7 +84,7 @@ finding", and `states.data` is a field "The contract must carry ... exactly".
 - [ ] Names the dashboard type, operational or analytical, before the layout
 - [ ] Picks each chart by the question it answers (comparison, trend, part-to-whole, distribution, relationship), with length or position for quantity and colour only as a redundant cue
 - [ ] Shows every number with its comparison (target, previous period or benchmark), its window and its unit, and 3-5 key metrics by default
-- [ ] Lists per widget the states loading, no-data, error, permission-denied, configuration-needed, stale with an "as of" time, and partial
+- [ ] Lists per widget the states `check` requires of a data view (empty, loading, skeleton, error, offline, partial, long-text, permission-denied) plus configuration-needed and stale with an "as of" time
 - [ ] Takes the metrics from `product-analysis`'s metric record (goal, definition, window, baseline, logged) instead of inventing them
 
 **Must not**

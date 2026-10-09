@@ -307,14 +307,28 @@ PROMPT_HINTS = (
                 r"özellik\w*|sayfa(?! numara)\w*|"
                 # A data ask said by its output: a dashboard, a KPI, a metric to
                 # choose. "Bu veriye uygun bir metric dashboard tasarla" armed
-                # nothing before this. A metric alone is code (a metrics
-                # endpoint, a metric counter), so it arms only beside a choice
-                # or design verb, and a dashboard's config files stay code.
-                r"(?<!grafana )(?<!kibana )dashboard(?!s?[ -](?:json|ya?ml|"
-                r"provision\w*|config\w*|api|routes?|endpoints?)\b)\w*|"
-                r"gösterge panel\w*|kpi\w*|(hangi|which) metri\w*|"
-                r"(design|choose|pick|define)\w* (\w+ ){0,3}metri[ck]s?|"
-                r"metrik\w* (\w+ ){0,3}(tasarla|seç|tanımla|belirle|takip)\w*|"
+                # nothing before plan 072. Each stem is qualified (decision 006):
+                # a dashboard arms beside a design verb or a metric noun, never on
+                # its own (`dashboard.json`, `Dashboard.tsx`, "the dashboard test
+                # fails" are code); a metric arms only in the plural beside a
+                # choice verb, never before a library, an endpoint or a struct.
+                r"(?:design|create|sketch|propose|build an?|build me an?)(?:s|ing)? "
+                r"(?:\w+ ){0,4}(?:dashboard|pano|gösterge panel)\w*|"
+                r"(?:metri[ck]s?|kpis?) (?:dashboard|pano)\w*|"
+                r"(?:dashboard|pano|gösterge panel)\w* (?:\w+ ){0,3}"
+                r"(?:tasarla|oluştur|hazırla)\w*|"
+                r"(?:design|choose|pick|define|select|track)(?:s|ing)? (?:\w+ ){0,3}"
+                r"(?:metri[ck]s|kpis)\b(?! (?:librar\w*|packages?|endpoints?|"
+                r"exporters?|servers?|clients?|structs?|interfaces?|modules?|"
+                r"crates?|sdks?|collectors?)\b)(?![._/]\w)|"
+                r"(?:which|what) (?:metri[ck]s|kpis) (?:should|to|do|matter|would)|"
+                r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
+                r"(?:track|measure|use|watch)|success metrics?|"
+                r"hangi (?:metri[ck]\w*|kpi\w*|gösterge\w*)|"
+                r"(?:metri[ck]\w*|kpi\w*|gösterge\w*) (?:\w+ ){0,3}"
+                r"(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
+                r"visuali[sz]e (?:\w+ ){0,3}(?:data|dataset|veri\w*)|"
+                r"veri\w* (?:\w+ ){0,3}görselleştir\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads

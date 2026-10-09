@@ -364,10 +364,16 @@ def _entries(root, name):
             lines = fh.read().splitlines()
     except (OSError, UnicodeDecodeError):
         return out
+    # A row is followed only inside the skill's own directory: an absolute path,
+    # a `..` or a symlink out would index a file the skill does not ship.
+    inside = os.path.realpath(base) + os.sep
     for line in lines:
         hit = _INDEX_ROW.match(line)
-        if hit and ".." not in hit.group(1).split("/"):
-            out.append(("%s/%s" % (name, hit.group(1)), os.path.join(base, hit.group(1))))
+        if not hit or os.path.isabs(hit.group(1)):
+            continue
+        path = os.path.join(base, hit.group(1))
+        if os.path.realpath(path).startswith(inside):
+            out.append(("%s/%s" % (name, hit.group(1)), path))
     return out
 
 

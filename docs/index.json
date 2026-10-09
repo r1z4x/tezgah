@@ -294,12 +294,16 @@
       "answers": [
         "what is a skill here and how does it reach a host",
         "which skills ship and what does each do",
-        "how do I add a skill without breaking the router or the install report"
+        "how do I add a skill without breaking the router or the install report",
+        "which skill designs a metric dashboard and where do its data-view rules live",
+        "does the local skill search reach design-library's nested entries"
       ],
       "answers_tr": [
         "burada beceri nedir ve bir hosta nasıl ulaşır",
         "hangi beceriler gelir ve her biri ne yapar",
-        "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim"
+        "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim",
+        "metrik dashboard tasarımını hangi beceri yapar ve veri görünümü kuralları nerede",
+        "yerel beceri araması design-library'nin iç girdilerine ulaşır mı"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -309,7 +313,9 @@
         "commands/",
         "NOTICE",
         "tests/test_setup.py",
-        "tests/test_skills.py"
+        "tests/test_skills.py",
+        "hooks/tezgah_skill_pick.py",
+        "skills/design-contract/data-views.md"
       ]
     },
     {

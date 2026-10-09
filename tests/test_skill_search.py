@@ -206,10 +206,19 @@ class NestedIndex(FixtureTree):
                      "---\n\n# Lib\n\n## Router\n\nRead INDEX.md.\n")
         with open(os.path.join(lib, "plug", "skills", "deep", "SKILL.md"), "w") as fh:
             fh.write(self.DEEP)
+        # a file outside every root, reached three ways an index row could try
+        outside = os.path.join(os.path.realpath(self.tmp.name), "outside", "x")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "SKILL.md"), "w") as fh:
+            fh.write("# Outside\n\n## Zebraquux\n\nzebraquux zebraquux zebraquux\n")
+        os.symlink(outside, os.path.join(lib, "plug", "linked"))
         with open(os.path.join(lib, "INDEX.md"), "w") as fh:
             fh.write("# Index\n\n## plug\n\n"
                      "deep - a deep entry - plug/skills/deep/SKILL.md\n"
-                     "escape - outside the skill - ../beta/SKILL.md\n")
+                     "abs - absolute - %s\n"
+                     "up - relative escape - ../../outside/x/SKILL.md\n"
+                     "link - symlink out - plug/linked/SKILL.md\n"
+                     % os.path.join(outside, "SKILL.md"))
 
     def test_an_entry_the_index_routes_to_is_searched_as_one_row(self):
         hits = self.hits("dashboard key metrics")
@@ -219,9 +228,9 @@ class NestedIndex(FixtureTree):
                          (skill, title, start, end), hits)
 
     def test_an_index_row_leaving_the_skill_is_not_followed(self):
-        skills = {skill for skill, _p, _t, _s, _e in sp.index(self.roots)}
-        self.assertNotIn("lib/../beta/SKILL.md", skills)
-        self.assertIn("beta", skills)
+        # absolute, `..` and a symlink out all name the same outside file;
+        # none of them may put it in the index
+        self.assertEqual([], self.hits("zebraquux"))
 
     def test_the_shipped_design_library_entries_are_reachable(self):
         roots = [os.path.join(REPO, "skills")]
@@ -231,6 +240,11 @@ class NestedIndex(FixtureTree):
                   encoding="utf-8") as fh:
             listed = [line for line in fh if sp._INDEX_ROW.match(line.rstrip("\n"))]
         self.assertEqual(len(listed), len(nested), sorted(nested))
+        top = sp.search("default dashboard 3-5 key metrics primary actions",
+                        k=1, roots=roots)
+        self.assertEqual(
+            "design-library/adaptive-interfaces/skills/simplified-views/SKILL.md",
+            top[0][0], top)
 
 
 class ShippedProductHint(unittest.TestCase):
@@ -246,6 +260,11 @@ class ShippedProductHint(unittest.TestCase):
             top = sp.top_section(prompt, roots=roots)
             self.assertTrue(top, prompt)
             self.assertIn(top[0][0], ("product-analysis", "design-contract"), top)
+        # the English form also clears the bar `section_hint` holds a hint to
+        row, covered, known = sp.top_section(
+            "I have this data, design a metric dashboard for it", roots=roots)
+        self.assertGreaterEqual(covered, sp.HINT_MIN_TERMS, row)
+        self.assertGreaterEqual(covered / known, sp.HINT_COVER, row)
 
 
 class CacheHome(FixtureTree):
