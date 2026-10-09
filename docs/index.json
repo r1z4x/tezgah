@@ -320,12 +320,14 @@
       "answers": [
         "what does a feature-level audit cover that a screen review misses",
         "what are the five matrices and the capability-change proposal",
-        "how is the feature-audit skill reached and what evidence backs it"
+        "how is the feature-audit skill reached and what evidence backs it",
+        "how do I specify a feature before it is built and audit it against that spec"
       ],
       "answers_tr": [
         "özellik düzeyinde bir denetim, ekran incelemesinin kaçırdığı neyi kapsar",
         "beş matris ve yetenek değişikliği önerisi nedir",
-        "özellik denetimi becerisine nasıl ulaşılır ve onu hangi kanıt destekler"
+        "özellik denetimi becerisine nasıl ulaşılır ve onu hangi kanıt destekler",
+        "bir özelliği yapılmadan önce nasıl tanımlarım ve yapıldıktan sonra o tanıma göre nasıl denetlerim"
       ],
       "sources": [
         "skills/feature-audit/SKILL.md",

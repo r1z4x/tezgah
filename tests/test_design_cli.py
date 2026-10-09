@@ -249,6 +249,30 @@ class Check(DesignCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("0 violations", proc.stdout)
 
+    def documented_measurement(self):
+        # analyze-app's own example, read out of the skill so the shape it
+        # tells a session to write and the shape `check` accepts cannot drift
+        path = os.path.join(REPO, "skills", "analyze-app", "SKILL.md")
+        with open(path, encoding="utf-8") as fh:
+            block = re.search(r"^```json\n(.*?)^```", fh.read(), re.S | re.M)
+        self.assertIsNotNone(block, "analyze-app lost its measurement example")
+        measured = json.loads(block.group(1))
+        names = [(c["name"], c["kind"]) for c in measured["components"]]
+        return contract_json(components=names), measured
+
+    def test_the_documented_measurement_passes_a_matching_contract(self):
+        data, measured = self.documented_measurement()
+        proc = self.check(data, measured)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("0 violations", proc.stdout)
+
+    def test_the_documented_measurement_without_its_states_fails(self):
+        data, measured = self.documented_measurement()
+        del measured["components"][0]["states"]
+        proc = self.check(data, measured)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("state-coverage", proc.stdout)
+
     def test_an_off_rhythm_padding_names_the_spacing_rule(self):
         data = contract_json(components=[("Button", "interactive")])
         proc = self.check(data, measurement([clean_component(padding="10px")]))

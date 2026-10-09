@@ -1,6 +1,6 @@
 # Evals
 
-Three inputs a session can be handed where this skill could misfire, and what a
+Four inputs a session can be handed where this skill could misfire, and what a
 good answer has to contain. Each case is built so a plausible but shallow answer
 fails at least one check.
 
@@ -71,6 +71,29 @@ screen read".
 
 **Why this case** - "The state set" says "A state that does not exist is a
 finding", and `states.data` is a field "The contract must carry ... exactly".
+
+---
+
+## Case 4 - The trap: a dashboard with only its happy state
+
+**Input**
+> Bu veriye uygun bir metric dashboard tasarla. (attached: `signups.csv` -
+> date, plan, country, signups, activations)
+
+**Must contain**
+- [ ] Names the dashboard type, operational or analytical, before the layout
+- [ ] Picks each chart by the question it answers (comparison, trend, part-to-whole, distribution, relationship), with length or position for quantity and colour only as a redundant cue
+- [ ] Shows every number with its comparison (target, previous period or benchmark), its window and its unit, and 3-5 key metrics by default
+- [ ] Lists per widget the states loading, no-data, error, permission-denied, configuration-needed, stale with an "as of" time, and partial
+- [ ] Takes the metrics from `product-analysis`'s metric record (goal, definition, window, baseline, logged) instead of inventing them
+
+**Must not**
+- Encode a magnitude in colour, or use a pie or gauge for a comparison
+- Design only the loaded state
+
+**Why this case** - `data-views.md` says "Colour never encodes a magnitude", that
+"A bare number cannot be judged", and that every widget "owes each of these
+states". A data file pulls toward drawing its columns in their happy state.
 
 ---
 
