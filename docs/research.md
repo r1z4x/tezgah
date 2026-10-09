@@ -264,7 +264,7 @@ the harness evidence ledger and the lessons ledger, so this page always says
 ### The rows
 
 Each row is one JSON object on one line. Every row carries `type`, a kebab-case
-`topic` and `from`, the ids it rests on. Each id in `from` must exist and have a
+`topic` of at most 64 characters and `from`, the ids it rests on. Each id in `from` must exist and have a
 parent type the table allows. An optional `claims` list cites research claims as
 `<slug>:<claim id>`, and each one must resolve to that line's `claims.jsonl`.
 
@@ -330,7 +330,7 @@ warnings. `check` adds them as one extra report key, `product`. It runs the
 product checks only with no slug. It runs them only when the product ledger
 exists, its history exists, or a `product:` citation exists
 (`hooks/tezgah_product.py::in_use`). `check <slug>` answers for that line alone.
-A repository with no product ledger prints nothing new. The
+A repository with no product ledger and no `product:` citation prints nothing new. The
 `research: N line(s) ok` count still counts research lines only.
 
 Errors cover the shape of a row. A missing field, an enum value outside its
@@ -373,7 +373,7 @@ note. A repository-provided `.tezgah` directory gets no note, because that
 directory came with the clone. The note prints only well-formed ids
 and topics. An id must match `SAFE_ID` (`hooks/tezgah_product.py::SAFE_ID`). A
 topic must match `SAFE_TOPIC` (`hooks/tezgah_product.py::SAFE_TOPIC`). A row that
-fails either is left out of the note. `product_due` sits in `DROP_ORDER` right
+fails either is not named, only counted in the last line. `product_due` sits in `DROP_ORDER` right
 after `research_broken` (`hooks/tezgah_context.py::DROP_ORDER`), so the context
 budget can drop it.
 

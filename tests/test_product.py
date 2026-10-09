@@ -44,6 +44,7 @@ REFUSALS = [
     ("type", "O", {"type": "X"}, ()),
     ("topic", "O", {"topic": "Export Flow"}, ()),
     ("topic", "O", {}, ("topic",)),
+    ("at most 64", "O", {"topic": "-".join(["ab"] * 30)}, ()),
     ("from is", "I", {"from": "O1"}, ()),
     ("does not hold", "I", {"from": ["O9"]}, ()),
     ("rests on I", "A", {"from": ["O1"]}, ()),
@@ -329,6 +330,18 @@ class Unparseable(Ledger):
         self.write(os.path.join(ws, "plans", "open", "p.md"), "per product:M1\n")
         self.assertEqual(tprod.consumer_tokens(self.main),
                          [(".tezgah/plans/open/p.md", 1, "M1")])
+
+    def test_a_line_separator_in_a_quote_stays_inside_its_row(self):
+        # Kills: a writer that leaves U+2028/U+2029/U+0085 raw while the readers
+        # split on them (the row breaks in two, the next id is reused), and a
+        # reader that splits on anything but "\n".
+        quote = "line one\u2028line two\u2029three\x85four"
+        first, problems = tprod.append_row(self.main, row("O", quote=quote), date=DAY)
+        self.assertEqual((first, problems), ("O1", []))
+        self.assertEqual(self.record("O"), ["O2"])
+        self.assertEqual(self.check(git=False)["errors"], [])
+        self.assertEqual(tprod.read_rows(self.main)[0]["quote"], quote)
+        self.assertEqual(read_bytes(self.path).count(b"\n"), 2)
 
 
 class Worktree(Ledger):

@@ -24,10 +24,12 @@ TYPES = ("O", "I", "A", "M", "D", "R")
 TOKEN = re.compile(r"\bproduct:([OIAMDR]\d+)\b")
 PARENTS = {"O": (), "I": ("O",), "A": ("I",), "M": ("I",), "D": ("I", "A", "M"),
            "R": ("D",)}
-TOPIC = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+# One bound for the writer and the note: a topic the writer takes is a topic the
+# note may print, and a 5000-character topic cannot push the note over budget.
+TOPIC = re.compile(r"(?=.{1,64}\Z)[a-z0-9]+(?:-[a-z0-9]+)*")
 # What a reader outside the checker may echo (the session note): fullmatch only.
 SAFE_ID = re.compile(r"[OIAMDR]\d{1,6}")
-SAFE_TOPIC = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){0,7}")
+SAFE_TOPIC = TOPIC
 QUOTE_MAX = 500
 CLASSES = ("user-verbatim", "behaviour", "ui-observed", "code", "external")
 DOWNGRADES = ("limitations", "inconsistency", "indirectness", "imprecision", "bias")
@@ -76,7 +78,9 @@ def _lines(text):
     """[(line number, row or None)] of the non-blank lines; None does not parse
     as a JSON object."""
     out = []
-    for n, raw in enumerate(text.splitlines(), 1):
+    # "\n" only, the writer's terminator: str.splitlines would also split on
+    # U+2028, U+2029 and U+0085 inside a quoted string and break the row
+    for n, raw in enumerate(text.split("\n"), 1):
         if not raw.strip():
             continue
         try:
@@ -158,7 +162,7 @@ def row_problems(row, held, repo):
         problems.append("date %r is not YYYY-MM-DD" % (row.get("date"),))
     topic = row.get("topic")
     if not (isinstance(topic, str) and TOPIC.fullmatch(topic)):
-        problems.append("topic %r is not kebab-case" % (topic,))
+        problems.append("topic %r is not kebab-case of at most 64 characters" % (topic,))
     parents = row.get("from", [])
     if not isinstance(parents, list):
         problems.append("from is %r, not a list of ids" % (parents,))
@@ -264,7 +268,10 @@ def append_row(repo, row, date=""):
                 os.remove(path)
             return None, problems
         truncate_to_committed(handle)
-        handle.write(json.dumps(new, ensure_ascii=False).encode("utf-8") + b"\n")
+        line = json.dumps(new, ensure_ascii=False)
+        for char in ("\u2028", "\u2029", "\x85"):
+            line = line.replace(char, "\\u%04x" % ord(char))
+        handle.write(line.encode("utf-8") + b"\n")
     return new["id"], []
 
 
