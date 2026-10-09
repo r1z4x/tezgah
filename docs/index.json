@@ -267,7 +267,8 @@
         "what do init, claim, migrate and source write",
         "how does a session learn that a research line is broken",
         "what lights the research mark and how is the layer switched off",
-        "why may a new research line not be opened while another is unfinished"
+        "why may a new research line not be opened while another is unfinished",
+        "what does the product ledger hold, who writes it, and when is a decision due for re-measure"
       ],
       "answers_tr": [
         "bir araştırma hattı nerede yaşar ve ne tutar",
@@ -275,11 +276,13 @@
         "init, claim, migrate ve source ne yazar",
         "bir oturum bir araştırma hattının bozuk olduğunu nasıl öğrenir",
         "araştırma işaretini ne yakar ve katman nasıl kapatılır",
-        "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz"
+        "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz",
+        "ürün kayıt defteri ne tutar, ona kim yazar ve bir karar ne zaman yeniden ölçülmeli"
       ],
       "sources": [
         "hooks/tezgah_research.py",
         "bin/tezgah-research",
+        "hooks/tezgah_product.py",
         "hooks/tezgah_policy.py",
         "hooks/tezgah_context.py",
         "skills/research/SKILL.md",

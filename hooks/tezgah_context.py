@@ -16,6 +16,7 @@ import time
 
 import tezgah_embed
 import tezgah_orca
+import tezgah_product
 import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
@@ -1486,8 +1487,8 @@ DEFAULT_BUDGET = 13000
 # exists to prevent, not one it may cause.
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
-              "research_broken", "graph", "offnote", "orchestrate", "index",
-              "resume", "scratch", "task", "delta", "pointer")
+              "research_broken", "product_due", "graph", "offnote", "orchestrate",
+              "index", "resume", "scratch", "task", "delta", "pointer")
 
 
 def _first_item(text):
@@ -2286,6 +2287,22 @@ def context_for(event, cwd, payload=None, with_core=True):
                           "`%s check` before reporting a result"
                           % (line_slug, len(broken), err,
                              tool("tezgah-research"))))
+        # Every product-ledger decision whose re-measure date has passed with no
+        # R row: at most three named, the rest counted. A ledger that cannot be
+        # read costs the note, never the session.
+        try:
+            due = tezgah_product.due(root) if not off("research-off") else []
+        except (OSError, ValueError):
+            due = []
+        if due:
+            lines = ["Product: %s (%s) is due for re-measure since %s - record "
+                     "its R with `%s record R`."
+                     % (d["id"], d["topic"], d["observe_after"],
+                        tool("tezgah-research")) for d in due[:3]]
+            if len(due) > 3:
+                lines.append("and %d more due (`%s due`)"
+                             % (len(due) - 3, tool("tezgah-research")))
+            parts.append(("product_due", "\n".join(lines)))
     if disabled:
         parts.append(("offnote", off_note))
         if "orchestrate-off" in disabled:

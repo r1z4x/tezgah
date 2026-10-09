@@ -14,6 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **feature-audit forward mode.** A feature not built yet gets its five matrices in `spec.md`. The audit after the build compares against it.
 - **analyze-app writes the design measurement.** Nothing produced `measurement.json` before. The skill now gives its shape and the snippet that reads it.
 - **The local skill search reaches design-library's entries.** The search now reads the entries a skill's `INDEX.md` lists, one row each.
+- **The product ledger.** `tezgah-research record` appends observation, insight, assumption, metric, decision and re-measure rows to `.tezgah/product/ledger.jsonl`. One shared check refuses a bad row in the writer and in `check` alike. Only the main checkout writes the product ledger, and a worktree reads it. Plans, analyses and the design contract cite a row as `product:D4`. `tezgah-research due` lists decisions past their re-measure date, and the session-start note names up to three of them.
 
 ### Fixed
 
