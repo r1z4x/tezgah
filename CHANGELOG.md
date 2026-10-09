@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **A data, metric or dashboard ask reaches the product rule.** "Bu veriye uygun bir metric dashboard tasarla" armed no rule before. The `product` hint now knows dashboard, KPI and metric-choice words. A metrics endpoint stays code.
+- **A data, metric or dashboard ask reaches the product rule.** "Bu veriye uygun bir metric dashboard tasarla" armed no rule before. A dashboard, chart or metric-choice ask now arms `product`, judged per clause. A code marker in the same clause, such as a metrics endpoint, keeps it out.
 - **product-analysis chooses metrics.** It names a North Star and its input metrics. Each metric gets one record: goal, signal, definition, window, baseline and more.
 - **Dashboard rules in design-contract.** The new `data-views.md` picks the chart for the question. It also sets the context, the window and the widget states.
 - **feature-audit forward mode.** A feature not built yet gets its five matrices in `spec.md`. The audit after the build compares against it.

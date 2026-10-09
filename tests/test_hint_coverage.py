@@ -363,7 +363,9 @@ class HintCoverage(unittest.TestCase):
         # characters, so each adversarial shape gets a wall-clock ceiling
         import time
         for text in ("a" * 100_000, "a/b." * 25_000, "1 - x\n" * 16_000,
-                     "fix a, " * 14_000):
+                     "fix a, " * 14_000,
+                     # a data ask runs the per-clause code-sense scan too
+                     "select " * 15_000 + "design a sales dashboard"):
             started = time.monotonic()
             tc.classify_prompt(text)
             self.assertLess(time.monotonic() - started, 3.0, text[:20])

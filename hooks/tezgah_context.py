@@ -1214,7 +1214,7 @@ DATA_ASK = re.compile(
     r"data visuali[sz]ation|veri\w* (?:\w+ ){0,3}görselleştir\w*)")
 CODE_SENSE = re.compile(
     r"\w\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\b|\b\w+_\w+\b|"
-    r"/metrics\b|\bselect\b.*\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
+    r"/metrics\b|\bselect\b.{0,200}?\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
     r"query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|"
     r"handlers?|structs?|endpoints?|exporters?|export\w*|servers?|librar\w*|"
     r"packages?|modules?|database|index\w*|indeks\w*|"
