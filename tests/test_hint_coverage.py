@@ -245,6 +245,20 @@ CORPUS = {
     "fix hooks/a.py": set(),
     'File "a.py", line 3\nFile "b.py", line 9\nFile "c.py", line 1': set(),
     "fix the parser and add a test": set(),
+    # a data ask said by its output arms the product rule (the user's own
+    # sentence armed nothing before plan 072); a metric or dashboard in its
+    # code sense - an endpoint, a counter, a config file - stays code
+    "Bu veriye uygun bir metric dashboard tasarla": {"product"},
+    "I have this data, design a metric dashboard for it": {"product"},
+    "KPI dashboardu tasarlar mısın": {"product"},
+    "gösterge paneli tasarla": {"product"},
+    "hangi metrikleri takip etmeliyiz": {"product"},
+    "choose metrics for the retention review": {"product"},
+    "expose a prometheus metrics endpoint": set(),
+    "add a metric counter to the parser": set(),
+    "fix the grafana dashboard json provisioning": set(),
+    "bump the metrics library": set(),
+    "update the dashboard config file": set(),
 }
 
 

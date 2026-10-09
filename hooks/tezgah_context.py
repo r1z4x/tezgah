@@ -305,6 +305,16 @@ PROMPT_HINTS = (
                 r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
                 r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
                 r"özellik\w*|sayfa(?! numara)\w*|"
+                # A data ask said by its output: a dashboard, a KPI, a metric to
+                # choose. "Bu veriye uygun bir metric dashboard tasarla" armed
+                # nothing before this. A metric alone is code (a metrics
+                # endpoint, a metric counter), so it arms only beside a choice
+                # or design verb, and a dashboard's config files stay code.
+                r"(?<!grafana )(?<!kibana )dashboard(?!s?[ -](?:json|ya?ml|"
+                r"provision\w*|config\w*|api|routes?|endpoints?)\b)\w*|"
+                r"gösterge panel\w*|kpi\w*|(hangi|which) metri\w*|"
+                r"(design|choose|pick|define)\w* (\w+ ){0,3}metri[ck]s?|"
+                r"metrik\w* (\w+ ){0,3}(tasarla|seç|tanımla|belirle|takip)\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads

@@ -347,10 +347,34 @@ def skill_roots(extra=()):
     return out
 
 
+# One routing line of a skill's own INDEX.md: `name - what it makes - path`.
+_INDEX_ROW = re.compile(r"^\S+ - .+ - (\S+/SKILL\.md)\s*$")
+
+
+def _entries(root, name):
+    """[(skill, path)] for one skill directory: its SKILL.md, then every entry its
+    INDEX.md routes to. design-library keeps 39 entries under
+    `<plugin>/skills/<entry>/SKILL.md` and reaches them only through that index,
+    so a search over top-level files alone never saw a word of them. A nested
+    entry is addressed `<skill>/<path>`, the form `skill://` resolves."""
+    base = os.path.join(root, name)
+    out = [(name, os.path.join(base, "SKILL.md"))]
+    try:
+        with open(os.path.join(base, "INDEX.md"), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return out
+    for line in lines:
+        hit = _INDEX_ROW.match(line)
+        if hit and ".." not in hit.group(1).split("/"):
+            out.append(("%s/%s" % (name, hit.group(1)), os.path.join(base, hit.group(1))))
+    return out
+
+
 def _rows(roots=None):
     """[(skill, path, title, start, end, text)] over every installed skill's
-    sections, deduplicated on the file's realpath so a skill five hosts link
-    is one entry, not five."""
+    sections, and the entries a skill's INDEX.md routes to, deduplicated on the
+    file's realpath so a skill five hosts link is one entry, not five."""
     out, seen = [], set()
     for root in (skill_roots() if roots is None else roots):
         try:
@@ -358,14 +382,23 @@ def _rows(roots=None):
         except OSError:
             continue
         for name in names:
-            path = os.path.realpath(os.path.join(root, name, "SKILL.md"))
-            if not os.path.isfile(path):
-                continue
-            for title, start, end, text in sections(path):
-                if (path, start) in seen:
+            for skill, raw in _entries(root, name):
+                path = os.path.realpath(raw)
+                if not os.path.isfile(path):
                     continue
-                seen.add((path, start))
-                out.append((name, path, title, start, end, text))
+                secs = sections(path)
+                if "/" in skill and secs:
+                    # A routed entry is one row, the whole file: its short
+                    # sections out-scored whole skills on two common words
+                    # ("give", "thing") and silenced the right hint, while the
+                    # entry as a whole still carries its topic's words.
+                    secs = [(secs[0][0], secs[0][1], secs[-1][2],
+                             "\n".join(s[3] for s in secs))]
+                for title, start, end, text in secs:
+                    if (path, start) in seen:
+                        continue
+                    seen.add((path, start))
+                    out.append((skill, path, title, start, end, text))
     return out
 
 
@@ -490,9 +523,10 @@ def rank_postings(query, posts, lengths, k):
 
 
 def _signature():
-    """[[root, skill, mtime_ns, size]] per installed SKILL.md: what a rebuild
-    keys on. The file's own stat, not its directory's - installing, editing or
-    removing one skill is exactly the change the cache must notice."""
+    """[[root, skill, mtime_ns, size]] per installed SKILL.md and per entry an
+    INDEX.md routes to: what a rebuild keys on. The file's own stat, not its
+    directory's - installing, editing or removing one skill is exactly the
+    change the cache must notice."""
     sig = []
     for root in skill_roots():
         try:
@@ -500,11 +534,12 @@ def _signature():
         except OSError:
             continue
         for name in names:
-            try:
-                st = os.stat(os.path.join(root, name, "SKILL.md"))
-            except OSError:
-                continue
-            sig.append([root, name, st.st_mtime_ns, st.st_size])
+            for skill, path in _entries(root, name):
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                sig.append([root, skill, st.st_mtime_ns, st.st_size])
     return sig
 
 

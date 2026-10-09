@@ -187,6 +187,53 @@ class SkillSearchCLI(FixtureTree):
         self.assertEqual("", proc.stdout.strip())
 
 
+class NestedIndex(FixtureTree):
+    """A skill that routes to entries through its own INDEX.md (the shape of
+    design-library: 39 entries under `<plugin>/skills/<entry>/SKILL.md`) has
+    those entries searched too, addressed `<skill>/<path>`, one row per entry.
+    Before plan 072 the search read top-level files only, so no word of an
+    entry could match; one row per section instead let short vendored sections
+    out-score whole skills on common words (ContextLine in test_skill_pick)."""
+
+    DEEP = "# Deep\n\n## Dashboard simplification\n\nShow three to five key metrics.\n"
+
+    def setUp(self):
+        super().setUp()
+        lib = os.path.join(self.root, "lib")
+        os.makedirs(os.path.join(lib, "plug", "skills", "deep"))
+        with open(os.path.join(lib, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: lib\ndescription: Use when a method is needed.\n"
+                     "---\n\n# Lib\n\n## Router\n\nRead INDEX.md.\n")
+        with open(os.path.join(lib, "plug", "skills", "deep", "SKILL.md"), "w") as fh:
+            fh.write(self.DEEP)
+        with open(os.path.join(lib, "INDEX.md"), "w") as fh:
+            fh.write("# Index\n\n## plug\n\n"
+                     "deep - a deep entry - plug/skills/deep/SKILL.md\n"
+                     "escape - outside the skill - ../beta/SKILL.md\n")
+
+    def test_an_entry_the_index_routes_to_is_searched_as_one_row(self):
+        hits = self.hits("dashboard key metrics")
+        self.assertTrue(hits, "the nested entry did not score")
+        skill, _path, title, start, end = hits[0]
+        self.assertEqual(("lib/plug/skills/deep/SKILL.md", "Deep", 1, 5),
+                         (skill, title, start, end), hits)
+
+    def test_an_index_row_leaving_the_skill_is_not_followed(self):
+        skills = {skill for skill, _p, _t, _s, _e in sp.index(self.roots)}
+        self.assertNotIn("lib/../beta/SKILL.md", skills)
+        self.assertIn("beta", skills)
+
+    def test_the_shipped_design_library_entries_are_reachable(self):
+        roots = [os.path.join(REPO, "skills")]
+        nested = {skill for skill, _p, _t, _s, _e in sp.index(roots)
+                  if skill.startswith("design-library/")}
+        with open(os.path.join(REPO, "skills", "design-library", "INDEX.md"),
+                  encoding="utf-8") as fh:
+            listed = [line for line in fh if sp._INDEX_ROW.match(line.rstrip("\n"))]
+        self.assertEqual(len(listed), len(nested), sorted(nested))
+
+
+
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
     dir, so the cached path runs without touching the real index."""
