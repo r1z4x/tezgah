@@ -136,6 +136,52 @@ Screenshots, traces and tree dumps go to the app artifact directory
 (`PLAYWRIGHT_MCP_OUTPUT_DIR`, default `~/.cache/tezgah/apps`). Return the file
 path; keep image tokens out of the context.
 
+## Measurement for design-contract
+
+`tezgah-design check` judges a measurement, and this loop is what writes it:
+`.tezgah/design/measurement.json`, one entry per component the repository's
+`.tezgah/design-contract.md` lists. Read the computed styles with `browser_evaluate`,
+one selector per component:
+
+```js
+() => {
+  const PROPS = ["font-size", "padding", "gap", "color", "background-color",
+                 "width", "height"];
+  const LIST = [["Button", "interactive", "button.primary"],
+                ["RevenueTile", "data", "[data-widget=revenue]"]];
+  return {components: LIST.map(([name, kind, selector]) => {
+    const style = getComputedStyle(document.querySelector(selector));
+    return {name, kind, states: [],
+            styles: Object.fromEntries(PROPS.map(p => [p, style.getPropertyValue(p)]))};
+  })};
+}
+```
+
+Add `outline-style`, `outline-width`, `box-shadow` and `transition-duration` for a
+focusable or animated component: the `focus-visible` and `reduced-motion` rules read
+them. `states` is filled from what was observed, never from source: a computed
+style shows only the state the page is in, so each state name goes in after the
+component was driven or routed into it and read again. The file is this shape - an
+object with a `components` list, or the bare list:
+
+```json
+{"components": [
+  {"name": "Button", "kind": "interactive",
+   "states": ["default", "hover", "focus", "active", "disabled", "loading",
+              "error"],
+   "styles": {"font-size": "16px", "padding": "8px 12px", "gap": "8px",
+              "color": "rgb(17, 17, 17)", "background-color": "rgb(255, 255, 255)",
+              "width": "120px", "height": "40px"}},
+  {"name": "RevenueTile", "kind": "data",
+   "states": ["empty", "loading", "skeleton", "error", "offline", "partial",
+              "long-text", "permission-denied"],
+   "styles": {"font-size": "14px", "padding": "16px",
+              "color": "rgb(17, 17, 17)", "background-color": "rgb(255, 255, 255)"}}]}
+```
+
+`kind` is `interactive` or `data`, and it decides which half of the contract's state
+set the component owes; a component without one is unjudged.
+
 ## Looking at the screen
 
 The tree answers structure; the image answers hierarchy, rhythm, colour and feel.

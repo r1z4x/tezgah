@@ -10,7 +10,8 @@ description: >
   panel, a CRUD screen, a form, a wizard or step flow, a search or picker control,
   a data table, a bulk action, a permission surface, or a "why does this not work
   / what is missing here / make this better" ask, and whenever a UI improvement
-  needs a capability the system does not have. The unit of analysis is the
+  needs a capability the system does not have, or a feature not built yet needs
+  the same matrices as a spec before the build. The unit of analysis is the
   feature, not the screen: a screen-level review cannot see a capability no
   surface reaches, a contract field no view renders, or a step whose precondition
   nothing enforces. Not for the whole product - use `product-analysis`.
@@ -32,7 +33,9 @@ assume: run it on the one feature in scope and feed its findings into their axes
 Pick **one feature**: one entity (a person, an order, a record) plus every action
 a user can take on it, plus every screen and endpoint that carries those actions.
 Write the boundary down: the entity, the actions, the screens, the endpoints, the
-files. A feature that cannot be bounded this way is two features.
+files. A feature that cannot be bounded this way is two features. A feature that
+does not exist yet is bounded the same way from the decision that asks for it, and
+runs in forward mode (below).
 
 The surfaces in scope are **every interface element and every data view** - a form
 control, a list or table, a detail view, a filter or facet, a picker, a step
@@ -234,6 +237,22 @@ it; a proposal with no rejectable artifact; a schema-touching step with no migra
 phases; a flag with no lifetime or owner; a contract change with no ADR and no
 pre/post check pair.
 
+## Forward mode
+
+For a feature not built yet, the same five matrices are the spec. Before the build,
+fill matrices 1-5 from the decision that asks for the feature - capability x layer,
+field contract, flow and step, interaction dependency, and the surface patterns
+with every state each control and data view owes - into
+`.tezgah/analysis/<feature>/spec.md`. Each row cites the decision line it comes
+from; a cell the decision does not settle is marked `[OPEN: question]`, so the gap
+is asked before it is built, not discovered after.
+
+After the build, run the normal audit on the built feature and diff it against
+`spec.md` row by row. Every disagreement is a finding: a capability the spec names
+and no layer delivers, a field the spec defines and no view renders, a state the
+spec owes and the running app does not show, and a layer the build added that the
+spec never asked for. An agreement is a row too.
+
 ## Every finding carries a Prevent line
 
 A finding that only describes the defect will be met again next quarter. For each
@@ -321,6 +340,7 @@ NN/g data tables and infinite scrolling. axe-core rule tags and the 57% figure:
 `https://github.com/dequelabs/axe-core`.
 
 Where the depth lives: `product-analysis` (the five axes this feeds), `analyze-app`
-(how a running surface is read), `research` (where the artifact lives),
+(how a running surface is read), `research` (how a claim and the source an audit
+cites are recorded),
 `intended-vs-implemented` (documentation against code - this skill compares layer
 against layer).
