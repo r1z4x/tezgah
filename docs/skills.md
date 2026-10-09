@@ -128,6 +128,12 @@ rebuilds that index only when a SKILL.md's mtime or size moves
 (`hooks/tezgah_skill_pick.py::_open_index`). A prompt reads its own terms'
 postings and the length column, never the corpus.
 
+A skill that routes through its own `INDEX.md` (design-library's 39 entries) has
+each routed entry indexed as one row for the whole file, addressed
+`skill://<skill>/<path>` (`hooks/tezgah_skill_pick.py::_entries`). One row per
+entry, not per section: the vendored sections are short, and BM25 let them
+outrank whole skills on two common words.
+
 The hook then appends one line, `A local skill search matched this request:
 skill://<name>:<start>-<end>`, with the section title. Every host but omp also
 gets the absolute path. The top section must carry 60% of the prompt's

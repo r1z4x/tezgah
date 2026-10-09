@@ -233,6 +233,20 @@ class NestedIndex(FixtureTree):
         self.assertEqual(len(listed), len(nested), sorted(nested))
 
 
+class ShippedProductHint(unittest.TestCase):
+    """Over this repository's own skills, the user's dashboard ask lands on a
+    product skill. Before plan 072 the English form's only hint, on a machine
+    with marketing skills installed, was `churn-prevention`; the shipped corpus
+    alone had no section carrying a metric's record."""
+
+    def test_a_dashboard_ask_lands_on_a_product_section(self):
+        roots = [os.path.join(REPO, "skills")]
+        for prompt in ("I have this data, design a metric dashboard for it",
+                       "Bu veriye uygun bir metric dashboard tasarla"):
+            top = sp.top_section(prompt, roots=roots)
+            self.assertTrue(top, prompt)
+            self.assertIn(top[0][0], ("product-analysis", "design-contract"), top)
+
 
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
