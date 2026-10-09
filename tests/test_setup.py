@@ -2720,8 +2720,10 @@ class ContextBudget(SetupBase):
     # description is 542 characters, so the growth is recorded here deliberately
     # rather than absorbed by the 2000-byte headroom. Raised again to 11075 when
     # every own skill's description gained its `Not for X - use `y`` boundary
-    # clause (762 characters over 13 names, linted by test_skills.Frontmatter).
-    BAND_BEFORE = 11075
+    # clause (762 characters over 13 names, linted by test_skills.Frontmatter),
+    # and to 11154 when feature-audit's description named its forward mode, a
+    # feature not built yet specced with the same matrices (79 characters, plan 072).
+    BAND_BEFORE = 11154
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
