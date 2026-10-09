@@ -305,30 +305,6 @@ PROMPT_HINTS = (
                 r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
                 r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
                 r"özellik\w*|sayfa(?! numara)\w*|"
-                # A data ask said by its output: a dashboard, a KPI, a metric to
-                # choose. "Bu veriye uygun bir metric dashboard tasarla" armed
-                # nothing before plan 072. Each stem is qualified (decision 006):
-                # a dashboard arms beside a design verb or a metric noun, never on
-                # its own (`dashboard.json`, `Dashboard.tsx`, "the dashboard test
-                # fails" are code); a metric arms only in the plural beside a
-                # choice verb, never before a library, an endpoint or a struct.
-                r"(?:design|create|sketch|propose|build an?|build me an?)(?:s|ing)? "
-                r"(?:\w+ ){0,4}(?:dashboard|pano|gösterge panel)\w*|"
-                r"(?:metri[ck]s?|kpis?) (?:dashboard|pano)\w*|"
-                r"(?:dashboard|pano|gösterge panel)\w* (?:\w+ ){0,3}"
-                r"(?:tasarla|oluştur|hazırla)\w*|"
-                r"(?:design|choose|pick|define|select|track)(?:s|ing)? (?:\w+ ){0,3}"
-                r"(?:metri[ck]s|kpis)\b(?! (?:librar\w*|packages?|endpoints?|"
-                r"exporters?|servers?|clients?|structs?|interfaces?|modules?|"
-                r"crates?|sdks?|collectors?)\b)(?![._/]\w)|"
-                r"(?:which|what) (?:metri[ck]s|kpis) (?:should|to|do|matter|would)|"
-                r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
-                r"(?:track|measure|use|watch)|success metrics?|"
-                r"hangi (?:metri[ck]\w*|kpi\w*|gösterge\w*)|"
-                r"(?:metri[ck]\w*|kpi\w*|gösterge\w*) (?:\w+ ){0,3}"
-                r"(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
-                r"visuali[sz]e (?:\w+ ){0,3}(?:data|dataset|veri\w*)|"
-                r"veri\w* (?:\w+ ){0,3}görselleştir\w*|"
                 # A single feature said by its surface: an admin screen, a table,
                 # a filter, a form, a step flow. These armed nothing before, so a
                 # feature-level audit got a screen-level answer. The lookaheads
@@ -1210,10 +1186,61 @@ def constraint_notice(cwd, session_id):
     return " ".join(render(subagent_core(core_for(cwd)[0])).split())
 
 
+# A data ask said by its output: a dashboard, a chart, a KPI, a metric to choose.
+# "Bu veriye uygun bir metric dashboard tasarla" armed nothing before plan 072.
+# These words are code words as often as product words (`dashboard.json`, a
+# metrics endpoint, a progress `gösterge`, the clipboard `pano`), and two rounds
+# of noun denylists inside the product regex kept missing the next code sense.
+# So the ask is judged per clause: it arms `product` only when no code marker -
+# a file name, an identifier, SQL, a build, test or runtime word - shares its
+# clause (decision 006: qualify the stem, never drop it).
+DATA_ASK = re.compile(
+    r"\b(?:(?:design|create|make|build|sketch|propose|need|want)\w* (?:\w+ ){0,4}"
+    r"(?:dashboard|charts?|visuali[sz]ation)|"
+    r"(?:metri[ck]s?|kpis?|data|sales|revenue|veri\w*|satış\w*|gelir\w*) "
+    r"(?:\w+ ){0,2}(?:dashboard|pano)|"
+    r"(?:dashboard|gösterge panel)\w* (?:\w+ ){0,4}(?:tasarla|oluştur|hazırla|"
+    r"yap|göster)\w*|"
+    r"(?:what|which) (?:\w+ ){0,3}(?:metri[ck]s|kpis|charts?) (?:\w+ ){0,3}"
+    r"(?:should|to|do|matter|would)|"
+    r"what should (?:\w+ ){0,3}dashboard show|"
+    r"(?:choose|pick|define|track|design)(?:s|ing)? (?:\w+ ){0,3}(?:metri[ck]s|kpis)|"
+    r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
+    r"(?:track|measure|use|watch)|success metrics?|"
+    r"(?:suggest|recommend)\w* (?:\w+ ){0,3}charts?|öner\w* (?:\w+ ){0,3}grafi\w*|"
+    r"hangi (?:metri[ck]\w*|kpi\w*|grafi\w*|göstergeleri?)|"
+    r"(?:metri[ck]\w*|kpi\w*) (?:\w+ ){0,3}(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
+    r"gösterge panel\w*|visuali[sz]\w* (?:\w+ ){0,3}(?:data|numbers|veri\w*)|"
+    r"data visuali[sz]ation|veri\w* (?:\w+ ){0,3}görselleştir\w*)")
+CODE_SENSE = re.compile(
+    r"\w\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\b|\b\w+_\w+\b|"
+    r"/metrics\b|\bselect\b.*\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
+    r"query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|"
+    r"handlers?|structs?|endpoints?|exporters?|export\w*|servers?|librar\w*|"
+    r"packages?|modules?|database|index\w*|indeks\w*|"
+    r"middleware|debugger|data (?:structure|flow)s?|clipboard|spinner|threads?|"
+    r"commit|git|functions?|class|component|prop|hooks?|prometheus|grafana|"
+    r"kibana|statsd|opentelemetry|config\w*|provision\w*|api|routes?|snake_case|"
+    r"veri yapı\w*|fonksiyon\w*|bileşen\w*|modül\w*|dosya\w*|kopyala\w*|"
+    r"seçici\w*|yükleme|ilerleme|paket\w*)\b")
+
+
+def _data_ask(low):
+    """Does one clause of the prompt ask for a data view or a metric choice with
+    no code marker beside it? A clause ends at `!`, `?`, `;`, a newline or a full
+    stop followed by a space, so `dashboard.json` stays one clause."""
+    return any(DATA_ASK.search(clause) and not CODE_SENSE.search(clause)
+               for clause in re.split(r"[!?;\n]|\.\s", low))
+
+
 def classify_prompt(text):
-    """The conditional rule keys a prompt arms, from the shared hint table."""
+    """The conditional rule keys a prompt arms, from the shared hint table, plus
+    `product` for a data ask (DATA_ASK, gated per clause by CODE_SENSE)."""
     low = (text or "").lower()
-    return {key for key, pattern in PROMPT_HINTS if re.search(pattern, low)}
+    keys = {key for key, pattern in PROMPT_HINTS if re.search(pattern, low)}
+    if "product" not in keys and _data_ask(low):
+        keys.add("product")
+    return keys
 
 
 def prompt_text(payload):
