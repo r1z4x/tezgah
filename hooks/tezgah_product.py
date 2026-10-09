@@ -25,6 +25,9 @@ TOKEN = re.compile(r"\bproduct:([OIAMDR]\d+)\b")
 PARENTS = {"O": (), "I": ("O",), "A": ("I",), "M": ("I",), "D": ("I", "A", "M"),
            "R": ("D",)}
 TOPIC = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+# What a reader outside the checker may echo (the session note): fullmatch only.
+SAFE_ID = re.compile(r"[OIAMDR]\d{1,6}")
+SAFE_TOPIC = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){0,7}")
 QUOTE_MAX = 500
 CLASSES = ("user-verbatim", "behaviour", "ui-observed", "code", "external")
 DOWNGRADES = ("limitations", "inconsistency", "indirectness", "imprecision", "bias")
@@ -49,6 +52,13 @@ FIELDS = {
 # What an R that observed something carries beside its verdict.
 OBSERVED = {"value": VALUE, "class": CLASSES, "source": TEXT}
 DESIGN_BLOCK = re.compile(r"```json\s*\n(.*?)\n```", re.S)
+# `due`'s prefilter, read on the raw text before any parse. An unescaped key is
+# the only way these texts occur outside a string value (inside one the quotes
+# are `\"`), and a date is digits and `-`, which only a `\u` escape could spell.
+AFTER = re.compile(r'"observe_after"\s*:\s*"([^"\\]*)"')
+R_TYPE = re.compile(r'"type"\s*:\s*"R"')
+ESCAPE = re.compile(r"\\u")
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def main_checkout(repo):
@@ -71,7 +81,7 @@ def _lines(text):
             continue
         try:
             row = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
             row = None
         out.append((n, row if isinstance(row, dict) else None))
     return out
@@ -86,7 +96,7 @@ def read_rows(repo):
 def _date(value):
     """The date `value` names as YYYY-MM-DD, else None (3.11's fromisoformat also
     takes `20260105` and week dates)."""
-    if not (isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value)):
+    if not (isinstance(value, str) and DATE.fullmatch(value)):
         return None
     try:
         return datetime.date.fromisoformat(value)
@@ -174,12 +184,13 @@ def row_problems(row, held, repo):
             and len(row["quote"]) > QUOTE_MAX:
         problems.append("quote is %d characters, over %d" % (len(row["quote"]),
                                                               QUOTE_MAX))
-    if kind == "I" and row.get("confidence") != "high":
+    if kind == "I" and ("downgrade" in row or row.get("confidence") != "high"):
         grades = row.get("downgrade")
         grades = grades if isinstance(grades, list) else [grades]
         if not grades or any(g not in DOWNGRADES for g in grades):
-            problems.append("downgrade is %r: an I below high confidence names "
-                            "one of %s" % (row.get("downgrade"), ", ".join(DOWNGRADES)))
+            problems.append("downgrade is %r: it names one of %s, and an I below "
+                            "high confidence needs one" % (row.get("downgrade"),
+                                                           ", ".join(DOWNGRADES)))
     if kind == "D":
         metric = by_id.get(_id(row.get("metric")))
         if metric is None or metric.get("type") != "M":
@@ -258,27 +269,53 @@ def append_row(repo, row, date=""):
 
 
 def _due(rows, today):
-    """`due` over rows already read."""
+    """`due` over rows already read. An ISO date orders as its text, so only a
+    row already due pays for the date parse."""
+    iso = today.isoformat()
     measured = {_id(r.get("decision")) for r in rows if r.get("type") == "R"}
     out = []
     for r in rows:
-        after = _date(r.get("observe_after"))
-        if r.get("type") != "D" or after is None or after >= today \
+        after = r.get("observe_after")
+        if r.get("type") != "D" or not isinstance(after, str) or after >= iso \
                 or _id(r.get("id")) in measured:
+            continue
+        day = _date(after)
+        if day is None:
             continue
         out.append({"id": r.get("id"), "topic": r.get("topic"),
                     "metric": r.get("metric"), "threshold": r.get("threshold"),
-                    "observe_after": after.isoformat(),
-                    "days_overdue": (today - after).days})
+                    "observe_after": after, "days_overdue": (today - day).days})
     return sorted(out, key=lambda d: d["observe_after"])
 
 
 def due(repo, today=""):
     """The D rows whose `observe_after` has passed with no R re-measuring them,
-    oldest `observe_after` first."""
+    oldest `observe_after` first.
+
+    The session note calls this on every start, so a line is parsed only when it
+    can matter: one with an `observe_after` text before today, an R, or one
+    carrying a `\\u` escape. An ISO date orders as its text."""
     day = _date(today) if today else datetime.date.today()
-    rows = read_rows(repo)
-    return _due(rows, day) if rows and day else []
+    if day is None:
+        return []
+    text, _exc = tr._committed_text(ledger_path(repo))
+    if not text:
+        return []
+    iso = day.isoformat()
+    hits = {m.start() for m in AFTER.finditer(text) if m.group(1) < iso}
+    escaped = [m.start() for m in ESCAPE.finditer(text)]
+    if not (hits or escaped):
+        return []
+    hits.update(escaped)
+    hits.update(m.start() for m in R_TYPE.finditer(text))
+    keep = {}
+    for at in hits:
+        begin = text.rfind("\n", 0, at) + 1
+        if begin not in keep:
+            # The committed text ends with a newline, so one follows every hit.
+            keep[begin] = text[begin:text.find("\n", at)]
+    rows = _lines("\n".join(keep[b] for b in sorted(keep)))
+    return _due([row for _n, row in rows if row is not None], day)
 
 
 def consumer_tokens(repo):
@@ -301,7 +338,7 @@ def consumer_tokens(repo):
     block = DESIGN_BLOCK.search(text)
     try:
         data = json.loads(block.group(1)) if block else {}
-    except ValueError:
+    except (ValueError, RecursionError):
         data = {}
     comps = data.get("components") if isinstance(data, dict) else None
     cited = set()
@@ -316,6 +353,16 @@ def consumer_tokens(repo):
         for n, line in enumerate(block.group(1).splitlines(), first):
             out += [(rel, n, t) for t in TOKEN.findall(line) if t in cited]
     return out
+
+
+def in_use(repo):
+    """True when there is a product ledger to check: the main checkout's file,
+    a committed version of it in the private `.tezgah` history, or a `product:`
+    citation. The history read forks git: never on the session_start path."""
+    main = main_checkout(repo)
+    path = ledger_path(main)
+    return (os.path.exists(path) or bool(consumer_tokens(repo))
+            or bool(tr.file_versions(main, path)))
 
 
 def _tokens_in(repo, path):
@@ -350,6 +397,10 @@ def check_ledger(repo, strict=False, git=True):
             tr._check_append_only(main, "product ledger (%s)" % LABEL, path, errors,
                                   warnings, True, noun="product ledger rows",
                                   after="it was committed")
+    elif git and any(text.strip() for _sha, text in tr.file_versions(main, path)):
+        errors.append("product ledger (%s) was removed after it was committed: its "
+                      "committed rows went missing, and product ledger rows are "
+                      "append-only - a correction is a new row" % LABEL)
     for r in held:
         if r.get("type") == "I" and not r.get("from"):
             tr._soft(errors, warnings, strict, "product ledger %s (%s) rests on no "

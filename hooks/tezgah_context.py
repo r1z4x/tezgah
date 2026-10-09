@@ -2289,19 +2289,31 @@ def context_for(event, cwd, payload=None, with_core=True):
                              tool("tezgah-research"))))
         # Every product-ledger decision whose re-measure date has passed with no
         # R row: at most three named, the rest counted. A ledger that cannot be
-        # read costs the note, never the session.
+        # read costs the note, never the session. The ledger is the main
+        # checkout's, so a repository-provided workspace there or here injects
+        # nothing, and a row whose id or topic is not the writer's plain shape
+        # is counted, never printed: its text came from a file, not from tezgah.
         try:
             due = tezgah_product.due(root) if not off("research-off") else []
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             due = []
         if due:
+            main = tezgah_product.main_checkout(root)
+            if provided() or (main != root and workspace_from_repo(main)):
+                due = []
+        if due:
+            safe = [d for d in due
+                    if isinstance(d.get("id"), str)
+                    and isinstance(d.get("topic"), str)
+                    and tezgah_product.SAFE_ID.fullmatch(d["id"])
+                    and tezgah_product.SAFE_TOPIC.fullmatch(d["topic"])]
             lines = ["Product: %s (%s) is due for re-measure since %s - record "
                      "its R with `%s record R`."
                      % (d["id"], d["topic"], d["observe_after"],
-                        tool("tezgah-research")) for d in due[:3]]
-            if len(due) > 3:
+                        tool("tezgah-research")) for d in safe[:3]]
+            if len(due) > len(lines):
                 lines.append("and %d more due (`%s due`)"
-                             % (len(due) - 3, tool("tezgah-research")))
+                             % (len(due) - len(lines), tool("tezgah-research")))
             parts.append(("product_due", "\n".join(lines)))
     if disabled:
         parts.append(("offnote", off_note))

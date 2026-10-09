@@ -35,6 +35,8 @@ ROWS = {
           "source": "events table"},
 }
 REWRITTEN = "product ledger (product/ledger.jsonl) was rewritten"
+REMOVED = "product ledger (product/ledger.jsonl) was removed after it was committed"
+DEEP = "[" * 100000
 
 # (needle, type, changed fields, dropped fields): one row per rule the shape
 # refuses, every one of them fed to the writer and to the checker.
@@ -57,6 +59,7 @@ REFUSALS = [
     ("confidence", "I", {"confidence": "sure"}, ()),
     ("downgrade", "I", {}, ("downgrade",)),
     ("downgrade", "I", {"downgrade": ["vibes"]}, ()),
+    ("downgrade", "I", {"confidence": "high", "downgrade": "vibes"}, ()),
     ("kind", "A", {"kind": "delight"}, ()),
     ("statement", "A", {}, ("statement",)),
     ("importance", "A", {"importance": "medium"}, ()),
@@ -226,6 +229,19 @@ class Writer(Ledger):
                          ["product/ledger.jsonl cannot be locked on this platform"])
         self.assertFalse(os.path.exists(self.path))
 
+    def test_an_unterminated_fragment_is_cut_before_the_new_row(self):
+        # Kills: the append without truncate_to_committed (the row would be glued
+        # onto the fragment) and _held reading past committed_size (the
+        # fragment's O5 would make the new id O6).
+        self.record("O")
+        with open(self.path, "a") as fh:
+            fh.write(json.dumps(dict(row("O"), id="O5", date=DAY)))
+        self.assertEqual(self.record("O"), ["O2"])
+        text = read(self.path)
+        self.assertTrue(text.endswith("\n"))
+        self.assertEqual([json.loads(line)["id"] for line in text.splitlines()],
+                         ["O1", "O2"])
+
 
 class AppendOnly(Ledger):
     def rewrite_first_row(self):
@@ -261,6 +277,58 @@ class AppendOnly(Ledger):
         self.commit(self.main, "rewrite", when=AFTER)
         errors = self.check()["errors"]
         self.assertTrue(any(e.startswith(REWRITTEN) for e in errors), errors)
+
+    def test_a_removed_ledger_is_refused_committed_or_not(self):
+        # Kills: no check when the file is gone - the working copy was the only
+        # version compared, and a committed deletion is a commit git show skips.
+        self.record("O", "O")
+        self.commit(self.main, "rows", when=BEFORE)
+        os.remove(self.path)
+        self.assertTrue(tprod.in_use(self.main))
+        errors = self.check()["errors"]
+        self.assertTrue(any(e.startswith(REMOVED) for e in errors), errors)
+        self.assertEqual(self.check(git=False)["errors"], [])
+        self.commit(self.main, "drop", when=AFTER)
+        errors = self.check()["errors"]
+        self.assertTrue(any(e.startswith(REMOVED) for e in errors), errors)
+
+    def test_a_recreated_shorter_ledger_is_refused(self):
+        self.record("O", "O")
+        self.commit(self.main, "rows", when=BEFORE)
+        first = read(self.path).splitlines(True)[0]
+        os.remove(self.path)
+        self.write(self.path, first)
+        errors = self.check()["errors"]
+        self.assertTrue(any(e.startswith(REWRITTEN) for e in errors), errors)
+
+    def test_in_use_reads_the_file_the_history_and_the_citations(self):
+        self.assertFalse(tprod.in_use(self.main))
+        self.record("O")
+        self.assertTrue(tprod.in_use(self.main))
+        other = self.repo("cites")
+        self.assertFalse(tprod.in_use(other))
+        self.write(os.path.join(other, ".tezgah", "plans", "open", "p.md"),
+                   "per product:O1\n")
+        self.assertTrue(tprod.in_use(other))
+
+
+class Unparseable(Ledger):
+    def test_a_deeply_nested_line_is_a_bad_line_not_an_exception(self):
+        # Kills: RecursionError escaping _lines (and with it every reader:
+        # due, check, record) or the design contract's parse.
+        self.hand(dated("M", "M1"), dated("D", "D1", observe_after="2020-03-01"))
+        with open(self.path, "a") as fh:
+            fh.write('{"observe_after": "2000-01-01", "x": %s\n' % DEEP)
+        self.assertEqual([d["id"] for d in tprod.due(self.main, "2020-04-01")],
+                         ["D1"])
+        self.assertIn("product ledger line 3 is not a JSON object",
+                      self.check(git=False)["errors"])
+        ws = os.path.join(self.main, ".tezgah")
+        self.write(os.path.join(ws, "design-contract.md"),
+                   "```json\n%s\n```\n" % DEEP)
+        self.write(os.path.join(ws, "plans", "open", "p.md"), "per product:M1\n")
+        self.assertEqual(tprod.consumer_tokens(self.main),
+                         [(".tezgah/plans/open/p.md", 1, "M1")])
 
 
 class Worktree(Ledger):
@@ -380,6 +448,28 @@ class Due(Ledger):
                   dated("R", "R1", decision="D1"))
         self.assertEqual(tprod.due(self.main, "2020-04-01"), [])
         self.assertEqual(tprod.due(self.repo("empty"), "2020-04-01"), [])
+
+    def test_due_parses_only_the_lines_that_can_matter(self):
+        # The prefilter: an M and a future D cost no parse, an R and a
+        # `\u`-escaped D still do - an escaped date is still due.
+        self.hand(dated("M", "M1"),
+                  dated("D", "D1", observe_after="2099-01-01"),
+                  dated("D", "D2", observe_after="2020-03-01"),
+                  dated("R", "R1", decision="D2"))
+        with open(self.path, "a") as fh:
+            fh.write('{"type": "D", "id": "D3", "topic": "export", "observe_after"'
+                     ': "2020\\u002d02-01"}\n')
+        parsed = []
+        saved = tprod._lines
+        tprod._lines = lambda text: parsed.append(text) or saved(text)
+        try:
+            got = tprod.due(self.main, "2020-04-01")
+        finally:
+            tprod._lines = saved
+        self.assertEqual([d["id"] for d in got], ["D3"])
+        self.assertEqual(got[0]["days_overdue"], 60)
+        self.assertEqual([json.loads(line)["id"] for line in parsed[0].splitlines()],
+                         ["D2", "R1", "D3"])
 
 
 if __name__ == "__main__":

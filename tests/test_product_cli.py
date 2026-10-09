@@ -153,6 +153,36 @@ class ProductCli(Workspace):
         self.assertTrue(fails and "D9" in fails[0], proc.stdout)
         self.assertFalse(any("D62" in line for line in fails), fails)
 
+    def test_check_slug_answers_for_that_line_only(self):
+        repo = self.repo()
+        self.line(repo)
+        self.write(os.path.join(repo, ".tezgah", "plans", "open", "001-x.md"),
+                   "# x\n\nrests on product:D9\n")
+        proc = self.raw(repo, "check", "q")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertNotIn("product", proc.stdout)
+        self.assertEqual(self.raw(repo, "check").returncode, 1)
+
+    def test_check_counts_lines_not_the_product_key(self):
+        repo = self.repo()
+        self.line(repo)
+        proc = self.raw(repo, "record", "O", stdin=json.dumps(OBSERVATION))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.raw(repo, "check")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("research: 1 line(s) ok", proc.stdout.splitlines())
+
+    def test_check_fails_when_the_committed_ledger_is_deleted(self):
+        repo = self.repo()
+        proc = self.raw(repo, "record", "O", stdin=json.dumps(OBSERVATION))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.raw(repo, "commit", "--product", "product: O1")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        os.remove(self.ledger(repo))
+        proc = self.raw(repo, "check")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertTrue(re.search(r"^FAIL product: ", proc.stdout, re.M), proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

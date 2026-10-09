@@ -343,9 +343,9 @@ def cmd_check(args):
         for warn in report["orx"]["warnings"]:
             print("warn orx: %s" % warn)
     # The product ledger is the repository's, like the orx registry; a repository
-    # with no ledger and no `product:` citation gets nothing new.
-    if (os.path.exists(tp_product.ledger_path(repo))
-            or tp_product.consumer_tokens(repo)):
+    # with no ledger and no `product:` citation gets nothing new, and `check <slug>`
+    # answers for that line only.
+    if not rest and tp_product.in_use(repo):
         report["product"] = tp_product.check_ledger(repo, strict=strict)
         for err in report["product"]["errors"]:
             problems += 1
