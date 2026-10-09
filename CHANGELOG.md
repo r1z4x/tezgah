@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-09
+
 ### Fixed
 
 - **Subagents load in the first session.** Claude and Codex missed every role a
@@ -979,7 +981,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.1
 [1.5.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.0
 [1.4.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.4.0
 [1.3.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.3.0
