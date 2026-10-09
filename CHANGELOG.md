@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A data, metric or dashboard ask reaches the product rule.** "Bu veriye uygun bir metric dashboard tasarla" armed no rule before. A dashboard, chart or metric-choice ask now arms `product`, judged per clause. A code marker in the same clause, such as a metrics endpoint, keeps it out.
+- **product-analysis chooses metrics.** It names a North Star and its input metrics. Each metric gets one record: goal, signal, definition, window, baseline and more.
+- **Dashboard rules in design-contract.** The new `data-views.md` picks the chart for the question. It also sets the context, the window and the widget states.
+- **feature-audit forward mode.** A feature not built yet gets its five matrices in `spec.md`. The audit after the build compares against it.
+- **analyze-app writes the design measurement.** Nothing produced `measurement.json` before. The skill now gives its shape and the snippet that reads it.
+- **The local skill search reaches design-library's entries.** The search now reads the entries a skill's `INDEX.md` lists, one row each.
+
+### Fixed
+
+- **product-analysis no longer says `check` demands three compared solutions.** An analysis answers once. A choice between solutions goes under `decisions/`.
+
 ## [1.5.1] - 2026-10-09
 
 ### Fixed

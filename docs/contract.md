@@ -276,7 +276,10 @@ sentence of the rule.
 
 `PROMPT_HINTS` (`hooks/tezgah_context.py::PROMPT_HINTS`) is one compiled pattern per key
 — `spec`, `consult`, `research`, `product`, `graph`, `fanout` — and `classify_prompt()` returns the keys
-a prompt matches (`hooks/tezgah_context.py::classify_prompt`). `fanout` arms on the
+a prompt matches (`hooks/tezgah_context.py::classify_prompt`). It also adds `product`
+for a data ask: a dashboard, a chart or a metric to choose. The check reads each
+clause on its own (`hooks/tezgah_context.py::_data_ask`). A code marker in that
+clause keeps the ask out: a file name, an identifier, SQL or a build word. `fanout` arms on the
 shape of the request, not a word. Two list entries on their own lines arm it.
 An entry starts with `1.`, `1)`, `1 -`, `1:`, `a)` or a bullet. An inline
 `1. ... 2. ...` arms it too. So do three files named as one list, "First, ...

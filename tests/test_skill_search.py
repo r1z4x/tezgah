@@ -187,6 +187,86 @@ class SkillSearchCLI(FixtureTree):
         self.assertEqual("", proc.stdout.strip())
 
 
+class NestedIndex(FixtureTree):
+    """A skill that routes to entries through its own INDEX.md (the shape of
+    design-library: 39 entries under `<plugin>/skills/<entry>/SKILL.md`) has
+    those entries searched too, addressed `<skill>/<path>`, one row per entry.
+    Before plan 072 the search read top-level files only, so no word of an
+    entry could match; one row per section instead let short vendored sections
+    out-score whole skills on common words (ContextLine in test_skill_pick)."""
+
+    DEEP = "# Deep\n\n## Dashboard simplification\n\nShow three to five key metrics.\n"
+
+    def setUp(self):
+        super().setUp()
+        lib = os.path.join(self.root, "lib")
+        os.makedirs(os.path.join(lib, "plug", "skills", "deep"))
+        with open(os.path.join(lib, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: lib\ndescription: Use when a method is needed.\n"
+                     "---\n\n# Lib\n\n## Router\n\nRead INDEX.md.\n")
+        with open(os.path.join(lib, "plug", "skills", "deep", "SKILL.md"), "w") as fh:
+            fh.write(self.DEEP)
+        # a file outside every root, reached three ways an index row could try
+        outside = os.path.join(os.path.realpath(self.tmp.name), "outside", "x")
+        os.makedirs(outside)
+        with open(os.path.join(outside, "SKILL.md"), "w") as fh:
+            fh.write("# Outside\n\n## Zebraquux\n\nzebraquux zebraquux zebraquux\n")
+        os.symlink(outside, os.path.join(lib, "plug", "linked"))
+        with open(os.path.join(lib, "INDEX.md"), "w") as fh:
+            fh.write("# Index\n\n## plug\n\n"
+                     "deep - a deep entry - plug/skills/deep/SKILL.md\n"
+                     "abs - absolute - %s\n"
+                     "up - relative escape - ../../outside/x/SKILL.md\n"
+                     "link - symlink out - plug/linked/SKILL.md\n"
+                     % os.path.join(outside, "SKILL.md"))
+
+    def test_an_entry_the_index_routes_to_is_searched_as_one_row(self):
+        hits = self.hits("dashboard key metrics")
+        self.assertTrue(hits, "the nested entry did not score")
+        skill, _path, title, start, end = hits[0]
+        self.assertEqual(("lib/plug/skills/deep/SKILL.md", "Deep", 1, 5),
+                         (skill, title, start, end), hits)
+
+    def test_an_index_row_leaving_the_skill_is_not_followed(self):
+        # absolute, `..` and a symlink out all name the same outside file;
+        # none of them may put it in the index
+        self.assertEqual([], self.hits("zebraquux"))
+
+    def test_the_shipped_design_library_entries_are_reachable(self):
+        roots = [os.path.join(REPO, "skills")]
+        nested = {skill for skill, _p, _t, _s, _e in sp.index(roots)
+                  if skill.startswith("design-library/")}
+        with open(os.path.join(REPO, "skills", "design-library", "INDEX.md"),
+                  encoding="utf-8") as fh:
+            listed = [line for line in fh if sp._INDEX_ROW.match(line.rstrip("\n"))]
+        self.assertEqual(len(listed), len(nested), sorted(nested))
+        top = sp.search("default dashboard 3-5 key metrics primary actions",
+                        k=1, roots=roots)
+        self.assertEqual(
+            "design-library/adaptive-interfaces/skills/simplified-views/SKILL.md",
+            top[0][0], top)
+
+
+class ShippedProductHint(unittest.TestCase):
+    """Over this repository's own skills, the user's dashboard ask lands on a
+    product skill. Before plan 072 the English form's only hint, on a machine
+    with marketing skills installed, was `churn-prevention`; the shipped corpus
+    alone had no section carrying a metric's record."""
+
+    def test_a_dashboard_ask_lands_on_a_product_section(self):
+        roots = [os.path.join(REPO, "skills")]
+        for prompt in ("I have this data, design a metric dashboard for it",
+                       "Bu veriye uygun bir metric dashboard tasarla"):
+            top = sp.top_section(prompt, roots=roots)
+            self.assertTrue(top, prompt)
+            self.assertIn(top[0][0], ("product-analysis", "design-contract"), top)
+        # the English form also clears the bar `section_hint` holds a hint to
+        row, covered, known = sp.top_section(
+            "I have this data, design a metric dashboard for it", roots=roots)
+        self.assertGreaterEqual(covered, sp.HINT_MIN_TERMS, row)
+        self.assertGreaterEqual(covered / known, sp.HINT_COVER, row)
+
+
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
     dir, so the cached path runs without touching the real index."""

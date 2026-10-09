@@ -1,7 +1,8 @@
 # Feature audit: one feature, every layer
 
 Audience: the agent and the maintainer answering "why does this screen do that"
-or "make this feature better" on an existing product surface.
+or "make this feature better" on an existing product surface. It also serves
+whoever specifies a feature before the build.
 
 A screen review judges what is on the screen. Most of what goes wrong in a real
 feature is not on the screen: it is a disagreement between two layers - the surface
@@ -20,7 +21,7 @@ sourced to WAI-ARIA APG and WCAG 2.2.
 It is reached the same way `product-analysis` is: the `product` task class arms the
 rule (`hooks/tezgah_context.py::PROMPT_HINTS`), whose coherence paragraph
 (`hooks/tezgah_policy.py::CORE`) names the feature unit and the matrices, and
-`skills/product-analysis/SKILL.md:51` runs the coherence pass before its axes.
+`skills/product-analysis/SKILL.md:74` runs the coherence pass before its axes.
 `skills/tezgah-contract/SKILL.md:725-737` carries the long form for a session that
 reads the contract.
 
@@ -37,6 +38,17 @@ step flow, a notification. It is not a form-only method.
 | Flow and step | the steps of a multi-step flow | precondition, validation, write, skip prevention, resume, back-navigation, error landing | a step reachable without its precondition; work lost on reload; an error mapped to the wrong step |
 | Interaction dependency | the controls whose change alters another's valid set | dependents, required action on change, state owner, announcement | a stale dependent value; a silent reset; a filter showing a state the view no longer has |
 | Surface pattern | the controls, data views, flows and notifications | the decidable rule, with its source | a combobox with no expanded state; a results count announced nowhere; a destructive confirmation that hides what it destroys |
+
+## Forward mode: the spec before the build
+
+For a feature that does not exist yet, fill the five matrices from the decision
+first. They go into `.tezgah/analysis/<feature>/spec.md` before the build. Mark a
+cell the decision leaves open, and ask it. Never guess it.
+
+After the build, run the normal audit and compare it with `spec.md` row by row.
+Every disagreement is a finding. Examples: a capability no layer delivers, a field
+no view renders, a missing state, an unasked layer. The method lives
+in `skills/feature-audit/SKILL.md`, "Forward mode".
 
 ## The gate that makes it more than advice
 
@@ -128,7 +140,7 @@ rubric, then three passes of the feature-audit skill:
 ## Source of truth
 
 - `skills/feature-audit/SKILL.md` - the method: the five matrices, the proposal
-  gate, the per-surface rule table and the hand-check list
+  gate, the forward-mode spec, the per-surface rule table and the hand-check list
 - `skills/product-analysis/SKILL.md` - the coherence pass and the artifact element
   that carries the matrices
 - `hooks/tezgah_context.py` - `PROMPT_HINTS`, whose `product` alternation carries

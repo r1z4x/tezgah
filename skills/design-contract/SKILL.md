@@ -101,6 +101,10 @@ wrong - and a component whose measurement does not show a state it owes gets a
 `state-coverage` violation naming the states it is missing. `kind` decides which
 half applies, so a component measured without one is unjudged, never passed.
 
+A dashboard, chart or metric tile also follows [data-views.md](data-views.md): the
+dashboard type, chart choice by question, context and window per number, and the
+widget states.
+
 ## Derivation
 
 Read the repository's own token source. In this order, and nothing else:
@@ -144,7 +148,8 @@ repository owns, so list them in the turn that writes a new one.
 ```
 
 `--measured` takes the JSON the running-app read produces - the per-component
-computed styles and observed states - or a dash for stdin:
+computed styles and observed states - or a dash for stdin; `analyze-app`'s
+"Measurement for design-contract" section writes it with `browser_evaluate`:
 
 ```json
 {"components": [
