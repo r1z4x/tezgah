@@ -19,7 +19,6 @@
     "output-styles/",
     "commands/",
     "docs/",
-    "agents/",
     "statusline.py",
     "MANIFEST",
     "CHANGELOG.md",

@@ -26,7 +26,7 @@ import support
 REPO = support.REPO
 sys.path.insert(0, support.HOOKS)
 COPIES = ("hooks/tezgah_policy.py", "hooks/tezgah_context.py",
-          "hooks/tezgah_agents.py", "agents/tezgah-reviewer.md",
+          "hooks/tezgah_agents.py",
           "workflows/graph-review.js", "workflows/graph-impact.js",
           "skills/harness/SKILL.md", "skills/tezgah-contract/SKILL.md")
 # `codegraph affected` is right only fed files: `--stdin` from a diff, or a

@@ -237,20 +237,6 @@ class Generation(AgentsBase):
         self.assertIn("`codegraph impact <symbol>` per changed symbol", codex)
         self.assertIn("codegraph affected --stdin", codex)
 
-    def test_the_plugin_reviewer_is_the_generated_render(self):
-        # agents/tezgah-reviewer.md was hand-kept and drifted from the role body
-        # the generator writes; it is now rendered from that body
-        # (`tezgah-setup --write-plugin-agents`), and the retired explorer's
-        # plugin copy is gone with its role.
-        out = tezgah_agents.plugin_agents()
-        self.assertEqual(sorted(out), ["tezgah-reviewer.md"])
-        with open(os.path.join(support.REPO, "agents", "tezgah-reviewer.md"),
-                  encoding="utf-8") as fh:
-            self.assertEqual(out["tezgah-reviewer.md"], fh.read(),
-                             "run `python3 bin/tezgah-setup --write-plugin-agents`")
-        self.assertEqual(sorted(os.listdir(os.path.join(support.REPO, "agents"))),
-                         ["tezgah-reviewer.md"])
-
     def test_no_body_names_a_retired_role(self):
         self.sync()
         out, proc = run_json([support.PROBE_AGENTS],
@@ -316,20 +302,17 @@ class Generation(AgentsBase):
         # The index records only the edges its parser saw: a dynamic call, a
         # string dispatch or an unindexed script leaves no edge, so "no callers"
         # reads as "safe to change" unless the brief says otherwise - on every
-        # host the role is generated for, and in the plugin's own copies.
+        # host the role is generated for.
         self.sync()
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "omp", "root": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         for role in ("reviewer",):
-            plugin = os.path.join(support.REPO, "agents", "tezgah-%s.md" % role)
-            with open(plugin, encoding="utf-8") as fh:
-                texts = {"plugin": fh.read()}
-            texts.update({
+            texts = {
                 "claude": self.read(CLAUDE, "tezgah-%s.md" % role),
                 "opencode": self.read(OPENCODE, "tezgah-%s.md" % role),
                 "codex": self.read(CODEX, "tezgah-%s.toml" % role),
-                "omp": out["tezgah-%s.md" % role]})
+                "omp": out["tezgah-%s.md" % role]}
             for host, text in texts.items():
                 self.assertIn(self.FLOOR, " ".join(text.split()),
                               "%s on %s" % (role, host))
@@ -345,19 +328,16 @@ class Generation(AgentsBase):
         # opened another round: a finished plan was reviewed round after round.
         # The budget keeps no severe finding silent - after round two it goes to
         # the user - and `tezgah-task review` refuses a third round.
-        # One rule, on every host and in the plugin's own copy.
+        # One rule, on every host.
         self.sync()
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "omp", "root": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        plugin = os.path.join(support.REPO, "agents", "tezgah-reviewer.md")
-        with open(plugin, encoding="utf-8") as fh:
-            texts = {"plugin": fh.read()}
-        texts.update({
+        texts = {
             "claude": self.read(CLAUDE, "tezgah-reviewer.md"),
             "opencode": self.read(OPENCODE, "tezgah-reviewer.md"),
             "codex": self.read(CODEX, "tezgah-reviewer.toml"),
-            "omp": out["tezgah-reviewer.md"]})
+            "omp": out["tezgah-reviewer.md"]}
         for host, text in texts.items():
             flat = " ".join(text.split())
             self.assertIn(self.BUDGET, flat, host)
