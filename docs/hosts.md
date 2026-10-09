@@ -71,6 +71,8 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `~/.claude/settings.json` - `statusLine` (`bin/tezgah-setup::wire_claude_statusline`) and the attribution
   off-switch (`bin/tezgah-setup::wire_claude_attribution`) - and the always-on block in
   `~/.claude/CLAUDE.md` (`CLAUDE_RULES`), Claude's own user-level memory file.
+  The subagent roles go to `~/.claude/agents/tezgah-*.md`
+  (`bin/tezgah-setup::write_user_agents`).
   Its hook manifest is the plugin's own
   `hooks/hooks.json`; no `hooks.json` is written into `~/.claude`. Claude runs a
   **copy** of the checkout under `~/.claude/plugins/cache`, refreshed by
@@ -84,6 +86,8 @@ shared config, contract hash and the CLI symlinks every host shell can call
   (one group per event, PreToolUse carrying `CODEX_PRETOOL_MATCHER` at `bin/tezgah-setup::CODEX_PRETOOL_MATCHER`),
   `skills/*` symlinks, `~/.codex/bin/consult`, and `mcp_servers.*` tables in
   `config.toml` (`ensure_toml_mcp`, `bin/tezgah-setup::ensure_toml_mcp`).
+  The subagent roles go to `$CODEX_HOME/agents/tezgah-*.toml`
+  (`bin/tezgah-setup::write_user_agents`).
 - **cursor** - `install_cursor` (`bin/tezgah-setup::install_cursor`): `~/.cursor/hooks.json`
   (tezgah entries replaced, a user's Orca entries merged), `skills/*` symlinks,
   `mcp.json` servers, and `cli-config.json` `statusLine`.
@@ -159,6 +163,11 @@ and drops the later ones.
 | skills | codex | `.agents/skills` from the cwd up to the repo root, `~/.agents/skills`, `$CODEX_HOME/skills`; one name in two dirs is listed twice, not merged | links in `$CODEX_HOME/skills` |
 | skills | cursor | `.agents/skills`, `.cursor/skills`, `~/.agents/skills`, `~/.cursor/skills`, then Claude's and Codex's project and user dirs; no documented winner | links in `~/.cursor/skills` |
 | skills | opencode | its own skill tool is denied; the router lists `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, first wins (`bin/tezgah-setup::skill_groups`) | links and the router |
+| agents | claude | managed, the `claude --agents` flag, `.claude/agents`, `~/.claude/agents`, plugin agents namespaced `plugin:name`; a dir absent at start is not watched | `~/.claude/agents`, written at install |
+| agents | codex | `$CODEX_HOME/agents`, `/etc/codex/agents`, `.codex/agents` (trusted repos only), read at config load | `$CODEX_HOME/agents`, written at install |
+| agents | cursor | `cursor-agent`: `.cursor/agents`, then `.claude/agents`, `.grok/agents`, plugin agents; first name wins; no user dir; read at process start. The editor's docs add `~/.cursor/agents` and `~/.claude/agents` | `.cursor/agents` per repo at session start, in the CLI's line format (`hooks/tezgah_agents.py::render_md_cursor`) |
+| agents | opencode | `~/.config/opencode/agents`, `.opencode/agents`, merged per field | `config` hook injection, `.opencode/agents` as fallback |
+| agents | omp | `.omp/agents`, `~/.omp/agent/agents`, extensions, bundled | `~/.omp/agent/agents`, written at install |
 | hooks | claude | user `settings.json` rows (Orca's), project rows, the plugin's `hooks/hooks.json` (tezgah's); every matching row runs, none is ordered before another | plugin rows |
 | hooks | codex, cursor | `hooks.json` array order, then the repo's `.codex/` or `.cursor/hooks.json`; Codex runs a row only once its hash is trusted | own rows after Orca's |
 | hooks | opencode | every `*.js`/`*.ts` in `plugins/` and `plugin/`; `tezgah.js` is linked into both, and its `globalThis.__tezgahPluginLoaded` guard makes the second load return `{}` | the plugin |

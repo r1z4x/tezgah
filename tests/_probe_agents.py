@@ -23,6 +23,10 @@ elif fn == "detect":
     out = ta.detect_infra(p["root"])
 elif fn == "omp":
     out = ta.omp_user_agents(p["root"])
+elif fn == "user":
+    out = ta.user_agents(p["host"], p.get("root", "~"))
+elif fn == "steering":
+    out = ta.steering(p["root"], p.get("host"))
 else:
     raise SystemExit("unknown fn: %s" % fn)
 print(json.dumps(out))

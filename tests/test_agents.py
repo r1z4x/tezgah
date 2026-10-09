@@ -10,9 +10,12 @@ import unittest
 import support
 from support import TempHome, run_json
 
+# Claude and Codex keep their roles user-level (written at install); only these
+# leave a dir in the repo, plus the two an older tezgah wrote there.
 CLAUDE = os.path.join(".claude", "agents")
 OPENCODE = os.path.join(".opencode", "agents")
 CODEX = os.path.join(".codex", "agents")
+CURSOR = os.path.join(".cursor", "agents")
 # codegraph's own CLI surface. A brief may only name one of these verbs, and
 # `codegraph_explore` is the single MCP tool the server exposes by default.
 CODEGRAPH_CLI_VERBS = ("query", "node", "callers", "callees", "impact",
@@ -63,6 +66,21 @@ class AgentsBase(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
 
+    def user(self, host, extra=None):
+        """{filename: text} the installer writes to `host`'s user agent dir."""
+        out, proc = run_json([support.PROBE_AGENTS], {"fn": "user", "host": host},
+                             env=self.env(extra))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def steer(self, host=None):
+        """steering() under this HOME, where the user-level dirs live."""
+        out, proc = run_json([support.PROBE_AGENTS],
+                             {"fn": "steering", "root": self.repo, "host": host},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
     def read(self, directory, name):
         with open(os.path.join(self.repo, directory, name)) as fh:
             return fh.read()
@@ -87,18 +105,20 @@ class Generation(AgentsBase):
             capture_output=True, text=True, env=self.env(), cwd=self.repo)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("tezgah-agents [PATH]", proc.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.repo, CLAUDE)),
+        self.assertFalse(os.path.exists(os.path.join(self.repo, CURSOR)),
                          "the help path generated agents")
 
     def test_generates_every_active_role_for_every_file_host(self):
         self.assertIn("9 agent(s)", self.sync())
         roles = ["cheap", "docs", "frontier", "researcher", "reviewer", "security",
                  "standard", "tester", "ui"]
-        for d in (CLAUDE, OPENCODE, CODEX):
-            self.assertEqual(
-                self.names(d),
-                sorted(["tezgah-%s.md" % r for r in roles] + ["tezgah-orchestrator.md"])
-                if d != CODEX else ["tezgah-%s.toml" % r for r in roles])
+        md = ["tezgah-%s.md" % r for r in roles]
+        # Cursor and Codex get no orchestrator: their files are subagents the
+        # main thread delegates to, and the orchestrator is a primary agent
+        self.assertEqual(self.names(CURSOR), md)
+        self.assertEqual(self.names(OPENCODE), sorted(md + ["tezgah-orchestrator.md"]))
+        self.assertEqual(sorted(self.user("claude")), sorted(md + ["tezgah-orchestrator.md"]))
+        self.assertEqual(sorted(self.user("codex")), ["tezgah-%s.toml" % r for r in roles])
 
     def test_every_specialist_names_its_routed_tier_and_shipped_skills(self):
         # the description is what a host shows when choosing an agent, so it
@@ -134,8 +154,8 @@ class Generation(AgentsBase):
 
     def test_steering_and_the_orchestrator_name_the_specialists(self):
         self.sync()
-        line = tezgah_agents.steering(self.repo)
-        orch = self.read(CLAUDE, "tezgah-orchestrator.md")
+        line = self.steer()
+        orch = self.user("claude")["tezgah-orchestrator.md"]
         for name in tezgah_agents.SPECIALISTS:
             self.assertIn("-> " + name, line)
             self.assertIn(name, orch)
@@ -148,7 +168,7 @@ class Generation(AgentsBase):
         self.assertIn("tezgah-security  tier=frontier  read-only", proc.stdout)
         self.assertIn("tezgah-tester  tier=cheap  writes", proc.stdout)
         self.assertIn("Skills: analyze-app", proc.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.repo, CLAUDE)))
+        self.assertFalse(os.path.exists(os.path.join(self.repo, CURSOR)))
 
     def test_the_opencode_entry_carries_the_slots_effort_when_it_has_one(self):
         # opencode documents reasoningEffort in the agent config, and only the
@@ -167,34 +187,31 @@ class Generation(AgentsBase):
     def test_each_agent_carries_its_tier_model_for_the_host_family(self):
         # Claude/Cursor read the Anthropic row, Codex the OpenAI row; the
         # orchestrator is the main thread's own agent and keeps the session model
-        self.sync()
-        cheap = self.read(CLAUDE, "tezgah-cheap.md")
+        claude = self.user("claude")
+        cheap = claude["tezgah-cheap.md"]
         # the alias, not the full id: an alias follows the provider and keeps the
         # main session's variant, where a full id breaks on Bedrock or a gateway
         self.assertIn("model: opus\neffort: low", cheap)
-        self.assertIn("effort: high", self.read(CLAUDE, "tezgah-reviewer.md"))
-        self.assertIn("model: inherit", self.read(CLAUDE, "tezgah-orchestrator.md"))
-        codex = self.read(CODEX, "tezgah-frontier.toml")
+        self.assertIn("effort: high", claude["tezgah-reviewer.md"])
+        self.assertIn("model: inherit", claude["tezgah-orchestrator.md"])
+        codex = self.user("codex")["tezgah-frontier.toml"]
         self.assertIn('model = "gpt-6-astra"', codex)
         self.assertIn('model_reasoning_effort = "high"', codex)
+        self.sync()
         # opencode's selector depends on this machine's providers: none resolved,
         # no model line, so the agent inherits instead of naming a missing model
         self.assertNotIn("model:", self.read(OPENCODE, "tezgah-cheap.md"))
 
-    def test_cursor_is_served_by_the_claude_dir(self):
-        self.sync()
-        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".cursor", "agents")))
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
-
     def test_markdown_frontmatter_is_readonly_for_cursor_and_claude(self):
-        self.sync()
-        reviewer = self.read(CLAUDE, "tezgah-reviewer.md")
+        claude = self.user("claude")
+        reviewer = claude["tezgah-reviewer.md"]
         self.assertIn("# tezgah: managed", reviewer)
+        # `readonly` stays for the Cursor editor, which reads ~/.claude/agents
         self.assertIn("readonly: true", reviewer)
         self.assertIn("disallowedTools:", reviewer)
         self.assertIn("codegraph_explore", reviewer)
         # a tier worker edits, so it is not marked read-only
-        self.assertNotIn("readonly: true", self.read(CLAUDE, "tezgah-cheap.md"))
+        self.assertNotIn("readonly: true", claude["tezgah-cheap.md"])
 
     def test_every_codegraph_tool_a_brief_names_really_exists(self):
         # The generated reviewer once told the agent to run a tool the ToolSearch
@@ -203,8 +220,7 @@ class Generation(AgentsBase):
         # call it could not make. Claude's reviewer has no shell, so it names
         # MCP tools only, each one in its select line under both namespaces and
         # enabled by tezgah's server row; Codex's names CLI verbs that exist.
-        self.sync()
-        rev = self.read(CLAUDE, "tezgah-reviewer.md")
+        rev = self.user("claude")["tezgah-reviewer.md"]
         select = rev[rev.index('ToolSearch("select:') + len('ToolSearch("select:'):]
         select = set(select[:select.index('"')].split(","))
         named = set(re.findall(r"`(codegraph_[a-z]+)`", rev)) | {"codegraph_explore"}
@@ -215,7 +231,7 @@ class Generation(AgentsBase):
             self.assertIn(tool, enabled, "named a tool the server row does not enable")
         self.assertEqual(set(), set(re.findall(r"`codegraph ([a-z]+)", rev)),
                          "a no-shell role was told to run the CLI")
-        codex = self.read(CODEX, "tezgah-reviewer.toml")
+        codex = self.user("codex")["tezgah-reviewer.toml"]
         verbs = set(re.findall(r"`codegraph ([a-z]+)", codex))
         self.assertTrue(verbs, "the codex brief names no codegraph CLI verb")
         self.assertEqual(set(), verbs - set(CODEGRAPH_CLI_VERBS),
@@ -227,12 +243,15 @@ class Generation(AgentsBase):
         # the changed files and the role runs the MCP impact tool per symbol. A
         # role with a shell (Codex, omp) runs the diff and `codegraph impact`.
         self.sync()
-        for d, name in ((CLAUDE, "tezgah-reviewer.md"), (OPENCODE, "tezgah-reviewer.md")):
-            body = " ".join(self.read(d, name).split())
-            self.assertIn("the caller passes the changed files", body, d)
-            self.assertIn("`codegraph_impact` tool per changed symbol", body, d)
-            self.assertNotIn("codegraph affected", body, d)
-        codex = " ".join(self.read(CODEX, "tezgah-reviewer.toml").split())
+        texts = {"claude": self.user("claude")["tezgah-reviewer.md"],
+                 "opencode": self.read(OPENCODE, "tezgah-reviewer.md"),
+                 "cursor": self.read(CURSOR, "tezgah-reviewer.md")}
+        for host, text in texts.items():
+            body = " ".join(text.split())
+            self.assertIn("the caller passes the changed files", body, host)
+            self.assertIn("`codegraph_impact` tool per changed symbol", body, host)
+            self.assertNotIn("codegraph affected", body, host)
+        codex = " ".join(self.user("codex")["tezgah-reviewer.toml"].split())
         self.assertIn("`git diff <target>`", codex)
         self.assertIn("`codegraph impact <symbol>` per changed symbol", codex)
         self.assertIn("codegraph affected --stdin", codex)
@@ -256,8 +275,9 @@ class Generation(AgentsBase):
         out, proc = run_json([support.PROBE_AGENTS],
                              {"fn": "omp", "root": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        texts = [self.read(d, n) for d in (CLAUDE, OPENCODE) for n in self.names(d)]
-        texts += [self.read(CODEX, n) for n in self.names(CODEX)] + list(out.values())
+        texts = [self.read(d, n) for d in (CURSOR, OPENCODE) for n in self.names(d)]
+        texts += (list(self.user("claude").values()) + list(self.user("codex").values())
+                  + list(out.values()))
         for text in texts:
             for retired in tezgah_agents.RETIRED_ROLES:
                 self.assertNotIn(retired, text)
@@ -280,8 +300,7 @@ class Generation(AgentsBase):
         self.assertNotIn("tools:", orch)
 
     def test_codex_toml_has_required_fields_and_readonly_sandbox(self):
-        self.sync()
-        ex = self.read(CODEX, "tezgah-reviewer.toml")
+        ex = self.user("codex")["tezgah-reviewer.toml"]
         self.assertIn('name = "tezgah-reviewer"', ex)
         self.assertIn("description = '''", ex)
         self.assertIn("developer_instructions = '''", ex)
@@ -290,11 +309,11 @@ class Generation(AgentsBase):
 
     def test_idempotent_second_run_writes_nothing_and_says_nothing(self):
         self.sync()
-        before = self.read(CLAUDE, "tezgah-reviewer.md")
+        before = self.read(CURSOR, "tezgah-reviewer.md")
         # no "N agent(s) current" line: a steady-state session must not be told
         # about tezgah's own files in this repo
         self.assertIsNone(self.sync())
-        self.assertEqual(self.read(CLAUDE, "tezgah-reviewer.md"), before)
+        self.assertEqual(self.read(CURSOR, "tezgah-reviewer.md"), before)
 
     def test_omps_graph_roles_have_a_tool_that_runs_the_cli_they_name(self):
         # omp's MCP device refuses a subagent's call while the parent holds the
@@ -326,9 +345,9 @@ class Generation(AgentsBase):
             with open(plugin, encoding="utf-8") as fh:
                 texts = {"plugin": fh.read()}
             texts.update({
-                "claude": self.read(CLAUDE, "tezgah-%s.md" % role),
+                "claude": self.user("claude")["tezgah-%s.md" % role],
                 "opencode": self.read(OPENCODE, "tezgah-%s.md" % role),
-                "codex": self.read(CODEX, "tezgah-%s.toml" % role),
+                "codex": self.user("codex")["tezgah-%s.toml" % role],
                 "omp": out["tezgah-%s.md" % role]})
             for host, text in texts.items():
                 self.assertIn(self.FLOOR, " ".join(text.split()),
@@ -354,9 +373,9 @@ class Generation(AgentsBase):
         with open(plugin, encoding="utf-8") as fh:
             texts = {"plugin": fh.read()}
         texts.update({
-            "claude": self.read(CLAUDE, "tezgah-reviewer.md"),
+            "claude": self.user("claude")["tezgah-reviewer.md"],
             "opencode": self.read(OPENCODE, "tezgah-reviewer.md"),
-            "codex": self.read(CODEX, "tezgah-reviewer.toml"),
+            "codex": self.user("codex")["tezgah-reviewer.toml"],
             "omp": out["tezgah-reviewer.md"]})
         for host, text in texts.items():
             flat = " ".join(text.split())
@@ -381,10 +400,56 @@ class Generation(AgentsBase):
         # A delegate that answered a wider or narrower question than it was
         # handed is read as an answer to the one asked; the brief forbids the
         # redefinition and makes the worker report the mismatch instead.
-        self.sync()
+        claude = self.user("claude")
         for tier in ("cheap", "standard", "frontier"):
-            body = " ".join(self.read(CLAUDE, "tezgah-%s.md" % tier).split())
+            body = " ".join(claude["tezgah-%s.md" % tier].split())
             self.assertIn("Never widen or narrow the brief's scope", body, tier)
+
+    def test_cursor_gets_a_render_its_line_parser_reads(self):
+        # cursor-agent splits each frontmatter line at its first ':' (no YAML):
+        # a folded `description: >` read as ">", `model: opus` went through as
+        # an id its model list lacks, and `effort` is no key there
+        self.sync()
+        names = self.names(CURSOR)
+        self.assertTrue(names)
+        for name in names:
+            head = self.read(CURSOR, name).split("\n---\n", 1)[0].split("\n")
+            fields = dict(line.split(":", 1) for line in head[1:]
+                          if line and not line.startswith("#"))
+            fields = {k.strip(): v.strip() for k, v in fields.items()}
+            self.assertEqual(fields["name"], name[:-len(".md")])
+            self.assertNotIn(fields["description"], ("", ">"), name)
+            self.assertEqual(fields["model"], "inherit", name)
+            for key in ("effort", "tools", "disallowedTools"):
+                self.assertNotIn(key, fields, name)
+        self.assertIn("readonly: true", self.read(CURSOR, "tezgah-reviewer.md"))
+        self.assertIn("readonly: true", self.read(CURSOR, "tezgah-security.md"))
+        self.assertNotIn("readonly", self.read(CURSOR, "tezgah-cheap.md"))
+        # ToolSearch is Claude's deferred-tool loader, not a Cursor tool
+        self.assertNotIn("ToolSearch(", self.read(CURSOR, "tezgah-reviewer.md"))
+
+    def test_the_claude_description_is_one_line(self):
+        # the Cursor editor reads ~/.claude/agents with the same kind of line
+        # parser; Claude's own parser re-quotes a plain value that YAML rejects
+        for name, text in self.user("claude").items():
+            line = next(ln for ln in text.split("\n") if ln.startswith("description:"))
+            self.assertNotEqual(line.strip(), "description: >", name)
+            self.assertGreater(len(line), len("description: ") + 20, name)
+
+    def test_claude_and_codex_get_no_per_repo_file_and_lose_an_older_ones(self):
+        # a repo dir written at session start is not watched by Claude and is
+        # read at config load by Codex (only in a trusted repo): the roles live
+        # user-level now, and a copy an older tezgah left would sit beside them
+        stale = "---\n# tezgah: managed by tezgah-agents; do not edit\nname: x\n---\nx\n"
+        for d, name in ((CLAUDE, "tezgah-cheap.md"), (CODEX, "tezgah-cheap.toml")):
+            os.makedirs(os.path.join(self.repo, d), exist_ok=True)
+            with open(os.path.join(self.repo, d, name), "w") as fh:
+                fh.write(stale)
+            with open(os.path.join(self.repo, d, "tezgah-mine.md"), "w") as fh:
+                fh.write("---\nname: tezgah-mine\n---\nmine\n")
+        self.assertIn("removed", self.sync())
+        self.assertEqual(self.names(CLAUDE), ["tezgah-mine.md"])
+        self.assertEqual(self.names(CODEX), ["tezgah-mine.md"])
 
 
 class OpencodeConfig(AgentsBase):
@@ -448,12 +513,12 @@ class Exclude(AgentsBase):
 
     def test_generated_files_are_not_untracked_noise(self):
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
         status = self.status()
-        for noise in (".claude", ".codex", ".opencode", ".gitignore"):
+        for noise in (".cursor", ".opencode", ".gitignore"):
             self.assertNotIn(noise, status, status)
         text = self.ex()
-        for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
+        for d in ("/.cursor/agents/", "/.opencode/agents/"):
             self.assertIn(d, text)
 
     def test_block_is_idempotent(self):
@@ -464,13 +529,13 @@ class Exclude(AgentsBase):
         self.assertEqual(once.count("# tezgah: generated agents"), 1)
 
     def test_block_unions_and_never_drops_a_dir(self):
-        # a prior install ignored all three; a config that now lists only
-        # opencode must not un-ignore the claude/codex dirs
+        # a prior run ignored both; a config that now lists only opencode must
+        # not un-ignore the cursor dir
         self.sync()
         self.config({"hosts": ["opencode"]})
         self.sync()
         text = self.ex()
-        for d in ("/.claude/agents/", "/.opencode/agents/", "/.codex/agents/"):
+        for d in ("/.cursor/agents/", "/.opencode/agents/"):
             self.assertIn(d, text)
 
     def test_a_block_that_sits_mid_file_stays_where_it_is(self):
@@ -532,12 +597,12 @@ class Exclude(AgentsBase):
             fh.write("node_modules/\n")
         self.sync()
         self.assertEqual(self.gi(), "node_modules/\n")
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
 
     def test_the_exclude_write_can_be_opted_out(self):
         self.sync(extra={"TEZGAH_NO_EXCLUDE": "1"})
         self.assertNotIn("# tezgah: generated agents", self.ex())
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
 
     def test_an_unwritable_exclude_does_not_fail_the_session(self):
         # the module promises every write fails open: the exclude write runs
@@ -547,7 +612,7 @@ class Exclude(AgentsBase):
         self.addCleanup(os.chmod, os.path.join(self.repo, ".git", "info"), 0o755)
         note = self.sync()
         self.assertIn("written", note)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
 
 
 class OpencodePlugin(AgentsBase):
@@ -627,33 +692,33 @@ class Gating(AgentsBase):
                              {"fn": "sync_root", "root": self.repo}, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(out, "8 agent(s) written")
-        self.assertNotIn("tezgah-reviewer.md", self.names(CLAUDE))
-        self.assertIn("tezgah-tester.md", self.names(CLAUDE))
+        self.assertNotIn("tezgah-reviewer.md", self.names(CURSOR))
+        self.assertIn("tezgah-tester.md", self.names(CURSOR))
 
     def pathless(self):
         return os.path.join(self.home, "nope")
 
     def test_missing_capability_removes_its_agent(self):
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
         note = self.sync(extra={"TEZGAH_CODEGRAPH_BIN": self.pathless()})
-        self.assertNotIn("reviewer", " ".join(self.names(CLAUDE)))
+        self.assertNotIn("reviewer", " ".join(self.names(CURSOR)))
         self.assertIn("removed", note)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-cheap.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-cheap.md"))
 
     def test_agents_off_kill_switch(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
         self.assertIsNone(self.sync())
-        self.assertEqual(self.names(CLAUDE), [])
+        self.assertEqual(self.names(CURSOR), [])
 
     def test_agents_off_sweeps_what_an_earlier_session_wrote(self):
         # the switch used to return before the sweep, so the files it was meant
         # to turn off stayed for every host to keep loading
         self.sync()
-        self.assertTrue(self.names(CLAUDE))
+        self.assertTrue(self.names(CURSOR))
         self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
         self.assertIn("removed", self.sync())
-        for d in (CLAUDE, OPENCODE, CODEX):
+        for d in (CURSOR, OPENCODE):
             self.assertEqual(self.names(d), [], d)
 
     def test_a_retired_roles_managed_file_is_swept(self):
@@ -661,38 +726,65 @@ class Gating(AgentsBase):
         # earlier session must stop being loaded
         self.sync()
         stale = '---\n# tezgah: managed by tezgah-agents; do not edit\nname: x\n---\nx\n'
-        for d, ext in ((CLAUDE, ".md"), (OPENCODE, ".md"), (CODEX, ".toml")):
+        for d, ext in ((CURSOR, ".md"), (OPENCODE, ".md")):
             for role in ("explorer", "verifier"):
                 with open(os.path.join(self.repo, d, "tezgah-%s%s" % (role, ext)), "w") as fh:
                     fh.write(stale)
         self.assertIn("removed", self.sync())
-        for d in (CLAUDE, OPENCODE, CODEX):
+        for d in (CURSOR, OPENCODE):
             for role in ("explorer", "verifier"):
                 self.assertNotIn("tezgah-" + role, " ".join(self.names(d)), d)
 
     def test_steering_names_no_retired_role_and_honours_no_graph(self):
         self.sync()
-        line = tezgah_agents.steering(self.repo)
+        line = self.steer()
         self.assertIn("-> tezgah-reviewer", line)
         self.touch(os.path.join(self.repo, ".no-graph"))
-        line = tezgah_agents.steering(self.repo)
+        line = self.steer()
         self.assertNotIn("tezgah-reviewer", line)
         self.assertIn("-> tezgah-cheap", line)
+
+    def test_agents_off_empties_the_user_level_set(self):
+        # the installer writes this set and sweeps what it no longer holds, so
+        # an empty set is how the switch reaches ~/.claude and $CODEX_HOME
+        self.assertTrue(self.user("claude"))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
+        self.assertEqual(self.user("claude"), {})
+        self.assertEqual(self.user("codex"), {})
+
+    def test_steering_reads_the_dir_each_host_loads(self):
+        # Claude and Codex load their user dirs; Cursor only the repo's own
+        # `.cursor/agents`; the `.no-graph` rule holds for every host
+        for host, home in (("claude", ".claude"), ("codex", ".codex")):
+            self.assertIsNone(self.steer(host), host)
+            for name, text in self.user(host).items():
+                path = os.path.join(self.home, home, "agents", name)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as fh:
+                    fh.write(text)
+            self.assertIn("-> tezgah-reviewer", self.steer(host), host)
+        self.assertIsNone(self.steer("cursor"))
+        self.sync()
+        self.assertIn("-> tezgah-reviewer", self.steer("cursor"))
+        self.touch(os.path.join(self.repo, ".no-graph"))
+        for host in ("claude", "codex", "cursor"):
+            line = self.steer(host)
+            self.assertNotIn("tezgah-reviewer", line, host)
+            self.assertIn("-> tezgah-cheap", line, host)
 
 
 class Cleanup(AgentsBase):
     def test_removes_only_managed_files(self):
         self.sync()
-        own = os.path.join(self.repo, CLAUDE, "my-own.md")
+        own = os.path.join(self.repo, CURSOR, "my-own.md")
         with open(own, "w") as fh:
             fh.write("---\nname: my-own\n---\nx\n")
         out, proc = run_json([support.PROBE_AGENTS], {"fn": "cleanup"},
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertGreater(out, 0)
-        self.assertEqual(self.names(CLAUDE), ["my-own.md"])
+        self.assertEqual(self.names(CURSOR), ["my-own.md"])
         self.assertEqual(self.names(OPENCODE), [])
-        self.assertEqual(self.names(CODEX), [])
         self.assertFalse(os.path.exists(
             os.path.join(self.home, ".config", "tezgah", "agents.state.json")))
 
@@ -721,11 +813,10 @@ class Detection(AgentsBase):
         # a repo that got agents while another host was configured must not keep
         # them: Claude and Cursor load that dir, so a stale agent is a live one
         self.sync()
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
         self.config({"hosts": ["omp"]})
         self.sync()
-        self.assertEqual(self.names(CLAUDE), [])
-        self.assertEqual(self.names(CODEX), [])
+        self.assertEqual(self.names(CURSOR), [])
         self.assertEqual(self.names(OPENCODE), [])
 
     def test_detection_does_not_read_another_hosts_dir(self):
@@ -754,13 +845,13 @@ class ContextWiring(AgentsBase):
                               "cwd": self.repo}, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Subagents (this repo, generated)", out)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
 
     def test_only_session_start_generates(self):
         run_json([support.PROBE_CONTEXT],
                  {"fn": "context_for", "event": "user_prompt", "cwd": self.repo},
                  env=self.env())
-        self.assertEqual(self.names(CLAUDE), [])
+        self.assertEqual(self.names(CURSOR), [])
 
     def test_setup_agents_flag_regenerates(self):
         setup = os.path.join(support.REPO, "bin", "tezgah-setup")
@@ -768,7 +859,7 @@ class ContextWiring(AgentsBase):
                               capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("agent(s)", proc.stdout)
-        self.assertTrue(self.exists(CLAUDE, "tezgah-reviewer.md"))
+        self.assertTrue(self.exists(CURSOR, "tezgah-reviewer.md"))
 
     def test_the_agents_flag_reports_a_steady_state(self):
         # the command answers a user, so it says "current" instead of the

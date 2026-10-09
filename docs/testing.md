@@ -171,7 +171,7 @@ into the test process would answer about the developer's real machine.
 | `tests/_probe_paths.py` | argv op, no payload (`:11`) | `roots`, `root_for`, `off`, `default_root`, `config`, `off_dirs`, `cache_dir`, `which_user`, `orx_bin`, `consult_options`, `have_typesafe_key`, `codegraph_bin` |
 | `tests/_probe_context.py` | JSON on stdin, `{"fn": ...}` (`:4-5`) | `context_for`, `health_lines`, `health_segments`, `record` |
 | `tests/_probe_integrity.py` | JSON on stdin (`:4-6`) | `note`, `note_tool`, `note_turn`, `kinds`, `events`, `prior_calls`, `counters`, `shortcut_command`, `shortcut_edit`, `stop_reason`, `verify_command` |
-| `tests/_probe_agents.py` | JSON on stdin (`:3-4`) | `sync_root`, `opencode_json`, `cleanup`, `detect` |
+| `tests/_probe_agents.py` | JSON on stdin (`:3-4`) | `sync_root`, `opencode_json`, `cleanup`, `detect`, `omp`, `user`, `steering` |
 | `tests/_probe_gate.py` | JSON on stdin (`:4-8`) | the shared gate `decision(tool, input, cwd, session_id)`; `capture_log` plants a stub `tezgah_snapshot` in `sys.modules`, so the snapshot call site is pinned whether or not that module has landed |
 
 A probe is invoked through `support.run`/`run_json` with its path constant

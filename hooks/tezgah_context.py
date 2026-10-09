@@ -690,7 +690,8 @@ def autoindex(root):
 
 
 def sync_agents(root):
-    """Generate/refresh this repo's per-host subagent definitions (best effort)."""
+    """Generate/refresh this repo's Cursor and opencode subagent files (best
+    effort); Claude's and Codex's roles are user-level, written at install."""
     try:
         from tezgah_agents import sync_root
         return sync_root(root)

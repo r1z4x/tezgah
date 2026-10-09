@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Subagents load in the first session.** Claude and Codex missed every role a
+  session wrote into a new repo until the next session. Codex also ignored
+  `.codex/agents` in an untrusted repo. The install now writes the roles to
+  `~/.claude/agents` and `$CODEX_HOME/agents`, as it already did for omp. A
+  session removes the copies an older release left in a repo's `.claude/agents`
+  and `.codex/agents`. Cursor read 9 of 10 role descriptions as ">" and got a
+  model id it does not list. It now gets its own `.cursor/agents` with a
+  one-line description and `model: inherit`.
+
 - **`tezgah-route` names the specialists.** It could only name a tier. The
   five specialists ran 0 times in 121 delegations. The generic task agent ran 86.
   The judge now also answers whether a brief is a specialist's whole

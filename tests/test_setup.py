@@ -398,6 +398,34 @@ class Install(SetupBase):
         self.assertTrue(self.row(report, "codegraph on PATH").strip()
                         .startswith("MISS"), report)
 
+    def test_claude_and_codex_roles_are_written_user_level_at_install(self):
+        """A per-repo agents dir written at session start is missing from that
+        session on Claude (an unwatched new dir) and on Codex (read at config
+        load; ignored in an untrusted repo), so the install writes the roles
+        where both load them from the first session. `agents-off` empties the
+        set and the next install sweeps tezgah's files, never the user's."""
+        proc = self.setup("--install", "--hosts", "claude,codex")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        claude = self.path(".claude", "agents")
+        codex = self.path(".codex", "agents")
+        self.assertIn("tezgah-cheap.md", os.listdir(claude))
+        self.assertIn("tezgah-orchestrator.md", os.listdir(claude))
+        self.assertIn("tezgah-cheap.toml", os.listdir(codex))
+        self.assertIn("# tezgah: managed",
+                      self.read_text(os.path.join(claude, "tezgah-cheap.md")))
+        report = self.setup("--hosts", "claude,codex").stdout
+        for label in ("subagents in %s" % claude, "subagents in %s" % codex):
+            self.assertTrue(self.row(report, label).strip().startswith("ok"), report)
+        for d in (claude, codex):
+            with open(os.path.join(d, "tezgah-mine.md"), "w") as fh:
+                fh.write("---\nname: tezgah-mine\n---\nmine\n")
+        with open(os.path.join(self.path(".config", "tezgah"), "agents-off"), "w"):
+            pass
+        proc = self.setup("--install", "--hosts", "claude,codex")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(os.listdir(claude), ["tezgah-mine.md"])
+        self.assertEqual(os.listdir(codex), ["tezgah-mine.md"])
+
 
 class OpenResearch(SetupBase):
     """--install triggers orx's own skill installer for the hosts it supports."""
@@ -1373,6 +1401,12 @@ class CodexHome(SetupBase):
         self.assertIn("(omp) match the hosts wired (codex)", row)
         self.assertEqual(self.read_json(path)["hosts"], ["omp"])
 
+    def test_the_codex_roles_land_in_the_relocated_home(self):
+        proc = self.setup("--install", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("tezgah-cheap.toml", os.listdir(os.path.join(self.alt, "agents")))
+        self.assertFalse(os.path.exists(self.path(".codex", "agents")))
+
 
 class CodexGlobalRules(SetupBase):
     """Codex had no always-on file: the core rode only the SessionStart hook's
@@ -1673,6 +1707,19 @@ class Uninstall(SetupBase):
         proc = self.setup("--uninstall", "--hosts", "codex")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertFalse(os.path.exists(legacy), proc.stdout)
+
+    def test_uninstall_removes_only_tezgahs_user_level_agents(self):
+        self.setup("--install", "--hosts", "claude,codex")
+        dirs = (self.path(".claude", "agents"), self.path(".codex", "agents"))
+        for d in dirs:
+            self.assertTrue(any(n.startswith("tezgah-") for n in os.listdir(d)), d)
+            with open(os.path.join(d, "tezgah-mine.md"), "w") as fh:
+                fh.write("---\nname: tezgah-mine\n---\nmine\n")
+        proc = self.setup("--uninstall", "--hosts", "claude,codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for d in dirs:
+            self.assertEqual(os.listdir(d), ["tezgah-mine.md"], proc.stdout)
+        self.assertIn("subagents gone", proc.stdout)
 
 
 class PartialUninstallGate(SetupBase):

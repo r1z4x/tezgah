@@ -109,10 +109,12 @@ it set out to arm is not armed.
   `~/.codex/AGENTS.md`, `~/.omp/agent/RULES.md`). Claude Code's hooks ship in a
   plugin registered through `claude plugin`; with no `claude` CLI, Claude stays
   unarmed and the report says so.
-- **Agent files in your repositories.** Inside the configured roots, a session
-  writes subagent files to `.claude/agents/`, `.codex/agents/` and
-  `.opencode/agents/`, and lists those directories in the clone's own
-  `.git/info/exclude` (`TEZGAH_NO_EXCLUDE=1` stops that).
+- **Agent files.** The install writes tezgah's subagent roles to
+  `~/.claude/agents/`, `$CODEX_HOME/agents/` (default `~/.codex/agents/`) and
+  `~/.omp/agent/agents/`. Inside the configured roots, a session writes them to
+  the repository's `.cursor/agents/` and `.opencode/agents/`, and lists those
+  directories in the clone's own `.git/info/exclude` (`TEZGAH_NO_EXCLUDE=1`
+  stops that).
 - **A daily update check.** The status line asks for a newer release at most
   once a day; `~/.config/tezgah/update-check-off` or `TEZGAH_UPDATE_CHECK=0`
   turns it off.

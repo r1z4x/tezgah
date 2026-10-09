@@ -5,13 +5,13 @@ each host's own documentation says where a custom agent's model may be set, and
 the generated artifact must carry the tier's model there - or, where the host
 documents that the model comes from somewhere else, must carry none at all:
 
-  Claude Code  `.claude/agents/*.md`, `model:`/`effort:` in the frontmatter
-      (code.claude.com/docs/en/sub-agents, model/effort table)
-  Cursor       reads `.claude/agents/` natively today; no `.cursor/agents/`
-      rendering pins a model because no id this table names was verified
-      against cursor.com/docs/subagents
-  Codex        `.codex/agents/*.toml`, `model` + `model_reasoning_effort`
-      (learn.chatgpt.com/docs/agent-configuration/subagents)
+  Claude Code  `~/.claude/agents/*.md` (written at install), `model:`/`effort:`
+      in the frontmatter (code.claude.com/docs/en/sub-agents, model/effort table)
+  Cursor       `.cursor/agents/*.md`, always `model: inherit`: cursor-agent
+      passes the value through as a raw id, and no id this table names was
+      verified against cursor.com/docs/subagents
+  Codex        `$CODEX_HOME/agents/*.toml` (written at install), `model` +
+      `model_reasoning_effort` (learn.chatgpt.com/docs/agent-configuration/subagents)
   opencode     `.opencode/agents/*.md`, `model:` only from the selector
       `--refresh` wrote (opencode.ai/docs/agents); none resolved, none written
   omp          `~/.omp/agent/agents/*.md` carries no `model:` - the model rides
@@ -72,9 +72,10 @@ class HostModels(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return out
 
-    def frontmatter(self, directory, name):
-        """The text between the two `---` fences, where model/tools lines live."""
-        with open(os.path.join(self.repo, directory, name)) as fh:
+    def frontmatter(self, directory, name, base=None):
+        """The text between the two `---` fences, where model/tools lines live;
+        `directory` is under the repo, or under `base` when given."""
+        with open(os.path.join(base or self.repo, directory, name)) as fh:
             text = fh.read()
         self.assertTrue(text.startswith("---\n"), text[:40])
         return text.split("\n---\n", 1)[0]
@@ -96,26 +97,26 @@ class ClaudeCursor(HostModels):
     (docs/models.md "Which host reads which column"; code.claude.com/docs/en/sub-agents)."""
 
     def test_the_cheap_worker_carries_the_tier_alias_and_its_effort(self):
-        self.sync()
-        head = self.frontmatter(CLAUDE, "tezgah-cheap.md")
+        self.install("claude")
+        head = self.frontmatter(CLAUDE, "tezgah-cheap.md", base=self.home)
         # the alias, not a full id, so a Bedrock/Vertex/gateway session keeps
         # its own variant (code.claude.com/docs/en/sub-agents)
         self.assertIn("model: opus", head)
         self.assertIn("effort: low", head)
 
     def test_the_orchestrator_keeps_the_session_model(self):
-        self.sync()
+        self.install("claude")
         self.assertIn("model: inherit",
-                      self.frontmatter(CLAUDE, "tezgah-orchestrator.md"))
+                      self.frontmatter(CLAUDE, "tezgah-orchestrator.md", base=self.home))
 
-    def test_cursor_is_served_by_the_claude_dir_and_gets_no_agent_of_its_own(self):
+    def test_cursor_gets_its_own_dir_and_inherits_the_model(self):
         self.sync()
-        # Cursor reads .claude/agents/ natively; no verified Cursor id exists for
-        # this table, so a .cursor/agents rendering that pins a model is not
-        # generated (cursor.com/docs/subagents, docs/models.md)
-        self.assertTrue(os.path.isfile(
-            os.path.join(self.repo, CLAUDE, "tezgah-cheap.md")))
-        self.assertFalse(os.path.exists(os.path.join(self.repo, ".cursor", "agents")))
+        # cursor-agent passes `model` through as a raw id and has no `effort`
+        # key, so its own render pins no tier model (cursor.com/docs/subagents)
+        head = self.frontmatter(os.path.join(".cursor", "agents"), "tezgah-cheap.md")
+        self.assertIn("model: inherit", head)
+        self.assertNotIn("effort", head)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, CLAUDE)))
 
 
 class Codex(HostModels):
@@ -123,15 +124,15 @@ class Codex(HostModels):
     (docs/models.md; learn.chatgpt.com/docs/agent-configuration/subagents)."""
 
     def test_the_cheap_worker_carries_its_model_and_effort(self):
-        self.sync()
-        with open(os.path.join(self.repo, CODEX, "tezgah-cheap.toml")) as fh:
+        self.install("codex")
+        with open(os.path.join(self.home, CODEX, "tezgah-cheap.toml")) as fh:
             text = fh.read()
         self.assertIn('model = "gpt-6.1-sol"', text)
         self.assertIn('model_reasoning_effort = "low"', text)
 
     def test_the_frontier_worker_carries_the_stronger_row(self):
-        self.sync()
-        with open(os.path.join(self.repo, CODEX, "tezgah-frontier.toml")) as fh:
+        self.install("codex")
+        with open(os.path.join(self.home, CODEX, "tezgah-frontier.toml")) as fh:
             text = fh.read()
         self.assertIn('model = "gpt-6-astra"', text)
         self.assertIn('model_reasoning_effort = "high"', text)

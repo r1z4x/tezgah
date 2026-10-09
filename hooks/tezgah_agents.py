@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
-"""Per-repo subagent definitions, generated from the detected infrastructure.
+"""Subagent definitions, generated from the detected infrastructure.
 
-When a session starts inside a tezgah root, the enclosing repo gets a small set
-of specialized agents, rendered into every host surface that actually exists:
+One role set, rendered into every host surface that actually exists, at the
+place each host loads it from:
 
-  Claude Code / Cursor  `.claude/agents/*.md`   (Cursor reads this dir natively)
-  opencode              `.opencode/agents/*.md` (fallback) + config injection
-  Codex                 `.codex/agents/*.toml`
+  Claude Code  `~/.claude/agents/*.md`          user-level, written at install
+  Codex        `$CODEX_HOME/agents/*.toml`      user-level, written at install
+  omp          `~/.omp/agent/agents/*.md`       user-level, written at install
+  Cursor       `.cursor/agents/*.md`            per repo, at session start
+  opencode     `.opencode/agents/*.md` (fallback) + config injection, per repo
 
-A role is only emitted when the capability it needs is present (the reviewer
-needs the code graph); the three tier workers are emitted in every root,
-because `tezgah-route` names one of them for every delegated task. The whole set is regenerated when either this manifest
+Claude and Codex miss a repo agents dir written during their first session
+(Claude does not watch a dir that was absent at start; Codex reads roles at
+config load and ignores `.codex/agents` in an untrusted repo), so their roles
+live user-level; a repo's `.claude/agents` and `.codex/agents` files an older
+tezgah wrote are swept. Cursor's CLI reads no user dir, so it keeps a per-repo
+dir. A role is only emitted when the capability it needs is present (the
+reviewer needs the code graph); the three tier workers are emitted in every root,
+because `tezgah-route` names one of them for every delegated task. The per-repo
+set is regenerated when either this manifest
 or the repo's infrastructure changes, so the definitions stay updatable instead
 of drifting. Hosts with no such surface (dsh) get nothing here; the orchestrator
 directive in the injected contract already covers them. The generated dirs are
@@ -30,16 +38,20 @@ import subprocess
 import tezgah_models as tm
 from tezgah_paths import (CONFIG_DIR, HOME, codegraph_bin, host_installed, off,
                           root_for)
+from tezgah_paths import HOST_DIRS as HOST_HOMES
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
 STATE = os.path.join(CONFIG_DIR, "agents.state.json")
-# hosts with a file-based custom-agent surface, and where it lives, relative to
-# the repo. Cursor reads .claude/agents/ natively, so one markdown dir serves
-# both when either is installed; the *detection* of whether a host is installed
-# lives in tezgah_paths.host_installed, not here.
+# hosts with a file-based custom-agent surface; the *detection* of whether a
+# host is installed lives in tezgah_paths.host_installed, not here.
 FILE_HOSTS = ("claude", "opencode", "codex", "cursor")
+# the file hosts whose roles live in their user dir (user_agents), written by
+# the installer; the others get a per-repo dir from sync_root
+USER_HOSTS = ("claude", "codex")
+# the repo-relative agent dirs. Claude's and Codex's are no longer written, only
+# swept: a copy an older tezgah left there would sit beside the user-level one.
 HOST_DIRS = {"claude": os.path.join(".claude", "agents"),
-             "cursor": os.path.join(".claude", "agents"),
+             "cursor": os.path.join(".cursor", "agents"),
              "opencode": os.path.join(".opencode", "agents"),
              "codex": os.path.join(".codex", "agents")}
 # Stack markers -> a short hint. Exact commands are left to the repo's own docs
@@ -61,10 +73,11 @@ MCP_PREFIXES = ("mcp__codegraph__", "mcp__plugin_tezgah_codegraph__")
 GRAPH_SELECT = ",".join(p + t for t in GRAPH_MCP for p in MCP_PREFIXES)
 GRAPH_CLI = ("callers", "callees", "impact", "node", "files")
 GRAPH_TOOLS = ", ".join("`codegraph %s`" % verb for verb in GRAPH_CLI)
-# A role with no shell (Claude `disallowedTools` Bash, opencode `bash: deny`)
+# A role with no shell (Claude `disallowedTools` Bash, opencode `bash: deny`;
+# Cursor's `readonly` documents no shell scope, so it is held to the same recipe)
 # cannot run `git diff` or the CLI, so its blast radius comes from the caller's
 # brief and the MCP impact tool; a role with a shell runs the diff itself.
-NO_SHELL = ("claude", "opencode")
+NO_SHELL = ("claude", "opencode", "cursor")
 # The floor every graph role carries (gortex edge provenance): the index holds
 # only the edges its parser saw, so an absence of callers is a coverage gap
 # until shown otherwise, never a safety verdict.
@@ -114,7 +127,7 @@ def _graph_howto(host):
                 "`codegraph status`). Do not call the `xd://mcp__codegraph_*`\n"
                 "devices: omp refuses them with \"Concurrent write refused\"\n"
                 "while the parent session holds the index." % GRAPH_TOOLS)
-    if host == "opencode":
+    if host in ("opencode", "cursor"):
         return ("codegraph is registered as an MCP server (%s). You have no\n"
                 "shell, so the codegraph CLI is out of reach: use those MCP tools."
                 % ", ".join("`%s`" % t for t in GRAPH_MCP))
@@ -440,10 +453,8 @@ def _claude_model(model):
 
 def _model_lines(name, family, model_fmt, effort_fmt):
     """The model (and effort) lines the table gives this agent on a family;
-    `model: inherit` on Claude/Cursor for an agent with no slot. Cursor reads
-    this same file but wants its own ids and the effort inside the id
-    (`claude-opus-5[effort=high]`, cursor.com/docs/subagents) - unverified for
-    the ids this table names, so Cursor is documented, not guessed at."""
+    `model: inherit` on Claude for an agent with no slot. Cursor gets
+    `model: inherit` always (render_md_cursor)."""
     picked = tm.pick(name, family)
     if not picked:
         return ["model: inherit"] if family == "anthropic" else []
@@ -462,17 +473,32 @@ def _fold(desc, width=74):
 
 
 def render_md(name, description, readonly, body):
-    """Claude Code / Cursor markdown. Cursor ignores unknown keys and honours
-    `readonly`; Claude denies the write/shell tools explicitly."""
+    """Claude Code markdown (`~/.claude/agents`), which the Cursor editor also
+    reads (cursor.com/docs/subagents). The description is one line: Cursor's
+    line parser reads a folded `>` block as ">", and Claude's parser re-quotes
+    a plain value YAML rejects (a `: ` inside it). Claude denies the write/shell
+    tools explicitly; `readonly` is Cursor's key, which Claude ignores."""
     lines = ["---", MARKER + " (manifest %s)" % manifest_sha(),
-             "name: %s" % name, "description: >"]
-    lines += _fold(description)
+             "name: %s" % name, "description: %s" % " ".join(description.split())]
     lines += _model_lines(name, "anthropic", "model: %s", "effort: %s")
     if readonly:
-        # `disallowedTools` is Claude's; `readonly` is Cursor's. Both parsers
-        # ignore the other's field.
         lines.append("readonly: true")
         lines.append("disallowedTools: Write, Edit, NotebookEdit, Bash, Agent")
+    lines.append("---")
+    return "\n".join(lines) + "\n\n" + body.strip() + "\n"
+
+
+def render_md_cursor(name, description, readonly, body):
+    """Cursor `.cursor/agents/*.md`. cursor-agent splits each frontmatter line
+    at its first ':' (no YAML), passes `model` through as a raw id and has no
+    `effort` key, so: a one-line description, `model: inherit` (the only id
+    portable across Cursor accounts), `readonly`, and no `tools` line - its
+    comma split would cut a Claude `Agent(a, b)` list into broken names."""
+    lines = ["---", MARKER + " (manifest %s)" % manifest_sha(),
+             "name: %s" % name, "description: %s" % " ".join(description.split()),
+             "model: inherit"]
+    if readonly:
+        lines.append("readonly: true")
     lines.append("---")
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
@@ -529,13 +555,19 @@ def render_md_omp(name, description, body, tools=("read", "grep", "glob", "bash"
     return "\n".join(lines) + "\n\n" + body.strip() + "\n"
 
 
+def _active_roles(root):
+    """The roles a user-level dir holds: none under `agents-off`, else those
+    whose capability the machine has (`~/.no-graph` counts as the repo's)."""
+    if off("agents-off"):
+        return []
+    infra = detect_infra(os.path.expanduser(root))
+    return [r for r in ROLES if r[2](infra)]
+
+
 def omp_user_agents(root="~"):
     """{filename: text} for omp's user agent dir (~/.omp/agent/agents); empty
     under `agents-off`, so the installer's sweep removes the files."""
-    if off("agents-off"):
-        return {}
-    infra = detect_infra(os.path.expanduser(root))
-    active = [r for r in ROLES if r[2](infra)]
+    active = _active_roles(root)
     names = [r[0] for r in active]
     if not names:
         return {}
@@ -550,20 +582,50 @@ def omp_user_agents(root="~"):
     return out
 
 
+def user_agent_dir(host):
+    """Where a USER_HOSTS host loads agents from in every session: Claude's
+    `~/.claude/agents`, Codex's `$CODEX_HOME/agents` (default ~/.codex)."""
+    return os.path.join(HOST_HOMES[host], "agents")
+
+
+def user_agents(host, root="~"):
+    """{filename: text} for a USER_HOSTS host's user agent dir, each file
+    carrying MARKER so the installer sweeps only tezgah's; empty under
+    `agents-off`, so that sweep removes them. Codex gets no orchestrator: the
+    main thread orchestrates there."""
+    active = _active_roles(root)
+    names = [r[0] for r in active]
+    if not names:
+        return {}
+    if host == "codex":
+        return {name + ".toml": render_toml(name, desc, readonly, body("codex"))
+                for name, desc, _cap, body, readonly in active}
+    out = {name + ".md": render_md(name, desc, readonly, body("claude"))
+           for name, desc, _cap, body, readonly in active}
+    out["tezgah-orchestrator.md"] = render_orch_md(names)
+    return out
+
+
 def steering(root, host=None):
     """One line naming the generated specialists this host can spawn, or None.
 
     Nothing else in the contract points the main agent at them, so a model
     reached for the host's generic explorer instead. Existence is read from
     disk, not from the capabilities: a specialist is named only when its file
-    is there for the host to load - omp's user agent dir on omp, the repo's
-    generated dirs everywhere else. A repo's `.no-graph` turns the graph off
-    there, so a graph role is not named in it even when omp's user-level file
+    is there for the host to load - the user agent dir on omp, Claude and
+    Codex, the repo's own dir on Cursor and opencode, and all of them for a
+    host that does not say which it is. A repo's `.no-graph` turns the graph
+    off there, so a graph role is not named in it even when a user-level file
     exists."""
     if host == "omp":
         dirs = [os.path.join(HOME, ".omp", "agent", "agents")]
+    elif host in USER_HOSTS:
+        dirs = [user_agent_dir(host)]
+    elif host in HOST_DIRS:
+        dirs = [os.path.join(root, HOST_DIRS[host])]
     else:
-        dirs = [os.path.join(root, d) for d in set(HOST_DIRS.values())]
+        dirs = ([user_agent_dir(h) for h in USER_HOSTS]
+                + [os.path.join(root, HOST_DIRS[h]) for h in ("cursor", "opencode")])
     have = {os.path.splitext(os.path.basename(p))[0]
             for d in dirs for p in glob.glob(os.path.join(d, "tezgah-*.*"))}
     if os.path.exists(os.path.join(root, ".no-graph")):
@@ -656,14 +718,18 @@ def _write_if_changed(path, text):
     return True
 
 
-def _remove_stale(directory, wanted):
-    """Delete only tezgah-managed files no longer in the wanted set."""
+def remove_stale(directory, wanted):
+    """Delete only tezgah-managed files no longer in the wanted set; returns
+    the paths removed."""
+    removed = []
     for path in glob.glob(os.path.join(directory, "tezgah-*.*")):
         if os.path.basename(path) not in wanted and _is_managed(_read(path)):
             try:
                 os.remove(path)
+                removed.append(path)
             except OSError:
                 pass
+    return removed
 
 
 BLOCK_BEGIN = ("# tezgah: generated agents (managed; removed by "
@@ -796,66 +862,49 @@ def sync_root(root, report_steady=False):
         return None
     disabled = off("agents-off")
     infra = detect_infra(root)
-    hosts = set() if disabled else set(infra["hosts"])
+    # Claude's and Codex's roles are user-level (user_agents): only Cursor and
+    # opencode get a dir here
+    hosts = set() if disabled else set(infra["hosts"]) - set(USER_HOSTS)
     active = [] if disabled else [r for r in ROLES if r[2](infra)]
     names = [r[0] for r in active]
 
-    # markdown: one dir serves Claude and Cursor (Cursor reads .claude/agents/)
-    md_dir = os.path.join(root, HOST_DIRS["claude"]) if hosts & {"claude", "cursor"} else None
+    cursor_dir = os.path.join(root, HOST_DIRS["cursor"]) if "cursor" in hosts else None
     oc_dir = os.path.join(root, HOST_DIRS["opencode"]) if "opencode" in hosts else None
-    codex_dir = os.path.join(root, HOST_DIRS["codex"]) if "codex" in hosts else None
 
     written, removed = 0, 0
     paths = []
+    wanted = {h: set() for h in HOST_DIRS}
 
-    def emit(directory, wanted, name, text):
+    def emit(host, name, text):
         nonlocal written
-        wanted.add(name)
-        path = os.path.join(directory, name)
+        wanted[host].add(name)
+        path = os.path.join(root, HOST_DIRS[host], name)
         if _write_if_changed(path, text):
             written += 1
         paths.append(path)
 
-    wanted_md, wanted_oc, wanted_codex = set(), set(), set()
-
-    def sweep(directory, wanted):
-        nonlocal removed
-        before = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
-        _remove_stale(directory, wanted)
-        after = set(os.path.basename(p) for p in glob.glob(os.path.join(directory, "tezgah-*.*")))
-        removed += len(before - after)
-
-    if md_dir and names:  # Claude Code + Cursor
+    # Cursor gets no orchestrator: its files are subagents the main thread
+    # delegates to, and the orchestrator is a primary agent
+    if cursor_dir and names:
         for name, desc, _cap, body, readonly in active:
-            emit(md_dir, wanted_md, name + ".md", render_md(name, desc, readonly, body("claude")))
-        emit(md_dir, wanted_md, "tezgah-orchestrator.md", render_orch_md(names))
+            emit("cursor", name + ".md",
+                 render_md_cursor(name, desc, readonly, body("cursor")))
 
     if oc_dir and names:  # opencode
         for name, desc, _cap, body, readonly in active:
-            emit(oc_dir, wanted_oc, name + ".md",
+            emit("opencode", name + ".md",
                  render_md_opencode(name, desc, readonly, body("opencode")))
-        emit(oc_dir, wanted_oc, "tezgah-orchestrator.md", render_orch_md_opencode(names))
+        emit("opencode", "tezgah-orchestrator.md", render_orch_md_opencode(names))
 
-    if codex_dir and names:  # Codex (no orchestrator agent; the main thread orchestrates)
-        for name, desc, _cap, body, readonly in active:
-            emit(codex_dir, wanted_codex, name + ".toml",
-                 render_toml(name, desc, readonly, body("codex")))
-
-    # The sweep runs over every dir this module can write, not only the selected
-    # ones: a host dropped from the config, or a capability that disappeared,
-    # must not leave tezgah agents behind for the host to keep loading.
-    sweep(os.path.join(root, HOST_DIRS["claude"]), wanted_md)
-    sweep(os.path.join(root, HOST_DIRS["opencode"]), wanted_oc)
-    sweep(os.path.join(root, HOST_DIRS["codex"]), wanted_codex)
+    # The sweep runs over every dir this module ever wrote, not only the
+    # selected ones: a host dropped from the config, a capability that
+    # disappeared, or a `.claude`/`.codex` copy from before the roles moved
+    # user-level must not stay behind for a host to keep loading.
+    for host, directory in HOST_DIRS.items():
+        removed += len(remove_stale(os.path.join(root, directory), wanted[host]))
 
     if paths:
-        dirs = set()
-        if md_dir:
-            dirs.add(HOST_DIRS["claude"])
-        if oc_dir:
-            dirs.add(HOST_DIRS["opencode"])
-        if codex_dir:
-            dirs.add(HOST_DIRS["codex"])
+        dirs = {HOST_DIRS[h] for h in ("cursor", "opencode") if wanted[h]}
         ex = ensure_exclude(root, dirs)
         if ex:
             paths.append(ex)
@@ -868,7 +917,7 @@ def sync_root(root, report_steady=False):
                 % (len(names), ", %d removed" % removed if removed else ""))
     if removed:
         return "%d stale agent file(s) removed" % removed
-    if report_steady and names and (md_dir or oc_dir or codex_dir):
+    if report_steady and names and (cursor_dir or oc_dir):
         return "%d agent(s) current" % len(names)
     return None
 

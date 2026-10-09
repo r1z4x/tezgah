@@ -34,7 +34,7 @@ nothing about a host's event names or output envelope.
 | `tezgah_paths.py` | where tezgah is armed: [roots](glossary.md#root) and the linked worktrees of a repository under one, kill switches, the config dir, and the writable cache dir - the fallback resolved on use rather than at import, so a gated call does not pay for `tempfile`, `shutil` or `sqlite3` | `hooks/tezgah_paths.py:2-14`, `hooks/tezgah_paths.py::cache_dir`, `hooks/tezgah_paths.py::fallback_cache` |
 | `tezgah_snapshot.py` | pre-write bytes of every file a write is about to change, and the one explicit restore | `hooks/tezgah_snapshot.py:2-18`, `hooks/tezgah_snapshot.py::capture` |
 | `tezgah_untrusted.py` | the untrusted-content label on a result from outside the user and workspace, and the taint notice on the next effect | `hooks/tezgah_untrusted.py:2-22`, `hooks/tezgah_untrusted.py::marks` |
-| `tezgah_agents.py` | per-repo subagent definitions generated into each host that has an agent surface | `hooks/tezgah_agents.py:2-22`, `hooks/tezgah_agents.py::sync_root` |
+| `tezgah_agents.py` | subagent definitions generated into each host that has an agent surface: user-level for Claude, Codex and omp (written at install), per repo for Cursor and opencode | `hooks/tezgah_agents.py:2-30`, `hooks/tezgah_agents.py::sync_root`, `hooks/tezgah_agents.py::user_agents` |
 | `tezgah_research.py` | the in-repo research workspace and the check that a protocol predates its results | `hooks/tezgah_research.py:2-85`, `hooks/tezgah_research.py::check` |
 | `tezgah_index.py` | the detached graph auto-index worker (flock-guarded, bounded retry) | `hooks/tezgah_index.py:2-18`, `hooks/tezgah_index.py::main` |
 

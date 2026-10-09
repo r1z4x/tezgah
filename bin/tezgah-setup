@@ -1163,7 +1163,31 @@ def install_claude():
     # (`TEZGAH_CORE_IN_FILE`, hooks/projects-auto-init.py), so a session pays for
     # the contract once.
     print("%s %s (always-on contract)" % (OK, write_rules("claude")))
+    write_user_agents("claude")
     register_claude_plugin()
+
+
+def write_user_agents(host):
+    """The host's tezgah roles in its user agent dir, where it loads them from
+    the first session (a repo dir written at session start is missed there),
+    then tezgah's MARKER files no longer wanted - `agents-off`, a lost
+    capability, a retired role - are removed. The user's own files stay."""
+    agents_dir = tezgah_agents.user_agent_dir(host)
+    wanted = tezgah_agents.user_agents(host)
+    for name, text in sorted(wanted.items()):
+        path = os.path.join(agents_dir, name)
+        if write_if_changed(path, text):
+            print("%s %s" % (OK, path))
+    for path in tezgah_agents.remove_stale(agents_dir, wanted):
+        print("%s removed %s" % (OK, path))
+
+
+def user_agent_files(host):
+    """{filename: text} of tezgah's MARKER files in the host's user agent dir."""
+    d = tezgah_agents.user_agent_dir(host)
+    return {n: t for n in (os.listdir(d) if os.path.isdir(d) else [])
+            if n.startswith("tezgah-")
+            and tezgah_agents.MARKER in (t := tezgah_agents._read(os.path.join(d, n)) or "")}
 
 
 # The marketplace a manifest rendered by this installer carries, so Claude
@@ -1358,6 +1382,7 @@ def install_codex():
     # instructions Codex keeps for the whole session. Global, like omp's
     # RULES.md, because a per-project file would be a tracked project file.
     print("%s %s (always-on contract)" % (OK, write_rules("codex")))
+    write_user_agents("codex")
 
 
 def _toml_str(value):
@@ -3293,6 +3318,9 @@ def verify_uninstall(hosts, full):
         # the user's own CLAUDE.md may name tezgah; only the block is ours
         clean("claude global CLAUDE.md block gone", [CLAUDE_RULES],
               needle="<!-- tezgah:start")
+        claim("claude subagents gone",
+              [os.path.join(tezgah_agents.user_agent_dir("claude"), n)
+               for n in user_agent_files("claude")])
     if "codex" in hosts:
         clean("codex hooks.json unwired", [os.path.join(CODEX, "hooks.json")])
         claim("codex skills unlinked",
@@ -3304,6 +3332,9 @@ def verify_uninstall(hosts, full):
         clean("codex global AGENTS.md block gone",
               [os.path.join(CODEX, n) for n in CODEX_RULES],
               needle="<!-- tezgah:start")
+        claim("codex subagents gone",
+              [os.path.join(tezgah_agents.user_agent_dir("codex"), n)
+               for n in user_agent_files("codex")])
     if "opencode" in hosts:
         claim("opencode plugin unlinked",
               [os.path.join(OPENCODE, d, "tezgah.js") for d in ("plugins", "plugin")]
@@ -3454,6 +3485,13 @@ def uninstall_claude():
     unwire_claude_settings()
     drop_claude_mcp_row()
     strip_managed_md(CLAUDE_RULES)
+    remove_user_agents("claude")
+
+
+def remove_user_agents(host):
+    """Every tezgah MARKER file in the host's user agent dir; the user's stay."""
+    for path in tezgah_agents.remove_stale(tezgah_agents.user_agent_dir(host), ()):
+        print("%s removed %s" % (OK, path))
 
 
 def drop_claude_mcp_row():
@@ -3488,6 +3526,7 @@ def uninstall_codex():
     # both names: the override may have appeared, or gone, since the install
     for name in CODEX_RULES:
         strip_managed_md(os.path.join(CODEX, name))
+    remove_user_agents("codex")
 
 
 def uninstall_opencode():
@@ -4429,6 +4468,8 @@ def host_checks_claude():
          bool(copies) and all(plugin_copy_current(t) for t in copies)),
         ("CLAUDE.md carries the contract (matches a fresh render)",
          rules_current("claude")),
+        ("subagents in %s (match a fresh render)" % tezgah_agents.user_agent_dir("claude"),
+         user_agent_files("claude") == tezgah_agents.user_agents("claude")),
     ] + claude_mcp_rows(copies)
 
 
@@ -4617,6 +4658,8 @@ def host_checks_codex():
         ("MCP in config.toml", "mcp_servers.codegraph" in toml),
         ("%s carries the contract (matches a fresh render)"
          % os.path.basename(codex_rules()), rules_current("codex")),
+        ("subagents in %s (match a fresh render)" % tezgah_agents.user_agent_dir("codex"),
+         user_agent_files("codex") == tezgah_agents.user_agents("codex")),
     ] + mcp_rows(toml_servers(toml_path), "config.toml") + [
         mcp_row(TEZGAH_MCP_NAME, toml_mcp_entry(toml_path, TEZGAH_MCP_NAME),
                 "config.toml", tezgah_mcp_command()),

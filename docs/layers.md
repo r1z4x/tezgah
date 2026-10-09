@@ -76,7 +76,7 @@ lessons and research lines.
 Must not own the loop, the model, the tools or the network. tezgah never runs
 the work and never rolls back on its own - rollback is the explicit
 `bin/tezgah-rollback` - and the subagents it defines are rendered into a host's
-own agent surface for that host to run (`hooks/tezgah_agents.py:2-22`).
+own agent surface for that host to run (`hooks/tezgah_agents.py:2-30`).
 
 ## The boundary, one term at a time
 
