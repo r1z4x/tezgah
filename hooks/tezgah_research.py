@@ -138,13 +138,15 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # older set: 2 the standards rules, 3 the ask contract (keyed on the `ask` field),
 # 4 the protocol sections (`_check_protocol_sections`), 5 the scope lock
 # (`scope_problems`, `trace_problem`, the method-gated evaluation and the analysis
-# that owes no variants). A `rules` above `RULES` is
+# that owes no variants), 6 the selection warnings (`_check_selection`: the
+# held-out set, repeats per arm, the noise band). A `rules` above `RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
 PROTOCOL_RULES = 4
 SCOPE_RULES = 5
-RULES = SCOPE_RULES
+HOLDOUT_RULES = 6
+RULES = HOLDOUT_RULES
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
@@ -3406,6 +3408,91 @@ def _check_standards(repo, slug, base, errors, warnings, strict, git):
     if git:
         _check_evaluation_order(repo, base, state, errors, warnings, strict)
         _check_results_append_only(repo, base, state, errors, warnings, strict)
+    _check_selection(base, state, warnings)
+
+
+# A protocol that states its repeats: `k: 3`, `repeats = 5`, `repeat: 2`.
+PROTOCOL_REPEATS = re.compile(r"(?i)\b(?:k|repeats?)\s*[:=]\s*(\d+)")
+# A number standing alone in a tolerance sentence; the 95 of `p95` is a name.
+# `spread` is in the tolerance's own unit, so a percentage, whose base the band
+# does not carry, is not compared: "within 5%" against spread 0.06 is no finding.
+TOLERANCE_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\d.]*\s*%)")
+
+
+def _count(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check_selection(base, state, warnings):
+    """Rules 6, the rsi-borrow-screen includes (ideas 115/226, 110, 67), each a
+    warning and never a refusal, `--strict` included (ADR 019: a refusal needs
+    its own outcome evidence first).
+
+    - A decision with comparison cells and no `evaluation.held_out` selected its
+      variant and reports it on the same cells; a candidate that consults the
+      held-out set more than once (`held_out_log.jsonl`) turned it into
+      development data.
+    - An armed experiment (`arm` or `variant` with 2+ values in its rows) with no
+      row `repeat`/`repeats`/`k` above 1 and no protocol stating one ran each arm
+      once, so its difference has no spread to be read against.
+    - A `capability_tolerance` owes an `evaluation.noise_band` - the experiment
+      that reran the unchanged baseline and its measured `spread` - and a
+      tolerance wider than that spread passes what noise alone would."""
+    if _rules(state) < HOLDOUT_RULES or _qualitative(state):
+        return
+    evaluation = state.get("evaluation")
+    evaluation = evaluation if isinstance(evaluation, dict) else {}
+    held_out = evaluation.get("held_out")
+    if not (isinstance(held_out, str) and held_out.strip()):
+        same = [n for n, ddir in _decision_dirs(base)
+                if _rows(os.path.join(ddir, "comparison.jsonl"))]
+        if same:
+            warnings.append("decisions %s selected and reported on the same cells: "
+                            "no state.json evaluation held_out names the set the "
+                            "selection is confirmed on" % ", ".join(same))
+    consulted = {}
+    for row in _row_objects(os.path.join(base, "held_out_log.jsonl")):
+        key = (str(row.get("candidate")), str(row.get("set")))
+        consulted[key] = consulted.get(key, 0) + 1
+    for (candidate, held), n in sorted(consulted.items()):
+        if n > 1:
+            warnings.append("held_out_log.jsonl: %s consulted held-out set %s %d "
+                            "times, so the held-out set became development data for "
+                            "%s" % (candidate, held, n, candidate))
+    names = _experiment_names(base)
+    for h in names:
+        d = os.path.join(base, "experiments", h)
+        rows = _row_objects(os.path.join(d, "results.jsonl"))
+        if not any(len({json.dumps(r[f], sort_keys=True) for r in rows if f in r}) > 1
+                   for f in ("arm", "variant")):
+            continue
+        if any(_count(r.get(f)) and r[f] > 1
+               for r in rows for f in ("repeat", "repeats", "k")):
+            continue
+        text = _note_text(os.path.join(d, "protocol.md"))
+        if any(int(m) > 1 for m in PROTOCOL_REPEATS.findall(text)):
+            continue
+        warnings.append("experiment %s compares arms with one run per arm: no row "
+                        "carries repeat/repeats/k above 1 and protocol.md states no "
+                        "k, so the difference has no spread to be read against" % h)
+    tolerance = evaluation.get("capability_tolerance")
+    band = evaluation.get("noise_band")
+    if not isinstance(band, dict):
+        if isinstance(tolerance, str) and tolerance.strip():
+            warnings.append("state.json evaluation capability_tolerance %r declares no "
+                            "evaluation noise_band: the band was written, never "
+                            "measured against a rerun of the unchanged baseline"
+                            % tolerance)
+        return
+    if band.get("experiment") not in names:
+        warnings.append("state.json evaluation noise_band experiment %r is not an "
+                        "experiment of this line" % (band.get("experiment"),))
+    spread = band.get("spread")
+    number = TOLERANCE_NUMBER.search(tolerance) if isinstance(tolerance, str) else None
+    if number and _count(spread) and float(number.group()) > spread:
+        warnings.append("state.json evaluation capability_tolerance %s is wider than "
+                        "the measured noise (noise_band spread %s)"
+                        % (number.group(), spread))
 
 
 def _check_review_integrity(base, errors, warnings, strict):

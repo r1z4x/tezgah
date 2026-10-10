@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Held-out, repeat and noise-band warnings (rules 6).** A measured line may name `evaluation.held_out` and log each look at it in `held_out_log.jsonl`. It may also declare `evaluation.noise_band`. `check` warns when a decision picks and reports a variant on the same cells. It warns when one candidate looks at the held-out set twice. It warns when an armed experiment runs once per arm. It warns when `capability_tolerance` has no measured band, or a wider one. None of these refuses, `--strict` included.
+- **`tezgah-gate replay --split search|holdout`.** A stable hash of the session id picks the side. Tune a gate threshold on one side and report it on the other. The report names its side.
+- **A `lesson_changed` ledger row.** Rewriting or removing a `.tezgah/lessons.md` line now leaves one row per line. The row holds the old line's key and its redacted text. Taint does not matter, and it never refuses.
+
+### Fixed
+
+- **The task allowlist reads linked worktrees.** The gate used to place a file in a linked worktree outside the repo root. It then refused every in-scope write there. The gate now matches such a file against the worktree's own top. A worktree of another repository stays outside.
+
+### Changed
+
+- **Judge figures name their provider.** Each judge figure in `docs/judge.md` and `docs/models.md` now names its provider and model. Where the record does not say, the page says so. A figure does not carry over to another default.
+
 ## [1.6.0] - 2026-10-10
 
 ### Added

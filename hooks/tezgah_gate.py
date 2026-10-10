@@ -1136,7 +1136,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     for path in write_paths(inp):
         if scratch_target(path, cwd):
             continue
-        rel = tezgah_task.relative(path, cwd, base)
+        rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
     return None
@@ -1276,6 +1276,18 @@ def workspace_reason(inp, cwd, base):
 # or whose target is a positional argument (`cp`, `sed -i`), leaves a row with
 # no `key` or no row at all - the gate cannot read the line it adds - so the
 # context cannot label that line.
+#
+# History, whatever the turn read (plan 077, rsi-borrow-screen idea 2): a write
+# that rewrites or removes a ledger line leaves one `lesson_changed` row per such
+# line, keyed by the old line and carrying its text, so a standing constraint
+# that was edited away can be read back from the ledger. Still never a refusal.
+# ponytail: a shell write the gate cannot read the new text of (`sed -i`, an
+# `echo >` body) leaves no `lesson_changed` row, and a rewritten line carries no
+# `new_key`: the row contract (`tezgah_integrity.LEDGER_FIELDS`) has no field
+# for it, so the line's new key rides only its `lesson_tainted` row, if any.
+LESSON_CHANGED_MAX = 10
+
+
 def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
     """Write one `lesson_tainted` row per lesson line this call leaves in a
     ledger that the ledger did not hold, when the user turn already holds a row
@@ -1285,24 +1297,28 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
     the call lands (`_after_text`), so a partial-line edit names the line it
     leaves, not its fragment. The keyed rows also go to the ledger's repository
     index (`tezgah_lessons.write_taint`), which the context labels lines from.
+    In any turn, one `lesson_changed` row per ledger line the call drops - its
+    old `key`, its old text in `detail` (redacted by `note`), the ledger in
+    `target`: read off the post-write text, a patch's `-` lines, or a shell
+    heredoc that overwrites the file; an append drops nothing.
     Returns nothing: it is never a refusal."""
-    if tezgah_lessons is None or turn_rows is None or not session_id:
+    if tezgah_lessons is None or not session_id:
         return
     t = str(tool or "").lower()
 
     def norm(path):
         return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
 
-    texts = {norm(path): new for path, _old, new in
-             write_texts(inp if t in WRITE_TOOLS else shell_body)}
+    written = write_texts(inp if t in WRITE_TOOLS else shell_body)
+    texts = {norm(path): new for path, _old, new in written}
     targets = sorted(p for p in set(texts) | set(map(norm, write_paths(inp)))
                      if tezgah_lessons.is_ledger(p))
     if not targets:
         return
     source = next((row["source"] for row in reversed(
-        turn_rows(session_id, agent=agent)) if row.get("source")), None)
-    if not source:
-        return
+        turn_rows(session_id, agent=agent)) if row.get("source")),
+        None) if turn_rows else None
+    minus = {norm(path): old for path, old, _new in written}
     key_of = tezgah_lessons.lesson_key
     for path in targets:
         try:
@@ -1310,21 +1326,66 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
                 current = fh.read()
         except OSError:
             current = ""
-        have = set(map(key_of, tezgah_lessons.entries(current)))
+        lines = tezgah_lessons.entries(current)
+        have = set(map(key_of, lines))
         new = texts.get(path)
+        gone = ()
         if t in WRITE_TOOLS and new is not None:
             after = _after_text(inp, current)
-            new = new if after is None else after    # None: a patch's `+` lines
+            if after is None and path in _patch_deletes(inp, norm):
+                gone = list(dict.fromkeys(lines))    # a patch's Delete File
+            elif after is None:  # a patch: its `-` lines leave, its `+` lines land
+                gone = _dropped(tezgah_lessons.entries(minus.get(path) or ""), new)
+            else:
+                new, gone = after, _dropped(lines, after)
+        elif new is not None and not _shell_appends(inp.get("command")):
+            gone = _dropped(lines, new)
+        fields = dict(target=path, agent=agent, workspace=root_for(cwd),
+                      id=call_id(tool, inp))
+        # a rewrite of the whole ledger would otherwise push the refusal rules'
+        # fixed tails (the last verify, prior calls) out of their window
+        for line in gone[:LESSON_CHANGED_MAX]:
+            note(session_id, "lesson_changed", line, key=key_of(line), **fields)
+        if len(gone) > LESSON_CHANGED_MAX:
+            rest = len(gone) - LESSON_CHANGED_MAX
+            note(session_id, "lesson_changed", "%d more lines changed" % rest,
+                 items=rest, **fields)
+        if not source:
+            continue
         keys = [k for k in dict.fromkeys(map(key_of, tezgah_lessons.entries(
             new or ""))) if k not in have] or [None]
-        fields = dict(source=source, target=path, agent=agent,
-                      workspace=root_for(cwd), id=call_id(tool, inp))
         for key in keys:
-            note(session_id, "lesson_tainted", source, key=key, **fields)
+            note(session_id, "lesson_tainted", source, key=key, source=source,
+                 **fields)
         if keys != [None]:
             write_taint(os.path.dirname(os.path.dirname(path)), have | set(keys),
                         [{"key": k, "source": source, "ts": int(time.time())}
                          for k in keys])
+
+
+PATCH_DELETE = re.compile(r"^\*\*\* Delete File: (.+?)\s*$", re.M)
+
+
+def _patch_deletes(inp, norm):
+    """The paths an apply_patch input deletes (`*** Delete File: <path>`), normed;
+    read from the patch text itself, so a hunk of blank lines is not a delete."""
+    text = "\n".join(v for v in (inp or {}).values() if isinstance(v, str))
+    return {norm(p) for p in PATCH_DELETE.findall(text)}
+
+
+def _dropped(lines, after):
+    """The ledger `lines` the text `after` no longer holds, once each, in order."""
+    keep = set(map(tezgah_lessons.lesson_key, tezgah_lessons.entries(after)))
+    return [ln for ln in dict.fromkeys(lines)
+            if tezgah_lessons.lesson_key(ln) not in keep]
+
+
+def _shell_appends(command):
+    """Whether a shell write's body is added to its target (`>>`, `tee -a`) rather
+    than replacing it; True when the target is not read (no row beats a false one)."""
+    m = SHELL_TARGET.search(mask(str(command or "")))
+    return not m or m.group(0).startswith(">>") or bool(
+        re.search(r"\s-(?:[A-Za-z]*a[A-Za-z]*|-append)\s", m.group(0)))
 
 
 # --- the shell's write body: three write-tool rules reached through a heredoc -
@@ -2805,8 +2866,9 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
     """`decision` with every write it makes swapped out for the call.
 
     The writers are module names `decision` reaches through (`note` for the
-    deny, drift, nudge and lesson_tainted rows, `write_taint` for the lesson
-    taint index, `first_nudge` for the once-per-session mark, `capture` for the
+    deny, drift, nudge, lesson_tainted and lesson_changed rows, `write_taint`
+    for the lesson taint index, `first_nudge` for the once-per-session mark,
+    `capture` for the
     snapshot), so one swap covers every rule and a new rule
     that records through them is dry here without being told. Safe because
     the dry run is its own process (bin/tezgah-gate check): nothing else in it

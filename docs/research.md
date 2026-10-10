@@ -65,7 +65,8 @@ nothing recorded the ask and `close --limit` accepted any string.
 `state.json` `rules` is the line's format version. `init` writes `RULES`, the
 newest set (`hooks/tezgah_research.py::RULES`). Each set keeps its own gate. Rules 2
 are the standards rules. Rules 3 add the ask contract. Rules 4 add the protocol
-sections below. Rules 5 add the scope lock. A bump never weakens an older set.
+sections below. Rules 5 add the scope lock. Rules 6 add the selection warnings
+("Held-out set, repeats and noise band" below). A bump never weakens an older set.
 
 A `rules` above `RULES` means a later tezgah wrote the line. `check` then reports
 one error that names both numbers and reads nothing else. The writers refuse the
@@ -149,7 +150,7 @@ gets the question, its scope and its method in its brief. The research skill's
 
 | Path | Holds |
 |---|---|
-| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, `method` and `scope` (rules 5, see "Scope lock"), the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`), the session events (`PHASES`, `hooks/tezgah_research.py::PHASES`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`hooks/tezgah_research.py::derived_phase`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
+| `state.json` | the question, the phase (`bootstrap`/`inner`/`outer`/`concluded`), the direction, `method` and `scope` (rules 5, see "Scope lock"), the locked evaluation and its optional second gate (`capability_tolerance`, `counter_metric`) with its `noise_band`, the optional `held_out` set (rules 6), the session events (`PHASES`, `hooks/tezgah_research.py::PHASES`), `rules` (the rule set `init` opened it under, `RULES`), `deliverable` (`kind`, `path`, `ask`, `min_variants`), `supersedes` for a new version of an older line, and `closed` once `close` records a deliberate limit. The phase is the author's declaration; `derived_phase` (`hooks/tezgah_research.py::derived_phase`) reads the *other* authority beside it from the line's own artifacts, and the checker names the two disagreeing |
 | `log.md` | the decision log, newest last: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | the four sections every line answers, named by `FINDINGS_SECTIONS` (`hooks/tezgah_research.py::FINDINGS_SECTIONS`) |
 | `claims.jsonl` | one JSON object per row: `statement`, `falsification`, `proof`, `provenance`, `status`, `kind`, `trace` (the in-scope item, rules 5), `scope` (what the claim's numbers were measured on, which may not be wider than the rows it rests on), and `supersedes` when the row replaces an earlier claim |
@@ -487,18 +488,51 @@ in `hooks/tezgah_research.py`, a module the frozen set forbids a prediction's
 commit to touch without a human `granted_by` (`FROZEN_PATHS`), so the gate that
 decides which candidate survives is not machinery the candidate can rewrite.
 
-What the pair cannot catch: **a tolerance its own author sets wide enough**. The
-band is a sentence, not a measurement, and `check` can see that it is written and
-readable - never that 0.02 is tight. A line that writes "capability metric within
-5.0 of the baseline" has adopted the form of the two-gate rule and none of its
-force, and the review is the only place that is decided.
+What the pair cannot catch alone: **a tolerance its own author sets wide
+enough**. A line that writes "capability metric within 5.0 of the baseline" has
+adopted the form of the two-gate rule and none of its force. From rules 6 the band
+is read against a measurement. `evaluation.noise_band` is
+`{"experiment": "<the experiment dir that reran the unchanged baseline>",
+"spread": <the spread that rerun measured>}`. `check` warns in three cases. The
+line declares `capability_tolerance` and no `noise_band`. `noise_band.experiment`
+names no experiment of the line. The tolerance sentence holds a number wider than
+`spread`, so the tolerance passes what noise alone would. A digit inside a name
+such as `p95` is not that number (`_check_selection`,
+`hooks/tezgah_research.py::_check_selection`). Whether the rerun was a fair one
+stays the review's call.
+
+## Held-out set, repeats and noise band (rules 6)
+
+The measured line `rsi-borrow-screen` found three gaps. Of 27 decisions, 25 select
+a variant and report it on the same cells. Of 23 armed experiments, 13 run once per
+arm. Three lines declare a tolerance, and none of them measured it. Rules 6 add one
+warning for each (`_check_selection`, `hooks/tezgah_research.py::_check_selection`).
+Each stays a warning under `--strict` too, never a refusal (ADR 019):
+
+- **Held-out set.** A measured line may name its held-out set in
+  `evaluation.held_out` (a non-empty string). It may log each look at that set in
+  `held_out_log.jsonl` at the line root, one row
+  `{"set", "candidate", "date", "result"}` per look. `check` warns when a
+  `decisions/<id>/` holds comparison cells and the line names no `held_out`: the
+  variant was selected and reported on the same cells. It also warns when one
+  candidate looked at one set more than once: the held-out set became development
+  data for it.
+- **Repeats.** An experiment is armed when its `results.jsonl` rows carry `arm` or
+  `variant` with two or more values. `check` warns when no row has `repeat`,
+  `repeats` or `k` above 1 and its `protocol.md` states no `k:`/`repeats:` above 1.
+  An armless experiment is not read.
+- **Noise band.** `evaluation.noise_band`, read in "Two gates" above.
+
+A line opened under rules 5 or earlier is not read for any of the three.
 
 ## What `check` refuses, and what it only warns about
 
 A **refusal** (exit 1) is a guarantee the checker can decide. A **warning** is a
 guarantee it cannot: the artifact is not wrong, it is unverifiable. `--strict`
-turns that whole class into a refusal, which is what a release gate wants and
-what a session mid-flight must not have, so the default stays `warn`.
+turns the warnings the listed rules write through `_soft` into a refusal, which is
+what a release gate wants and what a session mid-flight must not have, so the
+default stays `warn`. A warning written outside `_soft` stays one. The section
+below names two.
 
 Refused:
 
@@ -674,7 +708,8 @@ this layer cannot decide on, not a defect:
   judgement, so no migration can write one for the lines that concluded before
   the rule existed.
 
-One warn is **not** promoted by `--strict`, and it is the only one: a `phase`
+Two warnings that are **not** promoted by `--strict` matter here. The rules-6
+three (held-out set, repeats, noise band) stay warnings by ADR 019. The other is a `phase`
 declared in `state.json` behind the phase the line's own artifacts show
 (`_check_derived_phase`, `hooks/tezgah_research.py::_check_derived_phase`). The field is the author's
 declared intent and `_check_report` and `_check_review` read it, so a derivation

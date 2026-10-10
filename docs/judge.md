@@ -25,12 +25,15 @@ transient failure - a timeout, a connection error, a 5xx - gets exactly one more
 attempt. A 4xx, a session CLI's non-zero exit and a malformed reply never do
 (`_transient`, `hooks/tezgah_judge.py::_transient`). A hook caller asks for one
 attempt and a wall-clock `deadline` instead (`ask`, `hooks/tezgah_judge.py::ask`).
-A session CLI answers in 4-10 s (measured 2026-10-07), so the skill hint's
+A session CLI answers in 4-10 s (measured 2026-10-07, provider and model not recorded), so the skill hint's
 4 s deadline usually ends first. `TEZGAH_TYPESAFE_URL`, `TEZGAH_JEV_OPENROUTER_URL`,
 `TEZGAH_CLOUDFLARE_URL`, `TEZGAH_OPENROUTER_URL` and
 `TEZGAH_OMP_BIN`/`TEZGAH_CLAUDE_BIN` are the test seams. Each URL override goes
 through `override` (`hooks/tezgah_judge.py::override`), which refuses plain http
 off this machine.
+
+Each measured figure on this page measures only the provider and model it names,
+and stays unmeasured for any other default.
 
 Every caller reads an answer through the same accessors rather than reaching
 into the raw reply, so a Choice and a Noul are read one way for all five
@@ -123,7 +126,8 @@ that drops their tools or takes a system prompt. They run with the least their
 wrote nothing. cursor-agent in ask mode refused the same shell call.
 Measured 2026-10-07, a call cost $0.007 on claude and $0.015 on omp. Measured
 2026-10-09 on one choice question, opencode read 28,646 input tokens ($0.004 by
-its own report), cursor-agent 17,095 and codex 20,919. The session's own
+its own report), cursor-agent 17,095 and codex 20,919. These figures name the CLI
+that answered, and no record names its model. The session's own
 credential pays, OAuth subscription included. The answer and usage come from the
 CLI's JSON output (`_session_request`, `hooks/tezgah_judge.py::_session_request`).
 `_cli_answer` (`hooks/tezgah_judge.py::_cli_answer`) reads the last three. Only
@@ -213,10 +217,12 @@ computes and prints the arithmetic it paid on every run (`PRICE_PER_MILLION`,
 unit-selection shape it ships was measured on two reproduced screens: 100% of the
 control lines at a 94% read on a 356-line table, and 100% at a 74% read on a
 31-line screen, against 73.5% at a 26% read for the per-line shape it replaced.
+The record of these three figures names no provider and no model (provider not
+recorded).
 The threshold those numbers were taken at is `SELECTED_AT`, and the tool prints
 the measurement with every run (`MEASURED`, `bin/tezgah-triage::MEASURED`;
 `SELECTED_AT`, `bin/tezgah-triage::SELECTED_AT`). The retry covers a rate that was
-measured rather than assumed - 0 of 184 live calls returned `None` - so the second
+measured rather than assumed - 0 of 184 live calls returned `None` (provider not recorded) - so the second
 attempt costs a healthy call nothing (`_transient`,
 `hooks/tezgah_judge.py::_transient`); `docs/operations.md` records the run. Each
 caller also records one `judge` row of cost on the ledger when a session id is

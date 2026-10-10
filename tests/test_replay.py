@@ -249,6 +249,32 @@ class Corpus(TempHome):
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertEqual(json.loads(proc.stdout)["run"], s["run"])
 
+    def test_split_partitions_sessions_into_search_and_holdout(self):
+        s = self.replay()
+        self.assertNotIn("split", s, "no --split: the run's output is unchanged")
+        whole = json.loads(self.cli("--report", "--json"))
+        self.assertEqual((whole["split"], whole["sessions"]), ("all", 3))
+        self.assertIn("split: all (3 sessions)", self.cli("--report"))
+        with open(os.path.join(s["run"], "corpus.jsonl"), encoding="utf-8") as fh:
+            items = [json.loads(line) for line in fh]
+        sides = {}
+        for name in ("search", "holdout"):
+            rep = json.loads(self.cli("--report", "--json", "--split", name))
+            self.assertEqual(rep["split"], name)
+            self.assertIn("split: %s (%d sessions)" % (name, rep["sessions"]),
+                          self.cli("--report", "--split", name))
+            sides[name] = {it["i"] for it in items if tr.split_of(it["sid"]) == name}
+            self.assertEqual(rep["items"], len(sides[name]))
+            self.assertEqual(rep["sessions"], len({it["sid"] for it in items
+                                                    if it["i"] in sides[name]}))
+            run = json.loads(self.cli("--cutoff", str(CUTOFF), "--json", "--split", name))
+            self.assertEqual((run["split"], run["items"], run["sessions"]),
+                             (name, rep["items"], rep["sessions"]))
+        self.assertFalse(sides["search"] & sides["holdout"])
+        self.assertEqual(sides["search"] | sides["holdout"], {it["i"] for it in items})
+        self.assertEqual(json.loads(self.cli("--report", "--json"))["items"], s["items"],
+                         "a split run leaves the run's indexed whole-corpus summary as it was")
+
     def test_label_model_through_the_judge_seam(self):
         """Rater 2 (H2 amendment 2026-10-07): one choice question per sheet row
         through the judge seam, against a local stub endpoint; secrets leave
@@ -580,6 +606,19 @@ class Pure(unittest.TestCase):
     def test_the_output_root_is_under_the_cache(self):
         import tezgah_paths as tp
         self.assertEqual(tr.replay_root(), os.path.join(tp.CACHE, "replay"))
+
+    def test_the_split_side_is_stable_across_calls_and_processes(self):
+        sids = [SID, CHILD, OLD] + ["01a0aaaa-0000-7000-8000-%012d" % n for n in range(40)]
+        here = [tr.split_of(s) for s in sids]
+        self.assertEqual(here, [tr.split_of(s) for s in sids])
+        self.assertEqual(set(here), {"search", "holdout"})
+        proc = subprocess.run(
+            [sys.executable, "-c", "import sys, json; sys.path.insert(0, %r); "
+             "import tezgah_replay as tr; print(json.dumps([tr.split_of(s) for s in %r]))"
+             % (support.HOOKS, sids)], capture_output=True, text=True,
+            env=dict(os.environ, PYTHONHASHSEED="12345"), timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), here)
 
 
 if __name__ == "__main__":
