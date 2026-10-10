@@ -253,6 +253,15 @@ and no layer delivers, a field the spec defines and no view renders, a state the
 spec owes and the running app does not show, and a layer the build added that the
 spec never asked for. An agreement is a row too.
 
+## Citing the product decision
+
+A feature built from a product decision cites that decision. In forward mode,
+`spec.md` names the `D` row it implements as `product:<D>`, such as `product:D4`.
+The post-build audit cites the same `product:<D>` beside each disagreement it
+finds. A bare `D4` is not a citation, and `check` resolves only the `product:`
+form against the product ledger. The `product-flow` skill gives the order of the
+steps.
+
 ## Every finding carries a Prevent line
 
 A finding that only describes the defect will be met again next quarter. For each

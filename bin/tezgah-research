@@ -28,6 +28,8 @@
                                                    bring lines from another checkout, with history
   tezgah-research record O|I|A|M|D|R              append one product ledger row from stdin
   tezgah-research due [--json]                     the product decisions due for re-measure
+  tezgah-research next --topic <t> [--flow metric-dashboard|feature] [--json]
+                                                   the product-flow steps of a topic and the next one
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -667,6 +669,43 @@ def cmd_due(args):
     return 0
 
 
+def cmd_next(args):
+    """The product-flow steps of one topic with their status, then the first
+    missing or due step's skill and command; a report, so exit 0."""
+    usage = "next --topic <t> [--flow %s] [--json]" % "|".join(tp_product.FLOWS)
+    opts, as_json, rest = {}, False, list(args)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--json":
+            as_json = True
+        elif arg in ("--topic", "--flow") and rest and arg not in opts:
+            opts[arg] = rest.pop(0)
+        else:
+            return misuse(usage)
+    flow = opts.get("--flow", "metric-dashboard")
+    if "--topic" not in opts:
+        return misuse(usage)
+    if flow not in tp_product.FLOWS:
+        return misuse("unknown flow %r (%s)" % (flow, ", ".join(tp_product.FLOWS)))
+    topic = opts["--topic"]
+    steps = tp_product.next_steps(repo_root(os.getcwd()), topic, flow)
+    if not steps:
+        return misuse("topic %r holds no product ledger rows; start it with "
+                      "`tezgah-research record O`" % topic)
+    if as_json:
+        # the step list next_steps returns; the next step is its first
+        # missing or due entry
+        print(json.dumps(steps, indent=2))
+        return 0
+    first = next((s for s in steps if s["status"] in ("missing", "due")), None)
+    for n, step in enumerate(steps, 1):
+        print("%d. %s [%s] %s - %s" % (n, step["id"], step["status"], step["skill"],
+                                       step["detail"]))
+    print("next: %s - %s" % (first["skill"], first["command"]) if first
+          else "next: nothing left")
+    return 0
+
+
 def cmd_verdict(args):
     """Record one success criterion's verdict, with the evidence it rests on."""
     if len(args) < 3:
@@ -864,6 +903,8 @@ def main(argv):
         return cmd_record(rest)
     if cmd == "due":
         return cmd_due(rest)
+    if cmd == "next":
+        return cmd_next(rest)
     if cmd == "verdict":
         return cmd_verdict(rest)
     if cmd == "conclude":
@@ -878,7 +919,7 @@ def main(argv):
         return cmd_import(rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
                   "components, migrate, source, compare, verdict, conclude, migrate-layout, "
-                  "close, seal, import, record, due)" % cmd)
+                  "close, seal, import, record, due, next)" % cmd)
 
 
 if __name__ == "__main__":

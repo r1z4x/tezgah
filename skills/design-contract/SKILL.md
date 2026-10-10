@@ -70,6 +70,9 @@ opens. Field names and prose stay English.
   owns. A component the measurement shows that is not listed is a
   `component-inventory` violation, so a new component is added here, in the same
   turn it is written.
+- `components[].decision` - optional, the product decision that asked for the
+  component, as `"product:<D>"` or a list of them. `tezgah-research check`
+  resolves each one against the product ledger.
 
 ```json
 {
@@ -104,6 +107,13 @@ half applies, so a component measured without one is unjudged, never passed.
 A dashboard, chart or metric tile also follows [data-views.md](data-views.md): the
 dashboard type, chart choice by question, context and window per number, and the
 widget states.
+
+## The product decision behind a component
+
+A component built for a product decision names it in its `decision` field, such
+as `{"name": "RevenueTile", "kind": "data", "decision": "product:D4"}`. The value
+is a `D` row from `tezgah-research record D`. A component with no decision behind
+it leaves the field out. The `product-flow` skill gives the order of the steps.
 
 ## Derivation
 

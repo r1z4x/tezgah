@@ -186,6 +186,7 @@ it (`tests/test_skills.py::SkillStandards`).
 | `plan-sync` | Closes finished plans whose PR merged or closed through `tezgah-task close`, which moves a plan to `.tezgah/plans/done/` as done only when it records an approving `review:`; commits one message per plan in the private `.tezgah` repository; fires on `/tezgah:plan-sync`, "sync plans". |
 | `research` | Runs an auditable research line - two loops, protocol before run, six-dimension review, provenance; fires when the deliverable is evidence: a lit review, a hypothesis, a benchmark or ablation. |
 | `product-analysis` | Runs a product analysis across five axes - value (HEART), usability (heuristics, the cognitive walkthrough, WCAG 2.2, axe-core, the running app read through `analyze-app` down to component x state, tree and image both), feasibility (a cited `path:line`), competition (a dated teardown) and triage (keep/fix/cut/bet) - with one named evidence class per finding and a metric record per metric (North Star and inputs; goal, definition, window, baseline, logged or not), executed as a research line; fires on a product, feature, retention or roadmap question rather than a code change. |
+| `product-flow` | Carries a new product capability - a metric dashboard, a metric, a feature - from research to re-measure by running `tezgah-research next --topic <t>` and doing the first missing step with the skill it names; the steps live once in code, never in the skill; fires on "bu veriye uygun metric dashboard tasarla" or a new-feature ask, not on an audit of an existing feature. |
 | `pm-frameworks` | The two vendored product methods the analysis skill defers to - intended-vs-implemented and the Opportunity Solution Tree - kept offline so an offline session reads the method instead of citing its name. |
 | `feature-audit` | Audits ONE feature across every layer it is spread over - the surfaces a person uses (a control, a list or table, a detail view, a filter, a picker, a step flow, a notification), the route, the authorization, the service and the data - by filling the capability, field-contract, flow/step and interaction-dependency matrices, where a disagreement between layers is a finding and a fix needing an absent capability becomes a capability-change proposal; fires on an admin screen, CRUD, form, wizard, data table, filter or permission question about an existing feature, and in forward mode specifies a feature not built yet so the post-build audit diffs against it. |
 | `design-contract` | The artifact shape of the per-repo `.tezgah/design-contract.md` - colour roles, type scale, spacing unit and rhythm, the component inventory, the state set every interactive control and data view owes - the derivation rule that reads it out of the repository's own tokens, the rules `bin/tezgah-design check` fails on, and the data-view rules for dashboards (`skills/design-contract/data-views.md`); fires on a UI or component turn that needs a floor, a token, a state set, or the design check itself. |
@@ -203,6 +204,18 @@ The generated specialists load skills first (`hooks/tezgah_agents.py::SPECIALIST
 | `tezgah-researcher` | `research`, `ai-research` |
 | `tezgah-security` | the host's `wstg-*`, `attack-*`, `ci-assessment` and `llm-security` skills, which tezgah does not ship |
 | `tezgah-tester` | none |
+
+### The product chain
+
+A new product capability runs as one chain: research -> `product-analysis` ->
+decision -> forward spec -> `design-contract` -> build -> re-measure. Each link
+leaves product ledger rows or a file that cites them as `product:<id>`. Research
+leaves `O` and `I` rows. The analysis leaves `M` and `A` rows, then the `D` row.
+The forward spec (`feature-audit`'s forward mode) and the design-contract
+component cite that `D`. The re-measure is an `R` row for it. One table in code,
+`FLOWS` (`hooks/tezgah_product.py::FLOWS`), holds the steps and their done rules.
+`product-flow` reads them through `tezgah-research next` and does not copy
+them (docs/research.md, "The product ledger").
 
 ## Vendored material
 

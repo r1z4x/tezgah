@@ -871,7 +871,9 @@ evidence class - `user-verbatim`, `behaviour`, `ui-observed`, `code`, `external`
 and a finding without one is a question, not a finding. Run it as a research line
 (`{RESEARCH_BIN}`), say what it did not look at, and read the `product-analysis`
 skill for the artifact shape and the scorecard, and `feature-audit` for the
-layer-coherence matrices when the ask is one feature. Off: `research-off`.
+layer-coherence matrices when the ask is one feature. A new capability built from
+data or an ask runs the `product-flow` skill: `tezgah-research next --topic <t>` is
+the step source, and its first missing or due step is the next one. Off: `research-off`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:

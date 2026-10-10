@@ -246,6 +246,7 @@ through its seal.
 | `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
 | `tezgah-research record <type>` | reads one product ledger row of type `O`, `I`, `A`, `M`, `D` or `R` from stdin, assigns its id and date, and appends it under the lock, printing `recorded <id>`. It refuses a row that brings its own `id` or `date`. It refuses a row with one `FAIL product:` line per problem, and refuses in a linked worktree with the main checkout's path (`append_row`, `hooks/tezgah_product.py::append_row`) | 0, 1 refused, 2 misuse |
 | `tezgah-research due [--json]` | the product ledger's due re-measures: each `D` row past its `observe_after` date with no `R`, oldest first (`due`, `hooks/tezgah_product.py::due`) | 0 |
+| `tezgah-research next --topic <t> [--flow f] [--json]` | prints every step of a product flow with its status from the topic's product ledger rows, then the first missing or due step's skill and command; `--flow` picks `metric-dashboard` (the default) or `feature`, and `--json` prints the same steps as data (`next_steps`, `hooks/tezgah_product.py::next_steps`) | 0, 2 unknown flow, no `--topic` or a topic with no rows |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
 checks (`misuse`, `bin/tezgah-research::misuse`). `check` asks nothing at all - no
@@ -385,6 +386,49 @@ has no session-start hook. It asks the builder for `post_compact` text only when
 it compacts, and adds that text to the compaction context
 (`hosts/opencode/plugins/tezgah.js`). So opencode never shows the note at session
 start.
+
+### The next step of a product flow
+
+`tezgah-research next --topic <t>` tells the session which step of a product flow
+comes next. The steps live once, in `FLOWS` (`hooks/tezgah_product.py::FLOWS`).
+Each step names its `id`, the `skill` that runs it, what it `leaves` behind and
+the `command` that writes it. The `product-flow` skill lists no steps of its own.
+It runs `next` and follows the first missing step.
+
+Two flows exist. `metric-dashboard` is the default and has nine steps. `feature`
+drops the metrics and instrumentation steps, unless the topic already holds an
+`M` row. `--flow <f>` picks one.
+
+`next_steps` (`hooks/tezgah_product.py::next_steps`) computes each status from
+the topic's rows and the files they cite. Nothing stores a status. A step is
+`done`, `missing`, `due` or `n/a`:
+
+| Step | Done when |
+|---|---|
+| `research` | the topic has at least one `O` of class `external` and at least one `I` |
+| `metrics` | at least one `M` rests on an `I` |
+| `assumptions` | at least one `A` exists |
+| `decision` | a `D` names one of the topic's `M` rows as its `metric` |
+| `instrumentation` | every `M` a `D` names says `logged: yes`, else `missing` |
+| `forward-spec` | `.tezgah/analysis/<topic>/spec.md` exists and cites `product:<D>` |
+| `design` | a design-contract component carries `"decision": "product:<D>"` |
+| `build` | always `n/a`: the Stop UI rule and `tezgah-design check` own it |
+| `re-measure` | an `R` names the `D`. It reads `due` once the `D` passes `observe_after` with no `R` |
+
+The text output prints one line per step, then one `next:` line:
+
+```
+<n>. <id> [<status>] <skill> - <detail>
+next: <skill> - <command>
+```
+
+The `next:` line names the first `missing` or `due` step's skill and command.
+With no such step it reads `next: nothing left`. `--json` prints the same steps
+as a list of objects with `id`, `skill`, `status`, `detail` and `command`.
+
+`next` exits 0 when it prints the steps. It exits 2 for an unknown flow, a
+missing `--topic` or a topic with no rows. That message names `record`, the
+command that writes the topic's first row.
 
 ## The pair the order rule compares
 
