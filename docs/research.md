@@ -529,9 +529,10 @@ A line opened under rules 5 or earlier is not read for any of the three.
 
 A **refusal** (exit 1) is a guarantee the checker can decide. A **warning** is a
 guarantee it cannot: the artifact is not wrong, it is unverifiable. `--strict`
-turns that class into a refusal, which is what a release gate wants and what a
-session mid-flight must not have, so the default stays `warn`. Two kinds stay
-warnings under `--strict`, named below.
+turns the warnings the listed rules write through `_soft` into a refusal, which is
+what a release gate wants and what a session mid-flight must not have, so the
+default stays `warn`. A warning written outside `_soft` stays one. The section
+below names two.
 
 Refused:
 
@@ -707,8 +708,8 @@ this layer cannot decide on, not a defect:
   judgement, so no migration can write one for the lines that concluded before
   the rule existed.
 
-Two kinds of warn are **not** promoted by `--strict`. The rules-6 three (held-out
-set, repeats, noise band) stay warnings by ADR 019. The other is a `phase`
+Two warnings that are **not** promoted by `--strict` matter here. The rules-6
+three (held-out set, repeats, noise band) stay warnings by ADR 019. The other is a `phase`
 declared in `state.json` behind the phase the line's own artifacts show
 (`_check_derived_phase`, `hooks/tezgah_research.py::_check_derived_phase`). The field is the author's
 declared intent and `_check_report` and `_check_review` read it, so a derivation

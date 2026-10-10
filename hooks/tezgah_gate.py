@@ -1332,7 +1332,7 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
         gone = ()
         if t in WRITE_TOOLS and new is not None:
             after = _after_text(inp, current)
-            if after is None and not new and not minus.get(path):
+            if after is None and path in _patch_deletes(inp, norm):
                 gone = list(dict.fromkeys(lines))    # a patch's Delete File
             elif after is None:  # a patch: its `-` lines leave, its `+` lines land
                 gone = _dropped(tezgah_lessons.entries(minus.get(path) or ""), new)
@@ -1361,6 +1361,16 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
             write_taint(os.path.dirname(os.path.dirname(path)), have | set(keys),
                         [{"key": k, "source": source, "ts": int(time.time())}
                          for k in keys])
+
+
+PATCH_DELETE = re.compile(r"^\*\*\* Delete File: (.+?)\s*$", re.M)
+
+
+def _patch_deletes(inp, norm):
+    """The paths an apply_patch input deletes (`*** Delete File: <path>`), normed;
+    read from the patch text itself, so a hunk of blank lines is not a delete."""
+    text = "\n".join(v for v in (inp or {}).values() if isinstance(v, str))
+    return {norm(p) for p in PATCH_DELETE.findall(text)}
 
 
 def _dropped(lines, after):

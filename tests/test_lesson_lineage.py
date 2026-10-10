@@ -273,6 +273,14 @@ class Changed(LedgerCase):
         self.assertEqual([k for k, _d, _t in self.changed()],
                          [KEY("first - a"), KEY(OLD)])
 
+    def test_a_patch_of_blank_lines_is_not_a_delete(self):
+        self.seed("first - a", "", OLD)
+        self.turn()
+        self.assertIsNone(self.gate("apply_patch", {"patch": (
+            "*** Begin Patch\n*** Update File: .tezgah/lessons.md\n@@\n"
+            "-\n+\n*** End Patch")}))
+        self.assertEqual(self.changed(), [])
+
     def test_a_plain_tee_overwrite_names_the_lines_it_drops(self):
         self.seed(OLD, "third - c")
         self.turn()
