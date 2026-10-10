@@ -512,22 +512,28 @@ class Cli(TempHome):
 
     def test_phase_and_allow_refuse_when_no_task_is_active(self):
         self.plan("001-first.md")
-        for proc in (self.task("phase", "implementation"), self.task("allow", "hooks/**")):
+        for proc in (self.task("phase", "implementation"),
+                     self.task("allow", "hooks/**", "--why", "x")):
             self.assertEqual(proc.returncode, 1, proc.stderr)
             self.assertIn("FAIL no active task", proc.stdout)
         self.assertEqual(self.task("stop").returncode, 1)
 
-    def test_allow_replaces_the_allowlist_and_lifts_it_only_when_told(self):
+    def test_allow_replaces_the_allowlist_and_records_why(self):
         self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
-        proc = self.task("allow", "tests/**", "README.md")
+        # the session widens its own scope, so a widening with no reason is misuse
+        self.assertEqual(self.task("allow", "tests/**").returncode, 2)
+        self.assertEqual(self.status()["allowed_paths"], ["hooks/**"])
+        proc = self.task("allow", "tests/**", "README.md", "--why", "the fix needs a test")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.status()["allowed_paths"], ["tests/**", "README.md"])
+        self.assertIn("(why: the fix needs a test)", self.task("status").stdout)
         # an empty call is not a lift: the scope goes only when it is said
-        self.assertEqual(self.task("allow").returncode, 2)
+        self.assertEqual(self.task("allow", "--why", "x").returncode, 2)
         self.assertEqual(self.status()["allowed_paths"], ["tests/**", "README.md"])
-        self.assertEqual(self.task("allow", "--any-path").returncode, 0)
+        self.assertEqual(self.task("allow", "--any-path", "--why", "repo-wide rename").returncode, 0)
         self.assertEqual(self.status()["allowed_paths"], [])
-        self.assertIn("any path in the repo (--any-path)", self.task("status").stdout)
+        self.assertIn("any path in the repo (--any-path) (why: repo-wide rename)",
+                      self.task("status").stdout)
 
     # ------------------------------------------------ the plan's own scope
 
@@ -558,9 +564,14 @@ class Cli(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(self.status()["allowed_paths"], ["apps/admin/**", "packages/ui/**"])
         self.assertIn("(from the plan)", proc.stdout)
-        self.task("allow", "apps/**")
+        self.task("allow", "apps/**", "--why", "the admin app imports it")
         payload, _ = run_json([CLI, "status", "--json"], env=self.env(), cwd=self.repo)
-        self.assertEqual(payload["active"]["allowed_from"], "from tezgah-task allow")
+        self.assertEqual(payload["active"]["allowed_from"],
+                         "from tezgah-task allow (why: the admin app imports it)")
+        # a scope set again at start drops the reason that belonged to the old one
+        self.task("start", "001", "--phase", "implementation", "--allow", "apps/**")
+        payload, _ = run_json([CLI, "status", "--json"], env=self.env(), cwd=self.repo)
+        self.assertEqual(payload["active"]["allowed_from"], "from tezgah-task --allow")
 
     # ------------------------------------ what a writing phase cannot start on
 
@@ -810,11 +821,20 @@ class Cli(TempHome):
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertEqual(refused.returncode, 1, refused.stderr)
         self.assertIn("never a third", refused.stdout)
-        self.assertIn("to the user", refused.stdout)
+        self.assertIn("--resolved", refused.stdout)
         self.assertIn("fix-later", refused.stdout)
+        self.assertNotIn("the user", refused.stdout)
         self.assertEqual(read(path), before)
-        # what is left is the user's: close done stays refused, discarded is open
-        self.assertIn("to the user", self.task("close", "001", "done").stdout)
+        # the session settles what is left itself: done needs the fix on record
+        self.assertIn("--resolved", self.task("close", "001", "done").stdout)
+        proc = self.task("close", "001", "done", "--resolved",
+                         "null check added; test_empty_input proves it")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        done = os.path.join(self.repo, ".tezgah", "plans", "done", "001-first.md")
+        fields = tt.frontmatter(read(done))
+        self.assertEqual(fields["status"], "done")
+        self.assertTrue(fields["resolved"].startswith(
+            "null check added; test_empty_input proves it "), fields)
 
     def test_verification_names_the_fan_out_and_the_budget_per_round(self):
         self.plan("001-first.md", allowed=["hooks/**"])
@@ -841,16 +861,104 @@ class Cli(TempHome):
         self.assertIn("approved in round 1", out)
         self.assertNotIn("review round 2", out)
 
-    def test_close_refuses_the_active_task_and_discards_without_review(self):
+    def test_close_clears_the_active_task_and_discards_without_review(self):
+        # the session closes its own task: no `stop` first, no hand-off
         self.plan("001-first.md", phase="discovery")
-        self.plan("002-second.md")
-        refused = self.task("close", "001", "discarded")
-        self.assertEqual(refused.returncode, 1, refused.stderr)
-        self.assertIn("active task", refused.stdout)
-        proc = self.task("close", "002", "discarded")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        moved = os.path.join(self.repo, ".tezgah", "plans", "done", "002-second.md")
-        self.assertEqual(tt.frontmatter(read(moved))["status"], "discarded")
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        moved = os.path.join(self.repo, ".tezgah", "plans", "done", "001-first.md")
+        fields = tt.frontmatter(read(moved))
+        self.assertEqual((fields["status"], fields["phase"]), ("discarded", ""))
+        self.assertIsNone(self.status())
+
+    def git(self, *args, cwd=None):
+        subprocess.run(["git", "-C", cwd or self.repo, "-c", "user.name=t",
+                        "-c", "user.email=t@localhost"] + list(args), check=True,
+                       capture_output=True, env=dict(os.environ, **GIT_ENV))
+
+    def slice(self, name, commit=True, merge=True):
+        """A linked worktree on branch `name`, optionally with one commit of its
+        own merged into the main checkout's branch. Returns its path."""
+        path = os.path.join(self.home, "wt-" + name)
+        self.git("worktree", "add", "-q", "-b", name, path)
+        if commit:
+            with open(os.path.join(path, name + ".txt"), "w") as fh:
+                fh.write(name)
+            self.git("add", name + ".txt", cwd=path)
+            self.git("commit", "-q", "-m", name, cwd=path)
+        if merge:
+            self.git("merge", "-q", "--no-edit", name)
+        return path
+
+    def close_lines(self, env=None):
+        """`close 001 discarded` with an active plan: its worktree lines by path."""
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = support.run([CLI, "close", "001", "discarded"],
+                           env=env or self.env(), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        return {line.split(" ")[2]: line for line in proc.stdout.splitlines()
+                if line.startswith("worktree ")}
+
+    def test_close_removes_landed_worktrees_and_keeps_every_other_one(self):
+        # A closed plan leaves no checkout behind - and never takes one whose
+        # work or data exists nowhere else, or a slice that has not started yet.
+        synced = self.slice("slice-synced", commit=False, merge=False)
+        picked = self.slice("slice-picked", commit=False, merge=False)
+        done = self.slice("slice-done")
+        # only main's own work cherry-picked in: content landed, nothing of its own
+        self.git("cherry-pick", "slice-done", cwd=picked)
+        # commits that cancel out land nothing, though they merge to main's tree
+        reverted = self.slice("slice-revert", merge=False)
+        self.git("revert", "--no-edit", "HEAD", cwd=reverted)
+        squashed = self.slice("slice-squash", merge=False)
+        self.git("merge", "-q", "--squash", "slice-squash")
+        self.git("commit", "-q", "-m", "squash")
+        # an unstarted slice brought up to date has moved, but nobody committed
+        self.git("merge", "-q", "--ff-only", self.head(), cwd=synced)
+        fresh = self.slice("slice-fresh", commit=False, merge=False)
+        open_ = self.slice("slice-open", merge=False)
+        dirty = self.slice("slice-dirty")
+        with open(os.path.join(dirty, "scratch.txt"), "w") as fh:
+            fh.write("only copy")
+        secret = self.slice("slice-secret")
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write("/.env\n")
+        with open(os.path.join(secret, ".env"), "w") as fh:
+            fh.write("TOKEN=only-copy\n")
+        data = self.slice("slice-data")
+        os.makedirs(os.path.join(data, ".tezgah", "plans"))
+        lines = self.close_lines()
+        for path, branch in ((done, "slice-done"), (squashed, "slice-squash")):
+            self.assertEqual(lines.pop(os.path.realpath(path)),
+                             "worktree removed: %s (%s)" % (os.path.realpath(path), branch))
+            self.assertFalse(os.path.exists(path))
+        for path, why in ((fresh, "no commit of its own"), (synced, "no commit of its own"),
+                          (picked, "no commit of its own"), (reverted, "is not merged"),
+                          (open_, "is not merged"), (dirty, "uncommitted changes"),
+                          (secret, "ignored file .env"), (data, ".tezgah holds data")):
+            self.assertTrue(os.path.isdir(path), path)
+            line = lines.pop(os.path.realpath(path))
+            self.assertTrue(line.startswith("worktree kept: "), line)
+            self.assertIn(why, line)
+        self.assertEqual(lines, {})
+        branches = subprocess.run(["git", "-C", self.repo, "branch", "--list"],
+                                  capture_output=True, text=True).stdout
+        self.assertNotIn("slice-done", branches)
+        self.assertIn("slice-open", branches)
+
+    def test_close_keeps_every_worktree_when_orca_does_not_answer(self):
+        # Orca installed but down, or answering in a shape this reader does not
+        # know: its agents cannot be checked, so nothing goes
+        done = self.slice("slice-done")
+        for name, body in (("orca-down", "exit 1"),
+                           ("orca-odd", "echo '{\"ok\": true, \"result\": {\"x\": 1}}'")):
+            fake = os.path.join(self.home, name)
+            with open(fake, "w") as fh:
+                fh.write("#!/bin/sh\n%s\n" % body)
+            os.chmod(fake, 0o755)
+            lines = self.close_lines(dict(self.env(), TEZGAH_ORCA_BIN=fake))
+            self.assertIn("Orca did not answer", lines[os.path.realpath(done)], name)
+            self.assertTrue(os.path.isdir(done))
 
     # ----------------------------------------------------------------- stop
 

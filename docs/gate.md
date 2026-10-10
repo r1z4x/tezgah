@@ -93,7 +93,7 @@ It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdi
 It reads the value of `cp -t`, `curl -o`, `wget -O`, `tar -C` on extraction and `unzip -d` (`OPTION_TARGETS`). It expands `~`, `$HOME` and the XDG
 variables first. It follows a `cd` within the line and reads past `if`/`then`/`do`/`!`/`{`. It opens `eval` and `bash -c`, and any flag cluster holding
 `c` is `-c`. A path counts as written and with its last link resolved. A quoted word is a word, so a grep or a commit message that names a switch passes. `SHELL_WRITE` stays as it was: it feeds the
-task phase rule and the opencode mirror. The task CLI stays the task rule's (below), so `task-off` still removes all of that rule. Told: what the call would
+task phase rule and the opencode mirror. The task CLI is not a control-plane target: the session runs it itself (see the task rule below). Told: what the call would
 change, and that the user changes it in their own terminal (`CONTROL_DENY` `hooks/tezgah_gate.py::CONTROL_DENY`). The text names no command. Standing. No switch
 but `pretooluse-off` removes the rule, and that switch is a protected file. The rule cannot tell a change the user asked for from one the agent chose. It
 refuses both inside the session, and it never sees the user's own terminal. Plan 050's replay of three weeks of real ledgers found the two evidence-only
@@ -159,22 +159,21 @@ Scratch is skipped: a temp file or a device (`hooks/tezgah_integrity.py::scratch
 Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
 `hooks/tezgah_gate.py::RACE_DENY`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py::RACE_REFUSE`) — a notice would not close a silent overwrite — and it lifts only by time.
 
-### Task — the user's own phase and path allowlist
+### Task — the active plan's phase and path allowlist
 
 Trigger: a write tool, or a shell command that writes a file, while an active task is set — a plan file under `.tezgah/plans/open` whose frontmatter carries a valid
 `phase` (`tezgah_task.active`). The phase refuses a write in a reading phase (`hooks/tezgah_gate.py::TASK_PHASE_DENY`) and a shell command that writes one (`hooks/tezgah_gate.py::TASK_SHELL_DENY`,
-against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and the record itself is refused twice over — a write whose target IS it, by a write tool or a shell redirect/`tee`
-(`hooks/tezgah_gate.py::TASK_RECORD_DENY`) and a shell command that would change it through the CLI, named by its basename with or without `.py` (`hooks/tezgah_gate.py::TASK_UNLOCK_DENY`, matched on the masked text by `hooks/tezgah_gate.py::TASK_CHANGE`). Told:
-none of them names the command that lifts it, on purpose — with the unlock printed, an armed arm removed or disabled the gate in 25 of 25 runs and obeyed it in none
-(`hooks/tezgah_gate.py:882-886`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it.
+against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and a write whose target IS the record, by a write tool or a shell redirect/`tee`, is refused
+(`hooks/tezgah_gate.py::TASK_RECORD_DENY`), because only `bin/tezgah-task` writes it and that CLI makes the checks a retyped frontmatter would skip. Told:
+the move that lifts it, made by the session itself — `tezgah-task phase implementation` or `tezgah-task allow <glob> ... --why "<reason>"` — since the orchestrator owns the plan lifecycle and the CLI refuses
+the move until the plan's Acceptance, spike and checkpoint are in order, and records the reason for a widened scope (`allowed_why:`). Standing: only the record changing lifts it.
 Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held. Off: `task-off`
-(`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record; the record is written by `bin/tezgah-task` and
-never by the agent, so this rule refuses on a decision the user made rather than one the gate inferred.
+(`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record.
 
-The fifth refusal under the same rule is the checkpoint. Trigger: a write, or a shell command that writes a file (`hooks/tezgah_gate.py::SHELL_WRITE`), while the task is in
+The fourth refusal under the same rule is the checkpoint. Trigger: a write, or a shell command that writes a file (`hooks/tezgah_gate.py::SHELL_WRITE`), while the task is in
 `phase: implementation`, its record reads `checkpoint: pending <sha>`, that sha is still the checkout's HEAD and the tree is dirty (`checkpoint_reason()`
 `hooks/tezgah_gate.py::checkpoint_reason`, `hooks/tezgah_gate.py::CHECKPOINT_DENY`). Told: the task it read, that the record holds a `pending` checkpoint, and the one command
-that makes the boundary real - unlike the refusals above it names that command, because running it *satisfies* the rule rather than taking it off. Standing: the recorded sha is the switch, not the tree - the commit
+that makes the boundary real - it names that command because running it *satisfies* the rule rather than taking it off. Standing: the recorded sha is the switch, not the tree - the commit
 the refusal names moves HEAD off that sha, so the refusal clears itself, where keying on the word `pending` alone left the phase waiting on a record only
 `bin/tezgah-task` rewrites. Off, with the rest of the rule: `task-off`. It fails open wherever the question cannot be answered: no record, no `checkpoint:` key, a
 checkpoint that is a plain sha (the boundary is already real), a `pending` with no sha, a sha this checkout's HEAD does not name, and a repo whose HEAD cannot be read.
@@ -236,7 +235,7 @@ tail still shows that failure, under `verify-off` (`hooks/tezgah_gate.py::decisi
 ### Loop — the identical attempt that already failed twice
 
 Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py::LOOP_ATTEMPTS`, `hooks/tezgah_gate.py::loop_reason`). Told: attempt N
-of an identical call, the failure class read from the ledger (`transient`, `user`, `permanent`, `unknown`; the cap is the same for every class, and a `user` failure - a 401/403, a missing credential, a login - says to ask the user), "change the approach or stop" (`hooks/tezgah_gate.py::loop_reason`). Standing while the ledger tail still shows those
+of an identical call, the failure class read from the ledger (`transient`, `user`, `permanent`, `unknown`; the cap is the same for every class, and a `user` failure - a 401/403, a missing credential, a login - says to take a route that needs no credential first and ask the user once only when none is left), "change the approach or stop" (`hooks/tezgah_gate.py::loop_reason`). Standing while the ledger tail still shows those
 failures. Under `verify-off` (`hooks/tezgah_gate.py::decision`).
 
 ### Retry — the session-wide ceiling

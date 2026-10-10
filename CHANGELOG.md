@@ -20,6 +20,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The product ledger is cut before release (ADR 025).** Plan 075's measured run did not show the ledger beating the playbook alone. Gone: writing and reading `.tezgah/product/ledger.jsonl`, `tezgah-research record`, `due` and `commit --product`, the ledger part of `check`, `product:` citations and the session-start note on due decisions. An existing `ledger.jsonl` is left in place, and nothing reads it.
 
+### Changed
+
+- **The session runs the plan lifecycle itself.** The gate refused a session's
+  own `tezgah-task start|phase|allow|stop`. It told the session to ask the user,
+  so every plan ended with a command handed back. That refusal is gone. A phase
+  or scope refusal now names the move (`tezgah-task phase implementation`,
+  `tezgah-task allow`). The CLI still checks Acceptance, the spike, the
+  checkpoint and the review on each move. The gate still refuses a write to the
+  plan file itself. `tezgah-task allow` now needs `--why`, and `status` prints
+  the reason next to the widened scope.
+- **`close` cleans up.** `tezgah-task close` on the active task clears its
+  phase instead of refusing. It then removes each linked worktree whose branch
+  has landed and which holds nothing else, through Orca when Orca tracks it. A
+  squash merge counts as landed. A branch whose commits cancel out does not. It
+  prints every worktree it keeps, with the reason. Uncommitted files, unknown
+  ignored files and `.tezgah` data keep a worktree. So do an unmerged branch, a
+  branch nobody committed on, an agent at work and an Orca that does not answer.
+- **No process questions.** The contract says the orchestrator picks a process
+  parameter the user did not set, such as a spend ceiling, and states it.
+  `consult` on exit 4/5 records the first member of another model family
+  itself instead of asking the user to choose. After two review rounds the
+  session fixes what is left and closes with `close NNN done --resolved`. A
+  missing credential sends it to a route that needs none first. A silent gate
+  has it run `tezgah-setup --report` itself.
+
 ### Fixed
 
 - **product-analysis no longer says `check` demands three compared solutions.** An analysis answers once. A choice between solutions goes under `decisions/`.

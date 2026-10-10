@@ -787,16 +787,16 @@ def task_line(task):
     and refuses a write the phase or the allowlist excludes, but a refusal
     costs a turn - so the phase rides every user turn, and the refusal is never
     the first the session hears of it. One line because it is paid every turn;
-    the allowlist is the globs as written, and the phase is stated as the user's
-    to move rather than as a command to run: the line used to print the CLI the
-    user types, and E7b watched the session run that command five times in a row
-    against a gate that refuses it every time. A line that names an act the gate
-    refuses is an invitation to a loop."""
+    the allowlist is the globs as written, and the phase is stated as the
+    orchestrator's own move: the session runs `tezgah-task` itself when the
+    work reaches the next phase and closes the plan when it is done, never
+    handing those steps to the user."""
     paths = ", ".join(task.get("allowed_paths") or []) or "any path in the repo"
-    return ("Active task %s is in phase `%s`; writes allowed on: %s. The phase "
-            "belongs to the user - ask them for the one this work needs, and "
-            "do not move it yourself." % (task.get("id"), task.get("phase"),
-                                          paths))
+    return ("Active task %s is in phase `%s`; writes allowed on: %s. Move the "
+            "phase yourself with `tezgah-task phase <next>` when the work reaches "
+            "it, and `tezgah-task close %s done` when it is merged - never hand "
+            "these steps to the user." % (task.get("id"), task.get("phase"),
+                                          paths, task.get("id")))
 
 
 # --- the resume block: the live turn state a compact loses -------------------
@@ -1628,7 +1628,7 @@ GATE_INACTIVE = (
     "tezgah gate inactive on this host: %d gated tool call(s) since this "
     "session's first turn and not one row from the gate, so the shortcut "
     "denials and the Stop check are not running. Say so before claiming a check "
-    "passed, and ask the user to run `tezgah-setup --report`.")
+    "passed, run `tezgah-setup --report` yourself and quote its MISS rows.")
 
 
 def _iso_epoch(value):

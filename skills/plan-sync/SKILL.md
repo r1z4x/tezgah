@@ -7,7 +7,7 @@ description: >
   rewrites the README status table, and commits one `plan: done NNN slug` (or
   `plan: discard`) per moved plan in the private .tezgah repository. Use when the user says
   "/tezgah:plan-sync", "sync plans", "close finished plans", or after PRs were merged.
-  Never deletes branches and never touches files outside .tezgah/plans/. Not for
+  Removes branches only via tezgah-task close; edits only .tezgah/plans. Not for
   a status read of the open plans - use `plan-status`.
 ---
 
@@ -34,17 +34,21 @@ description: >
    `acceptance boxes unchecked at sync (N/M checked)` to `## State`.
 6. Move each done or discarded plan with
    `~/.config/tezgah/bin/tezgah-task close NNN done|discarded`: it sets `status:` and
-   `updated:` and moves the file to `.tezgah/plans/done/`. It refuses `done` unless the
+   `updated:`, clears the phase of an active task, moves the file to
+   `.tezgah/plans/done/` and removes every linked worktree whose branch is merged
+   and which holds nothing else (it prints each one it keeps, with why). It
+   refuses `done` unless the
    plan records `review: <reviewer> approve` - fresh reviewers (the host's
    `tezgah-reviewer` subagent, one per dimension in one message for a large diff)
    read `git diff <base>..HEAD` and `tezgah-task review NNN <reviewer> approve`
-   wrote the verdict - and it refuses the active task. A refused plan stays open:
+   wrote the verdict. A refused plan stays open:
    report it with the refusal, never move it by hand, and never start a review
    round from here. One review per plan, over its whole diff in the verification
    phase; at most two rounds - only a confirmed critical or major finding opens
    round two, a minor or suggestion one is recorded fix-later, and after round two
-   what is left goes to the user or is recorded fix-later, never a third round.
-   A plan refused with a spent budget is the user's decision.
+   what is left is fixed by the session and closed with `--resolved`, or
+   recorded fix-later, never a third round. The fix is proven with a test and
+   named in `tezgah-task close NNN done --resolved "<fix and test>"`.
 7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). No `--pr-info` here:
    the row's `pr` cell comes from the plan files, and review/check enrichment
@@ -65,8 +69,8 @@ description: >
    plans `close` refused (with its reason), still-open plans - each with what
    `tezgah-task status` says it waits on, so a plan whose `after:` names one just
    discarded (`waits on NNN (discarded)`) is named for the user to re-plan - and
-   gh failures. Never delete branches, never edit code outside
-   `.tezgah/plans/`.
+   gh failures. Never delete a branch or a worktree by hand (`tezgah-task close`
+   removes the landed ones), never edit code outside `.tezgah/plans/`.
 
 ## Format
 
