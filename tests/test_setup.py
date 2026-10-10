@@ -2723,7 +2723,10 @@ class ContextBudget(SetupBase):
     # clause (762 characters over 13 names, linted by test_skills.Frontmatter),
     # and to 11154 when feature-audit's description named its forward mode, a
     # feature not built yet specced with the same matrices (79 characters, plan 072).
-    BAND_BEFORE = 11154
+    # Raised to 11698 on 2026-10-10 when `product-flow` shipped (plan 074): an 18th
+    # name whose description is 524 characters, 544 with its name and separator,
+    # recorded here rather than absorbed by the 2000-byte headroom.
+    BAND_BEFORE = 11698
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:

@@ -187,7 +187,7 @@ OMP_LESSONS = ("Read `.tezgah/lessons.md` in the repository if it exists and tre
 LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
-          "product-analysis", "feature-audit", "design-contract",
+          "product-analysis", "product-flow", "feature-audit", "design-contract",
           "design-library", "pm-frameworks", "ai-research", "rl-env"]
 
 

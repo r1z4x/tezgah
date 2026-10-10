@@ -50,6 +50,15 @@ Every disagreement is a finding. Examples: a capability no layer delivers, a fie
 no view renders, a missing state, an unasked layer. The method lives
 in `skills/feature-audit/SKILL.md`, "Forward mode".
 
+The decision the spec builds from is a product ledger `D` row. `spec.md` cites it
+as `product:<D>`, for example `product:D4`, and so does the audit after the build.
+`check` fails on a `product:` token whose row does not exist
+(`hooks/tezgah_product.py::consumer_tokens`). The `product-flow` skill orders the
+steps around the audit: `tezgah-research next --topic <t>` reads the forward spec
+as done once `spec.md` exists and cites `product:<D>`
+(`hooks/tezgah_product.py::next_steps`). See "The next step of a product flow"
+in `docs/research.md`.
+
 ## The gate that makes it more than advice
 
 A finding whose fix names a layer that does not exist yet is not a UI finding. It
@@ -149,3 +158,5 @@ rubric, then three passes of the feature-audit skill:
   `skills/tezgah-contract/SKILL.md` as its long form
 - `tests/test_context.py`, `tests/test_setup.py` - the arming table and the router
   line that pin the wiring
+- `skills/product-flow/SKILL.md` and `hooks/tezgah_product.py::FLOWS` - the step
+  order around the forward spec and the audit, printed by `tezgah-research next`

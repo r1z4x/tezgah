@@ -434,3 +434,159 @@ def check_ledger(repo, strict=False, git=True):
             errors.append("%s:%d cites product:%s, which the product ledger does "
                           "not hold" % (rel, n, tid))
     return {"errors": errors, "warnings": warnings}
+
+
+def _step(sid, skill, leaves, command):
+    return {"id": sid, "skill": skill, "leaves": leaves, "command": command}
+
+
+# The product-flow playbook (plan 074): the one place its steps are written.
+# `next_steps` computes each step's status from the product ledger and the files
+# it names; nothing stores it. `{topic}` and `{decision}` in a command are
+# filled per topic.
+_STEPS = (
+    _step("research", "research", "an O of class external and an I",
+          "tezgah-research record O (class external), then tezgah-research record I"),
+    _step("metrics", "product-analysis", "an M resting on an I",
+          "tezgah-research record M"),
+    _step("assumptions", "product-analysis", "an A", "tezgah-research record A"),
+    _step("decision", "product-analysis", "a D whose metric is one of the topic's M",
+          "tezgah-research record D"),
+    _step("instrumentation", "product-analysis",
+          "every M a D names logged: yes (a later M of the same signal counts)",
+          "tezgah-research record M (logged: yes, the same signal)"),
+    _step("forward-spec", "feature-audit",
+          ".tezgah/analysis/<topic>/spec.md citing product:<D>",
+          "feature-audit forward mode: write .tezgah/analysis/{topic}/spec.md "
+          "citing product:{decision}"),
+    _step("design", "design-contract",
+          'a design-contract component with "decision": "product:<D>"',
+          'design-contract: set a component\'s "decision": "product:{decision}" '
+          "in .tezgah/design-contract.md"),
+    _step("build", "design-contract",
+          "nothing in the product ledger (the Stop UI rule and tezgah-design check "
+          "own it)", "tezgah-design check"),
+    _step("re-measure", "analyze-app", "an R whose decision is the D",
+          "tezgah-research record R (decision {decision})"),
+)
+FLOWS = {
+    "metric-dashboard": _STEPS,
+    # A feature may reuse a metric another topic owns: its own M steps join the
+    # flow only when the topic holds an M (`next_steps`).
+    "feature": tuple(s for s in _STEPS if s["id"] not in ("metrics", "instrumentation")),
+}
+
+
+def next_steps(repo, topic, flow="metric-dashboard", today=""):
+    """[{"id", "skill", "status", "detail", "command"}] for `topic` under `flow`,
+    status one of done | missing | due | n/a, read from the main checkout's
+    product ledger and the spec and design contract it cites; [] when the topic
+    holds no rows. The `feature` flow runs `metric-dashboard`'s steps once the
+    topic holds an M; before that, its decision is any D of the topic."""
+    if flow not in FLOWS:
+        raise ValueError("unknown flow %r (%s)" % (flow, ", ".join(FLOWS)))
+    day = _date(today) if today else datetime.date.today()
+    if day is None:
+        raise ValueError("today %r is not YYYY-MM-DD" % (today,))
+    main = main_checkout(repo)
+    rows = read_rows(main)
+    # No row the writer takes holds a topic outside TOPIC, and the topic becomes
+    # a path below.
+    mine = [r for r in rows if r.get("topic") == topic] \
+        if isinstance(topic, str) and TOPIC.fullmatch(topic) else []
+    if not mine:
+        return []
+    by_id = {_id(r.get("id")): r for r in rows}
+
+    def ids(kind, keep=lambda r: True):
+        return [r["id"] for r in mine if r.get("type") == kind
+                and isinstance(r.get("id"), str) and keep(r)]
+
+    ms = ids("M")
+    steps = FLOWS[flow]
+    if flow == "feature" and ms:
+        steps = FLOWS["metric-dashboard"]
+    decisions = ids("D", lambda r: _id(r.get("metric")) in ms
+                    or (not ms and flow == "feature"))
+    latest = decisions[-1] if decisions else "<D>"
+    status = {}
+
+    external = ids("O", lambda r: r.get("class") == "external")
+    insights = ids("I")
+    lacking = [w for w, have in (("O of class external", external),
+                                 ("I", insights)) if not have]
+    status["research"] = ("missing", "no " + " and no ".join(lacking)) if lacking \
+        else ("done", "%s, %s" % (", ".join(external), ", ".join(insights)))
+
+    grounded = ids("M", lambda r: any(
+        (by_id.get(_id(p)) or {}).get("type") == "I"
+        for p in (r.get("from") if isinstance(r.get("from"), list) else [])))
+    status["metrics"] = ("done", ", ".join(grounded)) if grounded \
+        else ("missing", "no M resting on an I")
+
+    assumed = ids("A")
+    status["assumptions"] = ("done", ", ".join(assumed)) if assumed \
+        else ("missing", "no A")
+
+    status["decision"] = ("done", ", ".join(
+        "%s (metric %s)" % (d, by_id[d].get("metric")) for d in decisions)) \
+        if decisions else ("missing", "no D measured by one of the topic's M"
+                           if ms or flow != "feature" else "no D")
+
+    # The check_ledger rule: rows never change, so a later M of the same signal
+    # logged yes is what instruments an M that was not.
+    unlogged = []
+    for mid in dict.fromkeys(_id(by_id[d].get("metric")) for d in decisions):
+        metric = by_id.get(mid)
+        if metric is None or metric.get("type") != "M":
+            unlogged.append("%r is not an M the product ledger holds" % (mid,))
+            continue
+        later = rows[rows.index(metric):]
+        if not any(m.get("type") == "M" and m.get("logged") == "yes"
+                   and m.get("signal") == metric.get("signal") for m in later):
+            unlogged.append("%s (signal %r) is logged: %s"
+                            % (mid, metric.get("signal"), metric.get("logged")))
+    status["instrumentation"] = ("missing", "no D names an M") if not decisions \
+        else ("missing", "; ".join(unlogged)) if unlogged \
+        else ("done", "every M a D names is logged")
+
+    ws = tp.workspace(main)
+    spec = os.path.join(ws, "analysis", topic, "spec.md")
+    spec_rel = os.path.relpath(spec, main)
+    cited = [t for _r, _n, t in _tokens_in(main, spec) if t in decisions]
+    status["forward-spec"] = ("missing", "no D yet") if not decisions \
+        else ("missing", "%s does not exist" % spec_rel) if not os.path.isfile(spec) \
+        else ("done", "%s cites product:%s" % (spec_rel, cited[0])) if cited \
+        else ("missing", "%s cites none of %s" % (spec_rel, ", ".join(
+            "product:" + d for d in decisions)))
+
+    contract = os.path.relpath(os.path.join(ws, "design-contract.md"), main)
+    designed = [(n, t) for rel, n, t in consumer_tokens(main)
+                if rel == contract and t in decisions]
+    status["design"] = ("missing", "no D yet") if not decisions \
+        else ("done", "%s:%d cites product:%s" % ((contract,) + designed[0])) \
+        if designed else ("missing", "no design-contract component cites %s"
+                          % ", ".join("product:" + d for d in decisions))
+
+    status["build"] = ("n/a", "the Stop UI rule and tezgah-design check own it")
+
+    overdue = [d for d in _due(rows, day) if d["id"] in decisions]
+    measured = {_id(r.get("decision")) for r in rows if r.get("type") == "R"}
+    waiting = [d for d in decisions if d not in measured]
+    status["re-measure"] = ("missing", "no D yet") if not decisions \
+        else ("due", "; ".join("%s due since %s" % (d["id"], d["observe_after"])
+                               for d in overdue)) if overdue \
+        else ("missing", "; ".join("%s due on %s" % (d, by_id[d].get("observe_after"))
+                                   for d in waiting)) if waiting \
+        else ("done", "every D has an R")
+
+    # The re-measure command names the D that is due (oldest first), else the
+    # first still waiting: naming the latest D led a session to record an early
+    # R for a D not due while the overdue one stayed due.
+    target = {"re-measure": overdue[0]["id"] if overdue
+              else waiting[0] if waiting else latest}
+    return [{"id": s["id"], "skill": s["skill"], "status": status[s["id"]][0],
+             "detail": status[s["id"]][1],
+             "command": s["command"].format(
+                 topic=topic, decision=target.get(s["id"], latest))}
+            for s in steps]

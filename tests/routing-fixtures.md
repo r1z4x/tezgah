@@ -28,6 +28,7 @@ Two rules for a row:
 | "sync plans", close finished plans whose PR merged | `plan-sync` | sync plans |
 | a deliverable that is evidence: a literature or reference review, a hypothesis | `research` | literature or reference review |
 | product analysis, UX audit, competitor teardown, retention or churn | `product-analysis` | retention |
+| "bu veriye uygun metric dashboard tasarla", a new metric or feature carried from research to re-measure | `product-flow` | metric dashboard |
 | one existing feature - an admin panel, a CRUD screen, a wizard, a data table | `feature-audit` | admin panel |
 | a UI turn that needs a design floor, tokens or a named state set | `design-contract` | design floor |
 | a UI or product turn that needs a cognitive-load or visual-critique method | `design-library` | cognitive-load |
