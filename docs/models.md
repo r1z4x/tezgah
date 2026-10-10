@@ -97,7 +97,7 @@ fixed:
 2. Otherwise the brief - redacted with the ledger's own reader
    (`redact`, `hooks/tezgah_integrity.py::redact`) - goes to the judge as one Choice over three tiers (`TIER_QUESTION`,
    `hooks/tezgah_models.py::TIER_QUESTION`). The judge asks the session's own model first ([judge](judge.md)).
-   Measured with Jev on 40 English briefs labelled by
+   Measured with Jev (model `jev-latest`, carrier not recorded) on 40 English briefs labelled by
    the same session that wrote the rubric (2026-09-30, twice): under-route 0.025,
    accuracy 0.925 and 0.900, 392 ms median, about 656 input tokens per call; a
    keyword rule on the same set under-routed 0.100. The session model was not measured on that set.
@@ -106,7 +106,9 @@ fixed:
    specialist? A yes names that agent on its own tier (`AGENT_SLOT`,
    `hooks/tezgah_models.py::AGENT_SLOT`). Before this question, sessions
    spawned the five specialists 0 times in 121 delegations (2026-10-07 to 10-09).
-   Clef agreed on 9 of 10 briefs this session labelled (2026-10-09).
+   Clef agreed on 9 of 10 briefs this session labelled (2026-10-09, model not
+   recorded). Each judge figure on this page measures only the provider and model
+   it names, and stays unmeasured for any other default.
 3. With no judgement (`judge-off`, no key, a failed call) `--phase review` and
    `--phase research` name the reviewer and the researcher (`PHASE_AGENT`,
    `hooks/tezgah_models.py::PHASE_AGENT`). Another phase picks the tier from the
