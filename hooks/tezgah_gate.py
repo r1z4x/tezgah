@@ -991,7 +991,8 @@ def race_reason(inp, session_id, cwd=None):
 # Acceptance item to name its proving command, `implementation` an answered
 # spike and a checkpoint, `close done` an approving review - so the record's own
 # file is refused to a write (TASK_RECORD_DENY): retyping the frontmatter is the
-# one route that skips those checks.
+# direct route that skips those checks. A shell line's positional target (`sed
+# -i`, `cp`) is not read here (see write_paths), the residual this rule names.
 #
 # The direction is fail-open wherever the record is missing, unreadable or out
 # of phase vocabulary (tezgah_task.active returns None for those): a rule that

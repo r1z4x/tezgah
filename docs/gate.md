@@ -93,7 +93,7 @@ It reads the arguments of `touch`, `rm`, `rmdir`, `unlink`, `mv`, `chmod`, `mkdi
 It reads the value of `cp -t`, `curl -o`, `wget -O`, `tar -C` on extraction and `unzip -d` (`OPTION_TARGETS`). It expands `~`, `$HOME` and the XDG
 variables first. It follows a `cd` within the line and reads past `if`/`then`/`do`/`!`/`{`. It opens `eval` and `bash -c`, and any flag cluster holding
 `c` is `-c`. A path counts as written and with its last link resolved. A quoted word is a word, so a grep or a commit message that names a switch passes. `SHELL_WRITE` stays as it was: it feeds the
-task phase rule and the opencode mirror. The task CLI stays the task rule's (below), so `task-off` still removes all of that rule. Told: what the call would
+task phase rule and the opencode mirror. The task CLI is not a control-plane target: the session runs it itself (see the task rule below). Told: what the call would
 change, and that the user changes it in their own terminal (`CONTROL_DENY` `hooks/tezgah_gate.py::CONTROL_DENY`). The text names no command. Standing. No switch
 but `pretooluse-off` removes the rule, and that switch is a protected file. The rule cannot tell a change the user asked for from one the agent chose. It
 refuses both inside the session, and it never sees the user's own terminal. Plan 050's replay of three weeks of real ledgers found the two evidence-only

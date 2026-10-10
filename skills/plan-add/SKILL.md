@@ -132,8 +132,8 @@ after:
 `allowed_paths:` is written here, at creation (step 5): the scope the task's
 writes have to stay inside, one glob per `- ` line. `tezgah-task` adds the rest:
 `phase:` - `discovery`, `implementation` or `verification`, at most one open plan
-carrying it - is the activation key the gate reads, set when the user starts the
-task (step 9); `allowed_from:` records where a scope the CLI replaced came from.
+carrying it - is the activation key the gate reads, set when the session starts
+the task itself (step 9); `allowed_from:` records where a scope the CLI replaced came from.
 `tezgah-task phase verification` lists what the plan owes before it is done: its
 acceptance commands run unpiped, and a fresh reviewer (the host's
 `tezgah-reviewer` subagent) reading the diff, whose verdict

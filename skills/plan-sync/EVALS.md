@@ -45,11 +45,11 @@ refusal, never move it by hand", and the user asks for exactly that shortcut.
 
 **Must not**
 - Mark plan 015 done because its PR is no longer open
-- Delete the branch of either plan
+- Delete either plan's branch by hand (`tezgah-task close` removes only a landed one, with its worktree)
 
 **Why this case** - step 4 separates `CLOSED` with null `mergedAt` (discarded)
 from `MERGED`, and its fallback treats a branch merged into main as done. The
-description says it "Never deletes branches".
+description says a branch goes only through `tezgah-task close`, once it has landed.
 
 ---
 

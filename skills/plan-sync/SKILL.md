@@ -7,7 +7,7 @@ description: >
   rewrites the README status table, and commits one `plan: done NNN slug` (or
   `plan: discard`) per moved plan in the private .tezgah repository. Use when the user says
   "/tezgah:plan-sync", "sync plans", "close finished plans", or after PRs were merged.
-  Never deletes branches and never touches files outside .tezgah/plans/. Not for
+  Removes branches only via tezgah-task close; edits only .tezgah/plans. Not for
   a status read of the open plans - use `plan-status`.
 ---
 
@@ -68,8 +68,8 @@ description: >
    plans `close` refused (with its reason), still-open plans - each with what
    `tezgah-task status` says it waits on, so a plan whose `after:` names one just
    discarded (`waits on NNN (discarded)`) is named for the user to re-plan - and
-   gh failures. Never delete branches, never edit code outside
-   `.tezgah/plans/`.
+   gh failures. Never delete a branch or a worktree by hand (`tezgah-task close`
+   removes the landed ones), never edit code outside `.tezgah/plans/`.
 
 ## Format
 

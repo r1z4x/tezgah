@@ -30,10 +30,12 @@ project's HEAD it read) and `review_round:`, so the next round reads only
 `git diff <reviewed_sha>..HEAD`, and refuses a third round: the budget is two
 rounds per plan; `close NNN done` refuses a plan whose review is missing or not
 `approve`. `close` on the active task clears its phase in the same write, then
-removes each linked worktree whose branch is merged into HEAD, `main` or
-`master` and which holds nothing else (no uncommitted or unknown ignored file,
-no `.tezgah` data, a branch that carried a commit, no Orca agent still at work);
-every worktree it keeps is printed with the reason.
+removes each linked worktree whose branch has landed in HEAD, `main`, `master`
+or the remote's default branch (an ancestor of it, or a squash whose merge
+would change nothing) and which holds nothing else (no uncommitted or unknown
+ignored file, no `.tezgah` data, a branch someone committed on, no Orca agent
+still at work; Orca down keeps them all); every worktree it keeps is printed
+with the reason.
 
 Two things the plan owes are asked here, at the only moment they can still be
 fixed - the phase move - because this CLI is the record's only writer and the
@@ -635,14 +637,26 @@ REGENERABLE = frozenset(("__pycache__", ".pytest_cache", ".ruff_cache",
                          ".DS_Store"))
 
 
+def _landed(root, branch, base):
+    """True when `branch`'s work is in `base`: an ancestor of it, or - for a
+    squash or rebase merge, which leaves no ancestry - a branch whose merge into
+    `base` would change nothing. `merge-tree --write-tree` needs git 2.38; an
+    older git answers None, which reads as not landed and keeps the worktree."""
+    if git_out(root, "merge-base", "--is-ancestor", branch, base) is not None:
+        return True
+    merged = (git_out(root, "merge-tree", "--write-tree", base, branch) or "").split("\n")[0]
+    return bool(merged) and merged == git_out(root, "rev-parse", base + "^{tree}")
+
+
 def _keeps(root, path, branch, bases, agents):
     """Why the linked worktree `path` must stay, or None when its work is all in
     `bases` and it holds nothing else. Every question git cannot answer keeps it."""
     if not branch:
         return "detached HEAD"
-    if git_out(path, "status", "--porcelain") != "":
+    # -unormal: a `status.showUntrackedFiles=no` config would hide both lists
+    if git_out(path, "status", "--porcelain", "-unormal") != "":
         return "uncommitted changes"
-    for line in (git_out(path, "status", "--porcelain", "--ignored") or "").splitlines():
+    for line in (git_out(path, "status", "--porcelain", "-unormal", "--ignored") or "").splitlines():
         rel = line[3:].strip('"').rstrip("/")
         if rel != ".tezgah" and not REGENERABLE & set(rel.split("/")):
             return "ignored file %s may be the only copy" % rel
@@ -652,12 +666,12 @@ def _keeps(root, path, branch, bases, agents):
             return "its .tezgah holds data"
         if os.path.isdir(os.path.join(ws, ".git")) and git_out(ws, "rev-parse", "-q", "--verify", "HEAD"):
             return "its .tezgah has commits"
-    if not any(git_out(root, "merge-base", "--is-ancestor", branch, b) is not None
-               for b in bases):
+    if not any(_landed(root, branch, b) for b in bases):
         return "%s is not merged into %s" % (branch, " or ".join(bases))
     log = git_out(root, "reflog", "show", "--format=%gs", "refs/heads/" + branch) or ""
-    if all(entry.startswith("branch: Created") for entry in log.splitlines()):
-        # a branch that never moved is a slice that has not started, not one done
+    if not any(entry.startswith(("commit", "cherry-pick")) for entry in log.splitlines()):
+        # a branch nobody committed on is a slice that has not started - even
+        # one fast-forwarded to main - not one whose work landed
         return "%s has no commit of its own yet" % branch
     busy = [a.get("state") for a in agents if a.get("state") != "done"]
     if busy:
@@ -666,12 +680,13 @@ def _keeps(root, path, branch, bases, agents):
 
 
 def prune_worktrees(root):
-    """Remove every linked worktree of the repository whose branch is merged and
+    """Remove every linked worktree of the repository whose branch has landed and
     which holds nothing else, so a closed plan leaves no checkout behind; one line
     per linked worktree, removed or kept with the reason. The main checkout and
     the one `close` runs in always stay. Under Orca the removal is Orca's (its
     card, terminals and merged branch go with it), else `git worktree remove`
-    and a safe `git branch -d`."""
+    and a safe `git branch -d`. When Orca is installed but does not answer, its
+    agents cannot be checked, so every worktree stays."""
     import tezgah_orca
     from tezgah_paths import worktrees
     found = worktrees(root)
@@ -679,23 +694,37 @@ def prune_worktrees(root):
     linked = [p for p in found[1:] if p != here]
     if not linked:
         return []
-    bases = [b for b in ("HEAD", "main", "master")
+    ps = tezgah_orca.run(["worktree", "ps", "--limit", "1000"])
+    if ps is None and tezgah_orca.cli():
+        return ["worktree kept: %s (Orca did not answer, so its agents cannot be "
+                "checked; run close again once `orca worktree ps` answers)" % p
+                for p in linked]
+    rows = ps.get("worktrees") if isinstance(ps, dict) else None
+    orca = {os.path.realpath(r.get("path") or ""): r for r in rows or []
+            if isinstance(r, dict)}
+    # the remote's default branch too: a PR merged on the host lands there first
+    bases = [b for b in ("HEAD", "main", "master", "origin/HEAD", "origin/main",
+                         "origin/master")
              if git_out(root, "rev-parse", "-q", "--verify", b)]
-    ps = tezgah_orca.run(["worktree", "ps", "--limit", "1000"]) or {}
-    orca = {os.path.realpath(r.get("path") or ""): r for r in ps.get("worktrees") or []}
     out = []
     for path in linked:
         branch = git_out(path, "symbolic-ref", "-q", "--short", "HEAD")
-        why = _keeps(root, path, branch, bases, orca.get(path, {}).get("agents") or [])
+        try:
+            why = _keeps(root, path, branch, bases,
+                         orca.get(path, {}).get("agents") or [])
+        except OSError as exc:
+            why = "cannot read it: %s" % exc
         if why is None:
             if path in orca:
                 gone = tezgah_orca.run(["worktree", "rm", "--worktree", "path:" + path],
                                        timeout=60) is not None
+                how = "orca worktree rm --worktree path:%s" % path
             else:
                 gone = git_out(root, "worktree", "remove", path) is not None
+                how = "git worktree remove %s" % path
                 if gone:
                     git_out(root, "branch", "-d", branch)
-            why = None if gone else "the removal failed; remove it by hand"
+            why = None if gone else "`%s` failed; run it and report its error" % how
         out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
                                              why or branch))
     return out

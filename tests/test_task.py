@@ -870,32 +870,65 @@ class Cli(TempHome):
             self.git("merge", "-q", "--no-edit", name)
         return path
 
-    def test_close_removes_merged_worktrees_and_keeps_every_other_one(self):
+    def close_lines(self, env=None):
+        """`close 001 discarded` with an active plan: its worktree lines by path."""
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = support.run([CLI, "close", "001", "discarded"],
+                           env=env or self.env(), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        return {line.split(" ")[2]: line for line in proc.stdout.splitlines()
+                if line.startswith("worktree ")}
+
+    def test_close_removes_landed_worktrees_and_keeps_every_other_one(self):
         # A closed plan leaves no checkout behind - and never takes one whose
         # work or data exists nowhere else, or a slice that has not started yet.
+        synced = self.slice("slice-synced", commit=False, merge=False)
         done = self.slice("slice-done")
+        squashed = self.slice("slice-squash", merge=False)
+        self.git("merge", "-q", "--squash", "slice-squash")
+        self.git("commit", "-q", "-m", "squash")
+        # an unstarted slice brought up to date has moved, but nobody committed
+        self.git("merge", "-q", "--ff-only", self.head(), cwd=synced)
         fresh = self.slice("slice-fresh", commit=False, merge=False)
         open_ = self.slice("slice-open", merge=False)
         dirty = self.slice("slice-dirty")
         with open(os.path.join(dirty, "scratch.txt"), "w") as fh:
             fh.write("only copy")
+        secret = self.slice("slice-secret")
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write("/.env\n")
+        with open(os.path.join(secret, ".env"), "w") as fh:
+            fh.write("TOKEN=only-copy\n")
         data = self.slice("slice-data")
         os.makedirs(os.path.join(data, ".tezgah", "plans"))
-        self.plan("001-first.md", phase="implementation", allowed=["**"])
-        proc = self.task("close", "001", "discarded")
-        self.assertEqual(proc.returncode, 0, proc.stdout)
-        out = proc.stdout
-        self.assertIn("worktree removed: %s (slice-done)" % os.path.realpath(done), out)
-        self.assertFalse(os.path.exists(done))
-        for path, why in ((fresh, "no commit of its own"), (open_, "is not merged"),
-                          (dirty, "uncommitted changes"), (data, ".tezgah holds data")):
+        lines = self.close_lines()
+        for path, branch in ((done, "slice-done"), (squashed, "slice-squash")):
+            self.assertEqual(lines.pop(os.path.realpath(path)),
+                             "worktree removed: %s (%s)" % (os.path.realpath(path), branch))
+            self.assertFalse(os.path.exists(path))
+        for path, why in ((fresh, "no commit of its own"), (synced, "no commit of its own"),
+                          (open_, "is not merged"), (dirty, "uncommitted changes"),
+                          (secret, "ignored file .env"), (data, ".tezgah holds data")):
             self.assertTrue(os.path.isdir(path), path)
-            self.assertIn("worktree kept: %s (" % os.path.realpath(path), out)
-            self.assertIn(why, out)
+            line = lines.pop(os.path.realpath(path))
+            self.assertTrue(line.startswith("worktree kept: "), line)
+            self.assertIn(why, line)
+        self.assertEqual(lines, {})
         branches = subprocess.run(["git", "-C", self.repo, "branch", "--list"],
                                   capture_output=True, text=True).stdout
         self.assertNotIn("slice-done", branches)
         self.assertIn("slice-open", branches)
+
+    def test_close_keeps_every_worktree_when_orca_does_not_answer(self):
+        # Orca installed but down: its agents cannot be checked, so nothing goes
+        done = self.slice("slice-done")
+        fake = os.path.join(self.home, "orca-down")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(fake, 0o755)
+        lines = self.close_lines(dict(self.env(), TEZGAH_ORCA_BIN=fake))
+        self.assertIn("Orca did not answer", lines[os.path.realpath(done)])
+        self.assertTrue(os.path.isdir(done))
 
     # ----------------------------------------------------------------- stop
 
