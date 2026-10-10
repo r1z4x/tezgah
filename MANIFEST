@@ -737,11 +737,8 @@ tests/test_packaging_scripts.py
 tests/test_paths.py
 tests/test_paths_worktree.py
 tests/test_platform.py
-tests/test_product.py
-tests/test_product_cli.py
 tests/test_product_flow_e2e.py
 tests/test_product_next.py
-tests/test_product_note.py
 tests/test_providers.py
 tests/test_rank.py
 tests/test_replay.py

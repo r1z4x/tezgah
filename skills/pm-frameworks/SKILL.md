@@ -27,11 +27,11 @@ Neither file is a rule: the contract's evidence classes, the `research`
 workspace's claim record and its falsification criterion still govern what may be
 reported as a finding.
 
-An Opportunity Solution Tree maps onto the product ledger. An opportunity is an
-`I` row, a customer need resting on the `O` rows behind it. A risky assumption
-under a solution is an `A` row. The chosen solution is a `D` row. Write each with
-`tezgah-research record I|A|D`. The `product-flow` skill gives the order of the
-steps.
+An Opportunity Solution Tree maps onto a product flow's notes in
+`.tezgah/analysis/<topic>/flow.md`. An opportunity, a customer need resting on the
+sources behind it, goes under `## research`; a risky assumption under a solution
+goes under `## assumptions`; the chosen solution goes under `## decision`. The
+`product-flow` skill gives the order of the steps.
 
 The rest of the marketplace (9 plugins, 69 skills) is deliberately not vendored.
 Fetch the one skill a task needs from the upstream repository named in `SOURCE`:

@@ -268,7 +268,7 @@
         "how does a session learn that a research line is broken",
         "what lights the research mark and how is the layer switched off",
         "why may a new research line not be opened while another is unfinished",
-        "what does the product ledger hold, who writes it, and when is a decision due for re-measure"
+        "what does tezgah-research next print for a product flow, and when is a decision due for re-measure"
       ],
       "answers_tr": [
         "bir araştırma hattı nerede yaşar ve ne tutar",
@@ -277,7 +277,7 @@
         "bir oturum bir araştırma hattının bozuk olduğunu nasıl öğrenir",
         "araştırma işaretini ne yakar ve katman nasıl kapatılır",
         "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz",
-        "ürün kayıt defteri ne tutar, ona kim yazar ve bir karar ne zaman yeniden ölçülmeli"
+        "tezgah-research next bir ürün akışı için ne yazdırır ve bir karar ne zaman yeniden ölçülmeli"
       ],
       "sources": [
         "hooks/tezgah_research.py",

@@ -17,40 +17,40 @@ Must-not line is triggered.
 > region, product, orders, revenue, returns)
 
 **Must contain**
-- [ ] Picks one kebab-case topic and runs `tezgah-research next --topic <t>` before any layout, and follows the `next:` line it prints
-- [ ] On a topic with no rows, records the first observation with `tezgah-research record O` and runs `next` again
-- [ ] Takes the metrics from `M` rows that rest on an `I` (goal, definition, window, baseline, logged), recorded before the design step
-- [ ] Commits the recorded rows with `tezgah-research commit --product`
-- [ ] Cites the decision as `product:<id>` in the forward spec and the design-contract component
+- [ ] Picks one kebab-case topic and runs `tezgah-research next --topic <t>` before any layout, and does the first missing step it names
+- [ ] Writes each step's note under its `## <step>` heading in `.tezgah/analysis/<t>/flow.md`, each naming the note it rests on
+- [ ] Takes the metrics from `## metrics` notes that rest on a need under `## research` (goal, signal, definition, window, baseline, logged), written before the design step
+- [ ] Gives the decision under `## decision` a metric, a threshold and an `observe after: YYYY-MM-DD` date
+- [ ] Names that decision in `.tezgah/analysis/<t>/spec.md` and in the design-contract component
 
 **Must not**
 - Lay out charts for the CSV's columns before a metric and a decision exist
-- Recite a step list from memory instead of the one `next` prints
+- Skip a step whose artifact is missing because the data seems to answer it
 
-**Why this case** - the skill says it "does not list the steps" and that the session
-does "the first missing step with the skill that step names". A data file pulls
-toward drawing its columns at once.
+**Why this case** - the skill says to "find the first step whose artifact is
+missing" and do "that step, and only that step". A data file pulls toward drawing
+its columns at once.
 
 ---
 
-## Case 2 - The trap: a research worker writing the product ledger
+## Case 2 - The trap: a research worker writing the flow's artifacts
 
 **Input**
 > We want to add saved searches to the app. Spin up research on how users
 > re-run searches and take it from there.
 
 **Must contain**
-- [ ] Runs `tezgah-research next --topic <t>` (the `feature` flow when no metric is in view) and starts from the first missing step
-- [ ] Briefs any research worker to report O and I candidates - class, source with its read date, quote, statement, confidence - in its result
-- [ ] Records those candidates from the main session with `tezgah-research record`, citing the O ids in the I row's `from`
+- [ ] Runs `tezgah-research next --topic <t> --flow feature` (no metric is in view) and starts from the first missing step
+- [ ] Briefs any research worker to report its sources and insights - class, source with its read date, quote, statement, confidence - in its result
+- [ ] Writes those findings under `## research` in `flow.md` from the main session
 
 **Must not**
-- Let a worker or subagent run `record` itself
-- Start the forward spec before the decision row exists
+- Let a worker or subagent write `flow.md` or `spec.md` itself
+- Start the forward spec before `## decision` exists
 
-**Why this case** - "Who records" says "A worker never runs `record`" and that "the
-main session records them". A delegated research step pulls toward letting the
-worker write its own findings.
+**Why this case** - "Who writes" says "Only the main session writes the flow's
+artifacts". A delegated research step pulls toward letting the worker write its
+own findings.
 
 ---
 
@@ -61,17 +61,17 @@ worker write its own findings.
 > or goals.
 
 **Must contain**
-- [ ] Runs `next` for the topic and states which step is missing before the build, naming the metric and the decision as the missing steps
-- [ ] Says the chart has no goal above it, and asks for the goal or records the gap as a step that is still missing
-- [ ] Offers the shortest route through the missing steps, one row each, rather than refusing
+- [ ] Runs `next` for the topic and states which steps are missing before the build, naming the metric and the decision
+- [ ] Says the chart has no goal above it, and asks for the goal or writes the gap down as a step still missing
+- [ ] Offers the shortest route through the missing steps, one note each, rather than refusing
 
 **Must not**
 - Build the chart and report the flow as done
 - Claim the metric or decision steps do not apply to this ask
 
-**Why this case** - step status is "computed from the product ledger rows", and
-the `build` step is `n/a` to it: a built chart with no M and no D leaves the
-earlier steps missing however good the chart is.
+**Why this case** - every step's artifact "names the earlier artifact it rests
+on": a built chart with no metric and no decision leaves the earlier steps missing
+however good the chart is.
 
 ---
 

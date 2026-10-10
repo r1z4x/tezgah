@@ -71,8 +71,8 @@ opens. Field names and prose stay English.
   `component-inventory` violation, so a new component is added here, in the same
   turn it is written.
 - `components[].decision` - optional, the product decision that asked for the
-  component, as `"product:<D>"` or a list of them. `tezgah-research check`
-  resolves each one against the product ledger.
+  component: the topic and the decision as written under `## decision` in
+  `.tezgah/analysis/<topic>/flow.md`.
 
 ```json
 {
@@ -111,9 +111,10 @@ widget states.
 ## The product decision behind a component
 
 A component built for a product decision names it in its `decision` field, such
-as `{"name": "RevenueTile", "kind": "data", "decision": "product:D4"}`. The value
-is a `D` row from `tezgah-research record D`. A component with no decision behind
-it leaves the field out. The `product-flow` skill gives the order of the steps.
+as `{"name": "RevenueTile", "kind": "data", "decision": "signup-dashboard: ship
+the revenue tile"}`, the decision written under `## decision` in
+`.tezgah/analysis/<topic>/flow.md`. A component with no decision behind it leaves
+the field out. The `product-flow` skill gives the order of the steps.
 
 ## Derivation
 

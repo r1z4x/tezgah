@@ -14,8 +14,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **feature-audit forward mode.** A feature not built yet gets its five matrices in `spec.md`. The audit after the build compares against it.
 - **analyze-app writes the design measurement.** Nothing produced `measurement.json` before. The skill now gives its shape and the snippet that reads it.
 - **The local skill search reaches design-library's entries.** The search now reads the entries a skill's `INDEX.md` lists, one row each.
-- **The product ledger.** `tezgah-research record` appends observation, insight, assumption, metric, decision and re-measure rows to `.tezgah/product/ledger.jsonl`. One shared check refuses a bad row in the writer and in `check` alike. Only the main checkout writes the product ledger, and a worktree reads it. Plans, analyses and the design contract cite a row as `product:D4`. `tezgah-research due` lists decisions past their re-measure date, and the session-start note names up to three of them.
-- **The product-flow skill and `tezgah-research next`.** A new product capability now runs in a fixed order, from research to re-measure. `tezgah-research next --topic <t>` prints each step's status from the topic's product ledger rows. It then names the first missing step's skill and command. The `product-flow` skill runs `next` and follows that step. The steps live once, in `hooks/tezgah_product.py`.
+- **The product-flow skill and `tezgah-research next`.** A new product capability now runs in a fixed order, from research to re-measure. Each step leaves a file under `.tezgah/analysis/<topic>/`: a `## <step>` note in `flow.md`, or `spec.md` for the forward spec. `tezgah-research next --topic <t>` prints each step's status from those files, and a re-measure is due once the decision's `observe after:` date has passed. It then names the first missing or due step's skill and command. The skill lists the steps, and `FLOWS` in `hooks/tezgah_product.py` holds their done rules.
+
+### Removed
+
+- **The product ledger is cut before release (ADR 025).** Plan 075's measured run did not show the ledger beating the playbook alone. Gone: writing and reading `.tezgah/product/ledger.jsonl`, `tezgah-research record`, `due` and `commit --product`, the ledger part of `check`, `product:` citations and the session-start note on due decisions. An existing `ledger.jsonl` is left in place, and nothing reads it.
 
 ### Changed
 

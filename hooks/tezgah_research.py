@@ -2830,13 +2830,10 @@ def _check_order(repo, label, before, after, errors, warnings, hard):
         warnings.append("%s: git could not order %s against %s" % ((label,) + names))
 
 
-def _check_append_only(repo, label, path, errors, warnings, hard, noun="results",
-                       after="the run"):
+def _check_append_only(repo, label, path, errors, warnings, hard):
     """Every committed version of `path` starts with the rows of the one before it,
     and so does the working copy: a row changed or removed after it was committed
-    is a result rewritten after the run, and nothing else in the line shows it.
-    `noun` and `after` word the message for a file that is not a run's results
-    (the product ledger)."""
+    is a result rewritten after the run, and nothing else in the line shows it."""
     versions = [text for _sha, text in file_versions(repo, path)]
     current, exc = _committed_text(path)
     if not exc:
@@ -2845,9 +2842,9 @@ def _check_append_only(repo, label, path, errors, warnings, hard, noun="results"
         old = [line for line in older.splitlines() if line.strip()]
         new = [line for line in newer.splitlines() if line.strip()]
         if new[:len(old)] != old:
-            _soft(errors, warnings, hard, "%s was rewritten after %s: a committed "
-                  "row changed or went missing, and %s are append-only - a "
-                  "correction is a new row" % (label, after, noun))
+            _soft(errors, warnings, hard, "%s was rewritten after the run: a "
+                  "committed row changed or went missing, and results are "
+                  "append-only - a correction is a new row" % label)
             return
 
 

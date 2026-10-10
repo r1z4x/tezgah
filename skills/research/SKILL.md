@@ -581,12 +581,10 @@ the full rules when a line reaches that stage.
 
 ## A source that answers a product ask
 
-When a line's source answers a product question, the finding also goes into the
-product ledger. The source becomes an `O` row with `class: external`, its URL or
-literature path as `source` and the passage as `quote`. What it shows about the
-user's need becomes an `I` row whose `from` names that `O`. Write each with
-`tezgah-research record O` and `tezgah-research record I`, one JSON object on
-stdin. A research claim the row rests on goes in its `claims` list as
+When a line's source answers a product question under `product-flow`, the finding
+also goes under `## research` in `.tezgah/analysis/<topic>/flow.md`: the source's
+URL or literature path, the date it was read and the passage it says, then the
+user need it supports. A research claim it rests on is cited as
 `<slug>:<claim id>`. The `product-flow` skill gives the order of the steps.
 
 ## Provenance, at the end of the session
