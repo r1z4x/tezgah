@@ -1163,7 +1163,7 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.SCOPE_RULES)
+        self.assertEqual(tr.RULES, tr.HOLDOUT_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
@@ -2022,8 +2022,10 @@ class LockedEvaluation(Workspace):
                       "counter_metric": "tokens per task"}
         self.state(repo, evaluation=evaluation)
         self.assertEqual(self.errors(repo), [])
-        self.assertFalse(hit(["capability_tolerance", "counter_metric"],
-                             self.errors(repo) + self.warnings(repo)))
+        # rules 6 reads a tolerance against its noise band (SelectionDiscipline)
+        self.assertFalse(hit(["capability_tolerance", "counter_metric"], [
+            f for f in self.errors(repo) + self.warnings(repo)
+            if "noise_band" not in f]))
         evaluation["counter_metric"] = ""
         self.state(repo, evaluation=evaluation)
         errors = self.errors(repo)
@@ -5511,7 +5513,7 @@ class ScopeLock(Workspace):
                 method="qualitative", scope_in=["X's stated rule"],
                 scope_out=["Y"])
         state = tr.line_state(repo, "q")
-        self.assertEqual(state["rules"], tr.SCOPE_RULES)
+        self.assertEqual(state["rules"], tr.RULES)
         self.assertEqual(state["method"], "qualitative")
         self.assertEqual(state["scope"], {"in": ["X's stated rule"], "out": ["Y"]})
 
@@ -5589,6 +5591,123 @@ class ScopeLock(Workspace):
     def test_an_analysis_is_answered_once_not_as_three_variants(self):
         self.assertEqual(tr.deliverable_problems({"kind": "analysis"})[1], 0)
         self.assertEqual(tr.deliverable_problems({"kind": "design"})[1], 3)
+
+
+class SelectionDiscipline(Workspace):
+    """Rules 6 (plan 077, rsi-borrow-screen): a selection confirmed on a held-out
+    set, an armed comparison run more than once per arm, and a capability
+    tolerance read against measured noise. Each is a warning and never a
+    refusal, even under `--strict` (ADR 019)."""
+
+    SAME_CELLS = "selected and reported on the same cells"
+    CONSULTED = "the held-out set became development data for"
+    ONE_RUN = "one run per arm"
+    NO_BAND = "declares no evaluation noise_band"
+    NO_EXPERIMENT = "noise_band experiment"
+    WIDER = "wider than the measured noise"
+    NEEDLES = (SAME_CELLS, CONSULTED, ONE_RUN, NO_BAND, NO_EXPERIMENT, WIDER)
+    CRITERIA, LATER = Standards.CRITERIA, Standards.LATER
+    cli, state, decision = Standards.cli, Standards.state, Standards.decision
+    cells, designed = Standards.cells, Standards.designed
+
+    def evaluation(self, repo, **fields):
+        state = json.loads(read(os.path.join(tr.line_dir(repo, "q"), "state.json")))
+        self.state(repo, evaluation=dict(state["evaluation"], **fields))
+
+    def armed(self, repo, h="h1", rows=None):
+        self.protocol(repo, h=h)
+        rows = rows or [{"arm": "A", "p95": 1.0}, {"arm": "B", "p95": 0.9}]
+        self.write(os.path.join(self.exp_dir(repo, h=h), "results.jsonl"),
+                   "".join(json.dumps(dict(r, scope="real", source="run.py"))
+                           + "\n" for r in rows))
+
+    def found(self, repo, strict=False):
+        errors, warnings = tr.check_line(repo, "q", git=False, strict=strict)
+        self.assertFalse(hit(self.NEEDLES, errors), errors)
+        return warnings
+
+    def test_a_comparison_with_no_held_out_set_warns(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        self.assertTrue(hit(self.SAME_CELLS, self.found(repo)))
+        self.evaluation(repo, held_out="the 40 tasks of the March split")
+        self.assertFalse(hit(self.SAME_CELLS, self.found(repo)))
+
+    def test_a_candidate_consulting_the_held_out_set_twice_warns(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        log = os.path.join(tr.line_dir(repo, "q"), "held_out_log.jsonl")
+        row = {"set": "march", "candidate": "V1", "date": "2026-01-02",
+               "result": 0.8}
+        self.write(log, json.dumps(row) + "\n"
+                   + json.dumps(dict(row, candidate="V2")) + "\n")
+        self.assertFalse(hit(self.CONSULTED, self.found(repo)))
+        self.append_line(log, dict(row, date="2026-01-03"))
+        warnings = self.found(repo, strict=True)
+        self.assertTrue(hit(self.CONSULTED + " V1", warnings), warnings)
+
+    def test_an_armed_experiment_run_once_per_arm_warns(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.armed(repo)
+        self.assertTrue(hit(self.ONE_RUN, self.found(repo)))
+        self.armed(repo, rows=[{"variant": "A", "repeat": 1},
+                               {"variant": "B", "repeat": 1},
+                               {"variant": "A", "repeat": 2},
+                               {"variant": "B", "repeat": 2}])
+        self.assertFalse(hit(self.ONE_RUN, self.found(repo)))
+
+    def test_a_protocol_stating_k_repeats_is_not_warned(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.armed(repo)
+        proto = os.path.join(self.exp_dir(repo), "protocol.md")
+        self.write(proto, read(proto) + "k: 3 runs per arm\n")
+        self.assertFalse(hit(self.ONE_RUN, self.found(repo)))
+
+    def test_an_armless_experiment_is_not_warned(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.armed(repo, rows=[{"run": 1, "p95": 1.0}, {"run": 2, "arm": "A"}])
+        self.assertFalse(hit(self.ONE_RUN, self.found(repo)))
+
+    def test_a_tolerance_is_read_against_its_noise_band(self):
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.protocol(repo, h="rerun")
+        self.evaluation(repo, capability_tolerance="within 0.05 of the baseline")
+        self.assertTrue(hit(self.NO_BAND, self.found(repo)))
+        self.evaluation(repo, noise_band={"experiment": "gone", "spread": 0.02})
+        warnings = self.found(repo, strict=True)
+        self.assertFalse(hit(self.NO_BAND, warnings), warnings)
+        self.assertTrue(hit(self.NO_EXPERIMENT, warnings), warnings)
+        self.assertTrue(hit(self.WIDER, warnings), warnings)
+        self.evaluation(repo, noise_band={"experiment": "rerun", "spread": 0.05})
+        self.assertFalse(hit(self.NEEDLES, self.found(repo)))
+
+    def test_a_line_opened_under_older_rules_is_not_warned(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.state(repo, rules=tr.SCOPE_RULES)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        self.armed(repo)
+        self.evaluation(repo, capability_tolerance="within 0.05 of the baseline")
+        self.assertFalse(hit(self.NEEDLES, self.found(repo)))
+
+    def test_the_warnings_leave_check_exiting_zero(self):
+        repo = self.repo()
+        self.clean(repo)
+        self.evaluation(repo, capability_tolerance="within 0.05 of the baseline")
+        log = os.path.join(tr.line_dir(repo, "q"), "held_out_log.jsonl")
+        row = {"set": "march", "candidate": "V1", "date": "2026-01-02",
+               "result": 0.8}
+        self.write(log, json.dumps(row) + "\n" + json.dumps(row) + "\n")
+        self.commit(repo, "tolerance and held-out log", when=self.LATER)
+        proc = self.cli(repo, "check", "q", "--strict")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(hit(self.NO_BAND, [proc.stdout + proc.stderr]))
+        self.assertTrue(hit(self.CONSULTED, [proc.stdout + proc.stderr]))
 
 
 if __name__ == "__main__":
