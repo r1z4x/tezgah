@@ -528,6 +528,7 @@ def relative(path, cwd, base, worktrees=False):
     fork-free and only a path already outside the root pays for it; a worktree of
     another repository is still outside."""
     root = repo_root(cwd, base)
+    path = os.path.expanduser(path)  # a host may spell it `~/...`
     real = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
     if real == root or not _under(real, root):
         top = _sibling_worktree(real, root) if worktrees else None

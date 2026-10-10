@@ -275,6 +275,32 @@ class Corpus(TempHome):
         self.assertEqual(json.loads(self.cli("--report", "--json"))["items"], s["items"],
                          "a split run leaves the run's indexed whole-corpus summary as it was")
 
+    def test_a_split_counts_the_quota_over_the_whole_sheet(self):
+        """A rule whose sheet drew its full quota is not short on either split
+        side, though each side holds only part of its items."""
+        s = self.replay()
+        with open(os.path.join(s["run"], "corpus.jsonl"), encoding="utf-8") as fh:
+            items = [json.loads(line) for line in fh]
+        side = {tr.split_of(it["sid"]): it["i"] for it in items}
+        self.assertEqual(sorted(side), ["holdout", "search"])
+        quota = tr.QUOTA["deny:drift"]
+        key = [{"set": "replay-gate", "n": n, "item": side[("search", "holdout")[n % 2]],
+                "bucket": "deny:drift", "live": "deny", "live_rule": "drift"}
+               for n in range(1, quota + 1)]
+        jsonl(os.path.join(s["run"], "sheet-key.jsonl"), key)
+        files = []
+        for rater in ("owner", "second"):
+            path = os.path.join(self.home, rater + ".jsonl")
+            jsonl(path, [{"set": k["set"], "n": k["n"], "label": "refuse", "rater": rater}
+                         for k in key])
+            files += ["--labels", path]
+        for name in ("search", "holdout"):
+            with self.subTest(split=name):
+                rep = json.loads(self.cli("--report", "--json", "--split", name, *files))
+                self.assertNotIn("drift", rep["pooled"])
+                self.assertNotIn("drift", rep["not_measurable"])
+                self.assertEqual(rep["false_block"]["drift"]["n"], quota // 2)
+
     def test_label_model_through_the_judge_seam(self):
         """Rater 2 (H2 amendment 2026-10-07): one choice question per sheet row
         through the judge seam, against a local stub endpoint; secrets leave

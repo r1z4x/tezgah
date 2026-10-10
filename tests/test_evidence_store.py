@@ -75,6 +75,48 @@ class LegacyImport(Cache):
         self.assertEqual((support.ledger_rows(a), support.ledger_rows(b)), first)
 
 
+class DeviceChange(Cache):
+    def moved(self, path):
+        """The file's `imported` row put under another device id, as a volume
+        remount renumbers it, and this process's memory of the file dropped."""
+        db = os.path.join(self.cache, ts.CACHE_DB)
+        ts._HELD.pop(db)[0].close()
+        con = sqlite3.connect(db)
+        with con:
+            con.execute("UPDATE imported SET dev = dev + 1 WHERE name = ?",
+                        (os.path.basename(path),))
+        con.close()
+
+    def imported(self):
+        con = sqlite3.connect(os.path.join(self.cache, ts.CACHE_DB))
+        try:
+            return con.execute("SELECT name, dev, ino, bytes FROM imported "
+                               "WHERE name LIKE '%.jsonl'").fetchall()
+        finally:
+            con.close()
+
+    def test_a_file_whose_device_id_changed_is_not_imported_again(self):
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "a"},
+                                 {"kind": "run", "ts": 2, "detail": "b"}])
+        ts.import_session(path)
+        # nothing new in the file: the lookup falls back to (name, inode) and
+        # writes the row under the current device. The stale-device row stays:
+        # the doctor's repair finds a double import by those rows, so the store
+        # must not erase the evidence before the user runs it (plan 078 review)
+        self.moved(path)
+        ts.import_session(path)
+        st = os.stat(path)
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b"])
+        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
+        # a line appended since: only it goes in, under the current device
+        self.moved(path)
+        self.legacy("s", [{"kind": "run", "ts": 3, "detail": "c"}])
+        ts.import_session(path)
+        st = os.stat(path)
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b", "c"])
+        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
+
+
 class Concurrency(Cache):
     WRITES = 150
 

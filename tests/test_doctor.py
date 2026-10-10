@@ -237,6 +237,130 @@ class Doctor(DoctorBase):
         self.assertEqual(self.indexed(rep)[named]["bytes"], 42)
 
 
+class RepairEvidence(DoctorBase):
+    """`--repair-evidence` over a cache whose legacy ledgers the device-id bug
+    imported twice: one file under two device ids, one legitimately holding a
+    line twice, one under three device ids."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_store
+        self.cache = os.path.join(self.home, ".cache", "tezgah")
+        self.store = os.path.join(self.cache, tezgah_store.CACHE_DB)
+        tezgah_store.connect(self.store, tezgah_store.CACHE_SCHEMA,
+                             tezgah_store.CACHE_VERSION).close()
+        con = sqlite3.connect(self.store)
+        with con:
+            # imported once, a row written straight to the database, then the
+            # same file again under a second device id, as the bug did
+            self.dup = self.ledger(con, "dup", ["a", "b", "a"], [0, 1], again="x")
+            self.ledger(con, "legit", ["c", "c"], [0])
+            self.ledger(con, "three", ["d"], [0, 1, 2], times=3)
+        con.close()
+
+    def ledger(self, con, session, lines, devs, times=None, again=None):
+        path = os.path.join(self.cache, "evidence", session + ".jsonl")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("".join('{"detail":"%s"}\n' % line for line in lines))
+        st = os.stat(path)
+        for dev in devs:
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        (session + ".jsonl", st.st_dev + dev, st.st_ino, st.st_size))
+        for i in range(times or len(devs)):
+            for line in lines:
+                con.execute("INSERT INTO evidence (session, row) VALUES (?, ?)",
+                            (session, '{"detail":"%s"}' % line))
+            if again and i == 0:
+                con.execute("INSERT INTO evidence (session, row) VALUES (?, ?)",
+                            (session, '{"detail":"%s"}' % again))
+        return st
+
+    def rows(self, db=None):
+        con = sqlite3.connect(db or self.store)
+        try:
+            return {s: [r for (r,) in con.execute(
+                "SELECT row FROM evidence WHERE session = ? ORDER BY n", (s,))]
+                for s in ("dup", "legit", "three")}
+        finally:
+            con.close()
+
+    def imported(self, name):
+        con = sqlite3.connect(self.store)
+        try:
+            return con.execute("SELECT dev, ino, bytes FROM imported WHERE name = ? "
+                               "ORDER BY dev", (name,)).fetchall()
+        finally:
+            con.close()
+
+    def test_the_dry_run_counts_the_second_import_and_the_apply_removes_only_it(self):
+        before = self.rows()
+        proc = self.doctor("--repair-evidence")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # dup: the file holds a twice and b once; the second import added a, b
+        # and the direct row x -> the newest a, a, b copies go, x stays
+        self.assertIn("  dup  3 row(s)\n", proc.stdout)
+        # three: three device rows are three full re-imports of one line; the
+        # content formula is exact for any number of them -> one copy goes
+        self.assertIn("  three  1 row(s)\n", proc.stdout)
+        self.assertNotIn("legit", proc.stdout)
+        self.assertNotIn("manual review", proc.stdout)
+        self.assertIn("total 4 row(s) in 2 session(s)", proc.stdout)
+        self.assertEqual(self.rows(), before)  # a dry run writes nothing
+
+        proc = self.doctor("--repair-evidence", "--apply")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("re-check: 0 row(s)", proc.stdout)
+        after = self.rows()
+        self.assertEqual(after["dup"],
+                         ['{"detail":"%s"}' % s for s in "abax"])
+        self.assertEqual(after["legit"], before["legit"])
+        self.assertEqual(after["three"], ['{"detail":"d"}', '{"detail":"d"}'])
+        self.assertEqual(len(self.imported("dup.jsonl")), 1)
+        self.assertEqual(len(self.imported("three.jsonl")), 1)
+        backup = [line.split(None, 1)[1] for line in proc.stdout.splitlines()
+                  if line.startswith("  backup ")]
+        self.assertEqual(len(backup), 1, proc.stdout)
+        self.assertTrue(os.path.basename(backup[0]).startswith("tezgah.db.bak-"))
+        self.assertEqual(self.rows(backup[0]), before)
+
+        proc = self.doctor("--repair-evidence")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("total 0 row(s) in 0 session(s)", proc.stdout)
+
+    def test_a_row_equal_to_a_line_outside_the_doubled_region_survives(self):
+        # the review's exact input: the file grew between the two imports
+        # (15 bytes then 30), so only "a" went in twice; a direct row equal to
+        # the tail line "b" is a legitimate row, not a copy
+        con = sqlite3.connect(self.store)
+        with con:
+            con.execute("UPDATE imported SET bytes = 15 WHERE name = 'dup.jsonl'")
+        before = self.rows()
+        proc = self.doctor("--repair-evidence")
+        # the doubled region is the first 15 bytes (the a line): one a copy
+        # goes; b and the direct x sit past it and are never touched
+        self.assertIn("  dup  1 row(s)\n", proc.stdout)
+        proc = self.doctor("--repair-evidence", "--apply")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        after = self.rows()["dup"]
+        # only the second import's copy of a went; b and the direct x stay
+        self.assertEqual(len(after), 6)
+        self.assertEqual(after.count('{"detail":"b"}'), 2)
+        self.assertIn('{"detail":"x"}', after)
+
+    def test_the_store_leaves_the_rows_its_rekey_used_to_delete(self):
+        # a third device id after the fix: the store re-keys under the current
+        # device and keeps the stale rows, so the plan still finds the copies
+        con = sqlite3.connect(self.store)
+        with con:
+            st = os.stat(os.path.join(self.cache, "evidence", "dup.jsonl"))
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        ("dup.jsonl", st.st_dev + 99, st.st_ino, st.st_size))
+        proc = self.doctor("--repair-evidence")
+        self.assertIn("  dup  3 row(s)\n", proc.stdout)
+
+
 class Coverage(DoctorBase):
     """The `--coverage` report over one repo: a stub index dump, four tracked
     files, and no codegraph on the machine."""

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 import support
 from support import TempHome, run_json
@@ -250,6 +251,14 @@ class Record(unittest.TestCase):
                                       self.repo, self.base))
         self.assertIsNone(tt.relative("../elsewhere.py", self.repo, self.base))
         self.assertIsNone(tt.relative(self.repo, self.repo, self.base))
+
+    def test_relative_expands_a_home_tilde(self):
+        # a host may spell the path `~/...`; read as relative to cwd it named a
+        # file that does not exist and refused an in-scope write
+        home = os.path.dirname(self.repo)
+        tilde = "~/" + os.path.basename(self.repo) + "/hooks/a.py"
+        with unittest.mock.patch.dict(os.environ, {"HOME": home}):
+            self.assertEqual(tt.relative(tilde, self.repo, self.base), "hooks/a.py")
 
     def test_relative_resolves_a_symlink_out_of_the_root(self):
         outside = os.path.join(self.base, "outside.py")

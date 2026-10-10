@@ -269,17 +269,41 @@ def _taste_put(table):
     return put
 
 
+def _recorded(conn, name, st):
+    """(the bytes `imported` counts for the file `name` with stat `st`, whether
+    they were found only under another device id) or None. A volume remount
+    can renumber the device of a file whose name and inode are unchanged; the
+    largest count under any device is that file's, so it never imports twice."""
+    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? AND ino = ?",
+                         (name, st.st_dev, st.st_ino)).fetchone()
+    if found:
+        return found[0], False
+    found = conn.execute("SELECT max(bytes) FROM imported WHERE name = ? AND ino = ?",
+                         (name, st.st_ino)).fetchone()
+    return (found[0], True) if found[0] is not None else None
+
+
+def _record(conn, key, size, moved):
+    """`size` bytes of the file `key` in. A moved row is rewritten under the
+    current device id and its stale rows stay: the doctor's repair finds a
+    double import by those rows, so the store must not erase the evidence
+    before the user runs it (plan 078 review round 1)."""
+    conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
+                 "VALUES (?, ?, ?, ?)", key + (size,))
+
+
 def _offset(conn, name, fh):
-    """(the file's key, the byte offset its import resumes at, whether that
-    differs from the recorded one). A file cut below what went in (rewritten in
-    place) resumes at its end, so the rows appended after the cut still
-    import."""
+    """(the file's key, the byte offset its import resumes at, whether the
+    recorded row must be rewritten, whether it is under another device id
+    (`_recorded`)). The row is rewritten when its offset differs or it moved: a
+    file cut below what went in (rewritten in place) resumes at its end, so
+    the rows appended after the cut still import."""
     st = os.fstat(fh.fileno())
     key = (name, st.st_dev, st.st_ino)
-    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? "
-                         "AND ino = ?", key).fetchone()
+    found = _recorded(conn, name, st)
     start = min(found[0], st.st_size) if found else 0
-    return key, start, bool(found and found[0] != start)
+    moved = bool(found and found[1])
+    return key, start, bool(found and found[0] != start) or moved, moved
 
 
 def _import_rows(conn, name, src, st, put=None, keep=False):
@@ -303,14 +327,14 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
         _failed(conn, name, st)
         return
     with fh:  # closing it releases the flock
-        key, start, cut = _offset(conn, name, fh)
+        key, start, cut, _moved = _offset(conn, name, fh)
         fh.seek(start)
         raw = fh.read()
         if b"\n" in raw or cut:
             with transaction(conn):
                 if not _locked(fh):
                     return  # its writer holds it: the next open takes it
-                key, start, cut = _offset(conn, name, fh)
+                key, start, cut, moved = _offset(conn, name, fh)
                 fh.seek(start)
                 raw = fh.read()
                 whole = raw[:raw.rfind(b"\n") + 1]
@@ -318,8 +342,7 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
                     put = put or _taste_put(name[:-len(".jsonl")])
                     for line in whole.split(b"\n"):
                         put(conn, line)
-                    conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
-                                 "VALUES (?, ?, ?, ?)", key + (start + len(whole),))
+                    _record(conn, key, start + len(whole), moved)
         # aside only when every byte went in (no fragment past the last newline)
         # and no writer appended past the read (the old writer appends unlocked
         # once its own wait runs out), under the flock so no writer is inside
@@ -523,27 +546,36 @@ def _insert(conn, session, text):
                   ts if ts is not None and -2 ** 63 <= ts < 2 ** 63 else None, text))
 
 
+def _line_text(line):
+    """The row text one legacy ledger line (no newline) imports as, None for a
+    blank one: kept as it was written, so a line that does not parse stays a
+    line the reader names as damage."""
+    if not line.strip():
+        return None
+    try:
+        return line.decode("utf-8")
+    except UnicodeDecodeError:
+        # the marker `tezgah_integrity._parse` names as damage, hashed over the
+        # line with its newline as the file reader hashed it, so a damage row
+        # it wrote still names the same line
+        return "\x00not utf-8 %s" % hashlib.sha1(line + b"\n").hexdigest()[:12]
+
+
 def _evidence_put(session):
-    """The import of one legacy ledger line: kept as it was written, so a line
-    that does not parse stays a line the reader names as damage."""
+    """The import of one legacy ledger line (`_line_text`)."""
     def put(conn, line):
-        if not line.strip():
-            return
-        try:
-            text = line.decode("utf-8")
-        except UnicodeDecodeError:
-            # the marker `tezgah_integrity._parse` names as damage, hashed
-            # over the line with its newline as the file reader hashed it, so
-            # a damage row it wrote still names the same line
-            text = "\x00not utf-8 %s" % hashlib.sha1(line + b"\n").hexdigest()[:12]
-        _insert(conn, session, text)
+        text = _line_text(line)
+        if text is not None:
+            _insert(conn, session, text)
     return put
 
 
 def _sync(held, path):
     """Import the legacy JSONL at `path` past the bytes already in. Without a
     file, or with nothing new in it, this is one stat (and one lookup the first
-    time a process sees it)."""
+    time a process sees it). A file whose offset sits under another device id
+    (`_recorded`) goes through the import even with nothing new, whose write
+    re-keys it."""
     try:
         st = os.stat(path)
     except OSError:
@@ -553,9 +585,7 @@ def _sync(held, path):
     if seen.get(path) == mark:
         return
     name = os.path.basename(path)
-    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? AND ino = ?",
-                         (name, st.st_dev, st.st_ino)).fetchone()
-    if found and found[0] == st.st_size:
+    if _recorded(conn, name, st) == (st.st_size, False):
         seen[path] = mark
         return
     if conn.execute("SELECT 1 FROM import_failed WHERE name = ? AND mtime_ns = ? "

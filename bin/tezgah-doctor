@@ -42,8 +42,13 @@ this tree.
   tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
   tezgah-doctor --import-evidence  import the legacy JSONL evidence ledgers
                                    into the evidence database now
+  tezgah-doctor --repair-evidence [--apply]
+                                   the rows a legacy ledger imported twice
+                                   under two device ids holds; --apply backs
+                                   the database up and deletes them
 """
 import argparse
+import collections
 import importlib.machinery
 import importlib.util
 import json
@@ -343,6 +348,131 @@ def import_evidence():
             for base in dict.fromkeys((CACHE, fallback_cache()))}
 
 
+def evidence_plan(conn, cache, regions=None):
+    """The second import of every legacy ledger whose `imported` rows hold two
+    or more device ids for one (name, ino) - the remount bug
+    `tezgah_store._recorded` closed - in the cache database `conn`:
+    ({session: [row n to delete]}, {(name, ino): (current dev, max bytes)} to
+    collapse to, [] for symmetry with older callers).
+
+    Detected from content, not from the row count: the store re-keys a moved
+    file under the current device and leaves its stale rows, so the rows stay
+    the signal, but a device can be renumbered again after the fix and the
+    store writes yet another row. The formula is exact for any number of
+    re-imports. Every buggy re-import started at offset 0, so the doubled
+    region is the file's first min(bytes); the rows past it are the post-fix
+    continuation a fixed store appended once. For a line text t, cf is its
+    occurrences in that region and cd its occurrences in the session's rows:
+    the newest min(cd - cf, cf) copies go. One re-import gives cd = 2*cf + D
+    on the region, so exactly the second copy goes; a continuation row matches
+    no region line; a row written to the database directly is taken only when
+    its text equals a region line, where every copy is byte-identical and the
+    choice cannot change what a reader sees.
+
+    Only the file still at its name with that inode is read; another file
+    there is skipped, because counting its lines would delete the wrong rows.
+    `regions` overrides the (name, ino) -> (min, max bytes) read from
+    `imported`: `--apply` re-checks the files it collapsed through the regions
+    it recorded, because their collapse takes them out of the query."""
+    import tezgah_store
+    doomed, collapse = {}, {}
+    rows = conn.execute(
+        "SELECT name, ino, min(bytes), max(bytes) FROM imported GROUP BY name, ino "
+        "HAVING count(*) > 1 AND min(bytes) > 0 ORDER BY name").fetchall()
+    for name, ino, min_bytes, max_bytes in rows:
+        path = os.path.join(cache, "evidence", name)
+        try:
+            st = os.stat(path)
+            if st.st_ino != ino:
+                continue
+            with open(path, "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            continue
+        if regions is not None:
+            min_bytes, max_bytes = regions.get((name, ino), (max_bytes, max_bytes))
+            if not min_bytes:
+                continue
+        region = raw[:min_bytes]
+        lines = region[:region.rfind(b"\n") + 1].split(b"\n")
+        in_file = collections.Counter(map(tezgah_store._line_text, lines))
+        copies = collections.defaultdict(list)
+        session = tezgah_store._ledger(path)[1]
+        for n, text in conn.execute("SELECT n, row FROM evidence WHERE session = ? "
+                                    "ORDER BY n DESC", (session,)):
+            copies[text].append(n)
+        doomed[session] = [n for text, ns in copies.items()
+                           for n in ns[:max(0, min(len(ns) - in_file[text], in_file[text]))]]
+        collapse[(name, ino)] = (st.st_dev, max_bytes)
+    return doomed, collapse, []
+
+
+def print_plan(plan):
+    doomed, _collapse, _review = plan
+    for session, ns in doomed.items():
+        if ns:
+            print("  %s  %d row(s)" % (session, len(ns)))
+    total = sum(map(len, doomed.values()))
+    print("  total %d row(s) in %d session(s)" % (total, sum(1 for ns in doomed.values() if ns)))
+    return total
+
+
+def repair_evidence(apply):
+    """`--repair-evidence` over the cache database and its sandbox fallback's:
+    the dry run prints `evidence_plan`; with `apply` the database is backed up
+    through the SQLite backup API first, the rows go and `imported` collapses to
+    one row per file in one transaction, and the plan is computed again, which
+    must find nothing. The exit code."""
+    import tezgah_store
+    code = 0
+    for cache in dict.fromkeys((CACHE, fallback_cache())):
+        db = os.path.join(cache, tezgah_store.CACHE_DB)
+        if not os.path.exists(db):
+            continue
+        print("%s: evidence repair, %s" % (db, "apply" if apply else "dry run"))
+        conn = sqlite3.connect(db, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout = %d" % tezgah_store.BUSY_MS)
+            if not apply:
+                print_plan(evidence_plan(conn, cache))
+                continue
+            backup = "%s.bak-%s" % (db, time.strftime("%Y%m%d-%H%M%S"))
+            os.close(os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            dst = sqlite3.connect(backup)
+            try:
+                conn.backup(dst)
+            finally:
+                dst.close()
+            print("  backup %s" % backup)
+            with tezgah_store.transaction(conn):
+                doomed, collapse, _review = plan = evidence_plan(conn, cache)
+                regions = {}
+                for key in collapse:
+                    found = conn.execute("SELECT min(bytes), max(bytes) FROM imported "
+                                         "WHERE name = ? AND ino = ?", key).fetchone()
+                    if found and found[0]:
+                        regions[key] = (found[0], found[1])
+                print_plan(plan)
+                conn.executemany("DELETE FROM evidence WHERE n = ?",
+                                 [(n,) for ns in doomed.values() for n in ns])
+                for (name, ino), (dev, size) in collapse.items():
+                    conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
+                    conn.execute("INSERT INTO imported (name, dev, ino, bytes) "
+                                 "VALUES (?, ?, ?, ?)", (name, dev, ino, size))
+            # the collapse takes the files out of the query, so the re-check
+            # reads their recorded regions: a plan that would still delete a row
+            # there means the deletion was wrong, and the exit code says so
+            left = sum(map(len, evidence_plan(conn, cache, regions)[0].values()))
+            print("  re-check: %d row(s)" % left)
+            code = code or int(left != 0)
+        except (OSError, sqlite3.Error) as exc:
+            print("  failed: %s" % exc, file=sys.stderr)
+            code = 1
+        finally:
+            conn.close()
+    return code
+
+
 
 def load_probe():
     """The bench spike, imported by path so its two coverage rules stay the only
@@ -465,14 +595,24 @@ def main():
                     help="import the legacy JSONL evidence ledgers into the "
                          "evidence database now, instead of at the next "
                          "session start's daily run")
+    ap.add_argument("--repair-evidence", action="store_true",
+                    help="count the evidence rows a legacy ledger imported a "
+                         "second time under another device id (dry run)")
+    ap.add_argument("--apply", action="store_true",
+                    help="with --repair-evidence: back the database up, then "
+                         "delete those rows")
     args = ap.parse_args()
     if args.retention_days < 1:
         ap.error("--retention-days wants a positive day count")
+    if args.apply and not args.repair_evidence:
+        ap.error("--apply goes with --repair-evidence")
 
     if args.coverage:
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
                                 else os.getcwd())
         return coverage_report(repo, args.dump)
+    if args.repair_evidence:
+        return repair_evidence(args.apply)
     if args.import_evidence:
         import tezgah_store
         try:
