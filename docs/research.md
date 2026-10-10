@@ -253,10 +253,10 @@ credential; only `--orx` asks the one question that leaves the machine.
 ## The next step of a product flow
 
 `tezgah-research next --topic <t>` tells the session which step of a product flow
-comes next. The steps live once, in `FLOWS` (`hooks/tezgah_product.py::FLOWS`).
+comes next. Its step table is `FLOWS` (`hooks/tezgah_product.py::FLOWS`).
 Each step names its `id`, the `skill` that runs it, what it `leaves` behind and
-the `command` that writes it. The `product-flow` skill walks the same nine steps
-and names `next` as their step source.
+the `command` that writes it. The `product-flow` skill lists the same nine steps
+in prose and names `next` as their status source.
 
 Two flows exist. `metric-dashboard` is the default and has nine steps. `feature`
 drops the metrics and instrumentation steps, unless the topic's `flow.md` already
