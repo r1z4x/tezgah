@@ -18,7 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A device-id change no longer imports a ledger twice.** The store found a legacy file's offset by name, device and inode. After the volume's device id changed, every file went in again from the start, and most ledgers read every row twice. The store now falls back to name and inode and re-keys the row.
 - **The task allowlist reads linked worktrees.** The gate used to place a file in a linked worktree outside the repo root. It then refused every in-scope write there. The gate now matches such a file against the worktree's own top. A worktree of another repository stays outside.
-- **The task allowlist expands `~`.** It read a `~/...` path as relative to the working directory. An in-scope file spelled that way was refused, and with a `**` allowlist a write to the home directory passed as a repo path. It now expands `~` first.
+- **The task allowlist expands `~`.** It read a `~/...` path as relative to the working directory. It then refused an in-scope file spelled that way. With a `**` allowlist it also let a write to the home directory through as a repo path. It now expands `~` first.
 
 ### Changed
 
