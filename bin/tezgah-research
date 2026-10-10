@@ -5,6 +5,7 @@
                        [--method qualitative|measured] [--in "<covered>"]... [--out "<left alone>"]...
                        [--allow-open "<why>"] [--supersedes <slug>]   scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
+  tezgah-research commit --product "<message>"    commit the product ledger in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
                                                    the discipline checks
   tezgah-research status                           one line per research line
@@ -16,11 +17,17 @@
   tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
+  tezgah-research verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"
+                                                   record one success criterion's verdict
+  tezgah-research conclude <slug>                  conclude a line whose criteria all carry a verdict
+  tezgah-research migrate-layout                   move flat research/<slug> into open/ or done/
   tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
   tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"
                                                    seal a line concluded before seals existed
   tezgah-research import <checkout> [<slug>] [--allow-open "<why>"]
                                                    bring lines from another checkout, with history
+  tezgah-research record O|I|A|M|D|R              append one product ledger row from stdin
+  tezgah-research due [--json]                     the product decisions due for re-measure
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -103,6 +110,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_paths as tp  # noqa: E402
+import tezgah_product as tp_product  # noqa: E402
 import tezgah_research as tr  # noqa: E402
 
 
@@ -237,22 +245,48 @@ def cmd_init(args):
 
 def cmd_commit(args):
     """Commit one line in the private `.tezgah` repository - the commit the order
-    rule reads. Only the line's own path is staged and committed."""
+    rule reads. Only the line's own path is staged and committed; `--product`
+    stages only `product/`, the history the product ledger's append-only check
+    reads."""
+    if args[:1] == ["--product"]:
+        return commit_product(args[1:])
     if len(args) != 2 or not args[1].strip():
-        return misuse('commit <slug> "<message>"')
+        return misuse('commit <slug> "<message>" | commit --product "<message>"')
     slug, message = args
     repo = repo_root(os.getcwd())
     known = tr.slugs(repo)
     if slug not in known:
         return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
+    return commit_path(repo, tr.line_dir(repo, slug), message)
+
+
+def commit_product(args):
+    if len(args) != 1 or not args[0].strip():
+        return misuse('commit --product "<message>"')
+    # The product ledger lives in the main checkout's `.tezgah`, whichever
+    # worktree this runs in.
+    repo = tp_product.main_checkout(repo_root(os.getcwd()))
+    path = os.path.dirname(tp_product.ledger_path(repo))
+    if not os.path.isdir(path):
+        print("commit refused: no product ledger under %s" % path)
+        return 1
+    return commit_path(repo, path, args[0], product=True)
+
+
+def commit_path(repo, path, message, product=False):
+    """Stage and commit `path` alone in the private repository of `repo`."""
     ws = tp.ensure_workspace(repo)
     if ws is None:
         print("commit refused: %s is not a git work tree (or .tezgah could not be "
               "set up), so there is no private repository to commit into" % repo)
         return 1
-    rel = os.path.relpath(tr.line_dir(repo, slug), ws)
+    rel = os.path.relpath(path, ws)
     try:
         done = tp.ws_git(repo, "add", "-A", "--", rel)
+        if not done.returncode and product and not tp.ws_git(
+                repo, "diff", "--cached", "--name-only", "--", rel).stdout.strip():
+            print("commit refused: nothing to commit under %s" % rel)
+            return 1
         if not done.returncode:
             done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", rel)
     except OSError as exc:
@@ -298,6 +332,7 @@ def cmd_check(args):
                 print("warn %s: %s" % (slug, warn))
     else:
         print("no research line under %s" % tr.root(repo))
+    lines = len(report)
     if ask_orx:
         # The registry is the repository's, not a line's, so this runs whatever the
         # lines look like - which is also why it is only asked for when --orx says so.
@@ -307,13 +342,23 @@ def cmd_check(args):
             print("FAIL orx: %s" % err)
         for warn in report["orx"]["warnings"]:
             print("warn orx: %s" % warn)
+    # The product ledger is the repository's, like the orx registry; a repository
+    # with no ledger and no `product:` citation gets nothing new, and `check <slug>`
+    # answers for that line only.
+    if not rest and tp_product.in_use(repo):
+        report["product"] = tp_product.check_ledger(repo, strict=strict)
+        for err in report["product"]["errors"]:
+            problems += 1
+            print("FAIL product: %s" % err)
+        for warn in report["product"]["warnings"]:
+            print("warn product: %s" % warn)
     if as_json:
         # The payload is the whole answer for a machine caller: a sentence after
         # it is not JSON, and one before it is prose the reader never asked for.
         print(json.dumps(report, indent=2))
         return 1 if problems else 0
     if not problems:
-        print("research: %d line(s) ok" % len(report))
+        print("research: %d line(s) ok" % lines)
     if not rest and not all_lines:
         done = [slug for slug in known if tr.sealed(repo, slug)]
         if done:
@@ -576,6 +621,52 @@ def cmd_compare(args):
     return 0
 
 
+def cmd_record(args):
+    """Append one product ledger row from stdin, judged by the checker's own
+    rule; the writer assigns its id and date."""
+    if len(args) != 1 or args[0] not in tp_product.TYPES:
+        return misuse("record %s" % "|".join(tp_product.TYPES))
+    kind = args[0]
+    try:
+        row = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return misuse("record needs one JSON object on stdin")
+    if not isinstance(row, dict):
+        return misuse("record needs one JSON object on stdin")
+    if row.setdefault("type", kind) != kind:
+        print("FAIL product: the row says type %r, the command says %s"
+              % (row["type"], kind))
+        return 1
+    try:
+        rid, problems = tp_product.append_row(repo_root(os.getcwd()), row,
+                                              time.strftime("%Y-%m-%d"))
+    except OSError as exc:
+        rid, problems = None, ["cannot append to the product ledger: %s" % exc]
+    if problems or not rid:
+        for problem in problems or ["the row was not written"]:
+            print("FAIL product: %s" % problem)
+        return 1
+    print("recorded %s" % rid)
+    return 0
+
+
+def cmd_due(args):
+    """The product decisions whose re-measure is due; a report, so exit 0."""
+    if args not in ([], ["--json"]):
+        return misuse("due [--json]")
+    rows = tp_product.due(repo_root(os.getcwd()))
+    if args:
+        print(json.dumps(rows, indent=2))
+        return 0
+    for row in rows:
+        print("%s %s metric=%s threshold=%s since %s (%d days)"
+              % (row["id"], row["topic"], row["metric"], row["threshold"],
+                 row["observe_after"], row["days_overdue"]))
+    if not rows:
+        print("product: nothing due")
+    return 0
+
+
 def cmd_verdict(args):
     """Record one success criterion's verdict, with the evidence it rests on."""
     if len(args) < 3:
@@ -769,6 +860,10 @@ def main(argv):
         return cmd_source(rest)
     if cmd == "compare":
         return cmd_compare(rest)
+    if cmd == "record":
+        return cmd_record(rest)
+    if cmd == "due":
+        return cmd_due(rest)
     if cmd == "verdict":
         return cmd_verdict(rest)
     if cmd == "conclude":
@@ -782,7 +877,8 @@ def main(argv):
     if cmd == "import":
         return cmd_import(rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
-                  "components, migrate, source, compare, close, seal, import)" % cmd)
+                  "components, migrate, source, compare, verdict, conclude, migrate-layout, "
+                  "close, seal, import, record, due)" % cmd)
 
 
 if __name__ == "__main__":

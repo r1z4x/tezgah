@@ -133,6 +133,7 @@ hooks/tezgah_models.py
 hooks/tezgah_orca.py
 hooks/tezgah_paths.py
 hooks/tezgah_policy.py
+hooks/tezgah_product.py
 hooks/tezgah_rank.py
 hooks/tezgah_replay.py
 hooks/tezgah_research.py
@@ -734,6 +735,9 @@ tests/test_packaging_scripts.py
 tests/test_paths.py
 tests/test_paths_worktree.py
 tests/test_platform.py
+tests/test_product.py
+tests/test_product_cli.py
+tests/test_product_note.py
 tests/test_providers.py
 tests/test_rank.py
 tests/test_replay.py
