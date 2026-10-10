@@ -491,31 +491,32 @@ decides which candidate survives is not machinery the candidate can rewrite.
 What the pair cannot catch alone: **a tolerance its own author sets wide
 enough**. A line that writes "capability metric within 5.0 of the baseline" has
 adopted the form of the two-gate rule and none of its force. From rules 6 the band
-is read against a measurement: `evaluation.noise_band` is
+is read against a measurement. `evaluation.noise_band` is
 `{"experiment": "<the experiment dir that reran the unchanged baseline>",
-"spread": <the spread that rerun measured>}`. `check` warns when
-`capability_tolerance` is declared and `noise_band` is not, when
-`noise_band.experiment` names no experiment of the line, and - when the tolerance
-sentence holds a number (a digit inside a name such as `p95` is not one) - when
-that number is wider than `spread`, the tolerance passing what noise alone would
-(`_check_selection`, `hooks/tezgah_research.py::_check_selection`). Whether the
-rerun was a fair one stays the review's call.
+"spread": <the spread that rerun measured>}`. `check` warns in three cases. The
+line declares `capability_tolerance` and no `noise_band`. `noise_band.experiment`
+names no experiment of the line. The tolerance sentence holds a number wider than
+`spread`, so the tolerance passes what noise alone would. A digit inside a name
+such as `p95` is not that number (`_check_selection`,
+`hooks/tezgah_research.py::_check_selection`). Whether the rerun was a fair one
+stays the review's call.
 
 ## Held-out set, repeats and noise band (rules 6)
 
-The measured line `rsi-borrow-screen` found 25 of 27 decisions selecting a variant
-and reporting it on the same cells, 13 of 23 armed experiments running once per
-arm, and 3 lines declaring a tolerance none of them measured. Rules 6 add three
-warnings for it, each a warning and never a refusal, `--strict` included (ADR 019)
-(`_check_selection`, `hooks/tezgah_research.py::_check_selection`):
+The measured line `rsi-borrow-screen` found three gaps. Of 27 decisions, 25 select
+a variant and report it on the same cells. Of 23 armed experiments, 13 run once per
+arm. Three lines declare a tolerance, and none of them measured it. Rules 6 add one
+warning for each (`_check_selection`, `hooks/tezgah_research.py::_check_selection`).
+Each stays a warning under `--strict` too, never a refusal (ADR 019):
 
 - **Held-out set.** A measured line may name its held-out set in
-  `evaluation.held_out` (a non-empty string) and log each consultation of it in
+  `evaluation.held_out` (a non-empty string). It may log each look at that set in
   `held_out_log.jsonl` at the line root, one row
   `{"set", "candidate", "date", "result"}` per look. `check` warns when a
-  `decisions/<id>/` holds comparison cells and no `held_out` is declared
-  (selected and reported on the same cells), and when one candidate consulted one
-  set more than once (the held-out set became development data for it).
+  `decisions/<id>/` holds comparison cells and the line names no `held_out`: the
+  variant was selected and reported on the same cells. It also warns when one
+  candidate looked at one set more than once: the held-out set became development
+  data for it.
 - **Repeats.** An experiment is armed when its `results.jsonl` rows carry `arm` or
   `variant` with two or more values. `check` warns when no row has `repeat`,
   `repeats` or `k` above 1 and its `protocol.md` states no `k:`/`repeats:` above 1.

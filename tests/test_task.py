@@ -258,6 +258,38 @@ class Record(unittest.TestCase):
         os.symlink(outside, link)
         self.assertIsNone(tt.relative(link, self.repo, self.base))
 
+    def linked_worktree(self, main, name):
+        """A linked worktree of `main` the way git writes one: `<wt>/.git` is a
+        `gitdir:` pointer into `<main>/.git/worktrees/<name>`, which holds
+        `commondir`."""
+        admin = os.path.join(main, ".git", "worktrees", name)
+        os.makedirs(admin)
+        top = os.path.join(self.base, name)
+        os.makedirs(os.path.join(top, "hooks"))
+        for path, text in ((os.path.join(admin, "commondir"), "../..\n"),
+                           (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
+                           (os.path.join(admin, "gitdir"), os.path.join(top, ".git") + "\n")):
+            with open(path, "w") as fh:
+                fh.write(text)
+        return top
+
+    def test_relative_reads_a_linked_worktree_of_the_same_repository(self):
+        # the contract gives every writing slice its own worktree; an allowlist
+        # that cannot name a file there refuses the workflow it prescribes
+        os.makedirs(os.path.join(self.repo, ".git"))
+        wt = self.linked_worktree(self.repo, "repo-slice")
+        self.assertEqual(tt.relative(os.path.join(wt, "hooks", "a.py"),
+                                     self.repo, self.base), "hooks/a.py")
+        self.assertIsNone(tt.relative(wt, self.repo, self.base))
+
+    def test_relative_refuses_a_worktree_of_another_repository(self):
+        os.makedirs(os.path.join(self.repo, ".git"))
+        other = os.path.join(self.base, "other")
+        os.makedirs(os.path.join(other, ".git"))
+        wt = self.linked_worktree(other, "other-slice")
+        self.assertIsNone(tt.relative(os.path.join(wt, "hooks", "a.py"),
+                                      self.repo, self.base))
+
     # ------------------------------------------------------------ set_fields
 
     def test_set_fields_inserts_a_key_and_replaces_the_ones_it_is_given(self):

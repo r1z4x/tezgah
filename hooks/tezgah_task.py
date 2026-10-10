@@ -516,15 +516,37 @@ def match(rel, pattern):
 def relative(path, cwd, base):
     """The realpath of `path` (absolute or relative to cwd) as a posix path
     relative to repo_root(cwd, base), or None when it resolves outside that root
-    (so an outside write can never be inside the allowlist)."""
+    (so an outside write can never be inside the allowlist).
+
+    A linked worktree of the same repository is that repository, not outside it:
+    the contract gives every writing slice its own worktree, and an allowlist that
+    could not name `hooks/a.py` there refused the workflow it prescribes (three
+    slices of plan 077 hit it). A path under such a worktree answers relative to
+    the worktree's top. The test is fork-free (`tezgah_paths.worktree_top` reads
+    the `.git` pointer), and only a path already outside the root pays for it; a
+    worktree of another repository is still outside."""
     root = repo_root(cwd, base)
     real = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
     if real == root or not _under(real, root):
-        # the root itself is not a path inside the root: an allowlist is about
-        # files under it, so this is a None like any other, and every caller
-        # fails in the refusing direction
-        return None
+        top = _sibling_worktree(real, root)
+        if top is None or real == top:
+            # the root itself is not a path inside the root: an allowlist is
+            # about files under it, so this is a None like any other, and every
+            # caller fails in the refusing direction
+            return None
+        root = top
     return real[len(root) + 1:].replace(os.sep, "/")
+
+
+def _sibling_worktree(real, root):
+    """The top of the linked worktree holding `real` when it is a checkout of the
+    repository `root` is a checkout of, else None."""
+    from tezgah_paths import linked_main, worktree_top
+    top = worktree_top(real)
+    if top is None:
+        return None
+    main = linked_main(root) or root
+    return top if linked_main(top) == os.path.realpath(main) else None
 
 
 def set_fields(path, **fields):

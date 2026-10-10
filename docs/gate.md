@@ -167,7 +167,8 @@ against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target out
 (`hooks/tezgah_gate.py::TASK_RECORD_DENY`), because only `bin/tezgah-task` writes it and that CLI makes the checks a retyped frontmatter would skip. Told:
 the move that lifts it, made by the session itself — `tezgah-task phase implementation` or `tezgah-task allow <glob> ... --why "<reason>"` — since the orchestrator owns the plan lifecycle and the CLI refuses
 the move until the plan's Acceptance, spike and checkpoint are in order, and records the reason for a widened scope (`allowed_why:`). Standing: only the record changing lifts it.
-Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held. Off: `task-off`
+Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held.
+The gate matches a file in a linked worktree of the same repository relative to that worktree's top (`hooks/tezgah_task.py::relative`). Each writing slice gets its own worktree, so `hooks/a.py` there is in scope when `hooks/a.py` is. A worktree of another repository stays outside. Off: `task-off`
 (`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record.
 
 The fourth refusal under the same rule is the checkpoint. Trigger: a write, or a shell command that writes a file (`hooks/tezgah_gate.py::SHELL_WRITE`), while the task is in
