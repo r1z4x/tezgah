@@ -284,11 +284,10 @@ def _recorded(conn, name, st):
 
 
 def _record(conn, key, size, moved):
-    """`size` bytes of the file `key` in; with `moved`, its rows under another
-    device id go, so the next lookup hits the current one."""
-    if moved:
-        conn.execute("DELETE FROM imported WHERE name = ? AND ino = ? AND dev != ?",
-                     (key[0], key[2], key[1]))
+    """`size` bytes of the file `key` in. A moved row is rewritten under the
+    current device id and its stale rows stay: the doctor's repair finds a
+    double import by those rows, so the store must not erase the evidence
+    before the user runs it (plan 078 review round 1)."""
     conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
                  "VALUES (?, ?, ?, ?)", key + (size,))
 

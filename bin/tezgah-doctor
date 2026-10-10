@@ -348,34 +348,53 @@ def import_evidence():
             for base in dict.fromkeys((CACHE, fallback_cache()))}
 
 
-def evidence_plan(conn, cache):
-    """The second import of every legacy ledger `imported` holds under two
-    device ids (the remount bug `tezgah_store._recorded` closed), in the cache
-    database `conn`: ({session: [row n to delete]}, {(name, ino): (current
-    dev, bytes)} to collapse to, [(name, why)] for manual review).
+def evidence_plan(conn, cache, regions=None):
+    """The second import of every legacy ledger whose `imported` rows hold two
+    or more device ids for one (name, ino) - the remount bug
+    `tezgah_store._recorded` closed - in the cache database `conn`:
+    ({session: [row n to delete]}, {(name, ino): (current dev, max bytes)} to
+    collapse to, [] for symmetry with older callers).
 
-    A row text t that the file holds cf times and the session cd times loses
-    its newest min(cd - cf, cf) copies: the double import added at most cf, and
-    a row written to the database directly is never taken for one. Only the
-    file still at its name with that inode is read; more than two device ids,
-    or no such file, is left to a person."""
+    Detected from content, not from the row count: the store re-keys a moved
+    file under the current device and leaves its stale rows, so the rows stay
+    the signal, but a device can be renumbered again after the fix and the
+    store writes yet another row. The formula is exact for any number of
+    re-imports. Every buggy re-import started at offset 0, so the doubled
+    region is the file's first min(bytes); the rows past it are the post-fix
+    continuation a fixed store appended once. For a line text t, cf is its
+    occurrences in that region and cd its occurrences in the session's rows:
+    the newest min(cd - cf, cf) copies go. One re-import gives cd = 2*cf + D
+    on the region, so exactly the second copy goes; a continuation row matches
+    no region line; a row written to the database directly is taken only when
+    its text equals a region line, where every copy is byte-identical and the
+    choice cannot change what a reader sees.
+
+    Only the file still at its name with that inode is read; another file
+    there is skipped, because counting its lines would delete the wrong rows.
+    `regions` overrides the (name, ino) -> (min, max bytes) read from
+    `imported`: `--apply` re-checks the files it collapsed through the regions
+    it recorded, because their collapse takes them out of the query."""
     import tezgah_store
-    doomed, collapse, review = {}, {}, []
-    for name, ino, devs, size in conn.execute(
-            "SELECT name, ino, count(*), max(bytes) FROM imported GROUP BY name, ino "
-            "HAVING count(*) > 1 ORDER BY name").fetchall():
+    doomed, collapse = {}, {}
+    rows = conn.execute(
+        "SELECT name, ino, min(bytes), max(bytes) FROM imported GROUP BY name, ino "
+        "HAVING count(*) > 1 AND min(bytes) > 0 ORDER BY name").fetchall()
+    for name, ino, min_bytes, max_bytes in rows:
         path = os.path.join(cache, "evidence", name)
         try:
             st = os.stat(path)
+            if st.st_ino != ino:
+                continue
             with open(path, "rb") as fh:
                 raw = fh.read()
         except OSError:
-            st = None
-        if devs > 2 or st is None or st.st_ino != ino:
-            review.append((name, "%d device ids" % devs if devs > 2
-                           else "its legacy file is gone or replaced"))
             continue
-        lines = raw[:raw.rfind(b"\n") + 1].split(b"\n")
+        if regions is not None:
+            min_bytes, max_bytes = regions.get((name, ino), (max_bytes, max_bytes))
+            if not min_bytes:
+                continue
+        region = raw[:min_bytes]
+        lines = region[:region.rfind(b"\n") + 1].split(b"\n")
         in_file = collections.Counter(map(tezgah_store._line_text, lines))
         copies = collections.defaultdict(list)
         session = tezgah_store._ledger(path)[1]
@@ -384,17 +403,15 @@ def evidence_plan(conn, cache):
             copies[text].append(n)
         doomed[session] = [n for text, ns in copies.items()
                            for n in ns[:max(0, min(len(ns) - in_file[text], in_file[text]))]]
-        collapse[(name, ino)] = (st.st_dev, size)
-    return doomed, collapse, review
+        collapse[(name, ino)] = (st.st_dev, max_bytes)
+    return doomed, collapse, []
 
 
 def print_plan(plan):
-    doomed, _collapse, review = plan
+    doomed, _collapse, _review = plan
     for session, ns in doomed.items():
         if ns:
             print("  %s  %d row(s)" % (session, len(ns)))
-    for name, why in review:
-        print("  manual review: %s (%s), not touched" % (name, why))
     total = sum(map(len, doomed.values()))
     print("  total %d row(s) in %d session(s)" % (total, sum(1 for ns in doomed.values() if ns)))
     return total
@@ -429,6 +446,12 @@ def repair_evidence(apply):
             print("  backup %s" % backup)
             with tezgah_store.transaction(conn):
                 doomed, collapse, _review = plan = evidence_plan(conn, cache)
+                regions = {}
+                for key in collapse:
+                    found = conn.execute("SELECT min(bytes), max(bytes) FROM imported "
+                                         "WHERE name = ? AND ino = ?", key).fetchone()
+                    if found and found[0]:
+                        regions[key] = (found[0], found[1])
                 print_plan(plan)
                 conn.executemany("DELETE FROM evidence WHERE n = ?",
                                  [(n,) for ns in doomed.values() for n in ns])
@@ -436,7 +459,10 @@ def repair_evidence(apply):
                     conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
                     conn.execute("INSERT INTO imported (name, dev, ino, bytes) "
                                  "VALUES (?, ?, ?, ?)", (name, dev, ino, size))
-            left = sum(map(len, evidence_plan(conn, cache)[0].values()))
+            # the collapse takes the files out of the query, so the re-check
+            # reads their recorded regions: a plan that would still delete a row
+            # there means the deletion was wrong, and the exit code says so
+            left = sum(map(len, evidence_plan(conn, cache, regions)[0].values()))
             print("  re-check: %d row(s)" % left)
             code = code or int(left != 0)
         except (OSError, sqlite3.Error) as exc:

@@ -19,6 +19,7 @@ called anywhere.
 from __future__ import annotations
 
 import argparse
+import ast
 import functools
 import json
 import random
@@ -127,19 +128,30 @@ def tests_dir(inst: dict) -> dict[str, str]:
 
 
 def grade(container: str, inst: dict, log: Path | None = None) -> dict:
-    """The official verifier over the tree in `container`; exit 0 is resolved."""
+    """The official verifier over the tree in `container`; exit 0 is resolved.
+    `failed` is True only when the verifier itself reached its verdict
+    (`RESULT: FAILED`), and `missing` is the required tests it reports absent, so
+    a crashed parser or a failed write is never read as a failing tree."""
     for name, body in tests_dir(inst).items():
-        swe.sh(["docker", "exec", "-i", container, "sh", "-c",
-                f"mkdir -p /tests && cat > /tests/{name}"], input=body)
+        wrote = swe.sh(["docker", "exec", "-i", container, "sh", "-c",
+                        f"mkdir -p /tests && cat > /tests/{name}"], input=body)
+        if wrote.returncode:
+            raise RuntimeError(f"write /tests/{name}: {wrote.stderr.strip()[-300:]}")
     started = time.time()
     try:
         proc = swe.sh(["docker", "exec", container, "bash", "/tests/test.sh"], timeout=VERIFY_TIMEOUT)
         rc, out = proc.returncode, proc.stdout + "\n--- stderr ---\n" + proc.stderr
     except subprocess.TimeoutExpired as exc:
-        rc, out = None, str(exc.stdout or "") + "\n--- verifier timeout ---"
+        partial = exc.stdout or b""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", "replace")
+        rc, out = None, partial + "\n--- verifier timeout ---"
     if log:
         log.write_text(out, encoding="utf-8")
-    return {"rc": rc, "pass": rc == 0, "eval_s": round(time.time() - started, 1)}
+    missing = re.search(r"^Missing tests: (\[.*\])\s*$", out, re.M)
+    return {"rc": rc, "pass": rc == 0, "eval_s": round(time.time() - started, 1),
+            "failed": rc == 1 and "RESULT: FAILED" in out,
+            "missing": ast.literal_eval(missing.group(1)) if missing else []}
 
 
 def start(image: str, name: str) -> None:
@@ -189,25 +201,37 @@ def cmd_validate(args) -> int:
                 print(f"{iid}: pull failed: {proc.stderr.strip()[-300:]}")
                 continue
         res = {}
-        for case in ("base", "gold"):
-            name = f"swepro-{case}-{iid[-12:]}"
-            start(image, name)
-            try:
-                if case == "gold" and not apply_gold(name, inst):
-                    res[case] = {"rc": None, "pass": False, "eval_s": 0}
-                    continue
-                res[case] = grade(name, inst, logs / f"{iid}-{case}.log")
-            finally:
-                swe.remove_container(name)
-        ok = res["gold"]["pass"] and res["base"]["rc"] not in (0, None)
-        valid += ok
-        note = ""
-        if pulled and not args.keep_images:
-            size = swe.sh(["docker", "image", "inspect", "--format", "{{.Size}}", image]).stdout.strip()
-            swe.sh(["docker", "image", "rm", "-f", image])
-            note = f"  (pulled {int(size or 0) / 1e9:.2f} GB, removed)"
-        print(f"{iid}: base {show(res['base'])}, gold {show(res['gold'])}: "
-              f"{'valid' if ok else 'INVALID'}{note}", flush=True)
+        try:
+            for case in ("base", "gold"):
+                name = f"swepro-{case}-{iid[-12:]}"
+                try:
+                    start(image, name)
+                    if case == "gold" and not apply_gold(name, inst):
+                        res[case] = {"rc": None, "pass": False, "eval_s": 0,
+                                     "failed": False, "missing": []}
+                        continue
+                    res[case] = grade(name, inst, logs / f"{iid}-{case}.log")
+                finally:
+                    swe.remove_container(name)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            print(f"{iid}: error: {exc}")
+            res = {}
+        finally:
+            note = ""
+            if pulled and not args.keep_images:
+                size = swe.sh(["docker", "image", "inspect", "--format", "{{.Size}}",
+                               image]).stdout.strip()
+                swe.sh(["docker", "image", "rm", "-f", image])
+                note = f"  (pulled {int(size or 0) / 1e9:.2f} GB, removed)"
+        if len(res) < 2:
+            print(f"{iid}: INVALID (not graded){note}", flush=True)
+            continue
+        # the base has to fail the verifier's own verdict on fail_to_pass tests
+        # only: a crash, a timeout or a pass_to_pass miss is not a valid base
+        base = res["base"]
+        ok = (res["gold"]["pass"] and base["failed"] and base["missing"]
+              and set(base["missing"]) <= set(inst["fail_to_pass"]))
+        valid += bool(ok)
     print(f"validated: {valid}/{len(sample)}")
     return 0 if valid == len(sample) else 1
 

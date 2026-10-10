@@ -1966,6 +1966,12 @@ class TaskGate(TempHome):
             self.assertIsNotNone(reason, outside)
             self.assertIn(os.path.basename(outside), reason)
 
+    def test_a_home_tilde_path_is_not_a_repo_path(self):
+        # `~/outside.py` read relative to the working directory was the repo
+        # path `~/outside.py`, which `**` matched, while the host wrote to HOME
+        self.plan(phase="implementation", allowed=("**",))
+        self.assertIsNotNone(self.write_path("~/outside.py"))
+
     def sibling(self, name="proj-slice", back=True):
         """A linked worktree of self.repo, written the way git writes one; with
         `back` False the admin directory does not point back at it (a planted
