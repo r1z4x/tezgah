@@ -38,28 +38,26 @@ Rules, all only inside a tezgah root:
   8. a write while an active task is set - a plan file under .tezgah/plans/open whose
      frontmatter carries a valid `phase` - is refused when that phase is one
      that only reads, or when the file is outside the task's `allowed_paths`
-     refused (`task`). The record is the user's own, written by bin/tezgah-task and
-     never by the agent, so the refusal leans on a decision the user made rather
-     than one this gate inferred: no active task means no requirement, and the
-     rule invents nothing. The record also carries where the phase returns to - a
+     refused (`task`). The record is written by bin/tezgah-task, which the
+     orchestrating session runs itself as the work moves, so the refusal leans
+     on a state the CLI vetted (an Acceptance item per command, an answered
+     spike, a checkpoint) rather than one this gate inferred: no active task
+     means no requirement, and the rule invents nothing. The record also
+     carries where the phase returns to - a
      `checkpoint:` sha, or `pending` while the tree still holds work no commit
      names - and a write in `implementation` is refused while it reads `pending`
      and the tree is dirty, so the phase's work starts from a named state rather
      than on top of uncommitted changes; the per-file snapshots are not one
-     state to return to. Two further refusals close the ways a session could
-     move the boundary instead of respecting it: a write whose target IS that
-     record, and a shell command that would change it through the CLI. Both were
-     measured open before they were closed - with the refusal naming the command
-     that lifts it, an armed arm removed or disabled the gate in 25 of 25 runs
-     and obeyed it in none (an internal benchmark, block E7) - and neither
-     refusal names a command now. The phase covers the shell too, because the
+     state to return to. A write whose target IS that record is refused too:
+     retyping the frontmatter would skip the preconditions the CLI checks. The
+     phase covers the shell too, because the
      write tools are not the only way to change a file: with them refused, the
      armed arm wrote the target with a heredoc redirect in 3 of 25 runs, so a
      reading phase refuses a shell command that writes. A code-execution tool is
      a third route the phase does not cover: the same block measured one row in
      25 writing the target through `eval` after the write tools and the shell
      were both refused, and that one is named rather than closed. The `task-off`
-     kill switch removes all four.
+     kill switch removes all three.
   9. a `git commit` (or `--amend`) is refused while the newest check recorded in
      this session failed (`order`): a commit is a claim that the tree passed, and
      the state it would freeze is the one a check just rejected. The state is the
@@ -980,52 +978,46 @@ def race_reason(inp, session_id, cwd=None):
     return None
 
 
-# --- task scope: the user's own phase and path allowlist --------------------
-# What this closes: a session that has been told what it is working on - the
-# user activated a plan file under .tezgah/plans/open, so the work has a phase and the
-# files it may touch - and then writes anyway. Two shapes cost the user real
-# work: a write in `discovery`, where the whole point of the phase is to read
-# before deciding, and a write outside the plan's own allowlist, which is how a
-# bounded task quietly becomes an unbounded one. Both are the user's own
-# decisions, which is why this rule may refuse at all: the record is written by
-# bin/tezgah-task, by hand, and never by the agent - a rule the agent could
-# satisfy by editing its own record would be a nudge wearing a gate's clothes.
+# --- task scope: the plan's own phase and path allowlist --------------------
+# What this closes: a session that has declared what it is working on - a plan
+# file under .tezgah/plans/open is active, so the work has a phase and the
+# files it may touch - and then writes anyway. Two shapes cost real work: a
+# write in `discovery`, where the whole point of the phase is to read before
+# deciding, and a write outside the plan's own allowlist, which is how a
+# bounded task quietly becomes an unbounded one. The record is written by
+# bin/tezgah-task, which the orchestrating session runs itself: the plan's
+# lifecycle is the orchestrator's job, never a hand-off to the user. What keeps
+# the boundary is the CLI, not who runs it - a writing phase needs every
+# Acceptance item to name its proving command, `implementation` an answered
+# spike and a checkpoint, `close done` an approving review - so the record's own
+# file is refused to a write (TASK_RECORD_DENY): retyping the frontmatter is the
+# one route that skips those checks.
 #
 # The direction is fail-open wherever the record is missing, unreadable or out
-# of phase vocabulary (tezgah_task.active returns None for those), because a
-# refusal has to rest on an ask the user actually made: a rule that refused
-# every write until a record appeared would be the fail-closed trap the design
-# report names, with the whole session as its blast radius. Nothing is named
-# that the user did not name either: an empty allowlist is no scope asked for
-# rather than "nothing is allowed", so the phase is the whole requirement there.
+# of phase vocabulary (tezgah_task.active returns None for those): a rule that
+# refused every write until a record appeared would be the fail-closed trap the
+# design report names, with the whole session as its blast radius. An empty
+# allowlist is no scope declared rather than "nothing is allowed", so the phase
+# is the whole requirement there.
+#
+# The refusals name the CLI move, because running it is the work the rule asks
+# for and the CLI vets it. E7 measured a refusal that named a way to take the
+# rule off (the armed arm disabled the gate in 25 of 25 runs); the switches that
+# do that stay behind the control-plane rule below.
 TASK_PHASE_DENY = (
     "Task gate: the active task %s is in phase `%s`, and this call writes. "
-    "Writes belong to %s. The phase is the user's to move: ask them, or do the "
-    "reading this phase asks for and say what the write was for.")
+    "Writes belong to %s. Finish the reading this phase is for, then move the "
+    "phase yourself with `tezgah-task phase implementation` - it refuses until "
+    "the plan's Acceptance, spike and checkpoint are in order.")
 TASK_SCOPE_DENY = (
-    "Task gate: %s is outside the paths the active task %s allows (%s). The "
-    "allowlist is the user's to widen: ask them, or leave the file alone and say "
-    "why it looked in scope.")
-# The two refusals above deliberately name no command. They used to end with the
-# one that lifts them, and the E7 block measured what that costs: with the unlock
-# printed in the refusal, the armed arm removed or disabled the gate in 25 of 25
-# runs and obeyed it in none (an internal benchmark, block E7). A refusal
-# is a boundary or it is an instruction; it cannot be both.
+    "Task gate: %s is outside the paths the active task %s allows (%s). If the "
+    "plan's work genuinely reaches it, widen the scope yourself with `tezgah-task "
+    "allow <glob> ...` (listing the current globs too) and say why; otherwise "
+    "leave the file alone.")
 TASK_RECORD_DENY = (
     "Task gate: %s is the active task's own record. The phase and the allowlist "
-    "live in that file, so a session that edits it is editing the boundary it is "
-    "being held to. Ask the user to change the task; the record is theirs.")
-TASK_UNLOCK_DENY = (
-    "Task gate: this command changes the active task's own record. The phase and "
-    "the allowlist are the user's, and a session that can move them is held to "
-    "nothing. Ask the user to change the task instead.")
-# A shell command that changes the record. Matched on the masked text, so a
-# command that merely names the CLI - a grep over the docs, a commit message -
-# is not refused. The token is the CLI's own basename, with or without `.py`
-# and run through any interpreter, so any path to it counts.
-TASK_CHANGE = re.compile(
-    r"(?:^|[|;&(]\s*|\s)(?:python3?\s+)?\S*tezgah-task(?:\.py)?\s+"
-    r"(?:start|phase|allow|stop)\b")
+    "live in that file and only `tezgah-task` writes them, because it checks the "
+    "plan's Acceptance, spike and review on the way; change the task through it.")
 # The shapes that make a shell command a write, for the phase rule below. The
 # tools are not the only way to change a file, and E7b measured the other one:
 # with `edit` and `write` refused twelve and six times, the armed arm wrote the
@@ -1053,8 +1045,8 @@ SHELL_WRITE = re.compile(
 TASK_SHELL_DENY = (
     "Task gate: the active task %s is in phase `%s`, and this command writes a "
     "file. The shell is a write route like any other, so the phase covers it. "
-    "The phase is the user's to move: ask them, or do the reading this phase "
-    "asks for and say what the write was for.")
+    "Finish the reading this phase is for, then move the phase yourself with "
+    "`tezgah-task phase implementation`.")
 
 
 # The marker a caller passes when it has NOT read the record, so a rule reads it
@@ -1100,11 +1092,10 @@ def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
 def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
     """A deny reason when this write's target IS the active task's record.
 
-    The other route to the same hole as TASK_UNLOCK_DENY, and the one a write
-    tool takes: the record is a file in the repo, so an agent that may write
-    files can retype the phase instead of running the CLI. Refused whatever the
-    phase and whatever the allowlist says - the record is not inside its own
-    scope, because a scope that can widen itself is not one."""
+    The record is a file in the repo, so an agent that may write files could
+    retype the phase instead of running the CLI, and skip the Acceptance, spike
+    and review checks the CLI makes on the way. Refused whatever the phase and
+    whatever the allowlist says - the record is not inside its own scope."""
     task = _task(cwd, base, task)
     if not task:
         return None
@@ -1182,11 +1173,9 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
 # be read, and `task-off` above. A refusal has to rest on something a reader can
 # check, and a rule that cannot answer must not refuse.
 #
-# The refusal names the one command that makes the boundary real. That is not the
-# mistake TASK_PHASE_DENY records: the E7 lesson is a refusal that names how to
-# take the constraint off (the phase is the user's to move), while the checkpoint
-# command *satisfies* the requirement - running it is the work the rule asks for,
-# so naming it is naming what the rule wants rather than a way around it.
+# The refusal names the one command that makes the boundary real: running it is
+# the work the rule asks for, so naming it is naming what the rule wants rather
+# than a way around it.
 CHECKPOINT_DENY = (
     "Checkpoint gate: the active task %s is in phase `implementation` and its "
     "plan records a pending checkpoint (`checkpoint: pending <sha>`), so this "
@@ -1823,8 +1812,8 @@ def _refusing(label):
 # `tezgah-gate decide` writes a genuine `began` row with `check=1`; the capture
 # CLI writes snapshot rows; pony and adhd write CONFIG_DIR; `tezgah-context
 # attest` re-attests a session, and a clean result clears its drift mark. The
-# task CLI is not here: it is the task rule's (TASK_CHANGE), which `task-off`
-# removes, and that switch is one of the files this rule protects.
+# task CLI is not here: the orchestrating session runs it, and the checks that
+# matter live in the CLI itself (see the task rule above).
 # `tezgah-context user_prompt` is a prompt event, and a prompt naming a switch
 # writes the `authorized` row the switch latch honors (tezgah_paths.off).
 CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
@@ -2651,11 +2640,9 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         reason = race_reason(inp, session_id, cwd)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
-    # Task scope: the user's own record for this work - its phase and the files
-    # its allowlist names (see task_reason). The
-    # record itself is refused first of all, and a shell that would change it
-    # through the CLI is refused with it: a boundary the agent can move is not a
-    # boundary, and both routes to moving this one were measured open (E7).
+    # Task scope: the active plan's phase and the files its allowlist names (see
+    # task_reason). The record itself is refused first of all: only
+    # bin/tezgah-task writes it, through the checks it makes on the way.
     if not off("task-off"):
         # The record is read once and handed to every rule below: each read lists
         # `.tezgah/plans/open/` and parses a plan, and this path is every write of
@@ -2667,9 +2654,6 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
             reason = task_record_reason(inp, cwd, base, task)
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
-        if t in BASH_TOOLS and TASK_CHANGE.search(
-                mask(str(inp.get("command") or ""))):
-            return _deny(session_id, "task", TASK_UNLOCK_DENY, tool, inp, base)
         if t in BASH_TOOLS:
             reason = task_shell_reason(inp, cwd, base, task)
             if reason:

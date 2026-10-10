@@ -83,41 +83,43 @@ Claude) sets it and a bare call shows it.
 
 ## Task record: the active plan's phase and its path allowlist (auto-armed, tezgah roots only)
 
-The user can make one open plan the session's active task, and two optional
+The orchestrating session makes one open plan its active task, and two optional
 frontmatter keys are the whole record: `phase:` (`discovery`, `implementation`
 or `verification` - at most one open plan carries it) activates the plan, and
 `allowed_paths:` is the `- glob` list its writes have to stay inside. Rule 10 of
-the tool gate reads it and refuses four things before they land: a write while
+the tool gate reads it and refuses three things before they land: a write while
 the phase is `discovery` (writes belong to `implementation` or `verification`)
 or one outside the globs; a shell command that writes a file while the phase only
 reads - the shell is a write route like any other, and E7b measured it as the one
 an agent takes once the write tools are refused - matched over redirects, `tee`,
 the in-place editors, `cp`/`mv`, `patch` and `git apply|restore|checkout --`, so
 a `> /dev/null` and a quoted `>` are not writes and the allowlist is not
-consulted (a shell line's targets are not read); a write whose target is the
-record itself, refused whatever the phase and the globs say; and a shell command
-that would move the record through the CLI. None of the four names the command
-that lifts it: the phase and the allowlist are the user's to change, so the way
-out of a refusal is to ask them, or to do the reading this phase asks for and
-say what the write was for. An absent or empty allowlist is no scope asked for rather than "nothing
-allowed", and no active task means no requirement at all - but the CLI will not
-enter `implementation` or `verification` with none: plan-add writes the plan's own
+consulted (a shell line's targets are not read); and a write whose target is the
+record itself, refused whatever the phase and the globs say. The lifecycle is the
+session's, never a command handed to the user: it runs
+`~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status|review|close`
+itself, and the refusals name the move (`tezgah-task phase implementation`,
+`tezgah-task allow`). That move is vetted by the CLI, not by who runs it: a
+writing phase needs every Acceptance item to name its command, `implementation`
+an answered spike and a clean tree to record `checkpoint:`, `close NNN done` an
+approving review - which is why the record's own file is refused to a write. An
+absent or empty allowlist is no scope declared rather than "nothing allowed",
+and no active task means no requirement at all - but the CLI will not enter
+`implementation` or `verification` with none: plan-add writes the plan's own
 `allowed_paths:`, `start` without `--allow` keeps them, and only an explicit
-`--any-path` grants every path, so hand the user the command with the plan's scope
-intact. The record is the
-user's own - `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status`
-writes it and the agent never runs it, which is why the rule refuses a session's
-own write to the record and a session's own call to the CLI that would change
-it, not just the write the phase or the globs block. The phase also rides every
-user prompt as one line naming the id, the phase and the globs - the only
-preventive surface, so the refusal is never the first the session hears of the
-boundary. Off: `task-off`, which removes all four refusals. `tezgah-task review`
-and `close` are the session's: the verification phase asks for the plan's
-acceptance commands run unpiped and a fresh reviewer (the host's `tezgah-reviewer`
-subagent) reading `git diff <base>..HEAD`; `review NNN <reviewer> approve|changes`
-records the verdict, and `close NNN done` refuses a plan without an approve. A
-change with an executable oracle is reviewed by the population under **Review
-population** below, not by one reviewer.
+`--any-path` grants every path, so keep the plan's scope intact; widen it with
+`allow` only when the plan's work genuinely reaches a file, and say why. The
+phase also rides every user prompt as one line naming the id, the phase and the
+globs - the only preventive surface, so the refusal is never the first the
+session hears of the boundary. Off: `task-off`, which removes all three
+refusals. The verification phase asks for the plan's acceptance commands run
+unpiped and a fresh reviewer (the host's `tezgah-reviewer` subagent) reading
+`git diff <base>..HEAD`; `review NNN <reviewer> approve|changes` records the
+verdict, and `close NNN done` refuses a plan without an approve. `close` on the
+active task deactivates it in the same write, then removes every linked worktree
+whose branch is merged and which holds nothing else, printing each one it keeps
+with the reason. A change with an executable oracle is reviewed by the
+population under **Review population** below, not by one reviewer.
 
 ## Code discovery: prefer the indexed graph over blind search
 
@@ -523,7 +525,8 @@ rewrite it plainly.
 **Merge authority: standing, not per-PR.** The user is not the approval step
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
-merge, move the plan to `.tezgah/plans/done/`, and report the outcome. Bring it back
+merge and close the plan yourself (`tezgah-task close NNN done`, which also
+deactivates it and removes every merged worktree), then report the outcome. Bring it back
 to the user only on a critical or major finding left after round two, or a
 failing test. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
@@ -533,6 +536,16 @@ A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
 `tezgah-task review` refuses a third round.
+
+**The process is yours: never hand a step back.** The orchestrator runs the
+plan lifecycle itself - `tezgah-task start`, every `phase` move, `review`,
+`close`, the merge, and removing a slice's worktree once its branch is merged -
+and never ends a reply with "run this command" or "shall I close it?" for a
+step it can take. A process parameter the user did not set (a spend ceiling, a
+sample size, a retry budget, a member to consult) is picked by you: choose the
+conservative default, state it in one line, proceed. The user is asked only for
+what no tool can supply - a credential, a login, an access grant - or for a
+requested item you would drop (see "Deliver the whole ask").
 
 **Review population: a change with an executable oracle.** The fresh review
 above stays the rule for every change except one whose correctness can
@@ -619,11 +632,12 @@ unchecked assumptions, what would change its mind, requested evidence - not a
 paraphrase, because the paraphrase is where the minority view gets dropped.
 
 Exit 4 means no choice is recorded and exit 5 means every recorded member
-failed: nothing answered, and the output lists `offer:`/`reoffer:` members. Ask
-the user which to use with exactly those options (prefer a model family other
-than your own), record the answer with
-`~/.config/tezgah/bin/consult --use <member>[,<member>]`, then ask the question
-again. Never pick a member for the user. The choice lives in
+failed: nothing answered, and the output lists `offer:`/`reoffer:` members. Do
+not ask the user: record the first listed member from a model family other than
+your own with
+`~/.config/tezgah/bin/consult --use <member>[,<member>]`, ask the question
+again and say which member you chose; after two rounds with nothing answering,
+report the second opinion as skipped. The choice lives in
 `~/.config/tezgah/config.json` under `consult`; an agent CLI member runs in an
 empty temp dir, so the packet is all it sees.
 

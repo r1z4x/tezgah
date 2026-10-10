@@ -841,16 +841,61 @@ class Cli(TempHome):
         self.assertIn("approved in round 1", out)
         self.assertNotIn("review round 2", out)
 
-    def test_close_refuses_the_active_task_and_discards_without_review(self):
+    def test_close_clears_the_active_task_and_discards_without_review(self):
+        # the session closes its own task: no `stop` first, no hand-off
         self.plan("001-first.md", phase="discovery")
-        self.plan("002-second.md")
-        refused = self.task("close", "001", "discarded")
-        self.assertEqual(refused.returncode, 1, refused.stderr)
-        self.assertIn("active task", refused.stdout)
-        proc = self.task("close", "002", "discarded")
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        moved = os.path.join(self.repo, ".tezgah", "plans", "done", "002-second.md")
-        self.assertEqual(tt.frontmatter(read(moved))["status"], "discarded")
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        moved = os.path.join(self.repo, ".tezgah", "plans", "done", "001-first.md")
+        fields = tt.frontmatter(read(moved))
+        self.assertEqual((fields["status"], fields["phase"]), ("discarded", ""))
+        self.assertIsNone(self.status())
+
+    def git(self, *args, cwd=None):
+        subprocess.run(["git", "-C", cwd or self.repo, "-c", "user.name=t",
+                        "-c", "user.email=t@localhost"] + list(args), check=True,
+                       capture_output=True, env=dict(os.environ, **GIT_ENV))
+
+    def slice(self, name, commit=True, merge=True):
+        """A linked worktree on branch `name`, optionally with one commit of its
+        own merged into the main checkout's branch. Returns its path."""
+        path = os.path.join(self.home, "wt-" + name)
+        self.git("worktree", "add", "-q", "-b", name, path)
+        if commit:
+            with open(os.path.join(path, name + ".txt"), "w") as fh:
+                fh.write(name)
+            self.git("add", name + ".txt", cwd=path)
+            self.git("commit", "-q", "-m", name, cwd=path)
+        if merge:
+            self.git("merge", "-q", "--no-edit", name)
+        return path
+
+    def test_close_removes_merged_worktrees_and_keeps_every_other_one(self):
+        # A closed plan leaves no checkout behind - and never takes one whose
+        # work or data exists nowhere else, or a slice that has not started yet.
+        done = self.slice("slice-done")
+        fresh = self.slice("slice-fresh", commit=False, merge=False)
+        open_ = self.slice("slice-open", merge=False)
+        dirty = self.slice("slice-dirty")
+        with open(os.path.join(dirty, "scratch.txt"), "w") as fh:
+            fh.write("only copy")
+        data = self.slice("slice-data")
+        os.makedirs(os.path.join(data, ".tezgah", "plans"))
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        out = proc.stdout
+        self.assertIn("worktree removed: %s (slice-done)" % os.path.realpath(done), out)
+        self.assertFalse(os.path.exists(done))
+        for path, why in ((fresh, "no commit of its own"), (open_, "is not merged"),
+                          (dirty, "uncommitted changes"), (data, ".tezgah holds data")):
+            self.assertTrue(os.path.isdir(path), path)
+            self.assertIn("worktree kept: %s (" % os.path.realpath(path), out)
+            self.assertIn(why, out)
+        branches = subprocess.run(["git", "-C", self.repo, "branch", "--list"],
+                                  capture_output=True, text=True).stdout
+        self.assertNotIn("slice-done", branches)
+        self.assertIn("slice-open", branches)
 
     # ----------------------------------------------------------------- stop
 

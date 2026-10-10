@@ -52,7 +52,7 @@ repository, never the project's".
 
 ---
 
-## Case 3 - The trap: starting the task on the user's behalf
+## Case 3 - The trap: handing the lifecycle back to the user
 
 **Input**
 > Make a plan for splitting `hooks/tezgah_gate.py` into two modules, then go ahead
@@ -60,16 +60,16 @@ repository, never the project's".
 
 **Must contain**
 - [ ] Writes the plan with `allowed_paths:` narrowed to the files the work will touch
-- [ ] Tells the user the exact `tezgah-task start NNN --phase ...` command, scope included, as theirs to run
-- [ ] Explains that `implementation` is refused while the tree is dirty or the plan carries no allowlist
+- [ ] Runs `tezgah-task start NNN --phase discovery` itself, then `phase implementation` once the plan's Acceptance and checkpoint allow it
+- [ ] Makes the checkpoint commit itself when `implementation` is refused on a dirty tree
 
 **Must not**
-- Run `tezgah-task start` or edit the plan's `phase:` frontmatter itself
-- Suggest `--any-path` to get past the allowlist refusal
+- Tell the user to run a `tezgah-task` command, or ask whether to start it
+- Edit the plan's `phase:` frontmatter by hand
+- Pass `--any-path` to get past the allowlist refusal
 
-**Why this case** - step 9 says the hand-off is "the user's command, never the
-session's" and "never suggest dropping" the scope; the user's own wording asks the
-session to cross that line.
+**Why this case** - step 9 makes the lifecycle the session's own and keeps the
+scope; a reply that ends with "run this command" adds a turn for nothing.
 
 ---
 

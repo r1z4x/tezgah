@@ -42,10 +42,10 @@
     "semicolons": 11
   },
   "docs/gate.md": {
-    "long_sentences": 67,
-    "passive": 32,
+    "long_sentences": 66,
+    "passive": 31,
     "replace_words": 1,
-    "semicolons": 45
+    "semicolons": 44
   },
   "docs/glossary.md": {
     "long_sentences": 51,

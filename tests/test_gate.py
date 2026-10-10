@@ -1826,19 +1826,19 @@ class TaskGate(TempHome):
         self.assertIn("implementation", reason)
         self.assertIn("verification", reason)
 
-    def test_neither_refusal_names_a_command_to_run(self):
-        # What E7 measured, and the reason this test exists: the refusals used to
-        # end with the command that lifts them, and the armed arm then removed or
-        # disabled the gate in 25 of 25 runs and obeyed it in none. A refusal is a
-        # boundary or it is an instruction; it cannot be both.
+    def test_both_refusals_name_the_move_the_session_makes_itself(self):
+        # The lifecycle is the session's own, so a refusal names the CLI move
+        # that lifts it - vetted by the CLI - and never sends the session to the
+        # user. E7's lesson stands for the kill switches, which no refusal names.
         self.plan(phase="discovery")
         phase_reason = self.write_path("hooks/x.py")
         self.plan(phase="implementation", allowed=("hooks/**",))
         scope_reason = self.write_path("src/y.py")
-        self.assertIsNotNone(scope_reason)
+        self.assertIn("tezgah-task phase implementation", phase_reason)
+        self.assertIn("tezgah-task allow", scope_reason)
         for reason in (phase_reason, scope_reason):
-            for command in ("tezgah-task", "bin/tezgah"):
-                self.assertNotIn(command, reason, reason)
+            self.assertNotIn("the user", reason, reason)
+            self.assertNotIn("task-off", reason, reason)
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):
@@ -1852,7 +1852,7 @@ class TaskGate(TempHome):
         # The route E7b measured: with the write tools refused (twelve `edit` and
         # six `write` calls), the armed arm wrote the target with a heredoc
         # redirect instead in 3 of 25 runs. The phase is the requirement, so it
-        # covers the shell as well - and names no command, like the other two.
+        # covers the shell as well - and names the phase move, like the other two.
         self.plan(phase="discovery")
         for command in ("cat > app/api.py <<'EOF'\nx\nEOF",
                         "cat >> app/api.py <<'PYEOF'\nx\nPYEOF",
@@ -1866,7 +1866,7 @@ class TaskGate(TempHome):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIsNotNone(reason, command)
             self.assertIn("discovery", reason, command)
-            self.assertNotIn("tezgah-task", reason, command)
+            self.assertIn("tezgah-task phase implementation", reason, command)
 
     def test_a_reading_phase_leaves_reading_alone(self):
         # the table reads redirects, not commands: a check, a search and a test
@@ -1996,45 +1996,24 @@ class TaskGate(TempHome):
             self.assertIsNotNone(reason, target)
             self.assertIn("record", reason)
 
-    def test_the_task_cli_is_not_the_sessions_to_run(self):
-        # The command route, and the one E7 watched the armed arm take 24 times.
-        self.plan(phase="discovery")
+    def test_the_session_runs_the_task_cli_itself(self):
+        # The lifecycle is the orchestrator's: no `tezgah-task` move is handed to
+        # the user, so none is refused - the CLI vets each move itself. The
+        # record's own file stays refused (above), and a reading phase still
+        # names the move rather than leaving the session to ask for it.
+        path = self.plan(phase="discovery", allowed=("app/**",))
         for command in ("bin/tezgah-task phase implementation",
-                        "python3 /opt/tezgah/bin/tezgah-task phase verification",
-                        "tezgah-task allow '**'",
-                        "cd /x && bin/tezgah-task stop",
+                        "tezgah-task allow 'app/**' 'lib/**'",
                         "bin/tezgah-task start 001 --phase implementation",
-                        # the script's own file name, through an interpreter or
-                        # not: the CLI is matched by basename, `.py` or none
-                        "python3 bin/tezgah-task.py phase 1 build",
-                        "tezgah-task.py allow 'src/**'"):
-            reason = self.decide({"command": command}, tool="Bash")
-            self.assertIsNotNone(reason, command)
-            self.assertIn("record", reason)
-        # gate-01: a prefix bash reads as plain words does not hide the CLI
-        for wrap in bash_vectors.GATE01_WRAPS:
-            command = wrap % "tezgah-task phase implementation"
-            reason = self.decide({"command": command}, tool="Bash")
-            self.assertIn("record", reason or "", command)
-
-    def test_recording_a_review_and_closing_a_plan_are_the_sessions(self):
-        # neither moves the phase or the allowlist: `review` writes the verdict
-        # the verification phase asks for, and `close` refuses the active task
-        self.plan(phase="verification", allowed=("app/**",))
-        for command in ("bin/tezgah-task review 001 tezgah-reviewer approve",
-                        "tezgah-task close 002 done"):
+                        "cd /x && bin/tezgah-task stop",
+                        "bin/tezgah-task review 001 tezgah-reviewer approve",
+                        "tezgah-task close 001 done"):
             self.assertIsNone(self.decide({"command": command}, tool="Bash"),
                               command)
-
-    def test_naming_the_cli_in_prose_is_not_running_it(self):
-        # the masked text again: a search, a read or a commit message that names
-        # the CLI is not the CLI changing the record
-        for command in ('grep -rn "tezgah-task phase" docs/',
-                        'git commit -m "the phase is tezgah-task phase impl"',
-                        "cat bin/tezgah-task",
-                        "bin/tezgah-task --help"):
-            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
-                              command)
+        reason = self.write_path("app/x.py")
+        self.assertIn("tezgah-task phase implementation", reason)
+        self.assertNotIn("the user", reason)
+        self.assertIn("record", self.write_path(path))
 
     # ---- the checkpoint the implementation phase starts from --------------
     def test_the_commit_a_pending_checkpoint_names_clears_the_refusal(self):
@@ -2046,8 +2025,8 @@ class TaskGate(TempHome):
         # The recorded sha is what the refusal is keyed on, and this is the defect
         # it closes: keyed on the word `pending`, the commit the refusal names left
         # the record saying `pending`, only bin/tezgah-task rewrites that record,
-        # the agent may not run it - and the phase was locked until the user
-        # happened to re-run the phase command. Here the commit is the whole way
+        # and the phase stayed locked until the phase command ran again. Here the
+        # commit is the whole way
         # out, exactly as the refusal says.
         env = self.init_git()
         self.plan(phase="implementation", allowed=("hooks/**",),
@@ -2070,7 +2049,7 @@ class TaskGate(TempHome):
         # moves the plan into `implementation` on a dirty tree, the `pending <sha>`
         # it writes is what the gate compares, the phase's first write is refused,
         # and the commit the refusal names is what lets the next one through - no
-        # second command, no re-run of the phase, nothing the agent may not do.
+        # second command, no re-run of the phase.
         env = self.init_git()
         plan = self.plan(phase=None, allowed=("hooks/**",))
         path = self.dirty()

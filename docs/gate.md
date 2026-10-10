@@ -159,22 +159,21 @@ Scratch is skipped: a temp file or a device (`hooks/tezgah_integrity.py::scratch
 Told: re-read the file and re-apply the change to what is on disk now (`RACE_DENY`
 `hooks/tezgah_gate.py::RACE_DENY`). Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py::RACE_REFUSE`) — a notice would not close a silent overwrite — and it lifts only by time.
 
-### Task — the user's own phase and path allowlist
+### Task — the active plan's phase and path allowlist
 
 Trigger: a write tool, or a shell command that writes a file, while an active task is set — a plan file under `.tezgah/plans/open` whose frontmatter carries a valid
 `phase` (`tezgah_task.active`). The phase refuses a write in a reading phase (`hooks/tezgah_gate.py::TASK_PHASE_DENY`) and a shell command that writes one (`hooks/tezgah_gate.py::TASK_SHELL_DENY`,
-against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and the record itself is refused twice over — a write whose target IS it, by a write tool or a shell redirect/`tee`
-(`hooks/tezgah_gate.py::TASK_RECORD_DENY`) and a shell command that would change it through the CLI, named by its basename with or without `.py` (`hooks/tezgah_gate.py::TASK_UNLOCK_DENY`, matched on the masked text by `hooks/tezgah_gate.py::TASK_CHANGE`). Told:
-none of them names the command that lifts it, on purpose — with the unlock printed, an armed arm removed or disabled the gate in 25 of 25 runs and obeyed it in none
-(`hooks/tezgah_gate.py:882-886`) — so each names the phase or the allowlist as the user's to change. Standing: only the record changing lifts it.
+against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and a write whose target IS the record, by a write tool or a shell redirect/`tee`, is refused
+(`hooks/tezgah_gate.py::TASK_RECORD_DENY`), because only `bin/tezgah-task` writes it and that CLI makes the checks a retyped frontmatter would skip. Told:
+the move that lifts it, made by the session itself — `tezgah-task phase implementation` or `tezgah-task allow` — since the orchestrator owns the plan lifecycle and the CLI refuses
+the move until the plan's Acceptance, spike and checkpoint are in order. Standing: only the record changing lifts it.
 Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held. Off: `task-off`
-(`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record; the record is written by `bin/tezgah-task` and
-never by the agent, so this rule refuses on a decision the user made rather than one the gate inferred.
+(`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record.
 
-The fifth refusal under the same rule is the checkpoint. Trigger: a write, or a shell command that writes a file (`hooks/tezgah_gate.py::SHELL_WRITE`), while the task is in
+The fourth refusal under the same rule is the checkpoint. Trigger: a write, or a shell command that writes a file (`hooks/tezgah_gate.py::SHELL_WRITE`), while the task is in
 `phase: implementation`, its record reads `checkpoint: pending <sha>`, that sha is still the checkout's HEAD and the tree is dirty (`checkpoint_reason()`
 `hooks/tezgah_gate.py::checkpoint_reason`, `hooks/tezgah_gate.py::CHECKPOINT_DENY`). Told: the task it read, that the record holds a `pending` checkpoint, and the one command
-that makes the boundary real - unlike the refusals above it names that command, because running it *satisfies* the rule rather than taking it off. Standing: the recorded sha is the switch, not the tree - the commit
+that makes the boundary real - it names that command because running it *satisfies* the rule rather than taking it off. Standing: the recorded sha is the switch, not the tree - the commit
 the refusal names moves HEAD off that sha, so the refusal clears itself, where keying on the word `pending` alone left the phase waiting on a record only
 `bin/tezgah-task` rewrites. Off, with the rest of the rule: `task-off`. It fails open wherever the question cannot be answered: no record, no `checkpoint:` key, a
 checkpoint that is a plain sha (the boundary is already real), a `pending` with no sha, a sha this checkout's HEAD does not name, and a repo whose HEAD cannot be read.

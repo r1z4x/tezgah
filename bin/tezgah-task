@@ -7,14 +7,15 @@
   tezgah-task stop                                            deactivate (clear phase)
   tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
   tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
-  tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done
+  tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and at most one open plan carries a phase
-because `start` clears the others. That makes the gate's refusal a rule the user
-set in advance, so this CLI is the only writer and the agent never runs its
-first four commands - `stop` and a hand edit are equally valid ways to take the
-requirement away. `phase implementation` (or `verification`) is what lets a write
+because `start` clears the others. The orchestrating session runs every command
+here itself as the work moves - the lifecycle is never handed back to the user -
+and this CLI is the record's only writer: the gate refuses a write to the plan
+file, because the checks below are made here and a retyped frontmatter would
+skip them. `phase implementation` (or `verification`) is what lets a write
 through, so the phase changes when the work reaches that point and not before.
 
 The allowlist is the plan's own: plan-add writes `allowed_paths:` when it
@@ -22,16 +23,21 @@ creates the plan, and `start` without `--allow` keeps it. A writing phase with
 no allowlist is refused unless `--any-path` says so explicitly, and the record
 keeps where its scope came from (`allowed_from:`), which `status` prints.
 
-`review` and `close` are the session's: the verification phase asks for one
-review of the plan's whole diff, `review` records its verdict as
+The verification phase asks for one review of the plan's whole diff: `review`
+records its verdict as
 `review: <reviewer> <verdict> <date>` together with `reviewed_sha:` (the
 project's HEAD it read) and `review_round:`, so the next round reads only
 `git diff <reviewed_sha>..HEAD`, and refuses a third round: the budget is two
 rounds per plan; `close NNN done` refuses a plan whose review is missing or not
-`approve`. `close` refuses the active task - that one is the user's to stop first.
+`approve`. `close` on the active task clears its phase in the same write, then
+removes each linked worktree whose branch is merged into HEAD, `main` or
+`master` and which holds nothing else (no uncommitted or unknown ignored file,
+no `.tezgah` data, a branch that carried a commit, no Orca agent still at work);
+every worktree it keeps is printed with the reason.
 
 Two things the plan owes are asked here, at the only moment they can still be
-fixed - the phase move - because the record is the user's and the refusal is
+fixed - the phase move - because this CLI is the record's only writer and the
+refusal is
 this CLI's: a writing phase needs every Acceptance item to name the command
 proving it (or say `unverifiable` and why), since the report CI runs afterwards
 refuses an open plan on any one item that does neither, through the same
@@ -285,9 +291,9 @@ def phase_problems(phase, text, path):
     Both are read from the plan this CLI is about to move, through the same
     readers the CI report uses, so the phase the gate then holds a write to is a
     phase the plan can actually be checked in. They live here, at the phase move,
-    and not in the gate: the phase has one writer, this command, and the record
-    is the user's to write - a gate rule would have to re-read the same body on
-    every write to ask a question whose answer changes only here."""
+    and not in the gate: the phase has one writer, this command - a gate rule
+    would have to re-read the same body on every write to ask a question whose
+    answer changes only here."""
     out = []
     if phase in tt.WRITE_PHASES:
         items = tt.acceptance_gap(text)
@@ -593,9 +599,11 @@ def cmd_close(args):
         return problems(["%s is not under %s" % (path, open_dir(root))])
     text = read(path)
     ident = os.path.basename(path).split("-")[0]
+    # closing the active task deactivates it in the same write: the plan leaves
+    # open/ anyway, and a separate `stop` first was one more step for nobody
+    fields = {"status": args[1], "updated": today()}
     if tt.frontmatter(text).get("phase"):
-        return problems(["%s is the active task: the user stops it first "
-                         "(`tezgah-task stop`)" % path])
+        fields["phase"] = ""
     if args[1] == "done" and review_verdict(text) != "approve":
         prior = tt.frontmatter(text).get("review_round") or ""
         if prior.isdigit() and int(prior) >= REVIEW_ROUNDS:
@@ -604,7 +612,7 @@ def cmd_close(args):
                          "the diff, then `tezgah-task review %s <reviewer> approve`"
                          % (path, ident)])
     target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
-    bad = write_fields(path, status=args[1], updated=today())
+    bad = write_fields(path, **fields)
     if bad:
         return problems(bad)
     try:
@@ -613,7 +621,84 @@ def cmd_close(args):
     except OSError as exc:
         return problems(["cannot move %s: %s" % (path, exc)])
     print("moved %s -> %s" % (path, target))
+    for line in prune_worktrees(root):
+        print(line)
     return 0
+
+
+# Ignored output a slice regenerates on its own. Any other ignored path - an
+# `.env`, a local database, a dataset - may be the only copy, so it keeps the
+# worktree; a list rather than `--ignored` alone because every checkout that ran
+# a test holds a cache.
+REGENERABLE = frozenset(("__pycache__", ".pytest_cache", ".ruff_cache",
+                         ".mypy_cache", "node_modules", ".venv", "venv",
+                         ".DS_Store"))
+
+
+def _keeps(root, path, branch, bases, agents):
+    """Why the linked worktree `path` must stay, or None when its work is all in
+    `bases` and it holds nothing else. Every question git cannot answer keeps it."""
+    if not branch:
+        return "detached HEAD"
+    if git_out(path, "status", "--porcelain") != "":
+        return "uncommitted changes"
+    for line in (git_out(path, "status", "--porcelain", "--ignored") or "").splitlines():
+        rel = line[3:].strip('"').rstrip("/")
+        if rel != ".tezgah" and not REGENERABLE & set(rel.split("/")):
+            return "ignored file %s may be the only copy" % rel
+    ws = os.path.join(path, ".tezgah")
+    if os.path.isdir(ws):
+        if set(os.listdir(ws)) - {".git"}:
+            return "its .tezgah holds data"
+        if os.path.isdir(os.path.join(ws, ".git")) and git_out(ws, "rev-parse", "-q", "--verify", "HEAD"):
+            return "its .tezgah has commits"
+    if not any(git_out(root, "merge-base", "--is-ancestor", branch, b) is not None
+               for b in bases):
+        return "%s is not merged into %s" % (branch, " or ".join(bases))
+    log = git_out(root, "reflog", "show", "--format=%gs", "refs/heads/" + branch) or ""
+    if all(entry.startswith("branch: Created") for entry in log.splitlines()):
+        # a branch that never moved is a slice that has not started, not one done
+        return "%s has no commit of its own yet" % branch
+    busy = [a.get("state") for a in agents if a.get("state") != "done"]
+    if busy:
+        return "an agent there is %s" % busy[0]
+    return None
+
+
+def prune_worktrees(root):
+    """Remove every linked worktree of the repository whose branch is merged and
+    which holds nothing else, so a closed plan leaves no checkout behind; one line
+    per linked worktree, removed or kept with the reason. The main checkout and
+    the one `close` runs in always stay. Under Orca the removal is Orca's (its
+    card, terminals and merged branch go with it), else `git worktree remove`
+    and a safe `git branch -d`."""
+    import tezgah_orca
+    from tezgah_paths import worktrees
+    found = worktrees(root)
+    here = os.path.realpath(root)
+    linked = [p for p in found[1:] if p != here]
+    if not linked:
+        return []
+    bases = [b for b in ("HEAD", "main", "master")
+             if git_out(root, "rev-parse", "-q", "--verify", b)]
+    ps = tezgah_orca.run(["worktree", "ps", "--limit", "1000"]) or {}
+    orca = {os.path.realpath(r.get("path") or ""): r for r in ps.get("worktrees") or []}
+    out = []
+    for path in linked:
+        branch = git_out(path, "symbolic-ref", "-q", "--short", "HEAD")
+        why = _keeps(root, path, branch, bases, orca.get(path, {}).get("agents") or [])
+        if why is None:
+            if path in orca:
+                gone = tezgah_orca.run(["worktree", "rm", "--worktree", "path:" + path],
+                                       timeout=60) is not None
+            else:
+                gone = git_out(root, "worktree", "remove", path) is not None
+                if gone:
+                    git_out(root, "branch", "-d", branch)
+            why = None if gone else "the removal failed; remove it by hand"
+        out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
+                                             why or branch))
+    return out
 
 
 def cmd_status(args):

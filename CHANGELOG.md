@@ -6,6 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The session runs the plan lifecycle itself.** The gate refused a session's
+  own `tezgah-task start|phase|allow|stop`. It told the session to ask the user,
+  so every plan ended with a command handed back. That refusal is gone. A phase
+  or scope refusal now names the move (`tezgah-task phase implementation`,
+  `tezgah-task allow`). The CLI still checks Acceptance, the spike, the
+  checkpoint and the review on each move. The gate still refuses a write to the
+  plan file itself.
+- **`close` cleans up.** `tezgah-task close` on the active task clears its
+  phase instead of refusing. It then removes each linked worktree whose branch
+  has landed and which holds nothing else, through Orca when Orca tracks it. It
+  prints every worktree it keeps, with the reason. A worktree stays for
+  uncommitted files, unknown ignored files, `.tezgah` data, an unmerged branch,
+  a branch with no commit yet or an agent at work.
+- **No process questions.** The contract says the orchestrator picks a process
+  parameter the user did not set, such as a spend ceiling, and states it.
+  `consult` on exit 4/5 records the first member of another model family
+  itself instead of asking the user to choose.
+
 ## [1.5.1] - 2026-10-09
 
 ### Fixed

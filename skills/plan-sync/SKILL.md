@@ -34,11 +34,14 @@ description: >
    `acceptance boxes unchecked at sync (N/M checked)` to `## State`.
 6. Move each done or discarded plan with
    `~/.config/tezgah/bin/tezgah-task close NNN done|discarded`: it sets `status:` and
-   `updated:` and moves the file to `.tezgah/plans/done/`. It refuses `done` unless the
+   `updated:`, clears the phase of an active task, moves the file to
+   `.tezgah/plans/done/` and removes every linked worktree whose branch is merged
+   and which holds nothing else (it prints each one it keeps, with why). It
+   refuses `done` unless the
    plan records `review: <reviewer> approve` - fresh reviewers (the host's
    `tezgah-reviewer` subagent, one per dimension in one message for a large diff)
    read `git diff <base>..HEAD` and `tezgah-task review NNN <reviewer> approve`
-   wrote the verdict - and it refuses the active task. A refused plan stays open:
+   wrote the verdict. A refused plan stays open:
    report it with the refusal, never move it by hand, and never start a review
    round from here. One review per plan, over its whole diff in the verification
    phase; at most two rounds - only a confirmed critical or major finding opens

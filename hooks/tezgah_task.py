@@ -2,8 +2,8 @@
 """The active task: one plan file's phase and its path allowlist.
 
 A task is not a second record beside the plan - it IS the plan file under
-`.tezgah/plans/open/`, with two optional frontmatter keys that the user's own CLI
-(bin/tezgah-task) writes and no agent ever does:
+`.tezgah/plans/open/`, with two optional frontmatter keys that only its CLI
+(bin/tezgah-task, run by the orchestrating session itself) writes:
 
     phase: implementation        # discovery | implementation | verification
     allowed_paths:               # globs, relative to the repo root

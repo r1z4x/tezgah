@@ -126,6 +126,6 @@
   ],
   "ceilings": [
     {"host": "opencode", "vector": "git-add-env",
-     "why": "opencode's shell rules are the JS mirror (hosts/opencode/plugins/tezgah.js::secretCommand) and it asks the core only for TASK_CLI / IDENT_CMD / piped checks; plan 057 (d) puts every shell line to bin/tezgah-gate decide."}
+     "why": "opencode's shell rules are the JS mirror (hosts/opencode/plugins/tezgah.js::secretCommand) and it asks the core only for IDENT_CMD / piped checks; plan 057 (d) puts every shell line to bin/tezgah-gate decide."}
   ]
 }

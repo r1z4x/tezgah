@@ -907,43 +907,15 @@ class OpenCodePlugin(TempHome):
         self.assertNotEqual(error, SPY_REASON)
         self.assertEqual(self.spy_calls(log), [])
 
-    # ---- the core's own decision for the task record (the shell route) -----
-    def test_a_shell_command_that_moves_the_record_is_refused_with_the_cores_own_reason(self):
-        # The write rule closes one route to the record; this is the other one,
-        # and the one the E7 block measured open: an agent on this host can run
-        # the task CLI through its bash tool and move the phase or the allowlist
-        # it is being held to. The rule is hooks/tezgah_gate.TASK_CHANGE, so the
-        # refusal has to be the core's own answer, asked exactly once for the
-        # call it is about - a JS paraphrase of the rule would be the second
-        # implementation this host is documented not to keep.
-        log = os.path.join(self.home, "gate.log")
-        self.spy_gate(log)
-        args = {"command": "bin/tezgah-task stop"}
-        self.assertEqual(self.denied(self.before("bash", args)), SPY_REASON)
-        self.assertEqual(self.spy_calls(log), [{
-            "argv": ["decide"],
-            "payload": {"tool": "bash", "input": args, "cwd": self.repo,
-                        "session_id": "s1"}}])
-
-    def test_a_prefix_bash_reads_as_words_does_not_hide_the_cli_from_the_core(self):
-        # gate-01's four wraps in front of the task CLI: the plugin asks the
-        # core, and the core's answer is the refusal on both sides
-        self.gate_bin()
-        for wrap in bash_vectors.GATE01_WRAPS:
-            args = {"command": wrap % "tezgah-task phase implementation"}
-            expected = self.gate("bash", args)
-            self.assertIn("record", expected, args)
-            self.assertEqual(self.denied(self.before("bash", args)), expected)
-
-    def test_a_shell_command_that_does_not_name_the_cli_never_asks_the_core(self):
-        # One ask per naming command is the whole bound: the pre-test is what
-        # keeps a rule about the record from taxing every command in a session
-        # with a spawn. `cat bin/tezgah-task` names the CLI's file and runs
-        # nothing, so it is not this rule's, and the spy armed to refuse would
-        # fail the allow below if the pre-test had asked it.
+    def test_a_plain_shell_command_never_asks_the_core(self):
+        # The pre-tests are the whole bound: a command no shell-route rule is
+        # about pays no spawn. The task CLI is one of them now - the session
+        # runs it itself - so the spy armed to refuse would fail the allow below
+        # if any pre-test had asked it.
         log = os.path.join(self.home, "gate.log")
         self.spy_gate(log)
         for command in ("ls -la", "cat bin/tezgah-task", "git status",
+                        "bin/tezgah-task phase implementation",
                         "python3 bin/tezgah-gate check < p.json"):
             self.allowed(self.before("bash", {"command": command}))
         self.assertEqual(self.spy_calls(log), [])
@@ -959,32 +931,6 @@ class OpenCodePlugin(TempHome):
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         self.allowed(self.before("bash", args))
         self.assertEqual(len(self.spy_calls(log)), 1)
-
-    def test_a_mention_of_the_cli_costs_one_ask_and_still_passes(self):
-        # The pre-test is loose on purpose - the name in the raw command with an
-        # argument, no attempt to read the shell - and this is what that costs: a
-        # command that only mentions the CLI in prose still pays the spawn, and
-        # the core's masking is what lets it through. So the looseness can add an
-        # ask and never a refusal, and the ask carries the command the core needs
-        # to decide it.
-        log = os.path.join(self.home, "gate.log")
-        self.spy_gate(log, script=spy_script(""))
-        args = {"command": 'git commit -m "tezgah-task stop in the refusal"'}
-        self.allowed(self.before("bash", args))
-        self.assertEqual(self.spy_calls(log), [{
-            "argv": ["decide"],
-            "payload": {"tool": "bash", "input": args, "cwd": self.repo,
-                        "session_id": "s1"}}])
-
-    def test_the_shell_route_is_the_cores_rule_on_both_hosts(self):
-        # Asked of the real CLI, not a spy: the text this host refuses a
-        # record-moving command with has to be the text the Python gate refuses
-        # the same payload with, character for character.
-        self.gate_bin()
-        args = {"command": "python3 bin/tezgah-task phase verification"}
-        expected = self.gate("bash", args)
-        self.assertIn("active task's own record", expected)
-        self.assertEqual(self.denied(self.before("bash", args)), expected)
 
     def test_a_control_plane_line_is_the_cores_refusal_on_this_host_too(self):
         # hooks/tezgah_gate.control_reason: the shell half of the control rule
@@ -2054,8 +2000,8 @@ class OpenCodePlugin(TempHome):
             fh.write("x\n")
         self.allowed(self.before("edit", {"file_path": target, "old_string":
                                           "x = 1", "new_string": "x = 2"}))
-        # a shell write the core is asked about (TASK_CLI) is the same call
-        self.allowed(self.before("bash", {"command": "tezgah-task list > out.txt"}))
+        # a shell write the core is asked about (IDENT_CMD) is the same call
+        self.allowed(self.before("bash", {"command": "git branch feature-x > out.txt"}))
         snaps = [r["detail"] for r in self.ledger() if r["kind"] == "snapshot"]
         self.assertEqual(snaps, [target, out], self.ledger())
 

@@ -69,29 +69,28 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Report the file path and the table row.
-9. Hand it to `tezgah-task` - the user's command, never the session's:
+9. Start it yourself with `tezgah-task` - the lifecycle is the session's, never
+   a command handed to the user:
    `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery` writes `phase:`
    into this file and clears the phase from every other open plan, and the gate
    then allows a write only from `implementation` on and only inside the plan's
    `allowed_paths:` (`--allow '<glob>' ...` replaces them). Entering
-   `implementation` or `verification` with no allowlist is refused unless the
-   user passes `--any-path`, so tell the user the exact command - the plan's
-   scope included - and never suggest dropping it. Three more refusals land at
-   the same moment, and the user fixes them in the plan, not the command: a
-   writing phase while any Acceptance item names no command, and
-   `implementation` while the plan's spike is unanswered (both refused with the
-   file and the reader that reported it); and `implementation` is refused while
-   the tree is dirty, because the phase starts by recording `checkpoint:` - the
-   commit the work returns to - and uncommitted work has none to record. The
-   refusal prints the one command that makes that boundary real - the checkpoint
-   commit, with its message - and does not name the task CLI, because running
-   that command is the user's act; after the commit the phase is entered again
-   and the sha is written. Moving the phase
-   later is the user's action too: when a write is refused for its phase or its
-   path, ask the user to change the task - do not run this command, and do not
-   retype the frontmatter - because the gate refuses a session's own edit to the
-   record and a session's own call to the CLI, which is what keeps the boundary
-   the user set. That refusal names no command; the ask is the way through it.
+   `implementation` or `verification` with no allowlist is refused unless
+   `--any-path` is passed, so keep the plan's scope and never drop it to get
+   through. Three more refusals land at the same moment, and you fix them in the
+   plan, not the command: a writing phase while any Acceptance item names no
+   command, and `implementation` while the plan's spike is unanswered (both
+   refused with the file and the reader that reported it); and `implementation`
+   is refused while the tree is dirty, because the phase starts by recording
+   `checkpoint:` - the commit the work returns to - and uncommitted work has none
+   to record. Make the checkpoint commit it prints, then run the phase move
+   again and the sha is written. Move the phase yourself as the work reaches it
+   (`tezgah-task phase implementation`, then `verification`); when a write is
+   refused for its path and the plan's work genuinely reaches that file, widen
+   the scope with `tezgah-task allow` and say why. Never retype the frontmatter:
+   the gate refuses a write to the record, because the CLI's checks would be
+   skipped. After the merge, `tezgah-task close NNN done` deactivates the plan,
+   moves it to done and removes every merged worktree.
 
 10. If the work settles a decision that is hard to reverse, spans components, or
     keeps being re-explained, record it as an ADR under `.tezgah/decisions/` with
