@@ -243,7 +243,7 @@ left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two, a minor or suggestion one is recorded fix-later, and after round two
-what is left is fixed that way or recorded fix-later, never a third round.
+what is left is fixed by the session and closed with `--resolved`, or recorded fix-later, never a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
