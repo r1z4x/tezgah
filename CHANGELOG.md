@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-10
+
 ### Added
 
 - **A data, metric or dashboard ask reaches the product rule.** "Bu veriye uygun bir metric dashboard tasarla" armed no rule before. A dashboard, chart or metric-choice ask now arms `product`, judged per clause. A code marker in the same clause, such as a metrics endpoint, keeps it out.
@@ -1024,7 +1026,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.6.0
 [1.5.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.1
 [1.5.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.0
 [1.4.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.4.0
