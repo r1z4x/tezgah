@@ -3,8 +3,9 @@
 code, a blind label sheet drawn from them, and the report that reads the labels
 (plan 055, roadmap R12; corpus spec REPORT.md §4.4.3).
 
-  tezgah-gate replay [--cutoff WHEN] [--since WHEN] [--json]
-  tezgah-gate replay --report [--run DIR] [--labels FILE ...] [--json]
+  tezgah-gate replay [--cutoff WHEN] [--since WHEN] [--split search|holdout] [--json]
+  tezgah-gate replay --report [--run DIR] [--labels FILE ...]
+                     [--split search|holdout] [--json]
   tezgah-gate replay --sheet [--run DIR] [--seed N] [--rules FILE]
   tezgah-gate replay --label-model --prompt FILE [--provider jev|deepseek]
                      [--model ID] [--run DIR]
@@ -44,9 +45,20 @@ inputs), `results.jsonl` and the sheet files. The run's summary is its row in
 the cache database's replay index (`tezgah_store.add_replay`), whose newest
 row is the latest run. The sandbox HOME and the row stream are deleted when
 the child returns.
+
+**Split.** `--split search|holdout` reads one side of the run (idea 113): a
+session is on `search` when the first byte of the sha256 of its session id is
+even, else on `holdout` (`split_of`), so a session's side is the same in every
+process. The replay still runs the whole corpus and the indexed summary stays
+the whole corpus; the split recomputes the item counts, join, fidelity and race
+family over that side's items, and the report's label rates over that side's
+sheet rows. The ledger, exclusion and denial-budget counts stay whole-corpus.
+The report and a split run name the side they read (`split`, `all` with no
+`--split`) and its `sessions`.
 """
 import argparse
 import datetime
+import hashlib
 import importlib.machinery
 import importlib.util
 import json
@@ -572,15 +584,8 @@ def run_replay(cutoff=None, since=None):
     if proc.returncode:
         raise RuntimeError("replay child failed: %s" % proc.stderr[-2000:])
     results = _read_jsonl(os.path.join(run, "results.jsonl"))
-    join = Counter()
-    for it in items:
-        key = it["kind"] if it["kind"] == "claim" else "%s:%s" % (
-            it["kind"], str(it["tool"] or "unknown").lower())
-        join[key + ":n"] += 1
-        join[key + ":joined"] += bool(it["join"])
     by = {r["i"]: r for r in results}
-    text_ok = sum(1 for it in items if by.get(it["i"], {}).get("text_ok"))
-    family = race_family(items, results, parent_of)
+    race_family(items, results, parent_of)
     for it in items:
         writers = by.get(it["i"], {}).get("writers")
         if writers:
@@ -589,14 +594,48 @@ def run_replay(cutoff=None, since=None):
     summary = {"run": run, "cutoff": cutoff, "cutoff_local": _stamp(cutoff),
                "since": since, "since_release": SINCE_RELEASE,
                "ledgers": dict(counts["ledgers"]), "candidates": counts["candidates"],
-               "excluded": dict(counts["excluded"]), "items": len(items),
-               "joined": sum(1 for it in items if it["join"]), "join": dict(join),
-               "stop_text_fidelity": text_ok,
-               "fidelity": fidelity(items, results),
-               "race_family": family,
-               "deny_runs": folds}
+               "excluded": dict(counts["excluded"])}
+    summary.update(_item_stats(items, results))
+    summary["deny_runs"] = folds
     tezgah_store.add_replay(_run_key(run), summary, tp.CACHE)
     return summary
+
+
+def _item_stats(items, results):
+    """The summary fields computed from the items and their replay results."""
+    by = {r["i"]: r for r in results}
+    join = Counter()
+    for it in items:
+        key = it["kind"] if it["kind"] == "claim" else "%s:%s" % (
+            it["kind"], str(it["tool"] or "unknown").lower())
+        join[key + ":n"] += 1
+        join[key + ":joined"] += bool(it["join"])
+    return {"items": len(items), "joined": sum(1 for it in items if it["join"]),
+            "join": dict(join),
+            "stop_text_fidelity": sum(1 for it in items
+                                      if by.get(it["i"], {}).get("text_ok")),
+            "fidelity": fidelity(items, results),
+            "race_family": _family_counts(items, by)}
+
+
+def split_of(sid):
+    """`search` or `holdout`: the first byte of sha256(session id), even or odd.
+    Not `hash()`, which is salted per process."""
+    return "holdout" if hashlib.sha256(str(sid).encode("utf-8")).digest()[0] % 2 else "search"
+
+
+def _split_view(summary, run, split):
+    """`summary` named by the side it reads; with a split, its item fields
+    recomputed over that side's items (module docstring, Split)."""
+    items = _read_jsonl(os.path.join(run, "corpus.jsonl"))
+    out = dict(summary, split=split or "all")
+    if split:
+        items = [it for it in items if split_of(it["sid"]) == split]
+        keep = {it["i"] for it in items}
+        out.update(_item_stats(items, [r for r in _read_jsonl(
+            os.path.join(run, "results.jsonl")) if r["i"] in keep]))
+    out["sessions"] = len({it["sid"] for it in items})
+    return out
 
 
 def relation(a, b, parent_of):
@@ -616,6 +655,18 @@ def race_family(items, results, parent_of):
     the replay found (plan 055 part 6, D32a): intra-family when every writer is
     family, cross-family when any is unrelated."""
     by = {r["i"]: r for r in results}
+    for it in items:
+        if it["live"] != "deny" or it["live_rule"] != RACE_RULE:
+            continue
+        writers = by.get(it["i"], {}).get("writers") or it.get("foreign") or []
+        rels = {relation(it["stem"], w, parent_of) for w in writers}
+        it["family"] = ("no-writer" if not rels else "cross" if "unrelated" in rels
+                        else "undecided" if "undecided" in rels else "intra")
+    return _family_counts(items, by)
+
+
+def _family_counts(items, by):
+    """The race family counts over the items `race_family` labelled."""
     out = Counter()
     for it in items:
         if it["live"] != "deny" or it["live_rule"] != RACE_RULE:
@@ -624,10 +675,7 @@ def race_family(items, results, parent_of):
         writers = res.get("writers") or it.get("foreign") or []
         out["from replay" if res.get("writers") else "from live detail"
             if writers else "no writer named"] += 1
-        rels = {relation(it["stem"], w, parent_of) for w in writers}
         out["n"] += 1
-        it["family"] = ("no-writer" if not rels else "cross" if "unrelated" in rels
-                        else "undecided" if "undecided" in rels else "intra")
         out[it["family"]] += 1
     return dict(out)
 
@@ -786,11 +834,11 @@ def _rate(k, n):
             "ci95": [round(ci[0], 4), round(ci[1], 4)] if ci else None}
 
 
-def report(run, label_files=()):
-    summary = _summary(run)
-    out = {k: summary[k] for k in ("run", "cutoff", "cutoff_local", "ledgers", "candidates",
-                                   "excluded", "items", "joined", "join",
-                                   "stop_text_fidelity", "fidelity", "race_family",
+def report(run, label_files=(), split=None):
+    summary = _split_view(_summary(run), run, split)
+    out = {k: summary[k] for k in ("run", "split", "sessions", "cutoff", "cutoff_local",
+                                   "ledgers", "candidates", "excluded", "items", "joined",
+                                   "join", "stop_text_fidelity", "fidelity", "race_family",
                                    "deny_runs")}
     keyfile = os.path.join(run, "sheet-key.jsonl")
     labels = _labels(label_files)
@@ -803,7 +851,9 @@ def report(run, label_files=()):
         out["labels"] = "unverifiable: %s" % ("no sheet drawn" if not os.path.exists(keyfile)
                                               else "no labels file")
         return out
-    key = {(k["set"], k["n"]): k for k in _read_jsonl(keyfile)}
+    items = {it["i"]: it for it in _read_jsonl(os.path.join(run, "corpus.jsonl"))}
+    key = {(k["set"], k["n"]): k for k in _read_jsonl(keyfile)
+           if not split or split_of(items.get(k["item"], {}).get("sid")) == split}
     usable = {}
     if len(raters) >= 2:
         a, b = labels[raters[0]], labels[raters[1]]
@@ -826,7 +876,6 @@ def report(run, label_files=()):
         return out
     rules = defaultdict(Counter)
     stop = Counter()
-    items = {it["i"]: it for it in _read_jsonl(os.path.join(run, "corpus.jsonl"))}
     race_intra = Counter()
     for x, label in usable.items():
         k = key[x]
@@ -979,6 +1028,8 @@ def label_model(run, prompt_file, provider="jev", model=None):
 
 def _print_summary(s):
     print("replay run: %s" % s["run"])
+    if "split" in s:
+        print("split: %s (%d sessions)" % (s["split"], s["sessions"]))
     print("cutoff: %s (epoch %d)" % (s["cutoff_local"], s["cutoff"]))
     led = s["ledgers"]
     print("ledgers: read %d, fixture %d, test-polluted %d, kept %d" % (
@@ -1052,6 +1103,7 @@ def main(argv):
     p.add_argument("--labels", action="append", default=[])
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--rules")
+    p.add_argument("--split", choices=("search", "holdout"))
     p.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     if args.label_model:
@@ -1077,7 +1129,7 @@ def main(argv):
         print("race denies left off (written before the ledger stored `target`): %d" % left)
         return 0
     if args.report:
-        out = report(_run_dir(args.run), args.labels)
+        out = report(_run_dir(args.run), args.labels, args.split)
         if args.json:
             print(json.dumps(out, indent=2))
             return 0
@@ -1085,6 +1137,8 @@ def main(argv):
         _print_labels(out)
         return 0
     summary = run_replay(_when(args.cutoff), _when(args.since))
+    if args.split:
+        summary = _split_view(summary, summary["run"], args.split)
     print(json.dumps(summary, indent=2) if args.json else "", end="")
     if not args.json:
         _print_summary(summary)
