@@ -614,6 +614,8 @@ skills/ponytail/EVALS.md
 skills/ponytail/SKILL.md
 skills/product-analysis/EVALS.md
 skills/product-analysis/SKILL.md
+skills/product-flow/EVALS.md
+skills/product-flow/SKILL.md
 skills/research/EVALS.md
 skills/research/SKILL.md
 skills/rl-env/SKILL.md
@@ -737,6 +739,8 @@ tests/test_paths_worktree.py
 tests/test_platform.py
 tests/test_product.py
 tests/test_product_cli.py
+tests/test_product_flow_e2e.py
+tests/test_product_next.py
 tests/test_product_note.py
 tests/test_providers.py
 tests/test_rank.py
