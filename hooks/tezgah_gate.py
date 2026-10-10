@@ -679,9 +679,10 @@ CLASS_NOTE = {
     "transient": "it names a failure the host's own client may retry - a "
                  "timeout, a connection error, a rate limit, a 5xx - and an "
                  "identical repeat by the agent adds nothing to that",
-    "user": "it names something only the user can fix - a credential, a "
-            "login, an access grant - so stop and ask the user for it rather "
-            "than change the approach",
+    "user": "it names something only the user can supply - a credential, a "
+            "login, an access grant - so take a route that needs none first "
+            "(another provider or member, a local run, a public source) and "
+            "ask the user once, naming what it unlocks, only when none is left",
     "permanent": "an assertion or a bad argument does not change by re-running "
                  "it",
 }
@@ -1013,8 +1014,8 @@ TASK_PHASE_DENY = (
 TASK_SCOPE_DENY = (
     "Task gate: %s is outside the paths the active task %s allows (%s). If the "
     "plan's work genuinely reaches it, widen the scope yourself with `tezgah-task "
-    "allow <glob> ...` (listing the current globs too) and say why; otherwise "
-    "leave the file alone.")
+    "allow <glob> ... --why \"<reason>\"` (listing the current globs too); "
+    "otherwise leave the file alone.")
 TASK_RECORD_DENY = (
     "Task gate: %s is the active task's own record. The phase and the allowlist "
     "live in that file and only `tezgah-task` writes them, because it checks the "

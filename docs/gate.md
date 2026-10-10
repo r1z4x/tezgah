@@ -165,8 +165,8 @@ Trigger: a write tool, or a shell command that writes a file, while an active ta
 `phase` (`tezgah_task.active`). The phase refuses a write in a reading phase (`hooks/tezgah_gate.py::TASK_PHASE_DENY`) and a shell command that writes one (`hooks/tezgah_gate.py::TASK_SHELL_DENY`,
 against `hooks/tezgah_gate.py::SHELL_WRITE`); the allowlist refuses a target outside it (`hooks/tezgah_gate.py::TASK_SCOPE_DENY`) — a write tool's path, and a shell command's redirect or `tee` target (`hooks/tezgah_gate.py::write_paths`); and a write whose target IS the record, by a write tool or a shell redirect/`tee`, is refused
 (`hooks/tezgah_gate.py::TASK_RECORD_DENY`), because only `bin/tezgah-task` writes it and that CLI makes the checks a retyped frontmatter would skip. Told:
-the move that lifts it, made by the session itself — `tezgah-task phase implementation` or `tezgah-task allow` — since the orchestrator owns the plan lifecycle and the CLI refuses
-the move until the plan's Acceptance, spike and checkpoint are in order. Standing: only the record changing lifts it.
+the move that lifts it, made by the session itself — `tezgah-task phase implementation` or `tezgah-task allow <glob> ... --why "<reason>"` — since the orchestrator owns the plan lifecycle and the CLI refuses
+the move until the plan's Acceptance, spike and checkpoint are in order, and records the reason for a widened scope (`allowed_why:`). Standing: only the record changing lifts it.
 Scratch meets no allowlist: a temp file or a device, such as `pytest > /tmp/check.log` (`hooks/tezgah_gate.py::task_reason`). Build output inside the repo stays held. Off: `task-off`
 (`hooks/tezgah_gate.py::decision`). It fails open wherever the question cannot be answered: no active task, no readable record.
 
@@ -235,7 +235,7 @@ tail still shows that failure, under `verify-off` (`hooks/tezgah_gate.py::decisi
 ### Loop — the identical attempt that already failed twice
 
 Trigger: the same call (same `call_id`) failed `LOOP_ATTEMPTS = 2` times already in the current user turn (`hooks/tezgah_gate.py::LOOP_ATTEMPTS`, `hooks/tezgah_gate.py::loop_reason`). Told: attempt N
-of an identical call, the failure class read from the ledger (`transient`, `user`, `permanent`, `unknown`; the cap is the same for every class, and a `user` failure - a 401/403, a missing credential, a login - says to ask the user), "change the approach or stop" (`hooks/tezgah_gate.py::loop_reason`). Standing while the ledger tail still shows those
+of an identical call, the failure class read from the ledger (`transient`, `user`, `permanent`, `unknown`; the cap is the same for every class, and a `user` failure - a 401/403, a missing credential, a login - says to take a route that needs no credential first and ask the user once only when none is left), "change the approach or stop" (`hooks/tezgah_gate.py::loop_reason`). Standing while the ledger tail still shows those
 failures. Under `verify-off` (`hooks/tezgah_gate.py::decision`).
 
 ### Retry — the session-wide ceiling

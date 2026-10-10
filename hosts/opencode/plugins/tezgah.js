@@ -246,9 +246,10 @@ const CLASS_NOTE = {
   transient: "it names a failure the host's own client may retry - a " +
     "timeout, a connection error, a rate limit, a 5xx - and an identical " +
     "repeat by the agent adds nothing to that",
-  user: "it names something only the user can fix - a credential, a login, " +
-    "an access grant - so stop and ask the user for it rather than change " +
-    "the approach",
+  user: "it names something only the user can supply - a credential, a " +
+    "login, an access grant - so take a route that needs none first " +
+    "(another provider or member, a local run, a public source) and ask the " +
+    "user once, naming what it unlocks, only when none is left",
   permanent: "an assertion or a bad argument does not change by re-running it",
 }
 const NO_CLASS_NOTE = "the host reported no error text for it, so the class " +

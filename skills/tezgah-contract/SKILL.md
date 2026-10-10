@@ -99,23 +99,26 @@ record itself, refused whatever the phase and the globs say. The lifecycle is th
 session's, never a command handed to the user: it runs
 `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status|review|close`
 itself, and the refusals name the move (`tezgah-task phase implementation`,
-`tezgah-task allow`). That move is vetted by the CLI, not by who runs it: a
-writing phase needs every Acceptance item to name its command, `implementation`
-an answered spike and a clean tree to record `checkpoint:`, `close NNN done` an
-approving review - which is why the record's own file is refused to a write. An
+`tezgah-task allow <glob> ... --why "<reason>"`). That move is vetted by the CLI,
+not by who runs it: a writing phase needs every Acceptance item to name its
+command, `implementation` an answered spike and a clean tree to record
+`checkpoint:`, `allow` a `--why` it records as `allowed_why:`, `close NNN done`
+an approving review - which is why the record's own file is refused to a write. An
 absent or empty allowlist is no scope declared rather than "nothing allowed",
 and no active task means no requirement at all - but the CLI will not enter
 `implementation` or `verification` with none: plan-add writes the plan's own
 `allowed_paths:`, `start` without `--allow` keeps them, and only an explicit
 `--any-path` grants every path, so keep the plan's scope intact; widen it with
-`allow` only when the plan's work genuinely reaches a file, and say why. The
+`allow` only when the plan's work genuinely reaches a file, and record why. The
 phase also rides every user prompt as one line naming the id, the phase and the
 globs - the only preventive surface, so the refusal is never the first the
 session hears of the boundary. Off: `task-off`, which removes all three
 refusals. The verification phase asks for the plan's acceptance commands run
 unpiped and a fresh reviewer (the host's `tezgah-reviewer` subagent) reading
 `git diff <base>..HEAD`; `review NNN <reviewer> approve|changes` records the
-verdict, and `close NNN done` refuses a plan without an approve. `close` on the
+verdict, and `close NNN done` refuses a plan without an approve - unless both
+rounds are spent and `--resolved "<fix and the test that proves it>"` records
+what the session fixed itself; nothing waits on the user. `close` on the
 active task deactivates it in the same write, then removes every linked worktree
 whose branch is merged and which holds nothing else, printing each one it keeps
 with the reason. A change with an executable oracle is reviewed by the
@@ -526,12 +529,13 @@ rewrite it plainly.
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
 merge and close the plan yourself (`tezgah-task close NNN done`, which also
-deactivates it and removes every merged worktree), then report the outcome. Bring it back
-to the user only on a critical or major finding left after round two, or a
-failing test. One review per plan, over its whole diff in the verification
+deactivates it and removes every merged worktree), then report the outcome. Nothing
+goes back to the user: a failing test you fix, and a critical or major finding
+left after round two you fix yourself, prove with a test and close with
+`tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two, a minor or suggestion one is recorded fix-later, and after round two
-what is left goes to the user or is recorded fix-later, never a third round.
+what is left is fixed that way or recorded fix-later, never a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -543,9 +547,12 @@ plan lifecycle itself - `tezgah-task start`, every `phase` move, `review`,
 and never ends a reply with "run this command" or "shall I close it?" for a
 step it can take. A process parameter the user did not set (a spend ceiling, a
 sample size, a retry budget, a member to consult) is picked by you: choose the
-conservative default, state it in one line, proceed. The user is asked only for
-what no tool can supply - a credential, a login, an access grant - or for a
-requested item you would drop (see "Deliver the whole ask").
+conservative default, state it in one line, proceed. A credential, a login or an
+access grant is the one thing no tool supplies, and even then take every route
+that needs none first - another consult member or provider, local compute
+instead of managed, a public source - and ask once, naming what it unlocks, only
+when no route is left. A requested item you would drop is still asked about
+(see "Deliver the whole ask").
 
 **Review population: a change with an executable oracle.** The fresh review
 above stays the rule for every change except one whose correctness can
@@ -563,8 +570,8 @@ a fixture. There round one becomes a population:
 5. The population is round one and spends the same two-round budget: a fix
    for a confirmed critical or major claim carries its failing-first test, and
    round two reads that fix's delta, the round-one hunks and the direct callers
-   of what it touches. After round two what is left goes to the user or is
-   recorded fix-later, never a third round.
+   of what it touches. After round two what is left is fixed by the session and
+   closed with `--resolved`, or recorded fix-later, never a third round.
 
 Status: a tentative default, measured on two changes. E1
 (an internal prove-verify experiment): directed reviewers found 3 of 3 ground-truth defects,
@@ -702,8 +709,9 @@ are what keeps results comparable, and breaking one silently invalidates the run
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
 committed code/config, never CLI args or env knobs; grow the experiment tree
-downward, not sideways. Local research needs no login; managed compute does
-- ask the user to run `orx login`.
+downward, not sideways. Local research needs no login; managed compute does -
+run locally at a scale that fits, and ask for `orx login` only when the
+question cannot be answered without managed compute.
 
 If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so, briefed with the

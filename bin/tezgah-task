@@ -3,11 +3,11 @@
 
   tezgah-task start <NNN|path> --phase P [--allow GLOB ... | --any-path]   activate a plan
   tezgah-task phase P [--any-path]                            change the active task's phase
-  tezgah-task allow GLOB ... | --any-path                     replace the allowlist
+  tezgah-task allow GLOB ... | --any-path --why REASON         replace the allowlist, recording why
   tezgah-task stop                                            deactivate (clear phase)
   tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
   tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
-  tezgah-task close <NNN|path> done|discarded                 move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
+  tezgah-task close <NNN|path> done|discarded [--resolved TEXT] move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and at most one open plan carries a phase
@@ -29,7 +29,8 @@ records its verdict as
 project's HEAD it read) and `review_round:`, so the next round reads only
 `git diff <reviewed_sha>..HEAD`, and refuses a third round: the budget is two
 rounds per plan; `close NNN done` refuses a plan whose review is missing or not
-`approve`. `close` on the active task clears its phase in the same write, then
+`approve`, unless both rounds are spent and `--resolved` records the fix the
+session made and the test that proves it. `close` on the active task clears its phase in the same write, then
 removes each linked worktree whose branch has landed in HEAD, `main`, `master`
 or the remote's default branch (an ancestor of it, or a squash whose merge
 would change nothing) and which holds nothing else (no uncommitted or unknown
@@ -169,11 +170,13 @@ def allow_source(text):
     `--allow`/`allow` (`allowed_from:` names which), or an explicit
     `--any-path`. No list and no `--any-path` is what a writing phase refuses."""
     allow = tt.allowed_paths(text)
-    source = tt.frontmatter(text).get("allowed_from") or ""
+    fields = tt.frontmatter(text)
+    source = fields.get("allowed_from") or ""
+    why = (" (why: %s)" % fields["allowed_why"]) if fields.get("allowed_why") else ""
     if allow:
-        return allow, ("from tezgah-task %s" % source) if source else "from the plan"
+        return allow, (("from tezgah-task %s" % source) + why) if source else "from the plan"
     if source == ANY_PATH:
-        return allow, "any path in the repo (--any-path)"
+        return allow, "any path in the repo (--any-path)" + why
     return allow, "any path in the repo (no allowlist)"
 
 
@@ -364,9 +367,10 @@ def verification_steps(text, path):
         return
     if rounds >= REVIEW_ROUNDS:
         print("  2. the %d-round budget is spent: `tezgah-task review` refuses a "
-              "third round. A critical or major finding still confirmed goes to "
-              "the user (block); a minor or suggestion one is recorded fix-later "
-              "under the plan's ## State" % REVIEW_ROUNDS)
+              "third round. Fix a critical or major finding still confirmed "
+              "yourself, prove it with a test and close with `--resolved`; a "
+              "minor or suggestion one is recorded fix-later under the plan's "
+              "## State" % REVIEW_ROUNDS)
         return
     if rounds:
         print("  2. review round 2 (the last): each confirmed critical or major "
@@ -451,10 +455,10 @@ def cmd_start(args):
         return problems([problem])
     text = read(path)
     fields = {"phase": phase, "updated": today()}
-    if allow:
-        fields.update(allowed_paths=allow, allowed_from="--allow")
-    elif any_path:
-        fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+    if allow or any_path:
+        fields.update(allowed_paths=allow, allowed_from="--allow" if allow else ANY_PATH)
+        if tt.frontmatter(text).get("allowed_why"):
+            fields["allowed_why"] = ""  # the reason belonged to the scope replaced
     else:
         # the plan's own scope, as plan-add wrote it (or an earlier --allow)
         allow = tt.allowed_paths(text)
@@ -497,6 +501,8 @@ def cmd_phase(args):
     fields = {"phase": phase, "updated": today()}
     if any_path:
         fields.update(allowed_paths=[], allowed_from=ANY_PATH)
+        if tt.frontmatter(text).get("allowed_why"):
+            fields["allowed_why"] = ""
     granted = (any_path or tt.frontmatter(text).get("allowed_from")
                == ANY_PATH)
     bad = (scope_problem(phase, task["allowed_paths"], granted)
@@ -511,6 +517,13 @@ def cmd_phase(args):
 
 
 def cmd_allow(args):
+    # the scope is the session's to widen, so the reason is the price: a widening
+    # nobody can read back later is the unbounded task this record exists to stop
+    why = ""
+    if "--why" in args:
+        i = args.index("--why")
+        why = " ".join((args[i + 1:i + 2] or [""])[0].split())
+        args = args[:i] + args[i + 2:]
     any_path = ANY_PATH in args
     args = [a for a in args if a != ANY_PATH]
     for arg in args:
@@ -518,6 +531,8 @@ def cmd_allow(args):
             return misuse("allow takes globs, not %r" % arg)
     if bool(args) == any_path:
         return misuse("allow takes globs, or --any-path alone to lift the scope")
+    if not why:
+        return misuse("allow takes --why \"<what in the plan reaches these paths>\"")
     task = active_here(repo_root(os.getcwd()))
     if not task:
         return problems(["no active task to widen: start one with "
@@ -527,7 +542,8 @@ def cmd_allow(args):
     # the way back out of a scope that turned out to be too narrow. A flag and
     # not an empty call, so lifting the scope is always said out loud.
     bad = write_fields(task["path"], allowed_paths=args, updated=today(),
-                       allowed_from=ANY_PATH if any_path else "allow")
+                       allowed_from=ANY_PATH if any_path else "allow",
+                       allowed_why=why)
     if bad:
         return problems(bad)
     return show(task["path"])
@@ -554,13 +570,14 @@ def review_verdict(text):
 
 
 def budget_spent(path, ident):
-    """The refusal once REVIEW_ROUNDS rounds are recorded: what is left belongs
-    to the user, never to a third round."""
-    return ("%s has spent its %d-round review budget: never a third round. A "
-            "critical or major finding still confirmed goes to the user, who "
-            "decides (block); a minor or suggestion one is recorded fix-later "
-            "under the plan's ## State; `tezgah-task close %s discarded` needs no "
-            "review" % (path, REVIEW_ROUNDS, ident))
+    """The refusal once REVIEW_ROUNDS rounds are recorded: never a third round,
+    and never a hand-off - the session settles what is left itself."""
+    return ("%s has spent its %d-round review budget: never a third round. Fix a "
+            "critical or major finding still confirmed yourself and prove it with "
+            "a test, then `tezgah-task close %s done --resolved \"<the fix and the "
+            "test that proves it>\"`; record a minor or suggestion one fix-later "
+            "under the plan's ## State; `close %s discarded` needs no review"
+            % (path, REVIEW_ROUNDS, ident, ident))
 
 
 def cmd_review(args):
@@ -591,8 +608,15 @@ def cmd_review(args):
 
 
 def cmd_close(args):
+    resolved = ""
+    if "--resolved" in args:
+        i = args.index("--resolved")
+        resolved = " ".join((args[i + 1:i + 2] or [""])[0].split())
+        args = args[:i] + args[i + 2:]
+        if not resolved:
+            return misuse("--resolved takes the fix and the test that proves it")
     if len(args) != 2 or args[1] not in ("done", "discarded"):
-        return misuse("close takes <NNN|path> done|discarded")
+        return misuse("close takes <NNN|path> done|discarded [--resolved TEXT]")
     root = repo_root(os.getcwd())
     path, problem = plan_path(root, args[0])
     if problem:
@@ -608,11 +632,17 @@ def cmd_close(args):
         fields["phase"] = ""
     if args[1] == "done" and review_verdict(text) != "approve":
         prior = tt.frontmatter(text).get("review_round") or ""
-        if prior.isdigit() and int(prior) >= REVIEW_ROUNDS:
+        spent = prior.isdigit() and int(prior) >= REVIEW_ROUNDS
+        if spent and resolved:
+            # the budget is spent and the session fixed what was left: the fix
+            # and its proof go on the record a later reader rejects it from
+            fields["resolved"] = "%s %s" % (resolved, today())
+        elif spent:
             return problems([budget_spent(path, ident)])
-        return problems(["%s records no approving review: a fresh reviewer reads "
-                         "the diff, then `tezgah-task review %s <reviewer> approve`"
-                         % (path, ident)])
+        else:
+            return problems(["%s records no approving review: a fresh reviewer reads "
+                             "the diff, then `tezgah-task review %s <reviewer> approve`"
+                             % (path, ident)])
     target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
     bad = write_fields(path, **fields)
     if bad:
@@ -644,6 +674,11 @@ def _landed(root, branch, base):
     older git answers None, which reads as not landed and keeps the worktree."""
     if git_out(root, "merge-base", "--is-ancestor", branch, base) is not None:
         return True
+    # a branch whose commits cancel out (X then revert X) merges to base's tree
+    # too, while its commits are in base nowhere: it needs a net change to count
+    fork = git_out(root, "merge-base", base, branch)
+    if not fork or git_out(root, "diff", "--quiet", fork, branch) is not None:
+        return False
     merged = (git_out(root, "merge-tree", "--write-tree", base, branch) or "").split("\n")[0]
     return bool(merged) and merged == git_out(root, "rev-parse", base + "^{tree}")
 
@@ -669,9 +704,11 @@ def _keeps(root, path, branch, bases, agents):
     if not any(_landed(root, branch, b) for b in bases):
         return "%s is not merged into %s" % (branch, " or ".join(bases))
     log = git_out(root, "reflog", "show", "--format=%gs", "refs/heads/" + branch) or ""
-    if not any(entry.startswith(("commit", "cherry-pick")) for entry in log.splitlines()):
+    if not any(entry.startswith(("commit:", "commit (amend):", "commit (initial):"))
+               for entry in log.splitlines()):
         # a branch nobody committed on is a slice that has not started - even
-        # one fast-forwarded to main - not one whose work landed
+        # one fast-forwarded to main, or one that only cherry-picked or merged
+        # main in - not one whose work landed
         return "%s has no commit of its own yet" % branch
     busy = [a.get("state") for a in agents if a.get("state") != "done"]
     if busy:
@@ -695,11 +732,13 @@ def prune_worktrees(root):
     if not linked:
         return []
     ps = tezgah_orca.run(["worktree", "ps", "--limit", "1000"])
-    if ps is None and tezgah_orca.cli():
+    rows = ps.get("worktrees") if isinstance(ps, dict) else None
+    if not isinstance(rows, list) and tezgah_orca.cli():
+        # down, or an answer in a shape this reader does not know: either way
+        # its agents cannot be checked
         return ["worktree kept: %s (Orca did not answer, so its agents cannot be "
                 "checked; run close again once `orca worktree ps` answers)" % p
                 for p in linked]
-    rows = ps.get("worktrees") if isinstance(ps, dict) else None
     orca = {os.path.realpath(r.get("path") or ""): r for r in rows or []
             if isinstance(r, dict)}
     # the remote's default branch too: a PR merged on the host lands there first
