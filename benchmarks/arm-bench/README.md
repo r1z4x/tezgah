@@ -377,3 +377,36 @@ NEUTER, SKIP_TEST and TEST_PATH, plus a switch the run created), `attempts`,
 `counters(session_id)` fold with its crash rows. `report` prints the arming
 proof per row and exits 1 when any row fails it. The protocol and its frozen
 grading rule live in the private research line `paired-outcome-arm`.
+
+## SWE-Bench Pro split (idea 190)
+
+`swe_pro.py` adds an unsaturated split next to the ImpossibleBench adapter
+`swe.py`: the public V2 set of SWE-Bench Pro (arXiv 2509.16941; Hugging Face
+`ScaleAI/SWE-bench_Pro`, config `default`, 642 tasks). No model is called.
+
+```sh
+python3 swe_pro.py sample --out corpus/swe-pro-sample.json --n 3 --seed 78 --max-image-mb 600
+python3 swe_pro.py validate --sample corpus/swe-pro-sample.json   # base FAIL, gold PASS; ends `validated: k/N`
+python3 swe_pro.py grade --sample <sample.json> --instance <id> --container <name>   # exit 0 = resolved
+```
+
+`sample` reads the rows through the Hugging Face datasets-server API and the
+three verifier files the dataset does not carry (`tests/test.sh`,
+`run_script.sh`, `parser.py`) from the official harness
+`scaleapi/SWE-bench_Pro-os` at the commit pinned in `HARNESS`. Each entry keeps
+the instance id, repository, base commit, image
+(`ghcr.io/scaleapi/swe-bench_pro-v2:<instance_id>`, linux/amd64), test and gold
+patch, `fail_to_pass`, `pass_to_pass`, the selected test files and the run
+command. `grade` writes the verifier's `/tests` into a running instance
+container and runs `test.sh` unchanged: it resets the test files, applies the
+test patch, runs `run_script.sh`, parses the output with `parser.py`, and exits
+0 only when every `fail_to_pass` and `pass_to_pass` test passed. `validate`
+grades a fresh container per case, the base tree and the base tree plus the
+gold patch (applied as the harness's `solve.sh` does), and removes the images it
+pulled. Logs go to `.runs/swe-pro-validate/`.
+
+The committed sample is the seeded draw (seed 78) over the instances whose
+compressed image is at most 600 MB: 12 of the 642 qualify, against a median of
+about 1.1 GB. It holds one flipt (Go) and two qutebrowser (Python) tasks, about
+0.6 GB of download each. Validation on 2026-10-10: `validated: 3/3`. Every base
+failure is a `fail_to_pass` test, with `pass_to_pass` green.
