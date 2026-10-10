@@ -100,19 +100,21 @@ class DeviceChange(Cache):
                                  {"kind": "run", "ts": 2, "detail": "b"}])
         ts.import_session(path)
         # nothing new in the file: the lookup falls back to (name, inode) and
-        # re-keys the row under the current device
+        # writes the row under the current device. The stale-device row stays:
+        # the doctor's repair finds a double import by those rows, so the store
+        # must not erase the evidence before the user runs it (plan 078 review)
         self.moved(path)
         ts.import_session(path)
         st = os.stat(path)
         self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b"])
-        self.assertEqual(self.imported(), [("s.jsonl", st.st_dev, st.st_ino, st.st_size)])
+        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
         # a line appended since: only it goes in, under the current device
         self.moved(path)
         self.legacy("s", [{"kind": "run", "ts": 3, "detail": "c"}])
         ts.import_session(path)
         st = os.stat(path)
         self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b", "c"])
-        self.assertEqual(self.imported(), [("s.jsonl", st.st_dev, st.st_ino, st.st_size)])
+        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
 
 
 class Concurrency(Cache):
