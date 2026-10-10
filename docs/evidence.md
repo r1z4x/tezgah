@@ -63,7 +63,11 @@ audit L-6 found the old files `0644`.
 **The JSONL files it replaced.** Every read or write of a session first imports its old
 `<cache>/evidence/<slug>.jsonl` file (`hooks/tezgah_store.py::_sync`). The import costs one stat
 when nothing is new. It takes the database's write lock first, then the file's flock if it is free.
-It takes only the complete lines past the bytes the `imported` table already counts. It never
+It takes only the complete lines past the bytes the `imported` table already counts for the file's
+device and inode. A volume remount can give the file a new device id. The count then falls back to
+the file's name and inode and moves to the new id (`hooks/tezgah_store.py::_recorded`). Before
+that fallback, the import took such a file again from its start. `tezgah-doctor --repair-evidence`
+removes those copies ([operations](operations.md#health-pass-tezgah-doctor)). It never
 renames the file aside. An opencode process started before the store may still run the old plugin,
 which appends to it, and a refused row lands there. Session start launches the bulk import
 of every other file, detached and at most once a day

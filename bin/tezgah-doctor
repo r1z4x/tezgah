@@ -42,8 +42,13 @@ this tree.
   tezgah-doctor --prune-sessions 30   delete sessions idle > 30 days, then vacuum
   tezgah-doctor --import-evidence  import the legacy JSONL evidence ledgers
                                    into the evidence database now
+  tezgah-doctor --repair-evidence [--apply]
+                                   the rows a legacy ledger imported twice
+                                   under two device ids holds; --apply backs
+                                   the database up and deletes them
 """
 import argparse
+import collections
 import importlib.machinery
 import importlib.util
 import json
@@ -343,6 +348,105 @@ def import_evidence():
             for base in dict.fromkeys((CACHE, fallback_cache()))}
 
 
+def evidence_plan(conn, cache):
+    """The second import of every legacy ledger `imported` holds under two
+    device ids (the remount bug `tezgah_store._recorded` closed), in the cache
+    database `conn`: ({session: [row n to delete]}, {(name, ino): (current
+    dev, bytes)} to collapse to, [(name, why)] for manual review).
+
+    A row text t that the file holds cf times and the session cd times loses
+    its newest min(cd - cf, cf) copies: the double import added at most cf, and
+    a row written to the database directly is never taken for one. Only the
+    file still at its name with that inode is read; more than two device ids,
+    or no such file, is left to a person."""
+    import tezgah_store
+    doomed, collapse, review = {}, {}, []
+    for name, ino, devs, size in conn.execute(
+            "SELECT name, ino, count(*), max(bytes) FROM imported GROUP BY name, ino "
+            "HAVING count(*) > 1 ORDER BY name").fetchall():
+        path = os.path.join(cache, "evidence", name)
+        try:
+            st = os.stat(path)
+            with open(path, "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            st = None
+        if devs > 2 or st is None or st.st_ino != ino:
+            review.append((name, "%d device ids" % devs if devs > 2
+                           else "its legacy file is gone or replaced"))
+            continue
+        lines = raw[:raw.rfind(b"\n") + 1].split(b"\n")
+        in_file = collections.Counter(map(tezgah_store._line_text, lines))
+        copies = collections.defaultdict(list)
+        session = tezgah_store._ledger(path)[1]
+        for n, text in conn.execute("SELECT n, row FROM evidence WHERE session = ? "
+                                    "ORDER BY n DESC", (session,)):
+            copies[text].append(n)
+        doomed[session] = [n for text, ns in copies.items()
+                           for n in ns[:max(0, min(len(ns) - in_file[text], in_file[text]))]]
+        collapse[(name, ino)] = (st.st_dev, size)
+    return doomed, collapse, review
+
+
+def print_plan(plan):
+    doomed, _collapse, review = plan
+    for session, ns in doomed.items():
+        if ns:
+            print("  %s  %d row(s)" % (session, len(ns)))
+    for name, why in review:
+        print("  manual review: %s (%s), not touched" % (name, why))
+    total = sum(map(len, doomed.values()))
+    print("  total %d row(s) in %d session(s)" % (total, sum(1 for ns in doomed.values() if ns)))
+    return total
+
+
+def repair_evidence(apply):
+    """`--repair-evidence` over the cache database and its sandbox fallback's:
+    the dry run prints `evidence_plan`; with `apply` the database is backed up
+    through the SQLite backup API first, the rows go and `imported` collapses to
+    one row per file in one transaction, and the plan is computed again, which
+    must find nothing. The exit code."""
+    import tezgah_store
+    code = 0
+    for cache in dict.fromkeys((CACHE, fallback_cache())):
+        db = os.path.join(cache, tezgah_store.CACHE_DB)
+        if not os.path.exists(db):
+            continue
+        print("%s: evidence repair, %s" % (db, "apply" if apply else "dry run"))
+        conn = sqlite3.connect(db, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout = %d" % tezgah_store.BUSY_MS)
+            if not apply:
+                print_plan(evidence_plan(conn, cache))
+                continue
+            backup = "%s.bak-%s" % (db, time.strftime("%Y%m%d-%H%M%S"))
+            os.close(os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            dst = sqlite3.connect(backup)
+            try:
+                conn.backup(dst)
+            finally:
+                dst.close()
+            print("  backup %s" % backup)
+            with tezgah_store.transaction(conn):
+                doomed, collapse, _review = plan = evidence_plan(conn, cache)
+                print_plan(plan)
+                conn.executemany("DELETE FROM evidence WHERE n = ?",
+                                 [(n,) for ns in doomed.values() for n in ns])
+                for (name, ino), (dev, size) in collapse.items():
+                    conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
+                    conn.execute("INSERT INTO imported (name, dev, ino, bytes) "
+                                 "VALUES (?, ?, ?, ?)", (name, dev, ino, size))
+            left = sum(map(len, evidence_plan(conn, cache)[0].values()))
+            print("  re-check: %d row(s)" % left)
+            code = code or int(left != 0)
+        except (OSError, sqlite3.Error) as exc:
+            print("  failed: %s" % exc, file=sys.stderr)
+            code = 1
+        finally:
+            conn.close()
+    return code
+
+
 
 def load_probe():
     """The bench spike, imported by path so its two coverage rules stay the only
@@ -465,14 +569,24 @@ def main():
                     help="import the legacy JSONL evidence ledgers into the "
                          "evidence database now, instead of at the next "
                          "session start's daily run")
+    ap.add_argument("--repair-evidence", action="store_true",
+                    help="count the evidence rows a legacy ledger imported a "
+                         "second time under another device id (dry run)")
+    ap.add_argument("--apply", action="store_true",
+                    help="with --repair-evidence: back the database up, then "
+                         "delete those rows")
     args = ap.parse_args()
     if args.retention_days < 1:
         ap.error("--retention-days wants a positive day count")
+    if args.apply and not args.repair_evidence:
+        ap.error("--apply goes with --repair-evidence")
 
     if args.coverage:
         repo = os.path.realpath(os.path.expanduser(args.repo[0]) if args.repo
                                 else os.getcwd())
         return coverage_report(repo, args.dump)
+    if args.repair_evidence:
+        return repair_evidence(args.apply)
     if args.import_evidence:
         import tezgah_store
         try:
