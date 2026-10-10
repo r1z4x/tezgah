@@ -5686,6 +5686,16 @@ class SelectionDiscipline(Workspace):
         self.evaluation(repo, noise_band={"experiment": "rerun", "spread": 0.05})
         self.assertFalse(hit(self.NEEDLES, self.found(repo)))
 
+    def test_a_percentage_tolerance_is_not_compared_with_the_spread(self):
+        # the band carries no base for a percentage: "within 5%" against spread
+        # 0.06 is 5% < 6%, not 5 > 0.06
+        repo = self.repo()
+        self.line(repo, phase="inner")
+        self.protocol(repo, h="rerun")
+        self.evaluation(repo, capability_tolerance="within 5% of the baseline",
+                        noise_band={"experiment": "rerun", "spread": 0.06})
+        self.assertFalse(hit(self.WIDER, self.found(repo)))
+
     def test_a_line_opened_under_older_rules_is_not_warned(self):
         repo = self.repo()
         ddir = self.designed(repo)

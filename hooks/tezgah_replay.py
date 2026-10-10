@@ -893,8 +893,10 @@ def report(run, label_files=(), split=None):
             stop[side + ":hit"] += label == ("false" if side == "allow" else "honest")
     # a rule whose joined denies fell short of its quota is pooled with the
     # other rules (H2 protocol, stated before the draw); a rule with no item on
-    # the sheet is neither pooled nor rated (H2 amendment 2026-10-06)
-    drawn = Counter(k["bucket"] for k in key.values())
+    # the sheet is neither pooled nor rated (H2 amendment 2026-10-06). The draw
+    # is a property of the whole sheet, so a --split side counts it unsplit: one
+    # side holds about half of a rule's quota and would read as short.
+    drawn = Counter(k["bucket"] for k in _read_jsonl(keyfile))
     short = [(b.split(":", 1)[1], drawn[b]) for b, q in QUOTA.items()
              if b.startswith("deny:") and b != "deny:other" and drawn[b] < q]
     out["pooled"] = sorted(rule for rule, n in short if n)

@@ -278,9 +278,22 @@ class Record(unittest.TestCase):
         # that cannot name a file there refuses the workflow it prescribes
         os.makedirs(os.path.join(self.repo, ".git"))
         wt = self.linked_worktree(self.repo, "repo-slice")
-        self.assertEqual(tt.relative(os.path.join(wt, "hooks", "a.py"),
-                                     self.repo, self.base), "hooks/a.py")
-        self.assertIsNone(tt.relative(wt, self.repo, self.base))
+        target = os.path.join(wt, "hooks", "a.py")
+        self.assertEqual(tt.relative(target, self.repo, self.base, worktrees=True),
+                         "hooks/a.py")
+        self.assertIsNone(tt.relative(wt, self.repo, self.base, worktrees=True))
+        # without the flag (the record and workspace rules) a sibling is outside
+        self.assertIsNone(tt.relative(target, self.repo, self.base))
+
+    def test_relative_reads_one_sibling_worktree_from_another(self):
+        os.makedirs(os.path.join(self.repo, ".git"))
+        a = self.linked_worktree(self.repo, "repo-a")
+        b = self.linked_worktree(self.repo, "repo-b")
+        self.assertEqual(tt.relative(os.path.join(b, "hooks", "a.py"), a, self.base,
+                                     worktrees=True), "hooks/a.py")
+        # the main checkout's .git is a directory, so it is no linked worktree
+        self.assertIsNone(tt.relative(os.path.join(self.repo, "hooks", "a.py"), a,
+                                      self.base, worktrees=True))
 
     def test_relative_refuses_a_worktree_of_another_repository(self):
         os.makedirs(os.path.join(self.repo, ".git"))
@@ -288,7 +301,19 @@ class Record(unittest.TestCase):
         os.makedirs(os.path.join(other, ".git"))
         wt = self.linked_worktree(other, "other-slice")
         self.assertIsNone(tt.relative(os.path.join(wt, "hooks", "a.py"),
-                                      self.repo, self.base))
+                                      self.repo, self.base, worktrees=True))
+
+    def test_relative_refuses_a_worktree_whose_admin_does_not_point_back(self):
+        # a `.git` file planted anywhere can name a real admin directory; git
+        # always writes `<admin>/gitdir` back to the worktree, so that is checked
+        os.makedirs(os.path.join(self.repo, ".git"))
+        wt = self.linked_worktree(self.repo, "repo-slice")
+        planted = os.path.join(self.base, "planted")
+        os.makedirs(os.path.join(planted, "hooks"))
+        with open(os.path.join(planted, ".git"), "w") as fh:
+            fh.write(read(os.path.join(wt, ".git")))
+        self.assertIsNone(tt.relative(os.path.join(planted, "hooks", "a.py"),
+                                      self.repo, self.base, worktrees=True))
 
     # ------------------------------------------------------------ set_fields
 

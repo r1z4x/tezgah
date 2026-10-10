@@ -1136,7 +1136,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     for path in write_paths(inp):
         if scratch_target(path, cwd):
             continue
-        rel = tezgah_task.relative(path, cwd, base)
+        rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
     return None
@@ -1285,6 +1285,9 @@ def workspace_reason(inp, cwd, base):
 # `echo >` body) leaves no `lesson_changed` row, and a rewritten line carries no
 # `new_key`: the row contract (`tezgah_integrity.LEDGER_FIELDS`) has no field
 # for it, so the line's new key rides only its `lesson_tainted` row, if any.
+LESSON_CHANGED_MAX = 10
+
+
 def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
     """Write one `lesson_tainted` row per lesson line this call leaves in a
     ledger that the ledger did not hold, when the user turn already holds a row
@@ -1329,7 +1332,9 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
         gone = ()
         if t in WRITE_TOOLS and new is not None:
             after = _after_text(inp, current)
-            if after is None:    # a patch: its `-` lines leave, its `+` lines land
+            if after is None and not new and not minus.get(path):
+                gone = list(dict.fromkeys(lines))    # a patch's Delete File
+            elif after is None:  # a patch: its `-` lines leave, its `+` lines land
                 gone = _dropped(tezgah_lessons.entries(minus.get(path) or ""), new)
             else:
                 new, gone = after, _dropped(lines, after)
@@ -1337,8 +1342,14 @@ def lesson_taint(tool, inp, cwd, session_id, agent=None, shell_body=None):
             gone = _dropped(lines, new)
         fields = dict(target=path, agent=agent, workspace=root_for(cwd),
                       id=call_id(tool, inp))
-        for line in gone:
+        # a rewrite of the whole ledger would otherwise push the refusal rules'
+        # fixed tails (the last verify, prior calls) out of their window
+        for line in gone[:LESSON_CHANGED_MAX]:
             note(session_id, "lesson_changed", line, key=key_of(line), **fields)
+        if len(gone) > LESSON_CHANGED_MAX:
+            rest = len(gone) - LESSON_CHANGED_MAX
+            note(session_id, "lesson_changed", "%d more lines changed" % rest,
+                 items=rest, **fields)
         if not source:
             continue
         keys = [k for k in dict.fromkeys(map(key_of, tezgah_lessons.entries(

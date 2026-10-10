@@ -513,22 +513,24 @@ def match(rel, pattern):
     return re.fullmatch("".join(out), rel) is not None
 
 
-def relative(path, cwd, base):
+def relative(path, cwd, base, worktrees=False):
     """The realpath of `path` (absolute or relative to cwd) as a posix path
     relative to repo_root(cwd, base), or None when it resolves outside that root
     (so an outside write can never be inside the allowlist).
 
-    A linked worktree of the same repository is that repository, not outside it:
-    the contract gives every writing slice its own worktree, and an allowlist that
-    could not name `hooks/a.py` there refused the workflow it prescribes (three
-    slices of plan 077 hit it). A path under such a worktree answers relative to
-    the worktree's top. The test is fork-free (`tezgah_paths.worktree_top` reads
-    the `.git` pointer), and only a path already outside the root pays for it; a
-    worktree of another repository is still outside."""
+    With `worktrees`, a linked worktree of the same repository is that
+    repository, not outside it: the contract gives every writing slice its own
+    worktree, and an allowlist that could not name `hooks/a.py` there refused the
+    workflow it prescribes (three slices of plan 077 hit it). A path under such a
+    worktree answers relative to the worktree's top. Only the allowlist asks for
+    this (`hooks/tezgah_gate.py::task_reason`); the record and workspace rules
+    keep the main-root reading, so their decisions do not move. The test is
+    fork-free and only a path already outside the root pays for it; a worktree of
+    another repository is still outside."""
     root = repo_root(cwd, base)
     real = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
     if real == root or not _under(real, root):
-        top = _sibling_worktree(real, root)
+        top = _sibling_worktree(real, root) if worktrees else None
         if top is None or real == top:
             # the root itself is not a path inside the root: an allowlist is
             # about files under it, so this is a None like any other, and every
@@ -540,13 +542,28 @@ def relative(path, cwd, base):
 
 def _sibling_worktree(real, root):
     """The top of the linked worktree holding `real` when it is a checkout of the
-    repository `root` is a checkout of, else None."""
+    repository `root` is a checkout of, else None.
+
+    The worktree's admin directory has to point back at it (`<admin>/gitdir` is
+    `<top>/.git`, which git always writes): a `.git` file planted anywhere that
+    names a real admin directory would otherwise make any directory a sibling."""
     from tezgah_paths import linked_main, worktree_top
     top = worktree_top(real)
     if top is None:
         return None
     main = linked_main(root) or root
-    return top if linked_main(top) == os.path.realpath(main) else None
+    if linked_main(top) != os.path.realpath(main):
+        return None
+    try:
+        with open(os.path.join(top, ".git"), encoding="utf-8") as fh:
+            admin = fh.readline().strip()[len("gitdir:"):].strip()
+        admin = os.path.normpath(os.path.join(top, admin))
+        with open(os.path.join(admin, "gitdir"), encoding="utf-8") as fh:
+            back = fh.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    back = os.path.normpath(os.path.join(admin, back))
+    return top if os.path.realpath(back) == os.path.join(top, ".git") else None
 
 
 def set_fields(path, **fields):

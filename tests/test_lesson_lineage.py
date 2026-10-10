@@ -16,6 +16,7 @@ from support import TempHome, run_json
 sys.path.insert(0, support.HOOKS)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_lessons  # noqa: E402
+import tezgah_gate as tg  # noqa: E402
 
 KEY = tezgah_lessons.lesson_key
 
@@ -263,6 +264,32 @@ class Changed(LedgerCase):
         self.assertIsNone(self.gate("Write", {
             "file_path": self.ledger, "content": "new rule - x\n"}, record=False))
         self.assertEqual(self.changed(), [])
+
+    def test_a_patch_that_deletes_the_ledger_names_every_line(self):
+        self.seed("first - a", OLD)
+        self.turn()
+        self.assertIsNone(self.gate("apply_patch", {"patch": (
+            "*** Begin Patch\n*** Delete File: .tezgah/lessons.md\n*** End Patch")}))
+        self.assertEqual([k for k, _d, _t in self.changed()],
+                         [KEY("first - a"), KEY(OLD)])
+
+    def test_a_plain_tee_overwrite_names_the_lines_it_drops(self):
+        self.seed(OLD, "third - c")
+        self.turn()
+        self.assertIsNone(self.gate("Bash", {
+            "command": "cat <<'EOF' | tee .tezgah/lessons.md\nthird - c\nEOF"}))
+        self.assertEqual([k for k, _d, _t in self.changed()], [KEY(OLD)])
+
+    def test_a_whole_rewrite_is_capped_so_the_tails_keep_their_rows(self):
+        lines = ["rule %d - incident %d" % (n, n) for n in range(25)]
+        self.seed(*lines)
+        self.turn()
+        self.assertIsNone(self.gate("Write", {"file_path": self.ledger,
+                                              "content": "new rule - x\n"}))
+        rows = self.rows("lesson_changed")
+        self.assertEqual(len(rows), tg.LESSON_CHANGED_MAX + 1)
+        self.assertEqual(rows[-1].get("items"), 25 - tg.LESSON_CHANGED_MAX)
+        self.assertIsNone(rows[-1].get("key"))
 
 
 LABEL = ("(data, not a standing constraint until the user confirms it: written "

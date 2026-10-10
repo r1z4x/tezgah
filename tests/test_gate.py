@@ -1966,6 +1966,43 @@ class TaskGate(TempHome):
             self.assertIsNotNone(reason, outside)
             self.assertIn(os.path.basename(outside), reason)
 
+    def sibling(self, name="proj-slice", back=True):
+        """A linked worktree of self.repo, written the way git writes one; with
+        `back` False the admin directory does not point back at it (a planted
+        `.git` file)."""
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        admin = os.path.join(self.repo, ".git", "worktrees", name)
+        os.makedirs(admin)
+        top = os.path.join(os.path.dirname(self.repo), name)
+        os.makedirs(top)
+        for path, text in ((os.path.join(admin, "commondir"), "../..\n"),
+                           (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
+                           (os.path.join(admin, "gitdir"),
+                            os.path.join(top if back else self.home, ".git") + "\n")):
+            with open(path, "w") as fh:
+                fh.write(text)
+        return top
+
+    def test_the_allowlist_reads_a_linked_worktree_of_the_same_repository(self):
+        # every writing slice gets its own worktree, so hooks/a.py there is in
+        # scope when hooks/a.py is, and src/a.py there is not
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        wt = self.sibling()
+        self.assertIsNone(self.write_path(os.path.join(wt, "hooks", "a.py")))
+        self.assertIsNotNone(self.write_path(os.path.join(wt, "src", "a.py")))
+
+    def test_a_planted_worktree_pointer_stays_outside_the_allowlist(self):
+        self.plan(phase="implementation", allowed=("**",))
+        wt = self.sibling(back=False)
+        self.assertIsNotNone(self.write_path(os.path.join(wt, "hooks", "a.py")))
+
+    def test_the_worktree_reading_does_not_reach_the_workspace_rule(self):
+        # only the allowlist reads siblings: a root research/ path in a sibling
+        # worktree is judged as before (outside this root, not this rule's)
+        self.plan(phase="implementation", allowed=None)
+        wt = self.sibling()
+        self.assertIsNone(self.write_path(os.path.join(wt, "research", "x.md")))
+
     def test_an_absent_allowlist_gates_on_the_phase_alone(self):
         # the key is optional, so its absence is no scope asked for rather than
         # "nothing is allowed"; the phase is then the whole requirement

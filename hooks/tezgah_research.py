@@ -3414,7 +3414,9 @@ def _check_standards(repo, slug, base, errors, warnings, strict, git):
 # A protocol that states its repeats: `k: 3`, `repeats = 5`, `repeat: 2`.
 PROTOCOL_REPEATS = re.compile(r"(?i)\b(?:k|repeats?)\s*[:=]\s*(\d+)")
 # A number standing alone in a tolerance sentence; the 95 of `p95` is a name.
-TOLERANCE_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?")
+# `spread` is in the tolerance's own unit, so a percentage, whose base the band
+# does not carry, is not compared: "within 5%" against spread 0.06 is no finding.
+TOLERANCE_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\d.]*\s*%)")
 
 
 def _count(value):
