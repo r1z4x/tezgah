@@ -39,7 +39,7 @@ of a product nobody can observe is a hypothesis, and it says so.
 
 | Axis | The question | Standard | The hard rule |
 |---|---|---|---|
-| Value (PM) | is it worth building? | HEART and its Goals -> Signals -> Metrics process (Rodden, Hutchinson, Fu, CHI 2010); Opportunity Solution Tree with the opportunity score (Torres; Olsen) | a metric with no goal above it is dropped; raw counts are refused; an opportunity is a need; three solutions compared against a pre-stated criterion |
+| Value (PM) | is it worth building? | HEART and its Goals -> Signals -> Metrics process (Rodden, Hutchinson, Fu, CHI 2010); Opportunity Solution Tree with the opportunity score (Torres; Olsen) | a metric with no goal above it is dropped; raw counts are refused; an opportunity is a need; solutions are compared under `decisions/` when the user chooses between them |
 | Usability (UX) | can a person actually use it? | Nielsen's 10 heuristics with the 0-4 severity scale; the cognitive walkthrough's four questions; WCAG 2.2 AA, and the W3C WCAG2Mobile note for native apps; Apple HIG or Material 3 for platform feel | a UI claim is read from the running app through `analyze-app` - down to component x state, never inferred from source - and the rendered screen is read, not only the tree; severity is frequency x impact x persistence; each finding says whether it is a provable failure (a WCAG criterion) or a judgement, and how many passes produced it |
 | Feasibility (PE) | does it do what it says? | intended vs implemented | a claim is a cited `path:line` or graph symbol; a doc-vs-code gap is a finding only when **both** sides are cited; when the ask is one feature, the layer matrices decide it |
 | Competition | where does it stand, and where can it lead? | a teardown (architecture, features, process, cost/performance, strategic meaning) with the comparison basis stated **before** comparing; review mining (categorise themes, sentiment per theme, compare to us, name gaps) | every competitor fact carries its artifact and the date it was read; a cost or effort number is a range with its assumptions |
@@ -47,6 +47,29 @@ of a product nobody can observe is a hypothesis, and it says so.
 
 Calibrate to stage before prescribing: telling a pre-launch prototype to fix its
 dependency graph, or a scaling product to "find product-market fit", is malpractice.
+
+## Metrics
+
+A metric is chosen, not collected. Name one North Star - the value users get, an
+outcome nobody moves directly - and the few input metrics believed to drive it, as
+a tree whose every edge is a hypothesis to test, not a fact (Amplitude, *The North
+Star Playbook*). Each metric in the tree is one record:
+
+| Field | What goes in it |
+|---|---|
+| goal | the HEART goal it traces to; no goal, no metric |
+| signal | the behaviour or attitude that shows the goal moving |
+| definition | numerator / denominator: a count becomes a ratio, a percentage or a per-user average (HEART) |
+| window | the period it is computed over |
+| baseline | what it is compared against: a target, the previous period or a benchmark |
+| direction | which way is good |
+| leading/lagging | whether it predicts the outcome or reports it |
+| logged | yes / no / unknown: is the signal recorded today? |
+| where the data lives | the table, event, export or file it is computed from |
+
+A metric marked `logged: no` is instrumented before anything is promised on it, and
+`unknown` is the gate's first finding. A dashboard ask takes this tree as its input
+and then `design-contract`'s `data-views.md` for the screen.
 
 ## When the ask is one feature: run the coherence pass first
 
@@ -243,17 +266,20 @@ Run it as a research line, not a monologue: `tezgah-research init <slug>
 --question "..."` under the repository's `.tezgah/research/`, then `check` before
 reporting. Declare the line's `deliverable` in `state.json` as `{"kind":
 "analysis", "path": "<where the analysis lands>", "ask": [<the ask's items>]}`, so
-`check` holds it to three compared solutions and to answering every ask item. On
-top of what `check` already enforces, the analysis contains:
+`check` holds it to answering every ask item. An analysis answers its question
+once - `check` asks no variants of it - and a design or plan the user chooses
+between goes under `decisions/` with at least three variants. On top of what
+`check` already enforces, the analysis contains:
 
 1. Measurement readiness: what is observable today, and what is not.
 2. The objective: one measurable outcome and its Goal -> Signal -> Metric chain.
-3. Opportunities with their evidence class; the candidate solutions recorded as
-   `decisions/<id>/` (the research skill's "Variants"): at least three produced
-   solutions plus the status quo as V0, the criterion set committed in
-   `criteria.json` before any solution is scored, every cell appended with
-   `tezgah-research compare` (a judged cell with two raters), and `decision.md`
-   naming the chosen solution, what ruled out each other one and the `flip:`.
+3. Opportunities with their evidence class. When the user is to choose between
+   solutions, they are recorded as `decisions/<id>/` (the research skill's
+   "Variants"): at least three produced solutions plus the status quo as V0, the
+   criterion set committed in `criteria.json` before any solution is scored, every
+   cell appended with `tezgah-research compare` (a judged cell with two raters), and
+   `decision.md` naming the chosen solution, what ruled out each other one and the
+   `flip:`. Otherwise the analysis names the recommended one and why.
 4. Risks by class - value, usability, viability, feasibility - each with the
    cheapest test that would falsify it.
 5. The usability section: scope (task, section, device, breakpoints), the heuristics
@@ -284,6 +310,16 @@ named in the artifact with the reason it was not - an element inside a section, 
 only a section: a state matrix left out silently, an image test never run, an
 axe-core sweep dropped or a scorecard dimension missing all read the same way.
 
+## The product ledger rows
+
+Every finding the axes produce is also a product ledger row. A source read or
+quoted is an `O` with its evidence class. The need it shows is an `I`. A risk from
+section 4 is an `A` with its `kind` (a value risk is `desirability`). A metric from section 2 is an `M` with its full
+record. Each triage row is a `D`: its metric is the `M`, its threshold is
+`threshold`, and its timeframe ends on `observe_after`. Write each one with
+`tezgah-research record O|I|A|M|D`, and cite it in the analysis as `product:<id>`.
+The `product-flow` skill gives the order of the steps.
+
 ## The scorecard
 
 Score each dimension 1-5 and report the mean with its anchors; the anchors are the
@@ -299,8 +335,8 @@ any dimension at 1, reject.
 | Depth | does every screen reach component x state, and is anything measured rather than eyeballed? |
 | Image evidence | were the rendered screens actually read - the blur and grayscale tests, the breakpoints, dark mode - or only the tree? |
 | Axis coverage | are all five axes addressed or explicitly excluded? |
-| Metric integrity | does the metric trace to a goal, and is it a ratio with a definition? |
-| Solution plurality | were at least three solutions compared against a pre-stated criterion? |
+| Metric integrity | does every metric trace to a goal and carry its full record - a ratio with its definition, window, baseline and `logged` answer? |
+| Solution plurality | when the user chooses between solutions, were at least three compared under `decisions/` against criteria committed first? |
 | Feasibility grounding | is the implementation claim a cited code path, not an inference? |
 | Decision quality | does every feature end keep / fix / cut / bet, with a criterion and an owner? |
 | Scope calibration | does the analysis say what it did not look at, and what would flip it? |
@@ -333,6 +369,8 @@ Read the one that matches the axis; never cite these from memory.
 - `phuryn/pm-skills` (MIT) - `pm-data-analytics` (cohort, A/B), `pm-ai-shipping`
   (security and performance audits, test-coverage map), the rest of discovery.
 - HEART, `https://research.google.com/pubs/archive/36299.pdf` (CHI 2010).
+- The North Star and its inputs, leading and lagging: Amplitude, *The North Star
+  Playbook*, `https://amplitude.com/books/north-star/about-the-north-star-framework.md`.
 - Nielsen's 10 heuristics and the severity scale,
   `https://www.nngroup.com/articles/ten-usability-heuristics/` and
   `https://www.nngroup.com/articles/how-to-rate-the-severity-of-usability-problems/`.

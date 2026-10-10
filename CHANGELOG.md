@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A data, metric or dashboard ask reaches the product rule.** "Bu veriye uygun bir metric dashboard tasarla" armed no rule before. A dashboard, chart or metric-choice ask now arms `product`, judged per clause. A code marker in the same clause, such as a metrics endpoint, keeps it out.
+- **product-analysis chooses metrics.** It names a North Star and its input metrics. Each metric gets one record: goal, signal, definition, window, baseline and more.
+- **Dashboard rules in design-contract.** The new `data-views.md` picks the chart for the question. It also sets the context, the window and the widget states.
+- **feature-audit forward mode.** A feature not built yet gets its five matrices in `spec.md`. The audit after the build compares against it.
+- **analyze-app writes the design measurement.** Nothing produced `measurement.json` before. The skill now gives its shape and the snippet that reads it.
+- **The local skill search reaches design-library's entries.** The search now reads the entries a skill's `INDEX.md` lists, one row each.
+- **The product ledger.** `tezgah-research record` appends observation, insight, assumption, metric, decision and re-measure rows to `.tezgah/product/ledger.jsonl`. One shared check refuses a bad row in the writer and in `check` alike. Only the main checkout writes the product ledger, and a worktree reads it. Plans, analyses and the design contract cite a row as `product:D4`. `tezgah-research due` lists decisions past their re-measure date, and the session-start note names up to three of them.
+- **The product-flow skill and `tezgah-research next`.** A new product capability now runs in a fixed order, from research to re-measure. `tezgah-research next --topic <t>` prints each step's status from the topic's product ledger rows. It then names the first missing step's skill and command. The `product-flow` skill runs `next` and follows that step. The steps live once, in `hooks/tezgah_product.py`.
+
 ### Changed
 
 - **The session runs the plan lifecycle itself.** The gate refused a session's
@@ -25,6 +36,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   parameter the user did not set, such as a spend ceiling, and states it.
   `consult` on exit 4/5 records the first member of another model family
   itself instead of asking the user to choose.
+
+### Fixed
+
+- **product-analysis no longer says `check` demands three compared solutions.** An analysis answers once. A choice between solutions goes under `decisions/`.
 
 ## [1.5.1] - 2026-10-09
 

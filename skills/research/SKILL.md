@@ -578,6 +578,16 @@ palette rather than the default cycle; and size for the venue's column width whe
 the figure is headed into a paper. The library's `index/6-write.md` entries carry
 the full rules when a line reaches that stage.
 
+## A source that answers a product ask
+
+When a line's source answers a product question, the finding also goes into the
+product ledger. The source becomes an `O` row with `class: external`, its URL or
+literature path as `source` and the passage as `quote`. What it shows about the
+user's need becomes an `I` row whose `from` names that `O`. Write each with
+`tezgah-research record O` and `tezgah-research record I`, one JSON object on
+stdin. A research claim the row rests on goes in its `claims` list as
+`<slug>:<claim id>`. The `product-flow` skill gives the order of the steps.
+
 ## Provenance, at the end of the session
 
 Research is a sequence of decisions, and the next session does not remember them.

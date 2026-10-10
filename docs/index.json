@@ -267,7 +267,8 @@
         "what do init, claim, migrate and source write",
         "how does a session learn that a research line is broken",
         "what lights the research mark and how is the layer switched off",
-        "why may a new research line not be opened while another is unfinished"
+        "why may a new research line not be opened while another is unfinished",
+        "what does the product ledger hold, who writes it, and when is a decision due for re-measure"
       ],
       "answers_tr": [
         "bir araştırma hattı nerede yaşar ve ne tutar",
@@ -275,11 +276,13 @@
         "init, claim, migrate ve source ne yazar",
         "bir oturum bir araştırma hattının bozuk olduğunu nasıl öğrenir",
         "araştırma işaretini ne yakar ve katman nasıl kapatılır",
-        "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz"
+        "başka biri bitmemişken neden yeni bir araştırma hattı açılamaz",
+        "ürün kayıt defteri ne tutar, ona kim yazar ve bir karar ne zaman yeniden ölçülmeli"
       ],
       "sources": [
         "hooks/tezgah_research.py",
         "bin/tezgah-research",
+        "hooks/tezgah_product.py",
         "hooks/tezgah_policy.py",
         "hooks/tezgah_context.py",
         "skills/research/SKILL.md",
@@ -294,12 +297,18 @@
       "answers": [
         "what is a skill here and how does it reach a host",
         "which skills ship and what does each do",
-        "how do I add a skill without breaking the router or the install report"
+        "how do I add a skill without breaking the router or the install report",
+        "which skill designs a metric dashboard and where do its data-view rules live",
+        "does the local skill search reach design-library's nested entries",
+        "which skill carries a new metric dashboard or feature from research to re-measure"
       ],
       "answers_tr": [
         "burada beceri nedir ve bir hosta nasıl ulaşır",
         "hangi beceriler gelir ve her biri ne yapar",
-        "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim"
+        "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim",
+        "metrik dashboard tasarımını hangi beceri yapar ve veri görünümü kuralları nerede",
+        "yerel beceri araması design-library'nin iç girdilerine ulaşır mı",
+        "yeni bir metrik dashboard'u veya özelliği araştırmadan yeniden ölçüme hangi beceri taşır"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -309,7 +318,10 @@
         "commands/",
         "NOTICE",
         "tests/test_setup.py",
-        "tests/test_skills.py"
+        "tests/test_skills.py",
+        "hooks/tezgah_skill_pick.py",
+        "skills/design-contract/data-views.md",
+        "skills/product-flow/SKILL.md"
       ]
     },
     {
@@ -320,12 +332,14 @@
       "answers": [
         "what does a feature-level audit cover that a screen review misses",
         "what are the five matrices and the capability-change proposal",
-        "how is the feature-audit skill reached and what evidence backs it"
+        "how is the feature-audit skill reached and what evidence backs it",
+        "how do I specify a feature before it is built and audit it against that spec"
       ],
       "answers_tr": [
         "özellik düzeyinde bir denetim, ekran incelemesinin kaçırdığı neyi kapsar",
         "beş matris ve yetenek değişikliği önerisi nedir",
-        "özellik denetimi becerisine nasıl ulaşılır ve onu hangi kanıt destekler"
+        "özellik denetimi becerisine nasıl ulaşılır ve onu hangi kanıt destekler",
+        "bir özelliği yapılmadan önce nasıl tanımlarım ve yapıldıktan sonra o tanıma göre nasıl denetlerim"
       ],
       "sources": [
         "skills/feature-audit/SKILL.md",

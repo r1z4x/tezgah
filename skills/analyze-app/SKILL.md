@@ -136,6 +136,65 @@ Screenshots, traces and tree dumps go to the app artifact directory
 (`PLAYWRIGHT_MCP_OUTPUT_DIR`, default `~/.cache/tezgah/apps`). Return the file
 path; keep image tokens out of the context.
 
+## Measurement for design-contract
+
+`tezgah-design check` judges a measurement, and this loop is what writes it:
+`.tezgah/design/measurement.json`, one entry per component the repository's
+`.tezgah/design-contract.md` lists. Read the computed styles with `browser_evaluate`,
+one selector per component:
+
+```js
+() => {
+  const PROPS = ["font-size", "padding", "gap", "color", "background-color",
+                 "width", "height"];
+  const LIST = [["Button", "interactive", "button.primary"],
+                ["RevenueTile", "data", "[data-widget=revenue]"]];
+  return {components: LIST.map(([name, kind, selector]) => {
+    const style = getComputedStyle(document.querySelector(selector));
+    return {name, kind, states: [],
+            styles: Object.fromEntries(PROPS.map(p => [p, style.getPropertyValue(p)]))};
+  })};
+}
+```
+
+For a focusable component, read `outline-style`, `outline-width` and `box-shadow`
+only after focusing it from the keyboard (`browser_press_key` Tab until it has
+focus, so `:focus-visible` applies): at rest they are `none`, and the
+`focus-visible` rule reads a resting `none` as a missing focus ring. For an animated
+component add `transition-duration`, which the `reduced-motion` rule reads.
+`states` is filled from what was observed, never from source: a computed
+style shows only the state the page is in, so each state name goes in after the
+component was driven or routed into it and read again. The file is this shape - an
+object with a `components` list, or the bare list:
+
+```json
+{"components": [
+  {"name": "Button", "kind": "interactive",
+   "states": ["default", "hover", "focus", "active", "disabled", "loading",
+              "error"],
+   "styles": {"font-size": "16px", "padding": "8px 12px", "gap": "8px",
+              "color": "rgb(17, 17, 17)", "background-color": "rgb(255, 255, 255)",
+              "width": "120px", "height": "40px"}},
+  {"name": "RevenueTile", "kind": "data",
+   "states": ["empty", "loading", "skeleton", "error", "offline", "partial",
+              "long-text", "permission-denied"],
+   "styles": {"font-size": "14px", "padding": "16px",
+              "color": "rgb(17, 17, 17)", "background-color": "rgb(255, 255, 255)"}}]}
+```
+
+`kind` is `interactive` or `data`, and it decides which half of the contract's state
+set the component owes; a component without one is unjudged.
+
+## Rows for the product ledger
+
+What the running app showed is a product ledger `O` row with `class: ui-observed`.
+Its `source` is the screenshot or tree dump path, and its `quote` is what was seen.
+A measurement taken after a decision's `observe_after` date becomes an `R` row:
+`tezgah-research record R` with `decision` (the `D` id), `verdict` (`met`,
+`missed` or `unobservable`), `value`, `class: ui-observed` and the measurement
+path as `source`. `tezgah-research due` lists the decisions waiting for one. The
+`product-flow` skill gives the order of the steps.
+
 ## Looking at the screen
 
 The tree answers structure; the image answers hierarchy, rhythm, colour and feel.

@@ -228,6 +228,7 @@ through its seal.
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
+| `tezgah-research commit --product "<message>"` | stages and commits only `product/` in `.tezgah`'s private repository, the history the product ledger's append-only rule reads (`cmd_commit`, `bin/tezgah-research::cmd_commit`) | 0, 1 no `product/` directory, nothing staged, not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal alone (`done_seal`, `hooks/tezgah_research.py::done_seal`), naming it only when the seal fails or its `state.json` or seal cannot be read, then prints `research: <n> done line(s): <s> checked by their seal, <u> unsealed (not checked); ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal read fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`); a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug` | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
@@ -238,13 +239,196 @@ through its seal.
 | `tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "..."] [--scope real\|fixture\|derived] [--fixture "<what was generated>"]` | keeps the receipt: runs `orx logs <runId>`, writes `raw/<runId>.log`, appends the results row `{"source": "orx:<runId>", ...}` and the scope and fixture description the filer states (`source_run`, `hooks/tezgah_research.py::source_run`). A `--scope fixture` filed without `--fixture` still writes the row and prints the field it still owes, so the tool is never the thing that makes its own checker warn silently; a given `--fixture` that is empty is misuse | 0, 1 nothing filed, 2 without orx |
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md`, and seals it (`close_line`) | 0, 1 unreadable state, 2 misuse |
+| `tezgah-research verdict <slug> <id> met\|not-met\|unanswerable --evidence "<ref>"` | records one success criterion's verdict and the evidence it rests on in the line's `state.json`, or refuses it with one `FAIL verdict:` line per problem (`verdict_problems`, `hooks/tezgah_research.py::verdict_problems`) | 0, 1 refused or unreadable state, 2 misuse |
+| `tezgah-research conclude <slug>` | concludes a line once every success criterion carries a verdict, seals it and moves it to `done/` (`conclude_line`, `hooks/tezgah_research.py::conclude_line`) | 0, 1 refused, 2 misuse |
+| `tezgah-research migrate-layout` | moves flat `research/<slug>` directories into `open/` or `done/` by each line's state, and is idempotent (`migrate_layout`, `hooks/tezgah_research.py::migrate_layout`) | 0, 2 misuse |
 | `tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed: plainly, as `conclude` would, when every experiment's order still checks; with `--history-lost`, with that verdict for every experiment whose order the lost history left undecidable. Refuses a line with a real order violation, a plain seal on any order finding, and a `history-lost` seal with nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
 | `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
+| `tezgah-research record <type>` | reads one product ledger row of type `O`, `I`, `A`, `M`, `D` or `R` from stdin, assigns its id and date, and appends it under the lock, printing `recorded <id>`. It refuses a row that brings its own `id` or `date`. It refuses a row with one `FAIL product:` line per problem, and refuses in a linked worktree with the main checkout's path (`append_row`, `hooks/tezgah_product.py::append_row`) | 0, 1 refused, 2 misuse |
+| `tezgah-research due [--json]` | the product ledger's due re-measures: each `D` row past its `observe_after` date with no `R`, oldest first (`due`, `hooks/tezgah_product.py::due`) | 0 |
+| `tezgah-research next --topic <t> [--flow f] [--json]` | prints every step of a product flow with its status from the topic's product ledger rows, then the first missing or due step's skill and command; `--flow` picks `metric-dashboard` (the default) or `feature`, and `--json` prints the same steps as data (`next_steps`, `hooks/tezgah_product.py::next_steps`) | 0, 2 unknown flow, no `--topic` or a topic with no rows |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
 checks (`misuse`, `bin/tezgah-research::misuse`). `check` asks nothing at all - no
 network, no model - so its answer is reproducible on a machine with no
 credential; only `--orx` asks the one question that leaves the machine.
+
+## The product ledger
+
+The product ledger holds the evidence chain behind a product decision, from what
+a user said to whether the decision held (ADR 022). It is one file,
+`.tezgah/product/ledger.jsonl`, tracked in `.tezgah`'s private repository. The
+code lives in `hooks/tezgah_product.py`. The word "ledger" alone already names
+the harness evidence ledger and the lessons ledger, so this page always says
+"product ledger".
+
+### The rows
+
+Each row is one JSON object on one line. Every row carries `type`, a kebab-case
+`topic` of at most 64 characters and `from`, the ids it rests on. Each id in `from` must exist and have a
+parent type the table allows. An optional `claims` list cites research claims as
+`<slug>:<claim id>`, and each one must resolve to that line's `claims.jsonl`.
+
+| Type | Row | `from` may name | Its own fields |
+|---|---|---|---|
+| `O` | observation | none | `class` (`user-verbatim`, `behaviour`, `ui-observed`, `code`, `external`), `source`, `quote` (at most 500 characters) |
+| `I` | insight or need | `O` | `statement`, `confidence` (`high`, `medium`, `low`), `downgrade` (`limitations`, `inconsistency`, `indirectness`, `imprecision`, `bias`), required unless the confidence is `high` |
+| `A` | assumption | `I` | `kind` (`desirability`, `viability`, `feasibility`, `usability`), `statement`, `importance` (`high`, `low`), `evidence` (`none`, `weak`, `strong`) |
+| `M` | metric | `I` | `goal`, `signal`, `definition`, `window`, `baseline`, `direction` (`up`, `down`), `leading` (boolean), `logged` (`yes`, `no`, `unknown`), `data` (where the data lives) |
+| `D` | decision | `I`, `A` or `M` | `statement`, `outcome` (`keep`, `fix`, `cut`, `bet`), `metric` (an `M` id), `threshold`, `observe_after` (`YYYY-MM-DD`, not before the row's `date`), `reopen` |
+| `R` | re-measure | `D` | `decision` (a `D` id), `verdict` (`met`, `missed`, `unobservable`), and `value`, `class` and `source` unless the verdict is `unobservable` |
+
+The writer assigns `id` and `date`. An id is the type letter plus one more than
+the highest number of that type, such as `D4`. The writer refuses a row that
+brings its own `id` or `date` (`hooks/tezgah_product.py::append_row`).
+
+### One writer, one shared check
+
+`tezgah-research record <type>` reads one JSON object on stdin and hands it to
+`append_row` (`hooks/tezgah_product.py::append_row`). The writer takes the lock
+on the file descriptor, reads the rows through it, assigns the id and appends
+(`hooks/tezgah_research.py::_locked`). `row_problems`
+(`hooks/tezgah_product.py::row_problems`) decides what the writer refuses.
+`check` calls the same function, so the writer and the checker always agree on a
+row's shape. A refused row stays out of the file, and the command exits 1 with
+one `FAIL product:` line per problem.
+
+Only the main checkout writes the product ledger. `main_checkout`
+(`hooks/tezgah_product.py::main_checkout`) finds it without forking git. It reads
+the `.git` pointer file of a linked worktree
+(`hooks/tezgah_paths.py::linked_main`). In any other checkout it returns the
+checkout itself. In a linked worktree, `record` exits 1 and names the main
+checkout. `check` and the citation resolver in a worktree read the main
+checkout's product ledger through `ledger_path`
+(`hooks/tezgah_product.py::ledger_path`). Ids therefore never collide across
+checkouts.
+
+### Committing the rows
+
+`tezgah-research commit --product "<message>"` stages only `product/` in the
+private repository and commits it (`bin/tezgah-research::cmd_commit`). It exits
+1 when there is no `product/` directory. It also exits 1 when it has nothing to stage.
+That commit is the history the append-only rule reads. A committed row that
+later changes or disappears makes `check` fail, in the working copy and in a
+later commit alike. Deleting the committed ledger file is an error too. The rule
+is `_check_append_only` (`hooks/tezgah_research.py::_check_append_only`), with a
+message worded for the product ledger.
+
+### Citing a row
+
+A plan, an analysis or the design contract cites a row as `product:<id>`, for
+example `product:D4`. `consumer_tokens` (`hooks/tezgah_product.py::consumer_tokens`)
+reads three places: `.tezgah/analysis/**/*.md`, `.tezgah/plans/**/*.md` and the
+`"decision"` field of each component in `.tezgah/design-contract.md`'s JSON
+block. A token whose id has no row makes `check` fail, naming the file and the
+line. A bare `D4` never counts, because those directories already hold hundreds
+of bare `D<n>` tokens that mean something else (`hooks/tezgah_product.py::TOKEN`).
+
+### Errors and warnings
+
+`check_ledger` (`hooks/tezgah_product.py::check_ledger`) returns errors and
+warnings. `check` adds them as one extra report key, `product`. It runs the
+product checks only with no slug. It runs them only when the product ledger
+exists, its history exists, or a `product:` citation exists
+(`hooks/tezgah_product.py::in_use`). `check <slug>` answers for that line alone.
+A repository with no product ledger and no `product:` citation prints nothing new. The
+`research: N line(s) ok` count still counts research lines only.
+
+Errors cover the shape of a row. A missing field, an enum value outside its
+list, or a `from` id that is missing or of the wrong type makes `check` fail. So
+does an unresolved `claims` entry, a committed row that changed, a deleted
+committed ledger file or an unresolved `product:` token.
+
+Behaviour stays a warning. ADR 019 asks a new rule for its own outcome evidence
+first, and plan 075 measures that outcome. Until then `check` warns about three
+things:
+
+- a `D` whose `observe_after` date has passed with no `R` for it
+- an `I` with an empty `from`
+- a `D` whose metric says `logged: no`, with no later `M` of the same signal
+  that says `logged: yes`
+
+`check --strict` turns these warnings into errors, as it does every other
+warning.
+
+### What is due, and the session note
+
+`tezgah-research due` lists every `D` row past its `observe_after` date with no
+`R` row whose `decision` names it (`hooks/tezgah_product.py::due`). Each entry
+shows the id, topic, metric, threshold, `observe_after` and days overdue, oldest
+first. `--json` prints the same list as JSON. It always exits 0, because it is a
+report.
+
+At session start and after a compaction, `context_for` adds a `product_due` part
+when at least one `D` is due (`hooks/tezgah_context.py::context_for`). It names
+at most three due rows, one line each:
+
+```
+Product: D4 (checkout-flow) is due for re-measure since 2026-10-01 - record its R with `tezgah-research record R`.
+and 2 more due (`tezgah-research due`)
+```
+
+The last line appears only when more than three rows are due. With nothing due
+the part costs 0 bytes. `research-off` silences it with the rest of the research
+note. A repository-provided `.tezgah` directory gets no note, because that
+directory came with the clone. The note prints only well-formed ids
+and topics. An id must match `SAFE_ID` (`hooks/tezgah_product.py::SAFE_ID`). A
+topic must match `SAFE_TOPIC` (`hooks/tezgah_product.py::SAFE_TOPIC`). A row that
+fails either is not named, only counted in the last line. `product_due` sits in `DROP_ORDER` right
+after `research_broken` (`hooks/tezgah_context.py::DROP_ORDER`), so the context
+budget can drop it.
+
+The note reaches every host whose session-start path calls
+`context_for("session_start")`. Claude and dsh do through
+`hooks/projects-auto-init.py`. Codex, Cursor and omp do through
+`hosts/codex/hook.py`, `hosts/cursor/hook.py` and `hosts/omp/hook.py`. opencode
+has no session-start hook. It asks the builder for `post_compact` text only when
+it compacts, and adds that text to the compaction context
+(`hosts/opencode/plugins/tezgah.js`). So opencode never shows the note at session
+start.
+
+### The next step of a product flow
+
+`tezgah-research next --topic <t>` tells the session which step of a product flow
+comes next. The steps live once, in `FLOWS` (`hooks/tezgah_product.py::FLOWS`).
+Each step names its `id`, the `skill` that runs it, what it `leaves` behind and
+the `command` that writes it. The `product-flow` skill lists no steps of its own.
+It runs `next` and follows the first missing step.
+
+Two flows exist. `metric-dashboard` is the default and has nine steps. `feature`
+drops the metrics and instrumentation steps, unless the topic already holds an
+`M` row. `--flow <f>` picks one.
+
+`next_steps` (`hooks/tezgah_product.py::next_steps`) computes each status from
+the topic's rows and the files they cite. Nothing stores a status. A step is
+`done`, `missing`, `due` or `n/a`:
+
+| Step | Done when |
+|---|---|
+| `research` | the topic has at least one `O` of class `external` and at least one `I` |
+| `metrics` | at least one `M` rests on an `I` |
+| `assumptions` | at least one `A` exists |
+| `decision` | a `D` names one of the topic's `M` rows as its `metric` |
+| `instrumentation` | every `M` a `D` names says `logged: yes`, else `missing` |
+| `forward-spec` | `.tezgah/analysis/<topic>/spec.md` exists and cites `product:<D>` |
+| `design` | a design-contract component carries `"decision": "product:<D>"` |
+| `build` | always `n/a`: the Stop UI rule and `tezgah-design check` own it |
+| `re-measure` | an `R` names the `D`. It reads `due` once the `D` passes `observe_after` with no `R` |
+
+The text output prints one line per step, then one `next:` line:
+
+```
+<n>. <id> [<status>] <skill> - <detail>
+next: <skill> - <command>
+```
+
+The `next:` line names the first `missing` or `due` step's skill and command.
+With no such step it reads `next: nothing left`. `--json` prints the same steps
+as a list of objects with `id`, `skill`, `status`, `detail` and `command`.
+
+`next` exits 0 when it prints the steps. It exits 2 for an unknown flow, a
+missing `--topic` or a topic with no rows. That message names `record`, the
+command that writes the topic's first row.
 
 ## The pair the order rule compares
 
@@ -832,6 +1016,8 @@ armed. It removes the rule, not just the mark - the diff is in `core_split`,
   component, the keys a prediction row names and the rules a row's outcome is
   attributed to.
 - `bin/tezgah-research` - the CLI, its subcommands and its exit codes.
+- `hooks/tezgah_product.py` - the product ledger: its row rules, the one writer,
+  the checker, the citation reader and the due list.
 - `hooks/tezgah_policy.py` - the `RESEARCH` paragraph a session is armed with.
 - `hooks/tezgah_context.py` - the prompt hint, the missing-orx note, the broken
   line note and the `research` mark.

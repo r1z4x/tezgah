@@ -16,6 +16,7 @@ import time
 
 import tezgah_embed
 import tezgah_orca
+import tezgah_product
 import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
@@ -1186,10 +1187,61 @@ def constraint_notice(cwd, session_id):
     return " ".join(render(subagent_core(core_for(cwd)[0])).split())
 
 
+# A data ask said by its output: a dashboard, a chart, a KPI, a metric to choose.
+# "Bu veriye uygun bir metric dashboard tasarla" armed nothing before plan 072.
+# These words are code words as often as product words (`dashboard.json`, a
+# metrics endpoint, a progress `gösterge`, the clipboard `pano`), and two rounds
+# of noun denylists inside the product regex kept missing the next code sense.
+# So the ask is judged per clause: it arms `product` only when no code marker -
+# a file name, an identifier, SQL, a build, test or runtime word - shares its
+# clause (decision 006: qualify the stem, never drop it).
+DATA_ASK = re.compile(
+    r"\b(?:(?:design|create|make|build|sketch|propose|need|want)\w* (?:\w+ ){0,4}"
+    r"(?:dashboard|charts?|visuali[sz]ation)|"
+    r"(?:metri[ck]s?|kpis?|data|sales|revenue|veri\w*|satış\w*|gelir\w*) "
+    r"(?:\w+ ){0,2}(?:dashboard|pano)|"
+    r"(?:dashboard|gösterge panel)\w* (?:\w+ ){0,4}(?:tasarla|oluştur|hazırla|"
+    r"yap|göster)\w*|"
+    r"(?:what|which) (?:\w+ ){0,3}(?:metri[ck]s|kpis|charts?) (?:\w+ ){0,3}"
+    r"(?:should|to|do|matter|would)|"
+    r"what should (?:\w+ ){0,3}dashboard show|"
+    r"(?:choose|pick|define|track|design)(?:s|ing)? (?:\w+ ){0,3}(?:metri[ck]s|kpis)|"
+    r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
+    r"(?:track|measure|use|watch)|success metrics?|"
+    r"(?:suggest|recommend)\w* (?:\w+ ){0,3}charts?|öner\w* (?:\w+ ){0,3}grafi\w*|"
+    r"hangi (?:metri[ck]\w*|kpi\w*|grafi\w*|göstergeleri?)|"
+    r"(?:metri[ck]\w*|kpi\w*) (?:\w+ ){0,3}(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
+    r"gösterge panel\w*|visuali[sz]\w* (?:\w+ ){0,3}(?:data|numbers|veri\w*)|"
+    r"data visuali[sz]ation|veri\w* (?:\w+ ){0,3}görselleştir\w*)")
+CODE_SENSE = re.compile(
+    r"\w\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\b|\b\w+_\w+\b|"
+    r"/metrics\b|\bselect\b.{0,200}?\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
+    r"query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|"
+    r"handlers?|structs?|endpoints?|exporters?|export\w*|servers?|librar\w*|"
+    r"packages?|modules?|database|index\w*|indeks\w*|"
+    r"middleware|debugger|data (?:structure|flow)s?|clipboard|spinner|threads?|"
+    r"commit|git|functions?|class|component|prop|hooks?|prometheus|grafana|"
+    r"kibana|statsd|opentelemetry|config\w*|provision\w*|api|routes?|snake_case|"
+    r"veri yapı\w*|fonksiyon\w*|bileşen\w*|modül\w*|dosya\w*|kopyala\w*|"
+    r"seçici\w*|yükleme|ilerleme|paket\w*)\b")
+
+
+def _data_ask(low):
+    """Does one clause of the prompt ask for a data view or a metric choice with
+    no code marker beside it? A clause ends at `!`, `?`, `;`, a newline or a full
+    stop followed by a space, so `dashboard.json` stays one clause."""
+    return any(DATA_ASK.search(clause) and not CODE_SENSE.search(clause)
+               for clause in re.split(r"[!?;\n]|\.\s", low))
+
+
 def classify_prompt(text):
-    """The conditional rule keys a prompt arms, from the shared hint table."""
+    """The conditional rule keys a prompt arms, from the shared hint table, plus
+    `product` for a data ask (DATA_ASK, gated per clause by CODE_SENSE)."""
     low = (text or "").lower()
-    return {key for key, pattern in PROMPT_HINTS if re.search(pattern, low)}
+    keys = {key for key, pattern in PROMPT_HINTS if re.search(pattern, low)}
+    if "product" not in keys and _data_ask(low):
+        keys.add("product")
+    return keys
 
 
 def prompt_text(payload):
@@ -1435,8 +1487,8 @@ DEFAULT_BUDGET = 13000
 # exists to prevent, not one it may cause.
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
-              "research_broken", "graph", "offnote", "orchestrate", "index",
-              "resume", "scratch", "task", "delta", "pointer")
+              "research_broken", "product_due", "graph", "offnote", "orchestrate",
+              "index", "resume", "scratch", "task", "delta", "pointer")
 
 
 def _first_item(text):
@@ -2235,6 +2287,34 @@ def context_for(event, cwd, payload=None, with_core=True):
                           "`%s check` before reporting a result"
                           % (line_slug, len(broken), err,
                              tool("tezgah-research"))))
+        # Every product-ledger decision whose re-measure date has passed with no
+        # R row: at most three named, the rest counted. A ledger that cannot be
+        # read costs the note, never the session. The ledger is the main
+        # checkout's, so a repository-provided workspace there or here injects
+        # nothing, and a row whose id or topic is not the writer's plain shape
+        # is counted, never printed: its text came from a file, not from tezgah.
+        try:
+            due = tezgah_product.due(root) if not off("research-off") else []
+        except (OSError, ValueError, RecursionError):
+            due = []
+        if due:
+            main = tezgah_product.main_checkout(root)
+            if provided() or (main != root and workspace_from_repo(main)):
+                due = []
+        if due:
+            safe = [d for d in due
+                    if isinstance(d.get("id"), str)
+                    and isinstance(d.get("topic"), str)
+                    and tezgah_product.SAFE_ID.fullmatch(d["id"])
+                    and tezgah_product.SAFE_TOPIC.fullmatch(d["topic"])]
+            lines = ["Product: %s (%s) is due for re-measure since %s - record "
+                     "its R with `%s record R`."
+                     % (d["id"], d["topic"], d["observe_after"],
+                        tool("tezgah-research")) for d in safe[:3]]
+            if len(due) > len(lines):
+                lines.append("and %d more due (`%s due`)"
+                             % (len(due) - len(lines), tool("tezgah-research")))
+            parts.append(("product_due", "\n".join(lines)))
     if disabled:
         parts.append(("offnote", off_note))
         if "orchestrate-off" in disabled:

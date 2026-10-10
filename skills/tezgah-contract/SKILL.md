@@ -838,7 +838,9 @@ recommendation, and every recommendation names the reference that already does i
 best, cited. Read the `product-analysis` skill for the artifact shape and the
 scorecard - the same 1-5 anchors as the `research` skill, so two sessions'
 analyses stay comparable - and `feature-audit` for the layer-coherence matrices
-when the ask is one feature. Kill switch: `research-off`.
+when the ask is one feature. A new capability built from data or an ask runs the
+`product-flow` skill: `tezgah-research next --topic <t>` is the step source, and
+its first missing or due step is the next one. Kill switch: `research-off`.
 
 
 

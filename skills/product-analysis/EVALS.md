@@ -1,6 +1,6 @@
 # Evals
 
-Four inputs a session can be handed where this skill could misfire, and what a
+Five inputs a session can be handed where this skill could misfire, and what a
 good answer has to contain. Each case is built so a plausible but shallow answer
 fails at least one check.
 
@@ -94,6 +94,28 @@ happen", and "A feature list where nothing is ever cut" is a named failure mode.
 **Why this case** - the depth ladder says "The state matrix is mandatory for
 every interactive component", and its state read says a static snapshot "shows
 only the state the route happens to be in".
+
+---
+
+## Case 5 - The trap: charts before metrics
+
+**Input**
+> Bu veriye uygun bir metric dashboard tasarla. (attached: `orders_2026.csv` -
+> order_id, user_id, created_at, status, amount, channel)
+
+**Must contain**
+- [ ] Names a North Star and its input metrics as a tree of hypotheses, before any chart
+- [ ] Gives every metric its record: goal, signal, definition (numerator / denominator), window, baseline, direction, leading/lagging, logged yes/no/unknown, and where the data lives (here, which CSV columns)
+- [ ] Turns counts into ratios and marks what the CSV cannot answer (no session or visit column, so no conversion rate) as `logged: no` or `unknown`
+- [ ] Routes the screen itself to `design-contract`'s `data-views.md`: dashboard type, chart per question, the widget states
+
+**Must not**
+- Propose a grid of charts over every column with no goal above each metric
+- Promise a metric the data does not log
+
+**Why this case** - the Metrics section says a metric "is chosen, not collected",
+lists the record fields, and says "A metric marked `logged: no` is instrumented
+before anything is promised on it". A CSV pulls toward charting its columns.
 
 ---
 
