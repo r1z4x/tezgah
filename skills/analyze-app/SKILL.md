@@ -185,15 +185,13 @@ object with a `components` list, or the bare list:
 `kind` is `interactive` or `data`, and it decides which half of the contract's state
 set the component owes; a component without one is unjudged.
 
-## Rows for the product ledger
+## The re-measure of a product flow
 
-What the running app showed is a product ledger `O` row with `class: ui-observed`.
-Its `source` is the screenshot or tree dump path, and its `quote` is what was seen.
-A measurement taken after a decision's `observe_after` date becomes an `R` row:
-`tezgah-research record R` with `decision` (the `D` id), `verdict` (`met`,
-`missed` or `unobservable`), `value`, `class: ui-observed` and the measurement
-path as `source`. `tezgah-research due` lists the decisions waiting for one. The
-`product-flow` skill gives the order of the steps.
+Under `product-flow`, what the running app showed after a decision's observe-after
+date is the topic's re-measure: write it under `## re-measure` in
+`.tezgah/analysis/<topic>/flow.md` with the decision it measures, the value, the
+verdict (met, missed or unobservable), the evidence class `ui-observed` and the
+screenshot or tree dump path. The `product-flow` skill gives the order of the steps.
 
 ## Looking at the screen
 

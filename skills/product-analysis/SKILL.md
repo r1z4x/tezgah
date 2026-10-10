@@ -310,15 +310,16 @@ named in the artifact with the reason it was not - an element inside a section, 
 only a section: a state matrix left out silently, an image test never run, an
 axe-core sweep dropped or a scorecard dimension missing all read the same way.
 
-## The product ledger rows
+## The product flow notes
 
-Every finding the axes produce is also a product ledger row. A source read or
-quoted is an `O` with its evidence class. The need it shows is an `I`. A risk from
-section 4 is an `A` with its `kind` (a value risk is `desirability`). A metric from section 2 is an `M` with its full
-record. Each triage row is a `D`: its metric is the `M`, its threshold is
-`threshold`, and its timeframe ends on `observe_after`. Write each one with
-`tezgah-research record O|I|A|M|D`, and cite it in the analysis as `product:<id>`.
-The `product-flow` skill gives the order of the steps.
+Under `product-flow`, the axes' findings land in `.tezgah/analysis/<topic>/flow.md`,
+one `## <step>` heading per step. A metric from section 2 goes under `## metrics`
+with its full record and the need it rests on. A risk from section 4 goes under
+`## assumptions` with its kind (a value risk is desirability). A triage row goes
+under `## decision` with its metric, threshold and `observe after: YYYY-MM-DD`,
+the date its timeframe ends. A metric the decision names that is not logged yet
+goes under `## instrumentation` with the event or query that will log it. The
+`product-flow` skill gives the order of the steps.
 
 ## The scorecard
 

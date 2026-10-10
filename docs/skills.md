@@ -209,13 +209,12 @@ The generated specialists load skills first (`hooks/tezgah_agents.py::SPECIALIST
 
 A new product capability runs as one chain: research -> `product-analysis` ->
 decision -> forward spec -> `design-contract` -> build -> re-measure. Each link
-leaves product ledger rows or a file that cites them as `product:<id>`. Research
-leaves `O` and `I` rows. The analysis leaves `M` and `A` rows, then the `D` row.
-The forward spec (`feature-audit`'s forward mode) and the design-contract
-component cite that `D`. The re-measure is an `R` row for it. One table in code,
-`FLOWS` (`hooks/tezgah_product.py::FLOWS`), holds the steps and their done rules.
-`product-flow` reads them through `tezgah-research next` and does not copy
-them (docs/research.md, "The product ledger").
+leaves a file under `.tezgah/analysis/<topic>/` that names the one before it.
+`flow.md` holds one `## <step>` note per step. The forward spec
+(`feature-audit`'s forward mode) is `spec.md`. `FLOWS`
+(`hooks/tezgah_product.py::FLOWS`) holds the steps and their done rules.
+`tezgah-research next` prints them with their status (docs/research.md, "The
+next step of a product flow").
 
 ## Vendored material
 
