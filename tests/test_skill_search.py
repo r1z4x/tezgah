@@ -259,7 +259,10 @@ class ShippedProductHint(unittest.TestCase):
                        "Bu veriye uygun bir metric dashboard tasarla"):
             top = sp.top_section(prompt, roots=roots)
             self.assertTrue(top, prompt)
-            self.assertIn(top[0][0], ("product-analysis", "design-contract"), top)
+            # product-flow (plan 074) is the skill that orders these steps, so
+            # it is the best answer once it ships
+            self.assertIn(top[0][0], ("product-flow", "product-analysis",
+                                      "design-contract"), top)
         # the English form also clears the bar `section_hint` holds a hint to
         row, covered, known = sp.top_section(
             "I have this data, design a metric dashboard for it", roots=roots)

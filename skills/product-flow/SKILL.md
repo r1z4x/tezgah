@@ -44,7 +44,8 @@ flow can hand off to.
    ~/.config/tezgah/bin/tezgah-research next --topic signup-dashboard --flow feature
    ```
 
-   It prints each step as `done`, `missing`, `due` or `n/a`, then a `next:` line
+   Use `--flow feature` when the ask names no metric, `metric-dashboard` (the
+   default) otherwise. It prints each step as `done`, `missing`, `due` or `n/a`, then a `next:` line
    with the skill and the command for the first step that is missing or due. A
    topic with no rows yet exits 2 and names `record`: write the first observation,
    then ask again.

@@ -580,7 +580,13 @@ def next_steps(repo, topic, flow="metric-dashboard", today=""):
                                    for d in waiting)) if waiting \
         else ("done", "every D has an R")
 
+    # The re-measure command names the D that is due (oldest first), else the
+    # first still waiting: naming the latest D led a session to record an early
+    # R for a D not due while the overdue one stayed due.
+    target = {"re-measure": overdue[0]["id"] if overdue
+              else waiting[0] if waiting else latest}
     return [{"id": s["id"], "skill": s["skill"], "status": status[s["id"]][0],
              "detail": status[s["id"]][1],
-             "command": s["command"].format(topic=topic, decision=latest)}
+             "command": s["command"].format(
+                 topic=topic, decision=target.get(s["id"], latest))}
             for s in steps]

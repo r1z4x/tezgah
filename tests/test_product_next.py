@@ -153,6 +153,21 @@ class Steps(Flow):
         self.assertEqual(self.steps(today="2020-04-01")["re-measure"]["status"],
                          "done")
 
+    def test_the_re_measure_command_names_the_d_that_is_due(self):
+        # Kills: the command naming the latest D (a session following it records
+        # an early R for D2 while D1 stays due), and naming a D that has its R.
+        self.hand(dated("M", "M1"), dated("D", "D1", observe_after="2020-02-01"),
+                  dated("D", "D2", observe_after="2099-01-01"))
+        got = self.steps(today="2020-04-01")["re-measure"]
+        self.assertEqual(got["status"], "due")
+        self.assertIn("decision D1", got["command"])
+        self.hand(dated("M", "M1"), dated("D", "D1", observe_after="2020-02-01"),
+                  dated("D", "D2", observe_after="2099-01-01"),
+                  dated("R", "R1", decision="D1"))
+        got = self.steps(today="2020-04-01")["re-measure"]
+        self.assertEqual(got["status"], "missing")
+        self.assertIn("decision D2", got["command"])
+
     def test_feature_skips_the_m_steps_until_the_topic_holds_an_m(self):
         # Kills: feature printing metrics/instrumentation for a topic with no M,
         # feature never adding them once the topic holds one, and a D measured

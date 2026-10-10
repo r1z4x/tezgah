@@ -314,7 +314,7 @@ axe-core sweep dropped or a scorecard dimension missing all read the same way.
 
 Every finding the axes produce is also a product ledger row. A source read or
 quoted is an `O` with its evidence class. The need it shows is an `I`. A risk from
-section 4 is an `A` with its `kind`. A metric from section 2 is an `M` with its full
+section 4 is an `A` with its `kind` (a value risk is `desirability`). A metric from section 2 is an `M` with its full
 record. Each triage row is a `D`: its metric is the `M`, its threshold is
 `threshold`, and its timeframe ends on `observe_after`. Write each one with
 `tezgah-research record O|I|A|M|D`, and cite it in the analysis as `product:<id>`.

@@ -259,8 +259,9 @@ A feature built from a product decision cites that decision. In forward mode,
 `spec.md` names the `D` row it implements as `product:<D>`, such as `product:D4`.
 The post-build audit cites the same `product:<D>` beside each disagreement it
 finds. A bare `D4` is not a citation, and `check` resolves only the `product:`
-form against the product ledger. The `product-flow` skill gives the order of the
-steps.
+form against the product ledger. Under `product-flow` the spec's folder is the
+product topic, `.tezgah/analysis/<topic>/spec.md`, because that is the path `next`
+reads. The `product-flow` skill gives the order of the steps.
 
 ## Every finding carries a Prevent line
 
