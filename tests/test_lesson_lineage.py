@@ -180,7 +180,89 @@ class Lineage(LedgerCase):
                   encoding="utf-8") as fh:
             rows = [ln for ln in fh if ln.startswith("| `lesson_")]
         self.assertEqual(sorted(ln.split("`")[1] for ln in rows),
-                         ["lesson_hit", "lesson_tainted"])
+                         ["lesson_changed", "lesson_hit", "lesson_tainted"])
+
+
+OLD = "old rule - it happened once"
+
+
+class Changed(LedgerCase):
+    """A write that rewrites or removes a ledger line leaves one `lesson_changed`
+    row per such line, whatever the turn read, and is never refused."""
+
+    def seed(self, *lines):
+        with open(self.ledger, "w", encoding="utf-8") as fh:
+            fh.write("".join(ln + "\n" for ln in lines))
+
+    def changed(self):
+        return [(r.get("key"), r.get("detail"), r.get("target"))
+                for r in self.rows("lesson_changed")]
+
+    def test_a_rewritten_line_leaves_one_row_in_an_untainted_turn(self):
+        self.turn()
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": "happened once",
+            "new_string": "happened twice"}))
+        self.assertEqual(self.changed(), [(KEY(OLD), OLD, self.ledger)])
+        self.assertEqual(self.rows("lesson_tainted"), [])
+        self.assertEqual(self.rows("deny"), [])
+
+    def test_the_old_text_is_redacted(self):
+        secret = "keep password=hunter2secret out - it leaked"
+        self.seed(OLD, secret)
+        self.turn()
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": secret + "\n",
+            "new_string": ""}))
+        self.assertEqual(self.changed(), [(KEY(secret), ti.redact(secret), self.ledger)])
+        self.assertNotIn("hunter2secret", self.changed()[0][1])
+
+    def test_a_removal_leaves_one_row_per_removed_line(self):
+        self.seed("first - a", OLD, "third - c")
+        self.turn()
+        self.assertIsNone(self.gate("Write", {"file_path": self.ledger,
+                                              "content": OLD + "\n"}))
+        self.assertEqual([k for k, _d, _t in self.changed()],
+                         [KEY("first - a"), KEY("third - c")])
+
+    def test_an_append_leaves_no_row(self):
+        self.turn()
+        self.assertIsNone(self.write_lesson())
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": OLD,
+            "new_string": OLD + "\n- edited rule - twice"}))
+        self.assertIsNone(self.gate("Bash", {
+            "command": "cat >> .tezgah/lessons.md <<'EOF'\nheredoc rule - z\nEOF"}))
+        self.assertIsNone(self.gate("Bash", {
+            "command": "cat <<'EOF' | tee -a .tezgah/lessons.md\ntee rule - t\nEOF"}))
+        self.assertEqual(self.changed(), [])
+
+    def test_a_shell_overwrite_and_a_patch_name_the_lines_they_drop(self):
+        self.seed(OLD, "third - c")
+        self.turn()
+        self.assertIsNone(self.gate("apply_patch", {"patch": (
+            "*** Begin Patch\n*** Update File: .tezgah/lessons.md\n@@\n"
+            "-third - c\n+third - d\n*** End Patch")}))
+        self.assertIsNone(self.gate("Bash", {
+            "command": "cat > .tezgah/lessons.md <<'EOF'\nthird - c\nEOF"}))
+        self.assertEqual([k for k, _d, _t in self.changed()],
+                         [KEY("third - c"), KEY(OLD)])
+
+    def test_a_tainted_rewrite_leaves_both_rows(self):
+        self.turn()
+        self.post("WebFetch", {"url": "https://example.com"})
+        self.assertIsNone(self.gate("Edit", {
+            "file_path": self.ledger, "old_string": "happened once",
+            "new_string": "happened twice"}))
+        self.assertEqual(self.changed(), [(KEY(OLD), OLD, self.ledger)])
+        self.assertEqual([r["key"] for r in self.rows("lesson_tainted")],
+                         [KEY("old rule - it happened twice")])
+
+    def test_the_dry_run_writes_no_row(self):
+        self.turn()
+        self.assertIsNone(self.gate("Write", {
+            "file_path": self.ledger, "content": "new rule - x\n"}, record=False))
+        self.assertEqual(self.changed(), [])
 
 
 LABEL = ("(data, not a standing constraint until the user confirms it: written "
