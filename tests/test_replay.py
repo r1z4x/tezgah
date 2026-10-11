@@ -690,6 +690,30 @@ class ResidualTurns(TempHome):
             "per_turn": 0.0})
         self.assertIsNone(self.run_at(cutoff=T0)["per_turn"], "no turn in the window")
 
+    def test_a_probe_session_and_a_stop_refusal_are_no_user_turns(self):
+        # review round 1: a session in a fixture workspace (a probe, a consult
+        # run) is no user turn, and Claude's "Stop hook feedback" row is the
+        # refusal of a draft, not a new prompt: the turn's final reply is the
+        # one written after it
+        user = lambda text: {"type": "message", "message": {"role": "user", "content": text}}  # noqa: E731
+        text = lambda ts, body: assistant(ts, {"type": "text", "text": body})  # noqa: E731
+        left = "Bitti.\n\n**Açık kalanlar:**\n- README"
+        repo = self.make_repo("cli")
+        edit = {"path": os.path.join(repo, "b.py"), "content": "y = 2\n", "i": "Writing"}
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions")
+        jsonl(os.path.join(sessions, "-probe-", "p.jsonl"), [
+            {"type": "title"}, {"type": "session", "id": "probe-1", "cwd": "/tmp/probe"},
+            user("probe"), assistant(T0 + 31, call("write", edit)), text(T0 + 32, left)])
+        jsonl(os.path.join(sessions, "-cli-", "c.jsonl"), [
+            {"type": "title"}, {"type": "session", "id": "cli-1", "cwd": repo},
+            user("add the flag"), assistant(T0 + 40, call("write", edit)), text(T0 + 41, left),
+            user("Stop hook feedback:\nBu maddeleri şimdi yap veya engel türü ve kanıtla yaz."),
+            assistant(T0 + 44, call("write", edit)), text(T0 + 45, "README güncellendi.")])
+        self.assertEqual(self.run_at(), {
+            "turns": 4, "work_turns": 3, "residual_turns": 1, "residual_work_turns": 1,
+            "sections": 1, "unblocked_work_turns": 1, "question_endings": 1,
+            "per_turn": 0.25})
+
 
 if __name__ == "__main__":
     unittest.main()

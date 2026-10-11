@@ -1463,8 +1463,9 @@ def session_of(payload):
 # Moved again on 2026-10-11 (plan 080): the integrity paragraph carries the
 # residual rule (the four blockers and the "Engeller" format) and the reminder
 # its one-line form, +1473 B of core and +151 B of reminder; at 13000 B the
-# healthy fixture gave up its lessons, plans, subagents and steer blocks (1002
-# B), and at 6000 B the busiest prompt turn its active-task line (255 B), so
+# healthy fixture (13588 B) gave up its lessons, plans and steer blocks (950 B;
+# 1002 B where a subagents note rides along), and at 6000 B the busiest prompt
+# turn its active-task line (255 B), so
 # the session budgets move to 14500 B and the prompt budget to 6500 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.

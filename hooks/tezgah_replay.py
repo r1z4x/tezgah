@@ -116,6 +116,9 @@ STOP_CONTEXT = ("run", "edit", "verify", "verify_ok", "verify_fail",
                 "interrupted", "external")
 # A final reply's last line asking the user (`?`, or a Turkish question particle)
 QUESTION_END = re.compile(r"(?:\?|\bm[ıiuü][.!]?)$")
+# How Claude writes a Stop hook's refusal back into the transcript: a user row,
+# but no user prompt, so no new turn.
+STOP_FEEDBACK = "Stop hook feedback:"
 
 
 def replay_root():
@@ -273,12 +276,16 @@ def _transcripts(wanted):
 def residual_turns(cutoff, since=None):
     """Residual sections per user turn over the top-level omp and Claude
     transcripts (a subagent's reply is not user-facing). A turn starts at a user
-    prompt that is not a harness prompt; its final reply is the last reply
-    before the next one, and it counts when that reply's ts is in
-    `(since, cutoff]`. A turn did work when one of its calls `ti.classify`es.
-    `unblocked_work_turns` reads each reply with no ledger rows, so a YETKİ or
-    ORTAM item counts as unblocked: an upper bound. `question_endings` watches
-    doable work rephrased as a question. Whole-corpus even under `--split`."""
+    prompt that is not a harness prompt nor a Stop hook's feedback (Claude
+    writes a refusal as a user row); its final reply is the last reply before
+    the next one, and it counts when that reply's ts is in `(since, cutoff]`.
+    A session in a fixture workspace (`ti.FIXTURE_WORKSPACE`, the cache) is
+    left out, as the corpus leaves its ledger out: a probe or a consult run is
+    no user turn. A turn did work when one of its calls `ti.classify`es.
+    `unblocked_work_turns` reads each reply with no ledger rows, so an item
+    whose evidence is a failed command counts as unblocked: an upper bound.
+    `question_endings` watches doable work rephrased as a question.
+    Whole-corpus even under `--split`."""
     taste = _taste()
     out = Counter()
 
@@ -299,10 +306,13 @@ def residual_turns(cutoff, since=None):
 
     for host in ("omp", "claude"):
         walk = taste.HOSTS[host][2]
-        for path, _cwd in taste.sessions(host, "", nested=False):
+        for path, cwd in taste.sessions(host, "", nested=False):
+            if ti.FIXTURE_WORKSPACE.search(cwd or "") or (cwd or "").startswith(tp.CACHE):
+                continue
             reply, work, started = None, False, False
             for event in walk(path, calls=True):
-                if event[0] == "user" and not taste.harness_prompt(event[1]):
+                if event[0] == "user" and not taste.harness_prompt(event[1]) \
+                        and not event[1].lstrip().startswith(STOP_FEEDBACK):
                     if started:
                         close(reply, work)
                     reply, work, started = None, False, True

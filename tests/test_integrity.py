@@ -2936,7 +2936,9 @@ class StopHook(TempHome):
     def test_a_residual_list_is_refused_once_and_the_reply_after_it_recorded(self):
         # plan 080 through the real Claude Stop hook: a verified turn that ends
         # on a list of what is left is refused once, a refusal and not a claim
-        # when the reply claims nothing, and the reply after it is record-only
+        # when the reply claims nothing, and the reply after it is record-only.
+        # The prompt hook's turn marker scopes the turn, as every host writes it.
+        self.turn("parser")
         self.seed("Edit", {"file_path": "x.py"})
         self.seed("Bash", {"command": "pytest -q"})
         listed = "Parser yazıldı.\n\n**Açık kalanlar:**\n- README\n- CHANGELOG satırı"
@@ -2955,6 +2957,13 @@ class StopHook(TempHome):
         self.assertIsNone(self.stop(
             "Parser yazıldı.\n\n**Engeller:**\n- main'e push — GERİ ALINAMAZ — "
             "`git push origin main` bekliyor — onayın"))
+
+    def test_a_ledger_with_no_turn_marker_is_not_judged_for_residuals(self):
+        # exits C3: with no marker the whole ledger is the "turn", so an
+        # earlier turn's steps would make an answer with no work a work turn
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+        self.assertIsNone(self.stop("Plan:\n\n**Sonraki adımlar:**\n1. Şemayı ayır\n2. Göçü yaz"))
 
     # P4: the reply-shape flags are reported and never refused. `stop_reason`
     # writes one `shape` row per flagged reply and blocks nothing on it: a table
@@ -3434,6 +3443,140 @@ class ResidualWork(unittest.TestCase):
         damaged = [{"kind": ti.DAMAGE_KIND, "detail": "line 3"}, self.EDIT, self.FAIL]
         self.assertEqual(self.verdict("Tamamlandı; pytest düşüyor, doğrulanmadı.",
                                       damaged), "evidence tampered")
+
+    # ---- review round 1 (plan 080): each group's claims, failing first -----
+    def left(self, text, rows=None):
+        return ti.unblocked_items(text, [self.EDIT] if rows is None else rows)
+
+    def test_a_section_body_is_read_past_a_blank_line_and_a_sub_heading(self):
+        # labels C1: the usual markdown shape gave an empty item, skipped
+        for text in ("## Açık kalanlar\n\nE2E testi koşulmadı, README güncellenmedi.",
+                     "**Açık kalanlar**\n\nE2E testi koşulmadı.",
+                     "Açık kalanlar:\n\nE2E testi koşulmadı.",
+                     "## Açık kalanlar\n### README\nGüncellenmedi."):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
+    def test_a_word_inside_the_label_does_not_hide_the_section(self):
+        # labels C2: "yok", "hiç" or a claim word anywhere in the label hid it,
+        # and a bold label ran to the closing bold, colon included
+        for text in ("**Doğrulanmadı (bilerek, kanıt yok):**\n- E2E akışı",
+                     "Test edilmeyen (hiç çalıştırılmamış) modüller:\n- src/b.py",
+                     "Kısmen güncellendi: 0.33.0 çıktı, sonrakiler hiçbir sürümde yok.",
+                     "**Kalan iş: tek parça, şu an ajan çalışıyor; sonra commit.**"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+        # the controls: a done statement over the same words
+        for text in ("Eksik parçalar kapatıldı: cursor ve omp.",
+                     "Eksikler giderildi: testler eklendi ve geçti.",
+                     "Eksikler çözüldü:\n- README yazıldı",
+                     "**Engel çözüldü, tarayıcıya gerek kalmadı.** Token doğru okundu.",
+                     "**Doğrulanmayanlar tamamlandı.**"):
+            with self.subTest(text=text):
+                self.assertEqual(ti.residual_sections(text), [])
+
+    def test_a_label_is_read_behind_a_short_lead_and_its_markup(self):
+        # labels C3, C4: a word or two before the stem, an emoji, a quote marker,
+        # italics, and the residual words the first list missed
+        for text in ("Bu turda açık kalanlar:\n- README", "Henüz yapılmayanlar:\n- README",
+                     "Bilerek kapsam dışı bırakılanlar:\n- README",
+                     "## ⚠️ Açık kalanlar\n- README", "> Açık kalanlar:\n> - README",
+                     "*Açık kalanlar:*\n- README", "Bekleyen tek iş: `~/.zshenv` satırı.",
+                     "Kalan adımlar:\n- README", "Yapılacaklar:\n- README",
+                     "Bekleyen işler:\n- README", "Kalan:\n- README", "What is left:\n- README",
+                     "Önerilen iyileştirmeler:\n- cache ekle"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
+    def test_a_word_that_only_starts_like_a_label_is_not_one(self):
+        # labels C5, C6: risk statements stay out (the reply keeps its risks),
+        # and a stem is a whole word
+        for text in ("Regresyon riski: parser değişikliği eski satırları etkileyebilir.",
+                     "Etkilenebilecek dosyalar: src/b.py ve src/c.py, ikisi de testte geçti.",
+                     "Engelleme kuralı: gate artık rm -rf çağrısını reddediyor.",
+                     "Engellenen komutlar:\n- git push --force",
+                     "**Engelleyici bulgu**\nUç nokta düz http yi reddetmiyor; düzeltildi.",
+                     "RemainingModes bitti: etiketleme uygulandı.", "Next.js sürümü: 14.2",
+                     "Değişenler:\n- next.config.js: images.domains eklendi"):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+
+    def test_an_item_that_says_nothing_is_left_is_no_item(self):
+        # labels C8
+        for text in ("Sıradaki adım: yok, iş bitti.", "Açık kalan: hiçbiri.",
+                     "Engeller: yok, hepsi yapıldı.", "Testler: 120 geçti\nAtlanan: 0",
+                     "Skipped: 0"):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+
+    def test_a_fenced_output_stays_with_its_item(self):
+        # blockers D2-F1: a fenced line shaped like a list item split the item
+        failed = {"kind": "run", "exit": 1, "detail": "npx playwright test " + ti.FAILED_MARK}
+        text = ("Engeller:\n- ORTAM: e2e koşamadı:\n```\n$ npx playwright test\n"
+                "- Error: browserType.launch: Executable doesn't exist\n```")
+        self.assertEqual(self.left(text, [self.EDIT, failed]), [])
+
+    def test_an_item_quoting_a_command_that_failed_in_the_turn_is_accounted_for(self):
+        # exits C1: the admission written as a section, quoting the failed check,
+        # is the evidence the request asks for
+        fail = {"kind": "verify_fail", "id": "c2", "exit": 1,
+                "detail": "pytest tests/test_a.py " + ti.FAILED_MARK}
+        for text in ("Doğrulanmadı:\n- `pytest tests/test_a.py` 2 hata: AssertionError at test_a.py:41",
+                     "**Doğrulanmadı:** `pytest tests/test_a.py` AssertionError at test_a.py:41",
+                     "Not verified: `pytest tests/test_a.py` fails at test_a.py:41"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
+
+    def test_a_quote_names_the_failed_command_not_a_fragment_of_it(self):
+        # blockers D2-F2, D2-F3
+        ls = {"kind": "run", "exit": 1, "detail": "ls src/e2e " + ti.FAILED_MARK}
+        self.assertTrue(self.left("Engeller:\n- ORTAM: e2e yazılmadı (`src`)", [self.EDIT, ls]))
+        git = {"kind": "run", "exit": 1, "detail": "git " + ti.FAILED_MARK}
+        push = "Engeller:\n- YETKİ: `git push origin main` reddedildi"
+        self.assertTrue(self.left(push, [self.EDIT, git]))
+        real = {"kind": "run", "exit": 1, "detail": "git push origin main " + ti.FAILED_MARK}
+        self.assertEqual(self.left(push, [self.EDIT, real]), [])
+        pytest = {"kind": "verify_fail", "exit": 1, "detail": "pytest -q " + ti.FAILED_MARK}
+        self.assertEqual(self.left("Engeller:\n- ORTAM: `pytest` modül yok", [self.EDIT, pytest]), [])
+
+    def test_a_type_token_counts_outside_code_unnegated_and_inflected(self):
+        # blockers D2-F4, D2-U1
+        for text in ("Açık kalanlar:\n- `docs/DECISION.md` güncellenmedi",
+                     "Açık kalanlar: KARAR gerektirmeyen işler\n- README",
+                     "Açık kalanlar:\n- README güncellenmedi (KARAR gerekmiyor)"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+        self.assertEqual(self.left("Engeller:\n- Push - KARARI senin - main'e mi PR'a mı"), [])
+
+    def test_the_admission_leaves_a_screen_or_external_debt_owed(self):
+        # admission D3-C1, D3-C2: a failed unit check was cheaper than a passing one
+        ui = {"kind": "edit", "detail": "app/components/Button.tsx", "changed": True}
+        self.assertEqual(self.verdict("Butonu değiştirdim, doğrulanmadı.",
+                                      [ui, self.FAIL]), "no ui_ok")
+        self.assertEqual(self.verdict(
+            "v1.4.0 is published on npm; unverified, `pytest -q` failed.",
+            [self.EDIT, self.FAIL]), "no external read")
+
+    def test_the_admission_is_read_outside_code(self):
+        # admission D3-C5: a test selector is no admission
+        fail = {"kind": "verify_fail", "exit": 1,
+                "detail": "pytest -k unverified " + ti.FAILED_MARK}
+        self.assertEqual(self.verdict("Düzeltildi; `pytest -k unverified` çalıştırıldı.",
+                                      [self.EDIT, fail]), "check failed")
+
+    def test_every_admitted_class_text_names_the_admission(self):
+        # admission D3-C6
+        reason = ti._stop_block("Düzeltildi, testler geçti.", None,
+                                rows=[self.EDIT, self.FAIL])[1]
+        self.assertIn("doğrulanmadı", reason)
+
+    def test_a_residual_refusal_of_a_true_claim_is_no_false_completion(self):
+        # exits C5: the claim was backed; the list is what was refused
+        counts = ti._counts([{"kind": "claim", "detail": "blocked: residual work"},
+                             {"kind": "claim", "detail": "blocked: no verify_ok"}])
+        self.assertEqual((counts["claims"], counts["false_completion"]), (2, 1))
+        self.assertEqual(counts["blocked_claims"], {"residual work": 1, "no verify_ok": 1})
+
 
 
 class PromptTurn(TempHome):

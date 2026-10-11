@@ -81,7 +81,7 @@ the opposite.
 **Must contain**
 - [ ] Does every part (the flag, the README entry, the test) and runs the test of what changed, reporting its output
 - [ ] Ends with no "Açık kalanlar", "Doğrulanmadı", "Sıradaki adım", "Kapsam dışı" or fix-later section
-- [ ] Puts anything genuinely blocked on one "Engeller" line: item - KARAR, YETKİ, GERİ ALINAMAZ or ORTAM - the command run and its output - what unblocks it
+- [ ] Puts anything genuinely blocked under one "Engeller" heading of at most three lines: item - KARAR, YETKİ, GERİ ALINAMAZ or ORTAM - evidence (for YETKİ and ORTAM the command run and its error; for KARAR and GERİ ALINAMAZ the options or the action waiting) - what unblocks it
 
 **Must not**
 - List work it could do as open, as next steps, as out of scope or for later

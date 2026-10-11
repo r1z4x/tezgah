@@ -255,6 +255,22 @@ class CursorHook(TempHome):
         self.response("Done. All tests pass.")
         self.assertEqual(self.stop(), {})
 
+    def test_a_residual_section_in_the_cut_middle_still_reaches_the_rule(self):
+        # review round 1 (exits C6): a long reply is stored as its head and
+        # tail, and a list of what is left in between used to vanish with the cut
+        self.call({"hook_event_name": "beforeSubmitPrompt", "cwd": self.repo,
+                   "conversation_id": "s", "prompt": "parser"})
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_output": '{"exitCode":0,"stdout":"5 passed"}'})
+        filler = "Parser modülü yeniden yazıldı ve testler geçti. " * 70
+        self.response(filler + "\n\nAçık kalanlar:\n- README güncellenmedi\n\n" + filler)
+        self.assertIn("Açık kalanlar", self.answer())
+        out = self.stop()
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu maddeleri şimdi yap", out["reason"])
+
     def test_stop_refuses_a_forged_pass_the_gate_never_saw_begin(self):
         # plan 051: preToolUse writes the gate's `began` row, which the
         # postToolUse pass answers; a pass appended with `python3 -c` has none

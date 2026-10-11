@@ -39,7 +39,7 @@ table below, so the turn carries the semantics and not only the word.
 
 Stop at the first rung that holds:
 
-1. **Does this need to exist at all?** Speculative need = skip it, say so in one line. (YAGNI)
+1. **Does this need to exist at all?** Speculative need = skip it, with no note: nothing the user asked for was cut. (YAGNI)
 2. **Already in this codebase?** A helper, util, type, or pattern that already lives here → reuse it. Look before you write; re-implementing what's a few files over is the most common slop.
 3. **Stdlib does it?** Use it.
 4. **Native platform feature covers it?** `<input type="date">` over a picker lib, CSS over JS, DB constraint over app code.
