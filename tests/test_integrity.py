@@ -4230,6 +4230,11 @@ class ResidualWork(unittest.TestCase):
                          "Şimdi bakılmalı. Artık sorun büyüyor."):
                 with self.subTest(label=label, item=item):
                     self.assertTrue(self.left("%s\n- %s" % (label, item)))
+        # the same "was, now is" report closes an item only under a blocker
+        # label: under a residual label it is still work left
+        item = "`tezgah-task note` yoktu. Artık var."
+        self.assertEqual(self.left("Engeller:\n- " + item), [])
+        self.assertTrue(self.left("Açık kalanlar:\n- " + item))
 
     def test_s4_a_spent_quota_is_a_user_failure(self):
         # the spawn row's class backs a YETKİ item (review F2)
