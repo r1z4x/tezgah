@@ -85,6 +85,14 @@ class Records(Journal):
         self.assertEqual(again["opened"], rec["opened"])
         self.assertEqual(again["worktree"], tree)
 
+    def test_the_worktree_is_the_one_the_task_names_after_the_shared_context(self):
+        first, second = self.worktree("s"), self.worktree("s-two")
+        (row,) = tt.spawned("task", {
+            "context": "slices: %s and %s" % (second, first),
+            "tasks": [{"name": "Two", "task": "work only in %s" % second}]})
+        rec = tt.open_slice(self.repo, row[0], brief=row[2])
+        self.assertEqual((rec["worktree"], rec["branch"]), (second, "s-two"))
+
     def test_a_worktree_writes_the_main_checkouts_journal(self):
         tree = self.worktree("slice-b")
         tt.open_slice(tree, "FromTree")

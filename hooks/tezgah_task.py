@@ -725,16 +725,18 @@ def _write_record(root, rec):
 
 
 def _named_worktree(root, brief):
-    """(worktree, branch) for the linked worktree of this repository whose path
-    the brief names - the longest one, so `.../a-b` wins over `.../a` - else
-    ("", "")."""
+    """(worktree, branch) for the linked worktree of this repository the brief
+    names, else ("", "")."""
     if not brief:
         return "", ""
     from tezgah_paths import worktrees
     found = [p for p in worktrees(root)[1:] if p in brief]
     if not found:
         return "", ""
-    top = max(found, key=len)
+    # the one named last: an omp brief is the shared context (which may list
+    # every slice's worktree) followed by this slice's own task; on a tie the
+    # longer path, since `.../a` is found inside `.../a-b` at the same place
+    top = max(found, key=lambda p: (brief.rfind(p), len(p)))
     return top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or ""
 
 
@@ -875,7 +877,7 @@ def _omp_transcript(parent, sid):
     the parent's session directory (`<project>/<stamp>_<parent>/`) holds one
     `<agent id>.jsonl` per subagent. None when there is none."""
     import glob
-    if not parent or not sid:
+    if not parent or not sid or "/" in parent or os.sep in parent:
         return None
     home = os.path.expanduser("~")
     hits = glob.glob(os.path.join(home, ".omp", "agent", "sessions", "*",
