@@ -1087,6 +1087,19 @@ class Cli(TempHome):
         self.assertEqual(self.task("note", "001", "goal", "x").returncode, 2)
         self.assertEqual(self.snapshot(), before)
 
+    def test_tick_and_note_take_only_an_open_plan(self):
+        # they write past the gate, so any other markdown file is refused
+        # (review of plan 083, F4)
+        readme = os.path.join(self.repo, "README.md")
+        with open(readme, "w") as fh:
+            fh.write("# x\n## Acceptance\n- [ ] a\n## Next\nold\n")
+        before = read(readme)
+        for args in (("note", readme, "next", "x"), ("tick", readme, "1")):
+            proc = self.task(*args)
+            self.assertEqual(proc.returncode, 1, args)
+            self.assertIn("is not an open plan", proc.stdout)
+        self.assertEqual(read(readme), before)
+
     # --------------------------------------------------------------- status
 
     def test_status_names_the_active_task_and_its_scope(self):

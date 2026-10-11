@@ -608,6 +608,19 @@ def cmd_stop(args):
     return show(task["path"])
 
 
+def open_plan(ref):
+    """(path, problem) for a plan under `.tezgah/plans/open/`: `tick` and `note`
+    write past the gate, so they take no other file (review of plan 083, F4:
+    `note README.md next ...` rewrote any markdown file with a Next section)."""
+    root = repo_root(os.getcwd())
+    path, problem = plan_path(root, ref)
+    if problem:
+        return None, problem
+    if os.path.dirname(os.path.realpath(path)) != os.path.realpath(open_dir(root)):
+        return None, "%s is not an open plan under %s" % (path, open_dir(root))
+    return path, None
+
+
 def cmd_tick(args):
     """Tick (or `--undo` untick) one Acceptance box: the plan's progress is the
     session's to record, and the gate refuses a direct write to the record."""
@@ -615,7 +628,7 @@ def cmd_tick(args):
     args = [a for a in args if a != "--undo"]
     if len(args) != 2 or not args[1].isdigit():
         return misuse("tick takes <NNN|path> <n> [--undo]")
-    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    path, problem = open_plan(args[0])
     if problem:
         return problems([problem])
     items = tt.acceptance_items(read(path))
@@ -642,7 +655,7 @@ def cmd_note(args):
     """Replace the plan's `## State` (the newest one) or `## Next` body."""
     if len(args) != 3 or args[1] not in NOTE_SECTIONS or not args[2].strip():
         return misuse('note takes <NNN|path> state|next "<text>"')
-    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    path, problem = open_plan(args[0])
     if problem:
         return problems([problem])
     heading = NOTE_SECTIONS[args[1]]

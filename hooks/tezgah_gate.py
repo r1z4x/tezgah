@@ -918,10 +918,15 @@ URI_CHANNEL = re.compile(
 # `xd://mcp__codegraph_explore` as a relative file and refuse a name that exists
 # nowhere (ServisTek session 01a12a4c: `xd://` and `conflict://` writes refused
 # as outside the allowlist).
-URI_TARGET = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+# `file://` is the one scheme that names a checkout file, so it stays guarded,
+# as the race rule already reads it.
+URI_TARGET = re.compile(r"^(?!file://)[A-Za-z][A-Za-z0-9+.-]*://", re.I)
 # A shell target still holding a variable or a substitution once write_paths
 # expanded what it could: the shell names the file at run time, the gate cannot.
 UNEXPANDED = re.compile(r"\$[A-Za-z_{(]|`")
+# One unexpanded piece of a shell target, for `known_tail`.
+UNEXPANDED_PIECE = re.compile(
+    r"\$\{[^}]*\}|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|`[^`]*`")
 # `NAME=value` at a word start, and the `$NAME`/`${NAME}` a later word reads.
 SHELL_ASSIGN = re.compile(
     r"(?:^|(?<=[\s;&|(]))([A-Za-z_][A-Za-z0-9_]*)="
@@ -992,16 +997,35 @@ def _expand(target, command):
     return sub(target)
 
 
-def unnamed_target(path, inp):
+def unnamed_target(path, inp, top=None):
     """True when a write target is no file the task rule can place in the
     checkout: a URI (a host tool device such as `xd://<tool>`, an agent message,
     a `conflict://N` resolution) or a shell target whose variable has no known
-    value. Refusing either names a path that does not exist. A write tool's own
-    path is never read for `$`: `Outer$Inner.java` is a real file name."""
+    value and whose rest names nothing in the checkout (`known_tail`). Refusing
+    either names a path that does not exist. A write tool's own path is never
+    read for `$`: `Outer$Inner.java` is a real file name."""
     if URI_TARGET.match(path):
         return True
     shell = isinstance(inp, dict) and bool(inp.get("command") or inp.get("cmd"))
-    return shell and bool(UNEXPANDED.search(path))
+    return shell and bool(UNEXPANDED.search(path)) and not known_tail(path, top)
+
+
+def known_tail(path, top):
+    """The checkout path the part after a target's last unknown variable names,
+    or None. `$R/src/a.py` with `R=$(git rev-parse --show-toplevel)` writes
+    `src/a.py` whatever `R` is, so when `src` exists in the checkout the rule
+    holds that file; `$B/$n.tracked.patch` names nothing there and stays unnamed."""
+    if not top:
+        return None
+    pieces = list(UNEXPANDED_PIECE.finditer(path))
+    if not pieces:
+        return None
+    rest = path[pieces[-1].end():].lstrip("/")
+    if not rest or UNEXPANDED.search(rest):
+        return None
+    if not os.path.lexists(os.path.join(top, rest.split("/")[0])):
+        return None
+    return os.path.join(top, rest)
 
 
 def race_reason(inp, session_id, cwd=None):
@@ -1190,11 +1214,19 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     # refuse it either; a call with no target at all still meets the phase.
     paths = write_paths(inp)
     project = []
+    top = tezgah_task.repo_root(cwd, base) if cwd else None
     for path in paths:
-        if unnamed_target(path, inp):
+        if unnamed_target(path, inp, top):
             continue
+        if UNEXPANDED.search(path) and isinstance(inp, dict) and (
+                inp.get("command") or inp.get("cmd")):
+            path = known_tail(path, top) or path
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
-        if rel is not None and rel.startswith(".tezgah/"):
+        # the plans and the slice journal are records the CLI writes: only the
+        # rest of the workspace is free (a plan file written by hand could make
+        # itself the active task with `allowed_paths: ["**"]`)
+        if rel is not None and rel.startswith(".tezgah/") and not rel.startswith(
+                (".tezgah/plans/", ".tezgah/slices/")):
             continue
         project.append((path, rel))
     if paths and not project:
