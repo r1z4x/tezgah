@@ -1106,6 +1106,10 @@ def slice_line(rec):
     return _cut(head, ": tezgah-task slice resume %s" % sid)
 
 
-def slice_lines(root, limit=3):
-    """One line per pending record, newest first, at most `limit` of them."""
-    return [slice_line(rec) for rec in pending(root)[:limit]]
+def slice_lines(root, limit=3, session=None):
+    """One line per pending record, newest first, at most `limit` of them; with
+    `session`, only the records that session spawned (`parent`) - another
+    session's slices are its own to resume, and `tezgah-task slice reconcile`
+    lists every record."""
+    recs = [r for r in pending(root) if session is None or r.get("parent") == session]
+    return [slice_line(rec) for rec in recs[:limit]]
