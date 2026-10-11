@@ -79,8 +79,8 @@ and marks done each record whose branch landed with a commit of its own.
 `resume` prints the host's native path first (omp `write agent://<id>` while
 the parent session lives, Claude `SendMessage`), then a brief any host or model
 can re-dispatch: the original brief plus the last commit, the branch and the
-uncommitted files. `stats` flags a `class+host` signature at 3 events or 5% of
-the window's slices and names its lever from a closed set. `review ... approve`
+uncommitted files. `stats` flags a `class+host` signature at 3 events, or at 5%
+of a window holding 20 or more slices, and names its lever from a closed set. `review ... approve`
 is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
@@ -909,9 +909,11 @@ LEVERS = {"rate_limit": "hooks/tezgah_models.py fallback chain",
           "error": "none (read the transcript)"}
 STATS_WINDOW = 14
 # A signature is a candidate at this many events, or at this share of the slices
-# in the window.
+# in the window once the window holds STATS_SHARE_FLOOR slices: below that, one
+# event is already 5% and every stop would read as a pattern.
 STATS_EVENTS = 3
 STATS_SHARE = 0.05
+STATS_SHARE_FLOOR = 20
 
 
 def parse_options(args, valued, flags=()):
@@ -953,7 +955,9 @@ def resume_text(root, rec):
     last = git_out(where, "log", "-1", "--format=%h %s") or "(none)"
     branch = (rec.get("branch") or git_out(where, "symbolic-ref", "-q", "--short", "HEAD")
               or "(detached HEAD)")
-    dirty = [line[3:] for line in (git_out(where, "status", "--porcelain") or "").splitlines()]
+    # the journal's own directory is not the slice's work, ignored or not
+    dirty = [line[3:] for line in (git_out(where, "status", "--porcelain") or "").splitlines()
+             if not line[3:].startswith(".tezgah")]
     resume = ("Resume: last commit %s on %s; uncommitted: %s; continue from there, "
               "do not redo committed steps" % (last, branch, ", ".join(dirty) or "none"))
     native = {"omp": "`write agent://%s` (while omp session %s still runs)"
@@ -1030,7 +1034,8 @@ def slice_stats(rows, window, now=None):
     candidates = [{"signature": "%s+%s" % key, "events": n,
                    "share": round(n / total, 3), "lever": LEVERS[key[0]]}
                   for key, n in sorted(sigs.items(), key=lambda kv: (-kv[1], kv[0]))
-                  if n >= STATS_EVENTS or n >= STATS_SHARE * total]
+                  if n >= STATS_EVENTS
+                  or (total >= STATS_SHARE_FLOOR and n >= STATS_SHARE * total)]
     return {"window_days": window, "slices": total,
             "status": dict(Counter(r.get("status") or "?" for r in picked)),
             "failure": dict(Counter(r["failure"] for r in picked if r.get("failure"))),

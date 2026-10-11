@@ -1538,9 +1538,8 @@ class ResumeBlock(ChildCall):
         # as well as the resume block; slices-off and a raising journal drop them.
         repo = self.full_repo()
         line = "- slice W1 (omp/task) stopped quota attempts 1: tezgah-task slice resume W1"
-        stub = ("import json, types, tezgah_context as tc\n"
-                "tc.tezgah_task = types.SimpleNamespace(\n"
-                "    slice_lines=lambda root, limit=3: [%r] * 5)\n" % line)
+        stub = ("import json, tezgah_context as tc\n"
+                "tc.tezgah_task.slice_lines = lambda root, limit=3: [%r] * 5\n" % line)
         out = self.child(stub + "print(json.dumps(tc.resume_state(%r, 's1')))\n" % repo)
         self.assertEqual(out.count("slice W1"), 3, out)
         prompt = self.child(stub + "print(json.dumps(tc.context_for('user_prompt', %r,"
@@ -1549,12 +1548,12 @@ class ResumeBlock(ChildCall):
         self.assertIn("tezgah-task slice resume W1", prompt)
         off = self.child(stub + "tc.off = lambda name: name == 'slices-off'\n"
                          "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
-        self.assertEqual(json.loads(off), [])
-        broken = self.child("import json, types, tezgah_context as tc\n"
+        self.assertEqual(off, [])
+        broken = self.child("import json, tezgah_context as tc\n"
                             "def boom(root, limit=3): raise OSError('x')\n"
-                            "tc.tezgah_task = types.SimpleNamespace(slice_lines=boom)\n"
+                            "tc.tezgah_task.slice_lines = boom\n"
                             "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
-        self.assertEqual(json.loads(broken), [])
+        self.assertEqual(broken, [])
 
     def test_a_damaged_ledger_line_costs_the_line_and_not_the_block(self):
         # A line that is terminated but does not parse used to make `_parse`

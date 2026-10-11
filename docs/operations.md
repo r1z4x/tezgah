@@ -651,7 +651,7 @@ records, newest first, each with the command that resumes it
 | `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class |
 | `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees, deletes each landed local branch that no worktree holds (never main, master or the current branch), and marks those records done |
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` to the id. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". It sets the status to `resumed` |
-| `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events, or 5% of the window, is an RSI lever candidate, and the line names the lever |
+| `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 
 The lever map is a closed set. `rate_limit` and `quota` point at the
 `hooks/tezgah_models.py` fallback chain. `cut_off` and `timeout` point at a

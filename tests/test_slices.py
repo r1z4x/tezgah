@@ -375,6 +375,15 @@ class Cli(Journal):
         self.assertIn("candidate: rate_limit+omp - 3 events (10% of slices) - lever: "
                       "hooks/tezgah_models.py fallback chain", text)
 
+    def test_a_small_window_flags_no_share_alone(self):
+        # one stop in two slices is 50%, and still no pattern below the floor
+        tt.open_slice(self.repo, "ok", host="omp")
+        tt.close_slice(self.repo, "ok", "done")
+        tt.open_slice(self.repo, "q", host="omp")
+        tt.close_slice(self.repo, "q", "stopped", "quota")
+        stats = json.loads(self.task("slice", "stats", "--json").stdout)
+        self.assertEqual(stats["candidates"], [])
+
     def test_misuse_exits_two(self):
         for args in (("slice",), ("slice", "nope"), ("slice", "open"),
                      ("slice", "open", "--id", "x", "--kind", "bad"),
