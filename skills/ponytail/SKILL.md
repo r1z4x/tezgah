@@ -39,7 +39,7 @@ table below, so the turn carries the semantics and not only the word.
 
 Stop at the first rung that holds:
 
-1. **Does this need to exist at all?** Speculative need = skip it, say so in one line. (YAGNI)
+1. **Does this need to exist at all?** Speculative need = skip it, with no note: nothing the user asked for was cut. (YAGNI)
 2. **Already in this codebase?** A helper, util, type, or pattern that already lives here → reuse it. Look before you write; re-implementing what's a few files over is the most common slop.
 3. **Stdlib does it?** Use it.
 4. **Native platform feature covers it?** `<input type="date">` over a picker lib, CSS over JS, DB constraint over app code.
@@ -71,14 +71,14 @@ every sibling caller still broken. Fix it once, where all callers route through.
 
 ## Output
 
-Code first. Then at most three short lines: what was skipped, when to add it. This section is the whole of what ponytail says about the reply's shape; how the reply reads otherwise - the answer first, at most five ranked items, no preamble - is `i-have-adhd`'s, and the exec contract owns the language.
+Code first. Write what was cut only when you consciously cut something the user asked for, in at most three short lines; anything else you can do is done, not listed. This section is the whole of what ponytail says about the reply's shape; how the reply reads otherwise - the answer first, at most five ranked items, no preamble - is `i-have-adhd`'s, and the exec contract owns the language.
 No essays, no feature tours, no design notes. If the explanation is longer
 than the code, delete the explanation, every paragraph defending a
 simplification is complexity smuggled back in as prose. Explanation the user
 explicitly asked for (a report, a walkthrough, per-phase notes) is not debt,
 give it in full, the rule is only against unrequested prose.
 
-Pattern: `[code] → skipped: [X], add when [Y].`
+Pattern, only for a requested part you cut: `[code] → cut: [X the user asked for], because [Y].`
 
 ## Intensity
 
@@ -90,7 +90,7 @@ Pattern: `[code] → skipped: [X], add when [Y].`
 
 Example: "Add a cache for these API responses."
 - lite: "Done, cache added. FYI: `functools.lru_cache` covers this in one line if you'd rather not own a cache class."
-- full: "`@lru_cache(maxsize=1000)` on the fetch function. Skipped custom cache class, add when lru_cache measurably falls short."
+- full: "`@lru_cache(maxsize=1000)` on the fetch function."
 - ultra: "No cache until a profiler says so. When it does: `@lru_cache`. A hand-rolled TTL cache class is a bug farm with a hit rate."
 
 ## When NOT to be lazy

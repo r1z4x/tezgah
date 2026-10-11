@@ -51,7 +51,7 @@ try:
     from tezgah_gate import decision, explored, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
-        stop_reason)
+        residual_text, stop_reason)
     from tezgah_paths import off  # noqa: E402
     import tezgah_store  # noqa: E402
     from tezgah_taste import write_note  # noqa: E402
@@ -251,14 +251,17 @@ def remember_answer(session_id, text):
     one is stored as that many characters of its head, `ANSWER_CUT` with the
     count of what was dropped, then `ANSWER_TAIL` characters of its tail - so
     both the opener the Stop rule reads and the closing marker it must not lose
-    survive the round trip. A reply with no `conversation_id` is not stored; a
-    store that cannot be written is not fatal."""
+    survive the round trip. A residual section the cut would drop (plan 080:
+    "Açık kalanlar" in the middle of a long reply) is kept, label and items,
+    between the cut marker and the tail. A reply with no `conversation_id` is
+    not stored; a store that cannot be written is not fatal."""
     if not session_id or not text:
         return
     text = str(text)
     dropped = len(text) - ANSWER_HEAD - ANSWER_TAIL
     if dropped > 0:
-        text = text[:ANSWER_HEAD] + ANSWER_CUT % dropped + text[-ANSWER_TAIL:]
+        text = (text[:ANSWER_HEAD] + ANSWER_CUT % dropped
+                + residual_text(text[ANSWER_HEAD:-ANSWER_TAIL]) + text[-ANSWER_TAIL:])
     tezgah_store.put_doc("cursor_answer", answer_key(session_id), text)
 
 

@@ -226,7 +226,8 @@ class CursorHook(TempHome):
     def test_stop_refuses_a_done_claim_whose_check_reported_no_outcome(self):
         # A shell result with no `exitCode` in `tool_output` is a check that
         # RAN, never one that passed: a "done" the session cannot evidence does
-        # not end the turn, and the honest spelling passes on the same evidence.
+        # not end the turn. Since plan 080 the admission alone does not either:
+        # it passes once the check ran and failed, with the failure named.
         self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
                    "conversation_id": "s", "tool_name": "Shell",
                    "tool_input": {"command": "pytest -q"}})
@@ -235,6 +236,12 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out["reason"])
         self.response("Doğrulanmadı.")
+        self.assertEqual(self.stop().get("decision"), "block")
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_output": '{"exitCode":1,"stdout":"1 failed"}'})
+        self.response("pytest -q düşüyor (1 failed); doğrulanmadı.")
         self.assertEqual(self.stop(), {})
 
     def test_stop_passes_a_done_claim_its_exit_zero_check_backs(self):
@@ -247,6 +254,22 @@ class CursorHook(TempHome):
                    "tool_output": '{"exitCode":0,"stdout":"5 passed"}'})
         self.response("Done. All tests pass.")
         self.assertEqual(self.stop(), {})
+
+    def test_a_residual_section_in_the_cut_middle_still_reaches_the_rule(self):
+        # review round 1 (exits C6): a long reply is stored as its head and
+        # tail, and a list of what is left in between used to vanish with the cut
+        self.call({"hook_event_name": "beforeSubmitPrompt", "cwd": self.repo,
+                   "conversation_id": "s", "prompt": "parser"})
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_output": '{"exitCode":0,"stdout":"5 passed"}'})
+        filler = "Parser modülü yeniden yazıldı ve testler geçti. " * 70
+        self.response(filler + "\n\nAçık kalanlar:\n- README güncellenmedi\n\n" + filler)
+        self.assertIn("Açık kalanlar", self.answer())
+        out = self.stop()
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu maddeleri şimdi yap", out["reason"])
 
     def test_stop_refuses_a_forged_pass_the_gate_never_saw_begin(self):
         # plan 051: preToolUse writes the gate's `began` row, which the

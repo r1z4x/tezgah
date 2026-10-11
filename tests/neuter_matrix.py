@@ -27,14 +27,16 @@ anchor, is the address because one rule repeats the same `_deny` line (task four
 times, shortcut and attribution three).
 
 The Stop half is generated the same way: one `stop-<class>` mutant per `return
-("<class>", ...)` site of `_stop_block`, `_shape_block` and `_evidence_block`
-(the functions `stop_triggers` reads; `_stop_block` returns one class itself,
-`evidence tampered`), turned into `pass`, so the turn falls through to the branches below it. A class
+("<class>", ...)` site of `_stop_block`, `_shape_block`, `_evidence_block` and
+`_residual_block` (the functions `stop_triggers` reads; `_stop_block` returns
+one class itself, `evidence tampered`), turned into `pass`, so the turn falls
+through to the branches below it. A class
 returned at two sites (`no ui_ok`, `no verify_ok`) gets a mutant per site. The
 guards around those classes - the pass predicate, the empty-run read, the
-"doğrulanmadı" clear, the lost call, the bookkeeping and session fallbacks, the
-refusal row - are hand-written rows below. ponytail: the hand-written rows cover
-a guard only once a row names it."""
+"doğrulanmadı" clear and the failed check and classes it rests on, the lost
+call, the bookkeeping and session fallbacks, the refusal row, the residual
+class's work scope and its blocker types - are hand-written rows below.
+ponytail: the hand-written rows cover a guard only once a row names it."""
 import ast
 import concurrent.futures
 import importlib.machinery
@@ -53,7 +55,7 @@ MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
            "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
            "test_omp_hook.py", "test_stop_after_block.py")
 # the functions whose `return ("<class>", ...)` sites are the Stop classes
-STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block")
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block", "_residual_block")
 
 
 def anchored(anchor, replacement):
@@ -130,9 +132,52 @@ MUTANTS = (
               "    return True\n"),
      "a pass whose status a pipe or a later command owns"),
     ("negated", INTEGRITY,
-     anchored("    if NEGATED.search(t):\n        return (None, None)\n",
-              "    if False and NEGATED.search(t):\n        return (None, None)\n"),
-     "the \"doğrulanmadı\" clear of the claim branches"),
+     anchored("        return (None, None)\n    return admitted\n",
+              "        return verdict\n    return admitted\n"),
+     "the \"doğrulanmadı\" clear of the check-repair classes"),
+    ("admission-needs-a-failure", INTEGRITY,
+     anchored("        if not verdict[0] or not _failed_since_change(rows):\n",
+              "        if not verdict[0]:\n"),
+     "the admission resting on a check that failed since the newest change"),
+    ("admission-owed", INTEGRITY,
+     anchored("        if owed[0] and owed[0] not in ADMITTED_CLASSES and not (\n",
+              "        if False and not (\n"),
+     "a screen or design proof the admitted turn still owes"),
+    ("admission-screen-attempt", INTEGRITY,
+     anchored("                owed[0] == \"no ui_ok\" and _proof_attempt_failed(rows)):\n",
+              "                owed[0] == \"no ui_ok\"):\n"),
+     "only a failed screen or design check standing for the proof it attempted"),
+    ("admission-external", INTEGRITY,
+     anchored("        if external is not None and _external_read_row(rows) < 0:\n"
+              "            return (\"no external read\", _external_text(external, *where))\n",
+              "        if False:\n"
+              "            return (\"no external read\", _external_text(external, *where))\n"),
+     "an external claim the admitted turn still owes a read for"),
+    ("admission-prose", INTEGRITY,
+     anchored("    if not NEGATED.search(_prose(text)):\n",
+              "    if not NEGATED.search(text):\n"),
+     "the admission read on the reply's prose, code blanked"),
+    ("residual-scope", INTEGRITY,
+     anchored("    if not any(str(r.get(\"kind\")) in STEP_KINDS for r in rows):\n"
+              "        return verdict\n",
+              "    if False:\n        return verdict\n"),
+     "the residual class asked only of a turn that did work"),
+    ("residual-unscoped", INTEGRITY,
+     anchored("    if session_id and not _turn_count(_ledger_lines(_path(session_id))):\n",
+              "    if False:\n"),
+     "a ledger with no turn marker left unjudged for residuals"),
+    ("residual-said", INTEGRITY,
+     anchored("            if BLOCKER_SAID.search(_prose(\" \".join((label, intro, item)))):\n",
+              "            if False:\n"),
+     "a KARAR or GERİ ALINAMAZ item kept as a blocker"),
+    ("residual-quoted", INTEGRITY,
+     anchored("            if _quotes_failure(item, failed):\n",
+              "            if False:\n"),
+     "an item quoting a command that failed in the turn"),
+    ("residual-list-blocks", INTEGRITY,
+     anchored("                    if cls not in LIST_BLOCKS:\n",
+              "                    if True:\n"),
+     "a residual refusal of a backed claim kept out of false completion"),
     ("lost-began", INTEGRITY,
      anchored("    if lost:\n", "    if False and lost:\n"),
      "a claim resting on a check whose result never arrived"),

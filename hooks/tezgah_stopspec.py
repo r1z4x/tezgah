@@ -102,6 +102,13 @@ NOT_COUNTED = (
                     "constants over one trace, read off the reply, not a row"),
     ("evidence tampered", "a trace-validity guard in the selector, before the fold"),
 )
+# Plan 080 (2026-10-11), after the pre-registration and not a change to it: the
+# admission ("doğrulanmadı") is applied by the selector to whichever fold it is
+# given (`tezgah_integrity._admitted`: a check-repair class cleared after a check
+# that failed since the newest change), and `residual work` is a selector verdict
+# asked at every exit that would end the turn (`_residual_block`). Both reach the
+# spec's verdict through the shared selector, so neither is a formula here.
+
 # GO 2's live floor: shadow rows needed before the 99% bar is read. At 400 a
 # 99% rate is 4 disagreements, so one more or less moves it by 0.25 pp.
 MIN_LIVE_N = 400

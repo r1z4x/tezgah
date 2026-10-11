@@ -368,9 +368,10 @@ def verification_steps(text, path):
     if rounds >= REVIEW_ROUNDS:
         print("  2. the %d-round budget is spent: `tezgah-task review` refuses a "
               "third round. Fix a critical or major finding still confirmed "
-              "yourself, prove it with a test and close with `--resolved`; a "
-              "minor or suggestion one is recorded fix-later under the plan's "
-              "## State" % REVIEW_ROUNDS)
+              "yourself, prove it with a test and close with `--resolved`; fix a "
+              "minor or suggestion one now, or record it fix-later under the "
+              "plan's ## State only when it waits on a user decision (KARAR)"
+              % REVIEW_ROUNDS)
         return
     if rounds:
         print("  2. review round 2 (the last): each confirmed critical or major "
@@ -392,8 +393,10 @@ def verification_steps(text, path):
               "security reviewer" % (REVIEW_ROUNDS, base, SMALL_DIFF,
                                      "unknown" if size is None else size))
         print("     only a confirmed critical or major finding is `changes` and "
-              "opens round 2; a minor or suggestion one is recorded fix-later "
-              "under ## State and the verdict is `approve`")
+              "opens round 2; a minor or suggestion one is fixed in the session "
+              "without a new round, or recorded fix-later under ## State only "
+              "when it waits on a user decision (KARAR), and the verdict is "
+              "`approve`")
     print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
           " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
@@ -575,8 +578,9 @@ def budget_spent(path, ident):
     return ("%s has spent its %d-round review budget: never a third round. Fix a "
             "critical or major finding still confirmed yourself and prove it with "
             "a test, then `tezgah-task close %s done --resolved \"<the fix and the "
-            "test that proves it>\"`; record a minor or suggestion one fix-later "
-            "under the plan's ## State; `close %s discarded` needs no review"
+            "test that proves it>\"`; fix a minor or suggestion one now, or record "
+            "it fix-later under the plan's ## State only when it waits on a "
+            "user decision (KARAR); `close %s discarded` needs no review"
             % (path, REVIEW_ROUNDS, ident, ident))
 
 

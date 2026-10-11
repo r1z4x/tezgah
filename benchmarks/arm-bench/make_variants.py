@@ -35,7 +35,7 @@ CLAUSES = {
     "orx-no-reporting": "**Turkish, BLUF.**",
     "orx-no-ponytail": "**Ponytail (minimal code).**",
     "orx-no-whole-ask": "**Deliver the whole ask; never the shortcut.**",
-    "orx-no-integrity": '**Integrity: evidence, or "doğrulanmadı".**',
+    "orx-no-integrity": '**Integrity: evidence, or a named blocker.**',
 }
 
 

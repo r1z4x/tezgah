@@ -25,8 +25,10 @@ the workspace's own records; every number below names where it came from.
 3. **One review per plan, two rounds, fanned out.** Reviewers read the plan's
    whole diff once, in its verification phase. Round one spawns them together,
    one per dimension. Only a confirmed critical or major finding opens round two,
-   and round two reads the fix's delta. After round two the user gets what is
-   left, or the plan lists it as fix-later. `tezgah-task review` refuses a third
+   and round two reads the fix's delta. The session fixes a minor or suggestion
+   finding without a new round. The plan lists one fix-later only when it waits
+   on a user decision (KARAR). After round two the session fixes what is left,
+   or the plan lists it fix-later only with KARAR. `tezgah-task review` refuses a third
    round (`hooks/tezgah_agents.py::_reviewer_body`, `bin/tezgah-task::cmd_review`).
    (Measured: the old loop opened a round on any finding and ended only on a
    clean round. It reviewed one finished plan round after round. In another plan,

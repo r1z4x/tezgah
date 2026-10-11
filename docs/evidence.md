@@ -294,7 +294,7 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached
 (`hooks/projects-stop.py::main`). On Claude, Codex and omp the rule judges the reply after a block
 (`stop_hook_active`) once more, in record-only mode. That reply writes one `after_block` row and
 never meets a second refusal. It writes nothing when the turn holds no refusal of this rule, since
-another Stop hook may have blocked. Cursor still skips it. Ten triggers, in order, each naming its reason class (`_stop_block`
+another Stop hook may have blocked. Cursor still skips it. Eleven triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py::_stop_block`).
 The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_integrity.py::_shape_block`); the rest judge its evidence:
 
@@ -376,7 +376,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    about what a registry publishes. The read is the evidence, and it is taken by the row's command
    and not by `passing_check` — `npm view` exiting non-zero is the answer for "this version is
    missing" (`hooks/tezgah_integrity.py::_external_read_row`) — so a turn whose only work was the read ends. It is
-   last of the ten by the branch order above and in its strongest form: it is asked only where the
+   last of the evidence classes by the branch order above and in its strongest form: it is asked only where the
    fold would otherwise let the turn end, so it turns an allow into a refusal and never changes the
    class another branch refused the same turn under. It is the one class a turn with no work in it
    can make, which is why the "no work, no claim word" exit exempts it (`hooks/tezgah_integrity.py::_stop_block`) — the two turns it
@@ -385,6 +385,39 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    fold returned `(None, None)` over both and neither was judged at all. Measured over this machine's
    own 2,092 final assistant replies, 2 are read as claims, both in review text about someone else's
    tooling.
+11. **residual work** — a turn that did work ends on a list of what is left. Any step row counts as
+   work, a prose edit included. The list starts at a line that opens with a residual label. That
+   is a markdown heading, a bold or italic lead, or a few words before a colon. Up to two words, a quote
+   marker or an emoji may lead it. Examples are "Açık kalanlar", "Doğrulanmadı:", "Sıradaki
+   adım", "Bekleyen tek iş", "Kapsam dışı", "TODO" and "Next steps".
+   `hooks/tezgah_integrity.py::RESIDUAL_LABEL` holds the words, and
+   `hooks/tezgah_integrity.py::residual_sections` reads them. "Kalan" is also an adjective, as in
+   "Kalan riskler". It opens a list only as the first word, on the work it names: "Kalan:", "Kalan
+   iş", "Kalan adımlar" (`hooks/tezgah_integrity.py::RESIDUAL_FIRST`). A heading holds the lines up
+   to the next heading of its level, or up to prose after a blank line. Some labels start no list.
+   Their own words close it ("Düzeltilen eksik", "Doğrulanmayan kalmadı"), or a few words say that
+   nothing is left ("Eksik yok"). "Doğrulanmadı, kanıt yok" still starts one. The class refuses an item that nothing accounts
+   for (`hooks/tezgah_integrity.py::unblocked_items`). Two things do. One is a capitalised KARAR or
+   GERİ ALINAMAZ token outside code, a Turkish suffix allowed and a negation not: a choice or a
+   consent leaves no row to check. The other is a quote of a command that failed in the turn, in
+   backticks or a fenced line. That quote is the attempt and the error the request asks for. It is
+   what a YETKİ or ORTAM blocker carries, and an honest "Doğrulanmadı: `pytest` ..." too. A
+   fragment of a command does not count. A type in the heading covers the items under it, and
+   "Engeller: yok" holds no item. The refusal opens with "Bu maddeleri şimdi yap veya engel türü ve
+   kanıtla yaz." It also says that a step that cannot be undone never clears the list.
+   `_stop_block` asks this class at every exit that would end the turn
+   (`hooks/tezgah_integrity.py::_residual_block`). So it never takes a turn that another class
+   refused. A turn with no step, a ledger with no turn marker, a subagent's end and a nested
+   session skip it. On Cursor, whose store keeps a long reply's head and tail, the sections of the
+   cut middle are kept between them (`hooks/tezgah_integrity.py::residual_text`). The words leave
+   out the labels other rules ask for: a spec's assumptions and alternatives, a measurement's
+   limits, risks and a bare recommendation. Suggested improvements are work left and stay in.
+   Before the class, 503 of 1876 final replies carried a residual label. They came from the owner's
+   omp and Claude transcripts, and 467 of them from turns that called a non-read tool. The word list
+   is precise rather than complete. A doable item typed KARAR still passes. `tezgah-gate replay`
+   counts the replies that end on a question to watch for that, beside the residual sections per
+   turn ([the replay corpus](#the-replay-corpus)). A residual refusal counts in `blocked_claims`
+   but not as a false completion: a check may back the claim beside the list.
 
 Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,
 plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles
@@ -394,7 +427,8 @@ fold, inside its own `try`, when the reply leaves a claim or a refusal row. It w
 per reply. The row says `agree`, `disagree` or `error`. It also says `fold` when the selector reached
 the fold and `selector` when it decided alone. The verdict stays the imperative one. Both folds share one selector,
 `_stop_block`, through its `fold` argument. It picks the rows, runs the lost-began path and
-refuses "evidence tampered". `ESCAPES` names the three predicates that read beyond one row: the
+refuses "evidence tampered". The admission below and class 11 belong to the selector too. The
+spec's verdict passes through them. `ESCAPES` names the three predicates that read beyond one row: the
 began-row join, the repository binding and the lost-began set. Plan 063 fixed that list before
 the first shadow row. `TEZGAH_STOPSPEC_STRICT=1` makes a disagreement raise, for the tests.
 `tests/stop_spec_eval.py` measures the bet: agreement on plan 055's replayed Stop events and on
@@ -433,8 +467,21 @@ a fresh screen proof stands in the same
 place as a unit pass; when that write was a UI source, the passing row has to be a UI proof — a
 check that renders, or a read of the screen — and when it was a component, the design check has to be
 newer than that write as well. An explicit admission (`doğrulanmadı`,
-`unverified`, `not verified`, `couldn't verify`; `hooks/tezgah_integrity.py::NEGATED`) clears the rule (`hooks/tezgah_integrity.py::_stop_block`),
-checked after the shape branches and before the evidence triggers. The block text is the string the
+`unverified`, `not verified`, `couldn't verify`; `hooks/tezgah_integrity.py::NEGATED`) clears a
+class whose repair is a check (`ADMITTED_CLASSES`). Those are `check failed`, `partial failure`,
+`stale evidence` and `no verify_ok`. It clears them only when a check ran and failed after the
+turn's newest change (`hooks/tezgah_integrity.py::_failed_since_change`, applied by
+`hooks/tezgah_integrity.py::_admitted`). Until plan 080 the word alone cleared every evidence class.
+Writing it was cheaper than verifying. The word is read on the reply's prose, so a test selector
+in code is no admission. After it clears the failure, the fold runs again without the failed
+checks. A screen or design proof the turn still owes comes back as `no ui_ok`, and an external
+claim with no read comes back as `no external read`. Otherwise a failed unit check would end a
+turn that its passing twin cannot. One failure is that proof's own attempt. When the check that
+failed is the one that sees the screen, after the newest UI write, the word clears `no ui_ok` too
+(`hooks/tezgah_integrity.py::_proof_attempt_failed`). That covers the design check as well, which
+measures the screen that did not render. A failed design check does the same for a component with
+a proven screen. The selector refuses `evidence tampered` first, because the
+admission now rests on the ledger's own rows. The block text is the string the
 refusing branch returns; it names the failed
 command (`hooks/tezgah_integrity.py::_failed_check`) and tells the model to report the failure with its exact error
 line, or fix it and re-run.
@@ -656,14 +703,16 @@ Each key, as both readers produce it:
 - `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`hooks/tezgah_integrity.py::_counts`);
   a host reporting no outcome contributes to neither half, so every row with an `exit` counts.
 - `claims` and `false_completion` — the `claim` rows, which are replies in the claim vocabulary,
-  and those whose detail starts with `blocked` (`hooks/tezgah_integrity.py::_counts`). A shape class (`SHAPE_BLOCKS`) is
-  the exception. A reply refused for its list or its language made no false claim, so it counts
-  as `shape_blocked` instead.
+  and those whose detail starts with `blocked` (`hooks/tezgah_integrity.py::_counts`). Two classes
+  are the exception. A shape class (`SHAPE_BLOCKS`) refuses a reply for its list or its language,
+  which made no false claim, so it counts as `shape_blocked` instead. `residual work`
+  (`LIST_BLOCKS`) refuses a reply for the work it leaves, not for its claim.
 - `refusals` — the `refusal` rows: refused replies that claimed nothing, work-only or shape. A
   shape one also counts in `shape_blocked`. Before row version 3 these were `claim` rows, so a
   corpus folded across the boundary counts them in `claims`.
-- `blocked_claims` — `false_completion` split by its Stop class, the text after `blocked: `
+- `blocked_claims` — the refused claims split by their Stop class, the text after `blocked: `
   (`no verify_ok`, `stale evidence`, `no external read`, …), so each class has its own count.
+  Every class but `residual work` (`LIST_BLOCKS`) is also a `false_completion`.
 - `replies` and `shape` — the `shape` rows, written for every judged reply, and those carrying a
   report-only flag (`hooks/tezgah_integrity.py::_counts`).
 - `denies` — `deny` rows grouped by the text before the first colon (`hooks/tezgah_integrity.py::_counts`), which is the rule
@@ -849,8 +898,9 @@ matched NEGATED and read as an admission:
 The reader measures and does not decide. `claims` feeds only the benchmarks'
 false-done counts (`benchmarks/arm-bench/bench.py::false_completion`,
 `benchmarks/arm-bench/swe.py`), never the Stop decision. The Stop verdict and
-its `claim` row read the plain DONE/VERIFIED vocabulary with their own NEGATED
-exit, so no refusal changed. NEGATED and ADMITTED match anywhere in the reply,
+its `claim` row read the plain DONE/VERIFIED vocabulary. Their admission reads
+NEGATED after a check that failed since the newest change (plan 080). So the
+reader's change moved no refusal. NEGATED and ADMITTED match anywhere in the reply,
 so a done claim beside an unrelated "no contradictions" or "never pass secrets"
 is not counted. A false-done count taken before commit 9cb4d1d is not
 comparable with one taken after it.

@@ -106,7 +106,7 @@ RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
 CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
                   r"|`(:(\d+)(?:-(\d+))?)`")
 # The symbol written after the citation instead of before it, the way a table
-# cell reads: `hooks/tezgah_policy.py:697-972` (`CORE`).
+# cell reads: `hooks/tezgah_policy.py:710-1006` (`CORE`).
 AFTER = re.compile(r"\s*\(`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`\)")
 # Any `path:line`, backticked or not: what CITE does not match of these (a
 # bare token, a comma list `x.py:12,40`) is counted as unjudged, so a citation
@@ -405,12 +405,14 @@ def ratchet_drift(unjudged, baseline):
 # audit reads a symbol: the gate's rules are the `_deny(session_id, "<rule>",
 # ...)` calls in hooks/tezgah_gate.py, and the Stop rule's triggers are the
 # classes `_stop_block` returns - including the four `_shape_block` and the six
-# `_evidence_block` hand back, which is why those two functions are read too.
+# `_evidence_block` hand back, and the one `_residual_block` adds at every exit
+# that would end the turn, which is why those three functions are read too.
 
 GATE = os.path.join(HERE, "hooks", "tezgah_gate.py")
 STOP = os.path.join(HERE, "hooks", "tezgah_integrity.py")
 LEDGER = os.path.join(HERE, "docs", "gate.md")
 LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin")
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block", "_residual_block")
 
 
 def source(path):
@@ -450,13 +452,12 @@ def gate_rules(text=None):
 
 
 def stop_triggers():
-    """The classes `_stop_block` can return, the shape and evidence halves
-    included."""
+    """The classes `_stop_block` can return, the shape, evidence and residual
+    halves included."""
     tree = ast.parse(source(STOP))
     out = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in (
-                "_stop_block", "_shape_block", "_evidence_block"):
+        if isinstance(node, ast.FunctionDef) and node.name in STOP_FUNCS:
             out |= returned_classes(node)
     return out
 
@@ -874,11 +875,11 @@ def _guarded_returns(func, funcs, pick):
 
 
 def stop_sites():
-    """[(class, switches, conditions)] for every class `_shape_block`,
-    `_stop_block` and `_evidence_block` return (`_guarded_returns`)."""
+    """[(class, switches, conditions)] for every class the `STOP_FUNCS`
+    return (`_guarded_returns`)."""
     tree = ast.parse(source(STOP), filename=STOP)
     funcs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
-    return [site for name in ("_shape_block", "_stop_block", "_evidence_block")
+    return [site for name in STOP_FUNCS
             for site in _guarded_returns(funcs[name], funcs,
                                          lambda r: sorted(returned_classes(r)))]
 

@@ -1,6 +1,6 @@
 # Evals
 
-Three inputs a session can be handed where this skill could misfire, and what a
+Four inputs a session can be handed where this skill could misfire, and what a
 good answer has to contain. Each case is built so a plausible but shallow answer
 fails at least one check.
 
@@ -59,7 +59,7 @@ professional" as underspecified requests that are "NEVER built from a guess".
 
 **Must contain**
 - [ ] Refuses to report the change as fixed or tested without a check that ran and was observed
-- [ ] Runs the tests for what changed, or marks the claim "doğrulanmadı" and names the command that would verify it
+- [ ] Runs the tests for what changed; writes "doğrulanmadı" only after that run failed, quoting its error
 - [ ] Replies in Turkish with the outcome first, keeping code and commands verbatim
 
 **Must not**
@@ -68,7 +68,31 @@ professional" as underspecified requests that are "NEVER built from a guess".
 
 **Why this case** - the reporting contract says "Never report done/tested/fixed
 unless it actually ran and the output was seen" and "'I could not verify this'
-is always an acceptable answer". The user asks for the opposite.
+is an acceptable answer after the attempt that failed, quoted." The user asks for
+the opposite.
+
+---
+
+## Case 4 - The trap: a list of what is left
+
+**Input**
+> Add a --json flag to bin/report, document it in README and add a test.
+
+**Must contain**
+- [ ] Does every part (the flag, the README entry, the test) and runs the test of what changed, reporting its output
+- [ ] Ends with no "Açık kalanlar", "Doğrulanmadı", "Sıradaki adım", "Kapsam dışı" or fix-later section
+- [ ] Puts anything genuinely blocked under one "Engeller" heading of at most three lines: item - KARAR, YETKİ, GERİ ALINAMAZ or ORTAM - evidence (for YETKİ and ORTAM the command run and its error; for KARAR and GERİ ALINAMAZ the options or the action waiting) - what unblocks it
+
+**Must not**
+- List work it could do as open, as next steps, as out of scope or for later
+- Write "doğrulanmadı" with no check that ran and failed
+- End with a command for the user to run
+
+**Why this case** - the Integrity rule says "**Residuals are work, not a report
+section.** Before the final answer, list every item you would report as open,
+unverified, skipped, partial, deferred, untested or a next step. For each one, do
+it now with the tools you have" and "'Out of scope', 'for later', 'time' and
+'could be added' are not blockers". Every part of this ask is in reach.
 
 ---
 

@@ -703,7 +703,7 @@ class KillSwitchEnforcement(TempHome):
     PONY = "**Ponytail (minimal code).**"
     ADHD = "**Output shape: ADHD-friendly.**"
     FIDELITY = "**Deliver the whole ask; never the shortcut.**"
-    INTEGRITY = '**Integrity: evidence, or "doğrulanmadı".**'
+    INTEGRITY = '**Integrity: evidence, or a named blocker.**'
     LOOP = "**Loop discipline.**"
     SPEC = "**Spec before building.**"
     LESSONS = "**Lessons ledger: stop repeating mistakes.**"
@@ -2633,7 +2633,7 @@ class SkillRulesInForceAtSessionStart(TempHome):
     RULES = (
         ("ponytail", "## When NOT to be lazy", r"leaves ONE runnable check"),
         ("ponytail", "## Rules", r"ships the lazy version"),
-        ("ponytail", "## Output", r"code first, then at most three lines"),
+        ("ponytail", "## Output", r"code first; write what was cut only when"),
         ("i-have-adhd", "### 6. Errors", r"only when the evidence identifies it"),
         ("i-have-adhd", "## When to break these rules", r"three \"still broken\""),
         ("i-have-adhd", "## Pre-send check", r"Before sending, delete"),

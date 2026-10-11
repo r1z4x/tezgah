@@ -338,9 +338,11 @@ class Generation(AgentsBase):
 
     BUDGET = ("One review per plan, over its whole diff in the verification phase; "
               "at most two rounds - only a confirmed critical or major finding opens "
-              "round two, a minor or suggestion one is recorded fix-later, and after "
-              "round two what is left is fixed by the session and closed with "
-              "`--resolved`, or recorded fix-later, never a third round.")
+              "round two; a minor or suggestion one is fixed in the session without a "
+              "new round, or recorded fix-later only when it waits on a user "
+              "decision (KARAR); after round two what is left is fixed by the "
+              "session and closed with `--resolved`, or recorded fix-later only "
+              "with KARAR, never a third round.")
 
     def test_the_reviewer_names_the_two_round_budget_on_every_host(self):
         # "the review ends when a round ..." had no cap, and any minor finding

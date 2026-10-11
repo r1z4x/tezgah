@@ -174,19 +174,19 @@ default, measured on two research lines with a written flip
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :649, `**Ponytail (minimal code).**` :657, `**Output shape:
-ADHD-friendly.**` :668, `**Deliver the whole ask; never the shortcut.**` :682,
-`**Integrity: evidence, or "doğrulanmadı".**` :696, `**Loop discipline.**` :713,
-`**Spec before building.**` :722 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :736, `**Code discovery: graph first.**` :744
-*(conditional)*, `**Consult before irreversible.**` :753 *(conditional)*,
-`**Research: route it to OpenResearch.**` :769 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :785 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :818, `**Identifiers and messages
-stay English.**` :828, `**Session scope: the user's repo, not tezgah.**` :834,
-``**Workspace: `.tezgah/` only.**`` :843, `**Parallel by default: fan out
-independent items.**` :850 *(conditional)*,
-`**Kill switches:**` :865. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :713, `**Ponytail (minimal code).**` :722, `**Output shape:
+ADHD-friendly.**` :739, `**Deliver the whole ask; never the shortcut.**` :763,
+`**Integrity: evidence, or a named blocker.**` :778, `**Loop discipline.**` :811,
+`**Spec before building.**` :820 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :834, `**Code discovery: graph first.**` :842
+*(conditional)*, `**Consult before irreversible.**` :851 *(conditional)*,
+`**Research: route it to OpenResearch.**` :869 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :896 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :931, `**Identifiers and messages
+stay English.**` :941, `**Session scope: the user's repo, not tezgah.**` :947,
+``**Workspace: `.tezgah/` only.**`` :958, `**Parallel by default: fan out
+independent items.**` :965 *(conditional)*,
+`**Kill switches:**` :990. The first label renders as `**Turkish, BLUF.**` under
 the default `reply_lang`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the six
@@ -215,7 +215,7 @@ applied, and it also returns the names of the switches that fired.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py::_pony_level_line`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
-- **Integrity: evidence, or "doğrulanmadı".** A done/tested claim holds only if the check ran in this session and its output was seen; the mechanical half is enforced by [gate.md](gate.md).
+- **Integrity: evidence, or a named blocker.** A done/tested claim holds only if the check ran in this session and its output was seen; "doğrulanmadı" follows a check that ran and failed; leftover work is done, or stays as one of four blockers (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its evidence. The mechanical half is enforced by [gate.md](gate.md), the residual half by the Stop rule's `residual work` class ([evidence.md](evidence.md)).
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start, and up to three older ones a prompt shares words with ride that turn, each once per session when the host sends a session id (a compaction resets that, because the compacted context no longer holds them; without an id every matching turn carries them). Write a line rule first, `<rule> - <incident>` (`LESSON_SEPARATOR`, `hooks/tezgah_context.py::LESSON_SEPARATOR`). The session block counts the shown lines that do not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves both blocks while that gate rule or test is on (`hooks/tezgah_lessons.py::lines`). That one reader serves the context, the gate and the CLI. It cuts that clause, a `|| check: ...` clause and an `@<sha> <path>` stamp off each line (`hooks/tezgah_lessons.py::parse`). None of them changes the key, the per-turn digest, the cut or the ranking. The gate records a line written after untrusted text in the same turn as a `lesson_tainted` row ([evidence.md](evidence.md)). That line still rides both blocks, behind a per-line data label (`hooks/tezgah_context.py::LESSON_TAINTED`). ADR 010 makes it a row, never a refusal. `bin/tezgah-lessons` proposes rewrites, merges and retirements, and never writes the file.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper; one already in pushed history is reported.
@@ -425,16 +425,20 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 
 ## When the injected text grows too large
 
-Each event has a byte budget: `session_start` and `post_compact` 13000,
-`user_prompt` 6000, `subagent_start` 5500, anything else 13000
+Each event has a byte budget: `session_start` and `post_compact` 14500,
+`user_prompt` 6500, `subagent_start` 5500, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
 builds 9842 B before the ponytail and ADHD rules went inline and 10884 B after
 (+1042 B). The fan-out pointer adds 112 B and the `tezgah-skill` sentence
-113 B, so the always-on band is 10499 B (`tests/test_setup.py`). The healthy
-fixture with a lesson and a plan then built 12059 B. At the old 12000 B budget
-it lost its lessons and sibling checkouts to pay for core rules, so the budget
-moved to 13000 B. The subagent brief and the reminder stay the same size.
+113 B. The healthy fixture with a lesson and a plan then built 12059 B. At the
+old 12000 B budget it lost its lessons and sibling checkouts to pay for core
+rules, so the budget moved to 13000 B. The residual rule (plan 080) added
+1473 B to the core and 151 B to the reminder, so the always-on band is
+11972 B (`tests/test_setup.py`). At 13000 B the healthy fixture gave up its
+lessons, plans and steer blocks. At 6000 B the busiest prompt turn gave up its
+active-task line. The session budgets moved to 14500 B, the prompt budget to 6500 B.
+The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A
 `user_prompt` that arms all five conditional rules
