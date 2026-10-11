@@ -77,3 +77,7 @@ later does not reach them. So no release goes back below 1.0.0
 7. Nothing else to edit: the `release`, `license` and `ci` badges in the READMEs
    read `github/v/release`, `github/license` and the workflow status live, and
    `bin/tezgah-setup --version` reports the new version for anyone who pulls.
+8. Bring this machine's own install to the release:
+   `bin/tezgah-setup --refresh && bin/tezgah-setup --version`. The refresh
+   re-renders the armed hosts' contract files from the checkout, and the version
+   read must print the number just released.

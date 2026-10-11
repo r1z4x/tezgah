@@ -711,6 +711,19 @@ class ProviderHealth(unittest.TestCase):
                                         now=now), now + tm.HEALTH_DOWN_MAX)
         self.assertIsNone(tm.limit_until("connection reset by peer", now=now))
 
+    def test_a_hold_written_while_the_probe_runs_survives_it(self):
+        # review of S2 F3a: the probe read the record before its probes and wrote
+        # its own copy after them, dropping a slice stop's hold made meanwhile
+        def probe(family):
+            if family == "zai":
+                with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}), \
+                        mock.patch.object(tm, "apply_omp"):
+                    tm.note_limit("403 Key limit exceeded", provider="openrouter")
+                return True, "answered"
+            return None, "timed out"  # `any`: cannot tell, keeps its state
+        tm.refresh_health("anthropic", probe=probe)
+        self.assertEqual(tm.down_families(), {"any"})
+
     def test_a_down_family_leaves_the_chain_until_its_reset(self):
         import time
         self.assertEqual(tm.funded_families(), ["anthropic", "zai", "any"])

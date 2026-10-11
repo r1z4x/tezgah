@@ -1368,9 +1368,15 @@ TASK_PHASE_DENY = (
     "the plan's Acceptance, spike and checkpoint are in order.")
 TASK_SCOPE_DENY = (
     "Task gate: %s is outside the paths the active task %s allows (%s). If the "
-    "plan's work genuinely reaches it, widen the scope yourself with `tezgah-task "
-    "allow <glob> ... --why \"<reason>\"` (listing the current globs too); "
-    "otherwise leave the file alone.")
+    "plan's work genuinely reaches it, widen the scope yourself (allow replaces "
+    "the list, so this keeps the current globs): `%s --why \"<what in the plan "
+    "reaches it>\"`; otherwise leave the file alone.")
+# a target outside the repository: an allow glob is repo-relative, so none reaches it
+TASK_SCOPE_OUTSIDE = (
+    "Task gate: %s is outside the paths the active task %s allows (%s). It lies "
+    "outside this repository, and an allow glob is relative to it, so no "
+    "`tezgah-task allow` line reaches it; leave the file alone, or do the work "
+    "under that repository's own task.")
 TASK_RECORD_DENY = (
     "Task gate: %s is the active task's own record; only `tezgah-task` writes it, checking the plan's "
     "Acceptance, spike and review on the way. The phase and allowlist: `tezgah-task phase|allow`; an "
@@ -1513,7 +1519,11 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             # the call's own spelling: the agent has to recognize its argument
-            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns))
+            if rel is None:
+                return TASK_SCOPE_OUTSIDE % (spelled, task["id"], ", ".join(patterns))
+            ready = " ".join(["tezgah-task allow"] + [shlex.quote(p) for p in
+                                                      list(patterns) + [rel]])
+            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns), ready)
     return None
 
 
