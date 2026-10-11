@@ -916,7 +916,7 @@ URI_CHANNEL = re.compile(
 # The task rule's wider reading: ANY scheme. Its question is "is this a path in
 # the checkout", and a URI is not one - `tezgah_task.relative` would read
 # `xd://mcp__codegraph_explore` as a relative file and refuse a name that exists
-# nowhere (ServisTek session 01a12a4c: `xd://` and `conflict://` writes refused
+# nowhere (a user session, 2026-10-11: `xd://` and `conflict://` writes refused
 # as outside the allowlist).
 # `file://` is the one scheme that names a checkout file, so it stays guarded,
 # as the race rule already reads it.
