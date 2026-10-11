@@ -2094,12 +2094,19 @@ class OpenCodePlugin(TempHome):
         # the same turn (hooks/tezgah_integrity.note_turn), and a different
         # prompt is a new one.
         # the first message also spawns the session's attestation, detached, so
-        # its `attest` row lands whenever it lands: only turn markers count here
+        # its `attest` row lands whenever it lands: only turn markers count here,
+        # and the test waits for it, since a row landing between the two equal
+        # prompts makes the repeat a real new turn by design
+        import time
+
         def turns():
             return [k for k in self.kinds() if k == "turn"]
         self.context_bin()
         self.message("selam")
         self.assertEqual(turns(), ["turn"], self.ledger())
+        deadline = time.time() + 20
+        while time.time() < deadline and "attest" not in self.kinds():
+            time.sleep(0.2)
         self.message("başka bir istek")
         self.assertEqual(turns(), ["turn", "turn"], self.ledger())
         self.message("başka bir istek")
