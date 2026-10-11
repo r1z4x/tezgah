@@ -43,12 +43,13 @@ reader of that form). The gate refuses a write in that phase only while the
 recorded sha is still HEAD and the tree is still dirty, so the commit its refusal
 names clears it by itself.
 
-The slice journal lives here too (`open_slice` ... `slice_lines`): one JSON
-record per delegated slice under `<main checkout>/.tezgah/slices/`, written by
+The slice journal lives here too (`open_slice` ... `slice_lines`): one row per
+delegated slice in `<main checkout>/.tezgah/slices/slices.db`, written by
 the post-tool path on a spawn call and by `tezgah-task slice`, so a parent
 crash, an omp `/clear`, a quota stop or a host switch loses no slice. They shell
 out to git and read omp transcripts; the Stop rule reads `pending` (fail open).
 """
+import contextlib
 import os
 import re
 
@@ -657,7 +658,7 @@ def set_section(path, heading, body):
 
 # ---------------------------------------------------------------- slice journal
 #
-# One JSON record per delegated slice under `<main checkout>/.tezgah/slices/`,
+# One row per delegated slice in `<main checkout>/.tezgah/slices/slices.db`,
 # so a parent crash, an omp `/clear`, a quota stop or a model or host switch
 # loses no slice: the record names the brief, the worktree and branch it works
 # in, and how it ended. Written by the post-tool path on a spawn call
@@ -737,38 +738,115 @@ def slice_id(name, brief=""):
     return sid or _digest(brief)
 
 
-def _record_path(root, sid):
-    return os.path.join(slice_dir(root), slice_id(sid) + ".json")
+# The journal is one SQLite file opened like the taste store
+# (`tezgah_store.connect`: WAL, a busy timeout, 0600). One JSON file per record
+# piled up a file per subagent in every repository (owner, 2026-10-11). `row`
+# is the record as JSON; `parent`, `status` and `updated` are the columns a
+# reader filters and sorts on, and `seq` orders two writes in one second.
+SLICE_DB = "slices.db"
+SLICE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS slices (id TEXT PRIMARY KEY, parent TEXT NOT NULL,
+                                   status TEXT NOT NULL, updated TEXT NOT NULL,
+                                   seq INTEGER NOT NULL, row TEXT NOT NULL);
+"""
 
 
-def _read_record(path):
-    try:
-        import json
-        with open(path, encoding="utf-8") as fh:
-            rec = json.load(fh)
-    except (OSError, ValueError):
-        return None
-    return rec if isinstance(rec, dict) and rec.get("id") else None
-
-
-def _write_record(root, rec):
-    """Write one record atomically (a temp file in the same directory, then
-    os.replace), creating the private directory on the first write."""
-    import json
+@contextlib.contextmanager
+def _journal(root, create=True):
+    """The journal database of `root`'s repository, the `*.json` records an
+    older release wrote imported first (`_import_json`). With `create` False it
+    yields None where neither the database nor an old record exists, so a read
+    leaves no file behind. The directory carries a `.gitignore` of `*`: the
+    records are runtime state, never part of the private `.tezgah` history."""
+    import glob
+    import tezgah_store
     folder = slice_dir(root)
+    path = os.path.join(folder, SLICE_DB)
+    if not create and not os.path.exists(path) and not glob.glob(
+            os.path.join(folder, "*.json")):
+        yield None
+        return
     os.makedirs(folder, mode=0o700, exist_ok=True)
-    # the records are runtime state that changes every turn: the private
-    # `.tezgah` repository ignores them rather than listing `slices/` untracked
     ignore = os.path.join(folder, ".gitignore")
     if not os.path.exists(ignore):
         with open(ignore, "w", encoding="utf-8") as fh:
             fh.write("*\n")
-    path = os.path.join(folder, rec["id"] + ".json")
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(rec, fh, indent=1, sort_keys=True)
-        fh.write("\n")
-    os.replace(tmp, path)
+    conn = tezgah_store.connect(path, SLICE_SCHEMA, version=1)
+    try:
+        _import_json(conn, folder)
+        yield conn
+    finally:
+        conn.close()
+
+
+def _import_json(conn, folder):
+    """Bring the one-file-per-record journal into the table, then delete each
+    file it took. A file whose `updated` is newer than the row replaces it - an
+    older release still running writes files beside the database - and an
+    older one leaves the row alone. A file that does not parse, or whose id is
+    not a string, stays where it is. With no old file, one glob."""
+    import glob
+    import json
+    for path in glob.glob(os.path.join(folder, "*.json")):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                rec = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict) or not isinstance(rec.get("id"), str) \
+                or not rec["id"]:
+            continue
+        held = conn.execute("SELECT updated FROM slices WHERE id = ?",
+                            (rec["id"],)).fetchone()
+        if held is None or str(rec.get("updated") or "") > held[0]:
+            _put(conn, rec)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _put(conn, rec):
+    """Upsert one record."""
+    import json
+    conn.execute(
+        "INSERT OR REPLACE INTO slices (id, parent, status, updated, seq, row) "
+        "VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM slices), ?)",
+        (rec["id"], str(rec.get("parent") or ""), str(rec.get("status") or ""),
+         str(rec.get("updated") or ""), json.dumps(rec, sort_keys=True)))
+
+
+def _row(text):
+    import json
+    try:
+        rec = json.loads(text)
+    except ValueError:
+        return None
+    return rec if isinstance(rec, dict) and rec.get("id") else None
+
+
+def _read_record(root, sid):
+    """The record `sid`, or None; a journal that cannot be opened reads as none."""
+    import tezgah_store
+    try:
+        with _journal(root, create=False) as db:
+            hit = db and db.execute("SELECT row FROM slices WHERE id = ?",
+                                    (slice_id(sid),)).fetchone()
+    except tezgah_store.ERRORS:
+        return None
+    return _row(hit[0]) if hit else None
+
+
+def _write_record(root, rec):
+    """Write one record (one upsert statement) and return it. A database that
+    cannot be opened or written raises OSError, the error every caller already
+    handles (`tezgah-task slice` prints it, the hooks swallow it)."""
+    import tezgah_store
+    try:
+        with _journal(root) as db:
+            _put(db, rec)
+    except tezgah_store.ERRORS as exc:
+        raise OSError("slice journal %s: %s" % (slice_dir(root), exc)) from exc
     return rec
 
 
@@ -798,7 +876,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
     main = _journal_root(root)
     brief = (brief or "")[:SLICE_BRIEF]
     now = _now()
-    rec = _read_record(_record_path(root, sid))
+    rec = _read_record(root, sid)
     if rec is None:
         rec = {"id": sid, "kind": kind if kind in SLICE_KINDS else "agent",
                "host": host, "agent": agent, "brief": brief, "parent": parent,
@@ -835,7 +913,7 @@ def close_slice(root, sid, status, failure=""):
     keep the class the slice stopped with, so the stats still count the event."""
     if status not in SLICE_CLOSED:
         raise ValueError("status %r is not one of %s" % (status, ", ".join(SLICE_CLOSED)))
-    rec = _read_record(_record_path(root, sid))
+    rec = _read_record(root, sid)
     if rec is None:
         return None
     if status == "stopped" or failure:
@@ -845,21 +923,17 @@ def close_slice(root, sid, status, failure=""):
 
 
 def slices(root):
-    """Every readable record, newest `updated` first; an unreadable file is
-    skipped."""
-    import glob
-    out = []
-    for path in glob.glob(os.path.join(slice_dir(root), "*.json")):
-        rec = _read_record(path)
-        if rec is None:
-            continue
-        try:
-            mtime = os.stat(path).st_mtime_ns
-        except OSError:
-            mtime = 0
-        out.append((str(rec.get("updated") or ""), mtime, rec))
-    out.sort(key=lambda row: row[:2], reverse=True)
-    return [rec for _u, _m, rec in out]
+    """Every readable record, newest `updated` first (the later write first on a
+    tie); a row that does not parse, or a journal that cannot be opened, is
+    skipped - readers fail open."""
+    import tezgah_store
+    try:
+        with _journal(root, create=False) as db:
+            rows = db.execute("SELECT row FROM slices ORDER BY updated DESC, "
+                              "seq DESC").fetchall() if db else []
+    except tezgah_store.ERRORS:
+        return []
+    return [rec for rec in (_row(r[0]) for r in rows) if rec]
 
 
 def classify(text):
