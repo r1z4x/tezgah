@@ -502,7 +502,8 @@ PERMANENT_ERROR = re.compile(
 # `reask` is a Stop refusal row's `_prompt_key` of its own text: the key the
 # `turn` row carries when a host hands the refusal back as a prompt (plan 083).
 # `open`, `ready` and `blocked` are a `todo` row's counts of the host's todo list
-# (`note_todo`): its `detail` is the ready items' heads, one per line.
+# (`note_todo`), and `heads` the list of its ready items' heads, each redacted:
+# `detail` holds the same heads, one per line, under the row's cut.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -511,7 +512,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
-                           "reask", "open", "ready", "blocked"))
+                           "reask", "open", "ready", "blocked", "heads"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -3223,15 +3224,18 @@ TODO_ROW = re.compile(r'"kind"\s*:\s*"todo"')
 TODO_HEAD = 60
 
 
-def note_todo(session_id, tool, inp, snapshot=None, cwd=None):
+def note_todo(session_id, tool, inp, snapshot=None, cwd=None, agent=None):
     """Write one `todo` row for a todo call: the `open`, `ready` and `blocked`
-    counts and the ready items' heads in `detail`, one per line. A call whose
-    list is not in hand (an omp `todo` result without its `details`) writes
-    nothing, so it cannot read as an empty queue. An item whose own text types
-    a blocker (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM, or `blocked`) counts as
-    blocked: Claude's and Codex's lists have no blocked status. ponytail: a
-    Cursor `merge: true` call carries only the items it changes and is
-    recorded as the whole list, so its counts can run low."""
+    counts, every ready item's head in `heads` (redacted, TODO_HEAD characters
+    each) and the same heads in `detail`, one per line, which the row's cut may
+    shorten. A call whose list is not in hand (an omp `todo` result without
+    its `details`) writes nothing, so it cannot read as an empty queue. An item
+    whose own text types a blocker (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM, or
+    `blocked`) counts as blocked: Claude's and Codex's lists have no blocked
+    status. `agent` is the host's subagent id: a subagent's list is its own,
+    and the readers skip it. ponytail: a Cursor `merge: true` call carries
+    only the items it changes and is recorded as the whole list, so its counts
+    can run low."""
     raw = snapshot if snapshot is not None else inp.get("todos", inp.get("plan"))
     if not isinstance(raw, list):
         return
@@ -3243,12 +3247,12 @@ def note_todo(session_id, tool, inp, snapshot=None, cwd=None):
     blocked = [text for text, status in items if status == "blocked" or
                BLOCKER_SAID.search(text) or BLOCKER_TRIED.search(text)
                or re.search(r"\bblocked\b", text, re.I)]
-    ready = [text for text, status in items
+    heads = [_stored_text(" ".join(text.split()))[:TODO_HEAD] for text, status in items
              if status == "pending" and text not in blocked]
-    note(session_id, "todo", "\n".join(" ".join(t.split())[:TODO_HEAD] for t in ready),
+    note(session_id, "todo", "\n".join(heads),
          id=call_id(tool, inp), tool=str(tool or "").strip() or None,
-         workspace=root_for(cwd) if cwd else None,
-         open=len(items), ready=len(ready), blocked=len(blocked))
+         workspace=root_for(cwd) if cwd else None, agent=agent or None,
+         open=len(items), ready=len(heads), blocked=len(blocked), heads=heads)
 
 
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
@@ -3307,7 +3311,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     name = str(tool or "").strip().lower()
     if name in TODO_TOOLS:
         if not failed and not interrupted:
-            note_todo(session_id, tool, inp, todo, cwd)
+            note_todo(session_id, tool, inp, todo, cwd, agent)
         return
     if name == "wait":
         note(session_id, "wait", "", id=call_id(tool, inp), tool="wait",
@@ -5551,7 +5555,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
         named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
                           for label, item in left[:3])
         return ("residual work", RESIDUAL_WORK % named)
-    ready = ready_left(text, rows, session_id)
+    ready = ready_left(text, rows, session_id, cwd)
     if ready:
         return ("ready steps", READY_STEPS % (
             len(ready), "; ".join(cut(head, 48) for head in ready[:3])))
@@ -5563,30 +5567,64 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
         sid, stopped.get("failure") or "error", sid, sid))
 
 
-def ready_left(text, rows, session_id):
+def ready_heads(row, session_id, cwd):
+    """A `todo` row's ready heads (`note_todo`), less each one an open slice of
+    this session is working on: the slice id appears in the head as a whole
+    token of two characters or more, or the head appears in the slice's brief,
+    case-insensitive. omp's `todo start` sets every other `in_progress` item
+    back to `pending`, so a dispatched item reads as ready in the list while
+    its slice runs. Read from `tezgah_task.pending`, off under `slices-off`,
+    and fail open to the row's own heads."""
+    heads = [str(h) for h in row.get("heads") or () if str(h).strip()]
+    if not (heads and session_id and cwd) or off("slices-off"):
+        return heads
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        running = [(str(r.get("id") or "").lower(),
+                    " ".join(str(r.get("brief") or "").split()).lower())
+                   for r in (pending(root) if pending and root else [])
+                   if r.get("status") == "open" and r.get("parent") == session_id]
+    except Exception:
+        return heads
+
+    def taken(head, sid, brief):
+        return head in brief or (len(sid) > 1 and re.search(
+            r"(?<![\w-])%s(?![\w-])" % re.escape(sid), head))
+    return [h for h in heads
+            if not any(taken(h.lower(), sid, brief) for sid, brief in running)]
+
+
+def newest_todo(rows):
+    """The newest `todo` row of the session's own list in `rows`, else None: a
+    subagent's row (`agent`) is its own queue, never the parent's."""
+    return next((r for r in reversed(rows)
+                 if r.get("kind") == "todo" and not r.get("agent")), None)
+
+
+def ready_left(text, rows, session_id, cwd=None):
     """The heads of the ready steps the reply leaves: the newest `todo` row's
-    ready items (`note_todo`), less each one a line of the reply names (its
-    first 24 characters) beside a KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token.
-    Asked like `residual work`: in a turn that did work, of a ledger with a
-    turn marker, off under `orchestrate-off`. The row is found by its
-    serialized shape and only that line is parsed, so the Stop path still
-    parses the turn and not the session (StopReadBound). A done item is gone
-    from the list, so it never needs the reply."""
-    if not session_id or off("orchestrate-off") or not any(
-            str(r.get("kind")) in STEP_KINDS for r in rows):
+    ready items (`ready_heads`), less each one a line of the reply names (its
+    first 24 characters, inline code kept) beside a KARAR, YETKİ, GERİ ALINAMAZ
+    or ORTAM token outside code. Asked like `residual work`: in a turn that
+    did work, of a ledger with a turn marker, off under `orchestrate-off`. The
+    row may come from an earlier turn: an unfinished step carries over. It is
+    found by its serialized shape and only those lines are parsed, so the Stop
+    path still parses the turn and not the session (StopReadBound). A done
+    item is gone from the list, so it never needs the reply."""
+    if not session_id or off("orchestrate-off"):
+        return []
+    if not any(str(r.get("kind")) in STEP_KINDS for r in rows):
         return []
     lines = _ledger_lines(_path(session_id))
     if not _turn_count(lines):
         return []
-    row = next((_parse([line]) for line in reversed(lines) if TODO_ROW.search(line)),
-               None)
-    if not row or row[0].get("kind") != "todo" or not row[0].get("ready"):
+    row = newest_todo(_parse([line for line in lines if TODO_ROW.search(line)]))
+    if not row or not row.get("ready"):
         return []
-    typed = [_tr_lower(" ".join(line.split())) for line in
-             (_prose(line) for line in str(text or "").splitlines())
-             if BLOCKER_SAID.search(line) or BLOCKER_TRIED.search(line)]
-    heads = [h for h in str(row[0].get("detail") or "").split("\n") if h.strip()]
-    return [h for h in heads
+    typed = [_tr_lower(" ".join(line.split())) for line in str(text or "").splitlines()
+             if BLOCKER_SAID.search(_prose(line)) or BLOCKER_TRIED.search(_prose(line))]
+    return [h for h in ready_heads(row, session_id, cwd)
             if not any(_tr_lower(h)[:24] in line for line in typed)]
 
 

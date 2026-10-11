@@ -8,6 +8,7 @@ that omp's session context, gate, evidence ledger and Stop rule behave.
 import json
 import os
 import shutil
+import subprocess
 import unittest
 
 import support
@@ -618,6 +619,37 @@ class OmpHook(TempHome):
                         todo=[{"content": "Write the docs page",
                                "status": "in_progress"}]))
         self.assertEqual(asked(), "")
+
+    def test_a_step_a_running_slice_works_on_is_not_ready(self):
+        # review F1: omp's `todo start` sets every other started item back to
+        # pending, so two items whose slices still run read as ready. An open
+        # slice of this session takes its item off the queue: the head in the
+        # slice's brief, or the slice id in the head.
+        repo = self.make_repo()
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        base = {"cwd": repo, "session_id": "s-run"}
+        post = dict(base, event="post_tool_use", failed=False)
+        self.event(dict(base, event="user_prompt", prompt="build it"))
+        self.event(dict(post, tool="task", input={"tasks": [
+            {"name": "parser-slice", "task": "Write the parser for the config file."},
+            {"name": "docs-slice", "task": "Rewrite the page."}]}))
+        self.event(dict(post, tool="todo", input={"op": "start", "task": "Review"},
+                        todo=[{"content": "Write the parser", "status": "pending"},
+                              {"content": "docs-slice: update the docs",
+                               "status": "pending"},
+                              {"content": "Review the merge", "status": "in_progress"}]))
+        todo = [r for r in self.evidence() if r["kind"] == "todo"][-1]
+        self.assertEqual(todo["ready"], 2)  # the list itself says ready
+        advice, _ = self.event(dict(base, event="pre_tool_use", tool="wait",
+                                    input={}))
+        self.assertNotIn("advice", advice or {})
+        call = dict(base, tool="bash", input={"command": "pytest -q"})
+        self.event(dict(call, event="pre_tool_use"))
+        self.event(dict(call, event="post_tool_use", failed=False))
+        out, proc = self.event(dict(base, event="stop",
+                                    last_assistant_message="Parser yazıldı."))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(out)
 
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",

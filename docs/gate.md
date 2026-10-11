@@ -404,7 +404,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 
 ## Source of truth
 
-- `hooks/tezgah_gate.py` — `hooks/tezgah_gate.py::decision`; every rule constant and refusal text `hooks/tezgah_gate.py:165-2197`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py::attribution`, `hooks/tezgah_gate.py::attribution_edit`; `explored`
+- `hooks/tezgah_gate.py` — `hooks/tezgah_gate.py::decision`; every rule constant and refusal text `hooks/tezgah_gate.py:165-2201`; `attribution`/`attribution_edit` `hooks/tezgah_gate.py::attribution`, `hooks/tezgah_gate.py::attribution_edit`; `explored`
   `hooks/tezgah_gate.py::explored`; `hooks/tezgah_gate.py::searched_symbol`, `hooks/tezgah_gate.py::index_slug`, `hooks/tezgah_gate.py::first_nudge`, `hooks/tezgah_gate.py::nudge_reason`, `hooks/tezgah_gate.py::graph_advice`; `hooks/tezgah_gate.py::LOOP_ATTEMPTS`, `hooks/tezgah_gate.py::loop_reason`,
   `hooks/tezgah_gate.py::RETRY_CEILING`, `hooks/tezgah_gate.py::retry_reason`; `hooks/tezgah_gate.py::secret_command`, `hooks/tezgah_gate.py::race_reason`,
   `hooks/tezgah_gate.py::drift_reason`, `hooks/tezgah_gate.py::effectful`, `hooks/tezgah_gate.py::_deny`; the plan rule's own section `hooks/tezgah_gate.py:1391-1588` — `hooks/tezgah_gate.py::plan_reason`, `hooks/tezgah_gate.py::_branch`, `hooks/tezgah_gate.py::_checkout`, `hooks/tezgah_gate.py::_product`, `hooks/tezgah_gate.py::PLAN_DENY`; `hooks/tezgah_gate.py::write_paths`, `hooks/tezgah_gate.py::shell_target`, `hooks/tezgah_gate.py::SHELL_AS_WRITE`; the `capture` call `hooks/tezgah_gate.py::decision` (a write tool's target, and a shell write's)

@@ -316,11 +316,14 @@ orchestrator is the main thread itself, and the todo list is its step queue:
 each open item is ready, or blocked on something named - a slice id, KARAR,
 YETKİ, GERİ ALINAMAZ or ORTAM. After every spawn and every landed slice it
 dispatches every ready item at once, independent ones as subagents in one
-message, before any `wait`. It never calls `wait` while a ready step exists:
-`wait` is for the moment every open item is blocked, and ending the turn is
-the non-blocking alternative, since the host wakes it on the result. Checks
-run in the background and are joined at merge. A turn ends only when no item
-is ready, never on a question about a step it can take. Fan out only when
+message, before any `wait`, and marks each dispatched item blocked on its
+slice id (omp's `todo start` sets every other started item back to pending).
+It never calls `wait` while a ready step exists. Once every open item is
+blocked on a running slice, `wait` and ending the turn are both fine: the host
+wakes it on the result. The per-turn checks of what changed still run in the
+turn, in the background when they share no state. Only the heavy tier - the
+full suite, neuter, the e2e scripts - is joined at merge. A turn ends only
+when no item is ready, never on a question about a step it can take. Fan out only when
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
 sequence them. The shared artifact is the coordination channel, not chatter -
@@ -996,8 +999,9 @@ worktree remove <p>`) does it; never leave one for the user to find. Pick each a
 the specialists line; `{ROUTE_BIN}` names the tier for code work. Serialize
 only a real dependency - one slice's output is another's input, or two slices
 edit one file - and say which. The todo list is the step queue: dispatch every
-ready step at once, never `wait` while one is ready, and end the turn instead
-of a `wait` when every open step is blocked. A subagent does its own slice and
+ready step at once and mark each one blocked on its slice, never `wait` while
+a step is ready, and once every open step is blocked on a running slice,
+`wait` or end the turn. A subagent does its own slice and
 never fans out again. Off: `orchestrate-off`.
 
 **Kill switches:** each one removes its own rule from this text, not just the

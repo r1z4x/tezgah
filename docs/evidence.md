@@ -438,12 +438,19 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    step. The host's todo list is the orchestrator's step queue, and a todo call leaves a `todo` row
    (`hooks/tezgah_integrity.py::note_todo`). A `pending` item is ready. Someone holds an
    `in_progress` item. An item omp marks `blocked`, or whose own text types a blocker, waits on
-   something named. Done items leave the list. The class reads the newest `todo` row of the
-   ledger, which may come from an earlier turn (`hooks/tezgah_integrity.py::ready_left`). It finds
-   that row by its serialized shape and parses only that line. A ready item passes when one line of
-   the reply names its first 24 characters beside a KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token. The
-   refusal opens with "Hazır adımlar bekliyor." It names up to three heads and tells the turn to
-   dispatch them or mark them blocked. `_residual_block` asks it after `residual work` and before
+   something named. Done items leave the list. The row keeps every ready head in `heads`. The
+   class reads the newest `todo` row of the session's own list. A subagent's row carries its
+   `agent`, and the class skips it (`hooks/tezgah_integrity.py::newest_todo`). The row may come from an
+   earlier turn on purpose: the owner asked that unfinished steps carry over to the next turn
+   (`hooks/tezgah_integrity.py::ready_left`). It finds the rows by their serialized shape and
+   parses only those lines. An open slice of this session takes its step off the ready list
+   (`hooks/tezgah_integrity.py::ready_heads`). The slice's id names the head, or its brief holds
+   the head. On omp, `todo start` puts every other started item
+   back to pending, so a running slice's item would read as ready without this. A ready item
+   passes when one line of the reply names its first 24 characters, inline code kept, beside a
+   KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token outside code. The refusal opens with "Hazır adımlar
+   bekliyor." It names up to three heads and tells the turn to dispatch them or mark them blocked.
+   `_residual_block` asks it after `residual work` and before
    `stopped slice`. The scope matches `residual work`. A turn with no step skips it. So do a
    ledger with no turn marker, a subagent's end, a nested session and `orchestrate-off`. The rule
    refuses it once per turn (`hooks/tezgah_integrity.py::_record_only`). It counts in
@@ -452,7 +459,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    turns, 13.1% were a bare "devam". Of the 98 continue or status prompts, 18 came after a reply
    that handed back a step the agent could take. On omp, `wait` gets a warning, never a refusal
    (`hooks/tezgah_gate.py::ready_advice`). The warning needs a spawn with nothing after it but
-   waits and todo updates, and a ready item in the newest list. It rides back with the wait's
+   waits and todo updates, and a ready item no running slice names. It rides back with the wait's
    result.
 
 Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,

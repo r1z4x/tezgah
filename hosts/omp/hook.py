@@ -149,7 +149,7 @@ def handle(payload):
         if reason:
             return {"deny": reason}
         advice = (graph_advice(tool, inp, cwd, "omp")
-                  or ready_advice(tool, session_id))
+                  or ready_advice(tool, session_id, cwd))
         return {"advice": advice} if advice else {}
     if not root_for(cwd):
         return {}

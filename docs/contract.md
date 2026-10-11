@@ -167,7 +167,7 @@ change with an executable oracle - a checker, a gate rule, a parser - spends the
 same budget. Its round one is four direction-led reviewers, and each claim
 becomes a fixture that runs before it counts. That population is a tentative
 default, measured on two research lines with a written flip
-(`skills/tezgah-contract/SKILL.md:526-557`).
+(`skills/tezgah-contract/SKILL.md:529-560`).
 
 ## Composition order of the always-on core
 

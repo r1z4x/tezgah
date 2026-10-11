@@ -904,6 +904,62 @@ class TodoRows(unittest.TestCase):
         self.assertEqual((last["kind"], last["tool"]), ("wait", "wait"))
         self.assertNotIn("wait", ti.STEP_KINDS)
 
+    def todos(self, items, agent=None):
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": c, "status": "pending"}
+                                                  for c in items]},
+                     failed=False, agent=agent)
+
+    def left(self, reply="Parser yazıldı."):
+        return ti.ready_left(reply, [{"kind": "edit"}], "s")
+
+    def test_every_ready_head_is_read_past_the_detail_cut(self):
+        # review F5b: the 200-character `detail` held four of six heads, so a
+        # step past the cut was never asked about
+        ti.note("s", "turn", "t1")
+        items = ["Step %d: write the module for the %s part" % (i, "abcdef"[i])
+                 for i in range(6)]
+        self.todos(items)
+        self.assertNotIn(items[5], self.todo()["detail"])
+        typed = "\n".join("%s - KARAR" % i for i in items[:5])
+        self.assertEqual(self.left(typed), [items[5]])
+
+    def test_a_typed_head_with_inline_code_passes(self):
+        # review F5a: the head is matched with its code span kept; only the
+        # blocker token is read outside code
+        ti.note("s", "turn", "t1")
+        self.todos(["Fix the `bin/tezgah-task` flag"])
+        self.assertEqual(self.left(), ["Fix the `bin/tezgah-task` flag"])
+        self.assertEqual(self.left("Fix the `bin/tezgah-task` flag: KARAR senin."), [])
+        self.assertEqual(self.left("Fix the `bin/tezgah-task` flag: `KARAR`"),
+                         ["Fix the `bin/tezgah-task` flag"])
+
+    def test_a_subagent_list_is_not_the_parent_queue(self):
+        # review F2: a Claude subagent's TodoWrite lands in the parent's ledger
+        # with its `agent`; neither reader takes it for the parent's list
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": "Ship", "status": "completed"}]},
+                     failed=False)
+        self.todos(["Child step"], agent="sub-1")
+        self.assertEqual(self.todo()["agent"], "sub-1")
+        self.assertEqual(self.left(), [])
+        ti.note_tool("s", "task", {"tasks": [{"name": "x"}]}, failed=False)
+        self.assertIsNone(tg.ready_advice("wait", "s"))
+        # the parent's own list still counts
+        self.todos(["Parent step"])
+        self.assertEqual(self.left(), ["Parent step"])
+        self.assertIn("Parent step", tg.ready_advice("wait", "s"))
+
+    def test_orchestrate_off_turns_both_readers_off(self):
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "task", {"tasks": [{"name": "x"}]}, failed=False)
+        self.todos(["Write the parser"])
+        self.assertEqual(self.left(), ["Write the parser"])
+        self.assertIn("Write the parser", tg.ready_advice("wait", "s"))
+        switch = {"side_effect": lambda name: name == "orchestrate-off"}
+        with mock.patch.object(ti, "off", **switch):
+            self.assertEqual(self.left(), [])
+        with mock.patch.object(tg, "off", **switch):
+            self.assertIsNone(tg.ready_advice("wait", "s"))
 
 
 class ScratchEvidenceReader(unittest.TestCase):
@@ -3370,8 +3426,8 @@ class ReplyShapeCorpus(unittest.TestCase):
         "turkish with identifiers and a short list": (
             "Stop kuralı artık beşten uzun listeyi ve Türkçe olmayan düzyazıyı "
             "engelliyor; `tests/test_integrity.py` içindeki korpus testi yeşil.\n\n"
-            "1. `hooks/tezgah_integrity.py:1804` liste sınırı\n"
-            "2. `hooks/tezgah_integrity.py:1862` dil kontrolü\n"
+            "1. `hooks/tezgah_integrity.py:1805` liste sınırı\n"
+            "2. `hooks/tezgah_integrity.py:1863` dil kontrolü\n"
             "3. `hosts/omp/hook.py` subagent yönlendirmesi\n\n"
             "Sıradaki adım: `python3 -m unittest test_integrity` çalıştır."),
         "turkish around a quoted english sentence": (

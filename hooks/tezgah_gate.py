@@ -108,7 +108,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
-from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS
+from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS, newest_todo, ready_heads
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -1790,13 +1790,17 @@ READY_WAIT = (
     "you on the result.")
 
 
-def ready_advice(tool, session_id):
+def ready_advice(tool, session_id, cwd=None):
     """The idle-wait warning for a `wait` call, else None: the newest spawn in
     the ledger tail is followed by no call but waits and todo updates, and the
-    newest `todo` row (`tezgah_integrity.note_todo`) holds ready items. A row
-    with no `tool` (a turn marker, a `spawn` row) is no call. Off under
-    `orchestrate-off`, whose rule text it backs."""
-    if str(tool or "").lower() != "wait" or not session_id or off("orchestrate-off"):
+    session's newest `todo` row (`tezgah_integrity.newest_todo`) holds a ready
+    item no open slice of this session is working on
+    (`tezgah_integrity.ready_heads`). A row with no `tool` (a turn marker, a
+    `spawn` row) is no call. Off under `orchestrate-off`, whose rule text it
+    backs."""
+    if str(tool or "").lower() != "wait" or not session_id:
+        return None
+    if off("orchestrate-off"):
         return None
     rows = events(session_id, tail=DRIFT_TAIL)
     for row in reversed(rows):
@@ -1807,11 +1811,11 @@ def ready_advice(tool, session_id):
             return None
     else:
         return None
-    todo = next((r for r in reversed(rows) if r.get("kind") == "todo"), None)
-    if not todo or not todo.get("ready"):
+    todo = newest_todo(rows)
+    heads = ready_heads(todo, session_id, cwd) if todo else []
+    if not heads:
         return None
-    heads = [h for h in str(todo.get("detail") or "").split("\n") if h.strip()]
-    return READY_WAIT % (todo["ready"], "; ".join(cut(h, 48) for h in heads[:3]))
+    return READY_WAIT % (len(heads), "; ".join(cut(h, 48) for h in heads[:3]))
 
 
 # --- plan required: work that spans files on main has no plan ----------------

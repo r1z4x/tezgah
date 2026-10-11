@@ -229,11 +229,14 @@ orchestrator is the main thread itself, and the todo list is its step queue:
 each open item is ready, or blocked on something named - a slice id, KARAR,
 YETKİ, GERİ ALINAMAZ or ORTAM. After every spawn and every landed slice it
 dispatches every ready item at once, independent ones as subagents in one
-message, before any `wait`. It never calls `wait` while a ready step exists:
-`wait` is for the moment every open item is blocked, and ending the turn is
-the non-blocking alternative, since the host wakes it on the result. Checks
-run in the background and are joined at merge. A turn ends only when no item
-is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. Only a single item - one file, one
+message, before any `wait`, and marks each dispatched item blocked on its
+slice id (omp's `todo start` sets every other started item back to pending).
+It never calls `wait` while a ready step exists. Once every open item is
+blocked on a running slice, `wait` and ending the turn are both fine: the host
+wakes it on the result. The per-turn checks of what changed still run in the
+turn, in the background when they share no state. Only the heavy tier - the
+full suite, neuter, the e2e scripts - is joined at merge. A turn ends only
+when no item is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
 each item is, and that holds at every phase: a plan's tasks, its acceptance
