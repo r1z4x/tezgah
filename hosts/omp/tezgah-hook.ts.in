@@ -626,8 +626,10 @@ export default function tezgahOmp(pi: any): void {
     // again.
     const prompt = String(event?.prompt ?? "").trim();
     if (!prompt) return undefined;
+    // the session file is omp's transcript: the router-context line reads it
     const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
-                      session_id: session });
+                      session_id: session,
+                      transcript_path: ctx?.sessionManager?.getSessionFile?.() });
     if (hookError) return noticeMessage(ctx, session);
     if (!res.context) return undefined;
     // A hidden message, not a system-prompt rewrite: omp keeps per-request
