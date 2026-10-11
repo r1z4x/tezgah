@@ -3534,13 +3534,16 @@ class ResidualWork(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
         # a negated type is none; "yok"/"not" after YETKİ or ORTAM describe it
-        self.assertEqual(self.verdict(
-            "Doğrulanmadı:\n- `pytest tests/test_a.py` düşüyor (ORTAM değil)",
-            [self.EDIT, fail]), "residual work")
+        for text in ("Doğrulanmadı:\n- `pytest tests/test_a.py` düşüyor (ORTAM değil)",
+                     "Doğrulanmadı:\n- ORTAM gerekmiyor: `pytest tests/test_a.py` AssertionError",
+                     "Doğrulanmadı:\n- YETKİ istemiyor: `pytest tests/test_a.py` AssertionError"):
+            with self.subTest(text=text):
+                self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
         for text in ("Doğrulanmadı.\n\nEngeller:\n- YETKİ yok: `pytest tests/test_a.py` HTTP 403",
                      "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` no yaml",
                      "Not verified.\n\nBlockers:\n- ENV not set: `pytest tests/test_a.py` no DB_URL",
-                     "Not verified.\n\nBlockers:\n- ACCESS not granted: `pytest tests/test_a.py` 401"):
+                     "Not verified.\n\nBlockers:\n- ACCESS not granted: `pytest tests/test_a.py` 401",
+                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` no yaml"):
             with self.subTest(text=text):
                 self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
         # an English word that merely opens on a stem is no type

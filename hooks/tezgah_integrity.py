@@ -5064,10 +5064,12 @@ BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|n
 BLOCKER_SAID = re.compile(
     r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
 # After YETKİ/ORTAM, "yok" and "not" describe the blocker ("YETKİ yok", "ENV not
-# set"), so only "değil" negates them; the Turkish suffix is read on the
-# Turkish stems only, so ACCESSIBILITY or ENVELOPE is no type.
-BLOCKER_TRIED = re.compile(r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|"
-                           r"\bACCESS|\bENV(?:IRONMENT)?)\b(?!\s+değil\b)")
+# set"), so only "değil", "gerekmiyor" and "istemiyor" negate them; the Turkish
+# suffix is read on the Turkish stems only, so ACCESSIBILITY or ENVELOPE is no
+# type, while the plural ENVIRONMENTS is.
+BLOCKER_TRIED = re.compile(
+    r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|\bACCESS|\bENV(?:IRONMENTS?)?)\b"
+    r"(?!\s+(?:değil\b|gerek(?:mi|mez|tirm)|istem))")
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
