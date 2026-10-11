@@ -39,10 +39,6 @@ try:
 except Exception as exc:
     import_failed(exc)
 
-# How many times one stop chain may be refused (hooks/projects-stop.py names the
-# same constant): one, deliberately; raising it is owner decision 11.
-STOP_REASKS = 1
-
 EVENTS = {
     "SessionStart": "session_start",
     "UserPromptSubmit": "user_prompt",
@@ -228,13 +224,13 @@ def main():
         # {"decision": "block", "reason": ...}, so the integrity rule's second
         # half runs here too: a done/tested claim with nothing observed behind it
         # cannot end the turn. `verify-off` drops it; outside a root it is inert.
-        # The reply after a block (`stop_hook_active`) is judged record-only:
-        # one `after_block` row, never a second block (STOP_REASKS).
+        # The reply after a block (`stop_hook_active`) is judged again and
+        # refused at most once more, for a class this turn was not refused for
+        # yet; otherwise it is one `after_block` row (tezgah_integrity._record_only).
         if not off("verify-off") and root_for(cwd):
-            blocked = 1 if payload.get("stop_hook_active") else 0
             reason = safe(session_id, stop_reason,
                           payload.get("last_assistant_message"), session_id,
-                          cwd=cwd, record_only=blocked >= STOP_REASKS)
+                          cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason

@@ -171,7 +171,7 @@ class Shadow(unittest.TestCase):
         ti.note("s", "verify_ok", "pytest -q", exit=0, out_bytes=9)
         with mock.patch.object(ss, "check") as asked:
             self.assertIsNone(ti.stop_reason("Here is the summary.", "s"))
-            self.assertIsNone(ti.stop_reason(self.CLAIM, "s", record_only=True))
+            self.assertIsNone(ti.stop_reason(self.CLAIM, "s", after_block=True))
             self.assertIsNone(ti.stop_reason(self.CLAIM, "s", subagent=True))
         asked.assert_not_called()
         self.assertEqual(self.rows(), [])
@@ -194,6 +194,9 @@ class Shadow(unittest.TestCase):
     def test_a_disagreeing_spec_never_changes_the_verdict(self):
         for spec in (None, "check failed"):
             with self.subTest(spec=spec):
+                # one turn each: a turn refuses one class once (plan 083)
+                ti.note_turn("s", "turn %s" % spec)
+                ti.note("s", "edit", "app.py", changed=True)
                 want = ti._stop_block(self.CLAIM, "s", rows=ti.turn_rows("s"))[1]
                 with mock.patch.object(ss, "fold", return_value=(spec, spec)):
                     self.assertEqual(ti.stop_reason(self.CLAIM + " " + str(spec), "s"),

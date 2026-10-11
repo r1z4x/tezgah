@@ -31,8 +31,9 @@ the same code every other host runs.
            and is absent for every ordinary result)
     {"event": "stop", "last_assistant_message": ..., "stop_hook_active": bool}
         -> {"decision": "block", "reason": reason}
-           (with `stop_hook_active` the reply is recorded as an `after_block`
-           row and never blocked a second time)
+           (the reply after a block is judged again and refused at most once
+           more, for a class this turn was not refused for yet; otherwise it is
+           recorded as an `after_block` row - tezgah_integrity._record_only)
 
 Every answer that carries the line carries `idx` with it - the glyph of the
 line's idx mark - so the caller can hand it back on the redraws that must not
@@ -68,10 +69,8 @@ try:
 except Exception as exc:
     import_failed(exc)
 
-# How many times one stop chain may be refused (hooks/projects-stop.py names the
-# same constant): one, deliberately; raising it is owner decision 11. omp has no
-# subagent-end event: `session_stop` does not fire for task sessions.
-STOP_REASKS = 1
+# omp has no subagent-end event: `session_stop` does not fire for task sessions.
+# The re-ask budget is the core's (tezgah_integrity.STOP_REASKS, plan 083).
 
 
 def classify(tool, inp):
@@ -258,14 +257,12 @@ def handle(payload):
     if event == "stop":
         if off("verify-off"):
             return {}
-        if (1 if payload.get("stop_hook_active") else 0) >= STOP_REASKS:
-            # the reply after a block: recorded, never refused a second time,
-            # under its own guard so a record that fails still answers empty
-            safe(session_id, stop_reason, payload.get("last_assistant_message"),
-                 session_id, cwd=cwd, record_only=True)
-            return {}
-        reason = stop_reason(payload.get("last_assistant_message"), session_id,
-                             cwd=cwd)
+        # the reply after a block is judged again; the core decides from the
+        # turn's ledger whether it may be refused once more (plan 083), and a
+        # core that raises has refused nothing
+        reason = safe(session_id, stop_reason,
+                      payload.get("last_assistant_message"), session_id,
+                      cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
         return {"decision": "block", "reason": reason} if reason else {}
     return {}
 

@@ -207,6 +207,20 @@ MUTANTS = (
     ("other-repo-cause", INTEGRITY,
      anchored("        return \"other repo\"\n", "        return \"no check\"\n"),
      "the `other repo` cause on a no verify_ok row"),
+    ("reask-class", INTEGRITY,
+     anchored("    return (int(after_block or 0) >= STOP_REASKS or cls in refused\n",
+              "    return (int(after_block or 0) >= STOP_REASKS or False\n"),
+     "one Stop class refused twice in a turn"),
+    ("reask-budget", INTEGRITY,
+     anchored("            or len(refused) >= STOP_REASKS)\n", "            or False)\n"),
+     "a third Stop refusal in one turn"),
+    ("reask-row", INTEGRITY,
+     anchored("               and (entry.get(\"detail\") == detail or not reason)\n",
+              "               and True\n"),
+     "a second refusal of the same reply text left uncounted"),
+    ("reask-chain", INTEGRITY,
+     anchored("    while end and len(refused) < STOP_REASKS:\n", "    while False:\n"),
+     "omp's continuation turn read as a new user turn"),
 )
 
 
