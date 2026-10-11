@@ -5793,18 +5793,18 @@ LIMIT_MOVE = (" A quota or rate limit on one model family is no {ACCESS} or {ENV
 def _limit_move(item, failed=(), spawn_failed=False):
     """The family the work of `item` can move to, else None (research
     orchestrator-flow-audit S2, F3b): the item quotes a quota or rate limit
-    (`tezgah_task.classify`) of a model provider - it names a subagent, agent,
-    provider or model (SPAWN_WORDS) or a family (`tezgah_models.named_families`),
-    or the turn's spawn failed at the provider and the item quotes no failed
-    command - and a family the routing allows is up
-    (`tezgah_models.other_family_up`). A GitHub or npm rate limit stays a
-    blocker. Fails open: None on any error."""
+    (`tezgah_task.classify`) of a model provider - it names a family
+    (`tezgah_models.named_families`), or the turn's spawn failed at the provider
+    and the item quotes no failed command - and a family the routing allows is
+    up (`tezgah_models.other_family_up`), never one the item names. A GitHub
+    or npm rate limit stays a blocker: words such as "agent" or "provider" tie
+    nothing ("user-agent", "registry provider"). Fails open: None on any error."""
     try:
         import tezgah_task
         if tezgah_task.classify(item) not in ("quota", "rate_limit"):
             return None
         import tezgah_models
-        if not (SPAWN_WORDS.search(_tr_lower(item)) or tezgah_models.named_families(item)
+        if not (tezgah_models.named_families(item)
                 or (spawn_failed and not _quotes_failure(item, failed))):
             return None
         return tezgah_models.other_family_up(item)
@@ -5891,6 +5891,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     handed = sum({r.get("agent") or id(r): int(r.get("residual") or 0)
                   for r in rows if r.get("kind") == "subagent_end"}.values())
     if handed or any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        _settle_slices(cwd)
         left = unblocked_items(text, rows)
         if handed and not left and not any(
                 item.strip() and not EMPTY_ITEM.fullmatch(item.strip())
@@ -5982,6 +5983,22 @@ def ready_left(text, rows, session_id, cwd=None):
              if BLOCKER_SAID.search(_prose(line)) or BLOCKER_TRIED.search(_prose(line))]
     return [h for h in ready_heads(row, session_id, cwd)
             if not any(_tr_lower(h)[:24] in line for line in typed)]
+
+
+def _settle_slices(cwd):
+    """Close the journal's ended omp records (`tezgah_task.pending`) before the
+    residual rule picks a move, so a child's limit stop already holds its
+    family (`close_slice`) and the move never names it. Off under
+    `slices-off`; fails open."""
+    if not cwd or off("slices-off"):
+        return
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        if pending and root:
+            pending(root)
+    except Exception:  # noqa: BLE001 - a broken journal costs the hold, never the Stop
+        pass
 
 
 def _stopped_slice(session_id, cwd):

@@ -290,11 +290,12 @@ MUTANTS = (
               "    if \"access\" in kinds and _limit_move(item, failed, spawn_failed):\n"),
      "a model quota ORTAM refused like a YETKİ"),
     ("residual-limit-provider", INTEGRITY,
-     anchored("        if not (SPAWN_WORDS.search(_tr_lower(item)) or "
-              "tezgah_models.named_families(item)\n",
-              "        if False and (SPAWN_WORDS.search(_tr_lower(item)) or "
-              "tezgah_models.named_families(item)\n"),
+     anchored("        if not (tezgah_models.named_families(item)\n",
+              "        if False and (tezgah_models.named_families(item)\n"),
      "a GitHub or npm rate limit stays a YETKİ"),
+    ("residual-limit-settles", INTEGRITY,
+     anchored("        _settle_slices(cwd)\n", ""),
+     "the limit move is picked after the journal holds a stopped child's family"),
     ("scope-ready-globs", GATE,
      anchored("list(patterns) + [rel]]", "[rel]]"),
      "the scope refusal's ready allow line keeps the current globs"),
