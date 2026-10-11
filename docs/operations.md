@@ -647,9 +647,11 @@ omp names a same-name re-dispatch `<name>-2.jsonl`. The last 64 KB of that file
 decide `stopped` or `done` (`hooks/tezgah_task.py::pending`). A record
 nothing moved for six hours closes `stale`, and a background `job` after
 omp's 3600 s deadline. Codex reports no child end tezgah can see, so its
-records end `stale`. Session start and every prompt list up to three pending
-records, newest first, each with the command that resumes it
-(`hooks/tezgah_task.py::slice_lines`).
+records end `stale`. Every prompt lists up to three pending records, newest
+first, each with the command that resumes it (`hooks/tezgah_task.py::slice_lines`).
+They are the records this session spawned or nobody owns, such as one opened by hand. The resume block at
+session start and after a compaction adds one line that counts the other
+sessions' records. `tezgah-task slice reconcile` lists them all.
 
 | Command | What it does |
 |---|---|

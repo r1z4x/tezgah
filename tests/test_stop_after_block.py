@@ -273,7 +273,7 @@ class AfterBlock(TempHome):
                 self.assertNotRegex(fh.read(), re.compile(r"^STOP_REASKS = ", re.M),
                                     path)
 
-    # The ServisTek shape (omp session 01a12a4c, 2026-10-11): a `no verify_ok`
+    # The observed shape (a user omp session, 2026-10-11): a `no verify_ok`
     # refusal, then a verified reply whose blocker list is the gate's own
     # refusals, typed but quoting no failed command.
     LISTED = ("Parser yazıldı, `pytest -q` geçti.\n\n**Engeller**\n"

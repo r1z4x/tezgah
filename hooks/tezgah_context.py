@@ -884,19 +884,23 @@ def _active_plan(root):
     return paths[0], False
 
 
-def slice_lines(root):
-    """The slice journal's pending slices and jobs (`tezgah_task.slice_lines`):
-    at most SLICE_LINES lines of at most SLICE_CHARS each, newest first, or []
-    under `slices-off`, without the journal, or when it raises - a broken
-    journal costs the lines, never the injection."""
+def slice_lines(root, session_id=None, others=False):
+    """This session's pending slices and jobs (`tezgah_task.slice_lines`): at
+    most SLICE_LINES lines of at most SLICE_CHARS each, newest first, or []
+    with no session, under `slices-off`, without the journal, or when it
+    raises - a broken journal costs the lines, never the injection. Another
+    session's slices are never listed: they are that session's to resume (omp's
+    `--resume` keeps the session id). With `others` - the resume block, read at
+    session start and after a compaction - one line counts them, so a session
+    that came back under a new id still learns they exist."""
     reader = getattr(tezgah_task, "slice_lines", None)
-    if not reader or off("slices-off"):
+    if not reader or not session_id or off("slices-off"):
         return []
     try:
-        lines = reader(root, limit=SLICE_LINES) or []
+        lines = reader(root, limit=SLICE_LINES, session=session_id, others=others) or []
     except Exception:
         return []
-    return [cut(str(ln), SLICE_CHARS) for ln in lines[:SLICE_LINES]]
+    return [cut(str(ln), SLICE_CHARS) for ln in lines[:SLICE_LINES + 1]]
 
 
 def resume_state(root, session_id):
@@ -943,7 +947,7 @@ def resume_state(root, session_id):
                                              RESUME_CHECK_CHARS)))
     if files:
         lines.append("- changed this turn: %s" % ", ".join(files[:RESUME_FILES]))
-    lines += slice_lines(root)
+    lines += slice_lines(root, session_id, others=True)
     if not lines:
         return ""
     return "## Session so far\n" + "\n".join(lines)
@@ -2155,7 +2159,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # The journal's stopped or open slices and background jobs: an omp
         # `/clear` fires no session_start, so the resume block never reaches the
         # next turn and this part is the one that names the work left in flight.
-        pending = slice_lines(root)
+        pending = slice_lines(root, session_id)
         if pending:
             parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
         # a long session outlives a provider's reset: the same due check as

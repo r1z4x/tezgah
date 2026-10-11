@@ -1922,7 +1922,7 @@ class TaskGate(TempHome):
             self.assertIn("outside the paths", reason or "", command)
 
     def test_a_uri_target_is_no_repo_file_the_task_rule_holds(self):
-        # ServisTek session 01a12a4c: `write xd://mcp__codegraph_explore` and
+        # a user session, 2026-10-11: `write xd://mcp__codegraph_explore` and
         # edits to `conflict://2` were refused as outside the allowlist, and an
         # omp agent message (`write agent://X`) the same way - a tool device, a
         # conflict resolution and a message are not files in the checkout
@@ -1941,7 +1941,7 @@ class TaskGate(TempHome):
             {"path": "src/x.py", "content": "x"}, tool="write") or "")
 
     def test_a_shell_target_variable_is_resolved_or_left_unnamed(self):
-        # ServisTek: `git diff > $B/$n.tracked.patch` was refused under the
+        # observed 2026-10-11: `git diff > $B/$n.tracked.patch` was refused under the
         # literal name `$B/$n.tracked.patch`, a file that exists nowhere
         self.plan(phase="implementation", allowed=("app/**",))
         self.envv.pop("OUT", None)

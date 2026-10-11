@@ -245,6 +245,24 @@ class Pending(Journal):
                                "tezgah-task slice resume Dead")
         self.assertTrue(all(len(line) <= tt.SLICE_LINE for line in lines), lines)
 
+    def test_a_session_sees_only_the_slices_it_spawned(self):
+        # owner, 2026-10-11: another session's stopped slices rode this
+        # session's prompt every turn
+        tt.open_slice(self.repo, "Mine", host="claude", parent="S1", brief="a")
+        tt.open_slice(self.repo, "Theirs", host="claude", parent="S2", brief="b")
+        tt.close_slice(self.repo, "Theirs", "stopped", "error")
+        self.assertEqual([ln.split()[2] for ln in tt.slice_lines(self.repo, session="S1")],
+                         ["Mine"])
+        self.assertEqual(sorted(ln.split()[2] for ln in tt.slice_lines(self.repo)),
+                         ["Mine", "Theirs"])
+        # a record opened by hand has no owner and is everyone's; the resume
+        # block's count names how many belong to other sessions
+        tt.open_slice(self.repo, "Hand", host="claude", brief="c")
+        lines = tt.slice_lines(self.repo, session="S1", others=True)
+        self.assertEqual(sorted(ln.split()[2] for ln in lines[:-1]), ["Hand", "Mine"])
+        self.assertEqual(lines[-1], "- 1 pending slice(s) of other sessions: "
+                                    "tezgah-task slice reconcile")
+
     def test_a_line_stays_bounded_and_keeps_its_command(self):
         tree = self.worktree("b" * 60)
         rec = tt.open_slice(self.repo, "x" * 80, host="claude", agent="a" * 40,
