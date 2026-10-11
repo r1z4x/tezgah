@@ -2224,7 +2224,7 @@ const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
   "exec-mode.off", "judge-off", "lang-off", "orchestrate-off",
   "ponytail-auto.off", "pretooluse-off", "reminder-off", "research-off",
   "spec-off", "task-off", "triage-off", "verify-off", "workspace-off",
-  "agents-off", "skill-suggest-on", "taste-on", "update-check-off"])
+  "agents-off", "skill-suggest-on", "slices-off", "taste-on", "update-check-off"])
 
 // The session latch, mirrored from hooks/tezgah_paths.off: with a session id, a
 // switch file whose ctime or mtime is newer than the session ledger's first row
