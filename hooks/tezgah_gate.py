@@ -911,8 +911,22 @@ RACE_DENY = (
 # tool device, never a file on disk. Deliberately a list, not `scheme://`: a
 # file reached through a URI scheme is still a file two sessions can race on.
 URI_CHANNEL = re.compile(
-    r"^(?:agent|xd|local|artifact|proc|skill|mcp|omp|issue|pr|history|ssh|cfg)://",
-    re.I)
+    r"^(?:agent|xd|local|artifact|proc|skill|mcp|omp|issue|pr|history|ssh|cfg|"
+    r"conflict)://", re.I)
+# The task rule's wider reading: ANY scheme. Its question is "is this a path in
+# the checkout", and a URI is not one - `tezgah_task.relative` would read
+# `xd://mcp__codegraph_explore` as a relative file and refuse a name that exists
+# nowhere (ServisTek session 01a12a4c: `xd://` and `conflict://` writes refused
+# as outside the allowlist).
+URI_TARGET = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+# A shell target still holding a variable or a substitution once write_paths
+# expanded what it could: the shell names the file at run time, the gate cannot.
+UNEXPANDED = re.compile(r"\$[A-Za-z_{(]|`")
+# `NAME=value` at a word start, and the `$NAME`/`${NAME}` a later word reads.
+SHELL_ASSIGN = re.compile(
+    r"(?:^|(?<=[\s;&|(]))([A-Za-z_][A-Za-z0-9_]*)="
+    r"((?:'[^']*'|\"[^\"]*\"|[^\s;&|)'\"])*)")
+SHELL_VAR = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 WRITE_PATH = ("file_path", "filePath", "path", "notebook_path")
 # The write-tool name a shell write's target is handed to `capture` under. capture
 # takes a write tool's own path field and no shell tool name, and the row it
@@ -948,8 +962,46 @@ def write_paths(inp):
     paths = [m.group(1) for m in PATCH_FILE.finditer(str(inp.get("patch") or ""))]
     if paths:
         return paths
-    target = shell_target(inp.get("command") or inp.get("cmd") or "")
-    return [os.path.expanduser(os.path.expandvars(target))] if target else []
+    command = str(inp.get("command") or inp.get("cmd") or "")
+    target = shell_target(command)
+    return [os.path.expanduser(_expand(target, command))] if target else []
+
+
+def _expand(target, command):
+    """`target` with each `$VAR`/`${VAR}` the shell would substitute: an
+    assignment earlier on the same line (`B=/tmp/x; git diff > $B/f`), else the
+    environment. A name with no known value stays as spelled, so
+    `unnamed_target` can tell the gate it does not know the file. ponytail: the
+    assignments are read off the raw text, so `echo "a B=x"` counts as one; that
+    only matters when the target then reads `$B`."""
+    env = dict(os.environ)
+
+    def sub(text):
+        return SHELL_VAR.sub(
+            lambda m: env.get(m.group(1) or m.group(2), m.group(0)), text)
+
+    cut = command.find(target)
+    for m in SHELL_ASSIGN.finditer(command[:cut if cut >= 0 else len(command)]):
+        name, value = m.group(1), m.group(2)
+        if "$(" in value or "`" in value:
+            env.pop(name, None)         # a command's output: unknown here
+        elif value[:1] == "'":
+            env[name] = value.strip("'")
+        else:
+            env[name] = sub(value.strip('"'))
+    return sub(target)
+
+
+def unnamed_target(path, inp):
+    """True when a write target is no file the task rule can place in the
+    checkout: a URI (a host tool device such as `xd://<tool>`, an agent message,
+    a `conflict://N` resolution) or a shell target whose variable has no known
+    value. Refusing either names a path that does not exist. A write tool's own
+    path is never read for `$`: `Outer$Inner.java` is a real file name."""
+    if URI_TARGET.match(path):
+        return True
+    shell = isinstance(inp, dict) and bool(inp.get("command") or inp.get("cmd"))
+    return shell and bool(UNEXPANDED.search(path))
 
 
 def race_reason(inp, session_id, cwd=None):
@@ -970,7 +1022,10 @@ def race_reason(inp, session_id, cwd=None):
         # this guard read the scheme as a relative path. Only the harness's own
         # channels are skipped - a `file://`, `s3://` or editor URI can name a
         # real target two sessions both write, and stays guarded.
-        if URI_CHANNEL.match(path) or scratch_target(path, cwd):
+        # a shell target whose `$VAR` has no known value names no file the
+        # ledger could hold either (unnamed_target)
+        if (URI_CHANNEL.match(path) or scratch_target(path, cwd)
+                or (not URI_TARGET.match(path) and unnamed_target(path, inp))):
             continue    # a temp file or a device is no one's shared work
         others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN, cwd=cwd)
         if others:
@@ -1127,16 +1182,32 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     task = _task(cwd, base, task)
     if not task:
         return None
+    # The targets the plan scopes: not a URI or a shell target with no known
+    # value (unnamed_target), and not tezgah's own gitignored workspace under
+    # `.tezgah/` (research lines, lessons, briefs) - the active record there is
+    # task_record_reason's, refused before this rule runs. A call whose every
+    # target is one of those writes no project file, so the phase does not
+    # refuse it either; a call with no target at all still meets the phase.
+    paths = write_paths(inp)
+    project = []
+    for path in paths:
+        if unnamed_target(path, inp):
+            continue
+        rel = tezgah_task.relative(path, cwd, base, worktrees=True)
+        if rel is not None and rel.startswith(".tezgah/"):
+            continue
+        project.append((path, rel))
+    if paths and not project:
+        return None
     if task["phase"] not in tezgah_task.WRITE_PHASES:
         return TASK_PHASE_DENY % (task["id"], task["phase"],
                                   " or ".join(tezgah_task.WRITE_PHASES))
     patterns = task["allowed_paths"]
     if not patterns:
         return None
-    for path in write_paths(inp):
+    for path, rel in project:
         if scratch_target(path, cwd):
             continue
-        rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
     return None
@@ -1203,6 +1274,9 @@ def checkpoint_reason(inp, cwd, base, task=_UNRESOLVED):
         # a shell line that changes no file is not this rule's, the same read of
         # the same shape table task_shell_reason makes
         return None
+    paths = write_paths(inp)
+    if command is None and paths and all(URI_TARGET.match(p) for p in paths):
+        return None     # a tool device or a message changes no tree state
     task = _task(cwd, base, task)
     if not task or task["phase"] != "implementation":
         return None
