@@ -1294,6 +1294,15 @@ def _relation(stem, session_id):
     return "unrelated", ""
 
 
+def spawn_of(session_id):
+    """(raw parent session id, spawned name) from this session's `spawned` row,
+    else None: how a subagent's own session finds its slice record (the lease
+    rule, `tezgah_gate.lease_reason`). The name is omp's child file stem, so a
+    re-dispatch reads `<name>-2`."""
+    hit = _lineage(_slug(session_id)).get("spawned") if session_id else None
+    return (hit[1], hit[2]) if hit and hit[2] else None
+
+
 def _prompt_key(text):
     """The key a `turn` row stores for one prompt text (`note_turn`)."""
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
@@ -3311,7 +3320,7 @@ def note_todo(session_id, tool, inp, snapshot=None, cwd=None, agent=None):
 
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
               out_bytes=None, error=None, cwd=None, source=None, empty_run=False,
-              agent=None, host=None, todo=None):
+              agent=None, host=None, todo=None, child=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -3357,7 +3366,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     `agent` is the host's subagent id (Claude's `agent_id`), written into the
     row's `agent` field so the turn readers can key on (session, agent).
     `host` names the calling host for the slice journal (`_note_slice`); None
-    reads it off the hook process (`_hook_host`). A todo call (TODO_TOOLS)
+    reads it off the hook process (`_hook_host`). `child` is the id a spawn's
+    result gave a background child (Claude's `agentId`), stored on its slice
+    record so the lease rule finds it. A todo call (TODO_TOOLS)
     writes its `todo` row instead (`note_todo`), from `todo` when the host's
     list is in the result rather than the call (omp). omp's `wait` writes a
     `wait` row: no step, the call the idle-wait warning counts as idle."""
@@ -3459,7 +3470,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         fields["repo"] = _check_repo(cmd, cwd, inp)
         fields["empty_run"] = True if empty_run else None
     note(session_id, kind, detail, **fields)
-    _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host)
+    _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host, child)
     if kind == "edit" and not failed:
         # the taste capture (tezgah_taste, opt-in): the edit's text under this
         # row's id, and the bytes it left - read here because only PostToolUse
@@ -3505,7 +3516,8 @@ def _hook_host():
     return name
 
 
-def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
+def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host,
+                child=None):
     """Hand a spawn call to the slice journal (`tezgah_task.note_spawn`), and
     open a `job` record for an omp `bash` call sent to the background, so a
     `/clear` keeps the pointer to the run. Swallows every exception.
@@ -3514,7 +3526,8 @@ def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
     the child is no longer running, so a call with no failure signal (dsh's
     bridge sends none) closes as done rather than staying open forever - a
     journal entry, never a pass on the ledger. A Claude call sent with
-    `run_in_background` returns before its child ends and stays open."""
+    `run_in_background`, or whose result names a background `child`, returns
+    before its child ends and stays open."""
     name = str(tool or "").strip().lower()
     if not cwd:
         return
@@ -3525,14 +3538,15 @@ def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
             spawn = getattr(tt, "note_spawn", None)
             if spawn is None:
                 return
-            sync = host in SYNC_SPAWN_HOSTS and inp.get("run_in_background") is not True
+            sync = (host in SYNC_SPAWN_HOSTS and inp.get("run_in_background") is not True
+                    and not child)
             text = str(error or "") or ("aborted" if interrupted else "")
             # Codex's hook maps `spawn_agent` onto `Task` before this row; the
             # journal parses the call by the host's own name and fields
             spawn(cwd, session_id, host,
                   "spawn_agent" if host == "codex" else tool, inp,
                   failed=bool(failed or interrupted or error) if sync else None,
-                  result_text=text)
+                  result_text=text, **({"child": child} if child else {}))
         elif host == "omp" and name == "bash" and inp.get("async") is True:
             opener = getattr(tt, "open_slice", None)
             root = _toplevel(os.path.realpath(cwd))

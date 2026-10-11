@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Test probe: run the shared gate for one call, print the deny reason or null.
 
-Reads {"tool", "input", "cwd", "session_id"} as JSON on stdin. With
+Reads {"tool", "input", "cwd", "session_id"} as JSON on stdin, and "agent" (a
+Claude subagent's `agent_id`) when the call came from one. With
 {"capture_log": "<path>"} it also installs a stub `tezgah_snapshot` whose
 `capture` appends its arguments there: the gate imports `capture` behind a
 guard, and a module planted in sys.modules answers that import whether or not
@@ -32,4 +33,5 @@ if log:
 from tezgah_gate import decision  # noqa: E402
 
 print(json.dumps(decision(
-    p.get("tool", ""), p.get("input") or {}, p["cwd"], p.get("session_id"))))
+    p.get("tool", ""), p.get("input") or {}, p["cwd"], p.get("session_id"),
+    agent=p.get("agent"))))

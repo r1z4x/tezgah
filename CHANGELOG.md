@@ -8,7 +8,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **A router context nudge.** The prompt hook reads the router's newest input-side token count from the transcript. This works on omp, Claude and Codex, and omp now hands its session file to the prompt hook for it. At 700 k or more it adds one line, once per session until a compaction. The line says to push heavy reads and check output through a slice, or to run `/compact`. The threshold sits just under the measured p90 of 724 k. `orchestrate-off` silences it. The contract skill now says heavy check output goes through a reader slice. The disarmed-gate check now reads omp's transcript too.
+- **An ownership lease on every delegated slice.** A writing brief's `Owns:`
+  lines name the globs only that slice writes. One line or several work, split
+  on commas and spaces. The journal stores them as `owns`. The gate refuses a
+  sibling's write into them while the owner runs. It also refuses a slice's
+  write into the main checkout when its record names a worktree, the shape two
+  wave-1 slices hit with relative paths. The refusal names the owner, its globs
+  and how to reach it: omp `write agent://<name>`, Claude `SendMessage`, else
+  the parent. `.tezgah/` and scratch stay free. A closed owner frees its files.
+  omp maps a writing session to its record through its ledger's `spawned` row.
+  A Claude background child maps through the `agentId` its launch result names
+  and the record keeps as `child`. Every other host fails open. `tezgah-task
+  slice board` lists one parent's open slices with their lease, worktree,
+  branch and last commit. `slice merge-plan` orders the done slice branches by
+  their forecast `git merge-tree` conflicts against a base and against each
+  other, with CHANGELOG.md left to its union driver. A spawn whose writing
+  slices name one worktree gets a warning. The orchestration text now tells
+  every writing brief to name `Owns:` globs. It gives the shared append points
+  to the integrator. Siblings message each other only on an interface or
+  ownership change. `orchestrate-off` and `slices-off` disarm it.
+
 - **`CHANGELOG.md` merges with the union driver.** A new `.gitattributes` keeps both branches' lines, so parallel slices no longer conflict on the `[Unreleased]` head.
 - **The todo list is the orchestrator's step queue.** The orchestration text, the fan-out rule and the orchestrator agent say to dispatch every ready step at once, mark each dispatched step blocked on its slice and never `wait` while a step is ready. Once every open step waits on a running slice, `wait` and ending the turn are both fine. The per-turn checks still run in the turn, and only the heavy tier joins at merge. Every host's todo call now leaves a `todo` ledger row with its open, ready and blocked counts and the ready heads: omp `todo` and `wait` are watched, Claude and dsh `TodoWrite` joined the PostToolUse matcher, opencode records `todowrite`, and Cursor `todo_write` and Codex `update_plan` arrive with no matcher. No pre-tool rule reads a todo call, so only omp's `wait` reaches the gate. A `ready steps` Stop class refuses, once per turn, a turn that did work and ends while the session's newest todo list holds a ready step the reply neither did nor named beside KARAR, YETKİ, GERİ ALINAMAZ or ORTAM. A step an open slice of the session works on is not ready, and a subagent's own list never counts. An omp `wait` right after a spawn, with ready steps open, gets a warning with its result, never a block.
 - **`tezgah-task tick` and `tezgah-task note`.** `tick NNN <n>` ticks Acceptance item n, and `--undo` unticks it. `note NNN state|next "<text>"` replaces the newest State body or the Next body. Both work on any open plan and commit nothing. The gate refuses a direct write to the active plan, so an agent used to report a box it could not tick as a blocker. The refusal now names both commands.

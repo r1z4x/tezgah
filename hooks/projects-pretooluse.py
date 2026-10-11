@@ -13,15 +13,17 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_guard import import_failed, safe  # noqa: E402
 try:
-    from tezgah_gate import decision, graph_advice  # noqa: E402
+    from tezgah_gate import decision, graph_advice, spawn_advice  # noqa: E402
 except Exception as exc:
     import_failed(exc)
 
 
 def verdict(tool, inp, cwd, session_id, agent):
-    """(deny reason, graph line): the line only for a call the gate lets through."""
+    """(deny reason, advice line): the graph line or the shared-worktree warning
+    of a spawn, only for a call the gate lets through."""
     reason = decision(tool, inp, cwd, session_id, agent=agent)
-    return reason, None if reason else graph_advice(tool, inp, cwd, "claude")
+    return reason, None if reason else (graph_advice(tool, inp, cwd, "claude")
+                                        or spawn_advice(tool, inp, session_id, cwd))
 
 
 def main():

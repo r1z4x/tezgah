@@ -688,5 +688,103 @@ class Cli(Journal):
             self.assertEqual(self.task(*args).returncode, 2, args)
 
 
+class Leases(Journal):
+    """The `Owns:` lease on a slice record, the board siblings read it from, and
+    the spawn-time warning for two writing slices in one worktree (research
+    orchestrator-flow-audit S6, pick V2)."""
+
+    def test_owns_is_read_from_each_task_not_the_shared_context(self):
+        tree = self.worktree("lease-a")
+        recs = tt.note_spawn(self.repo, "P", "omp", "task", {
+            "context": "Owns: everything/**",
+            "tasks": [{"name": "A", "agent": "task",
+                       "task": "work in %s\n- **Owns:** `%s/hooks/a.py`, tests/a_*.py."
+                               % (tree, tree)},
+                      {"name": "B", "agent": "task", "task": "Owns: docs/b.md"}]})
+        self.assertEqual([r["owns"] for r in recs], [["hooks/a.py", "tests/a_*.py"],
+                                                     ["docs/b.md"]])
+        self.assertEqual(tt.owner_of(self.repo, "tests/a_x.py", "P", "B")["id"], "A")
+        self.assertIsNone(tt.owner_of(self.repo, "tests/a_x.py", "P", "A"))
+        self.assertIsNone(tt.owner_of(self.repo, "tests/a_x.py", "Q", "B"))
+        tt.close_slice(self.repo, "A", "done")
+        self.assertIsNone(tt.owner_of(self.repo, "tests/a_x.py", "P", "B"))
+
+    def test_the_board_lists_one_parents_open_slices_bounded(self):
+        tree = self.worktree("lease-board")
+        self.commit_file("x.txt", cwd=tree, message="wip: x")
+        tt.open_slice(self.repo, "A", host="omp", agent="task", parent="P",
+                      task="work in %s\nOwns: hooks/**" % tree)
+        tt.open_slice(self.repo, "B", host="omp", parent="P", task="no lease")
+        tt.open_slice(self.repo, "C", host="omp", parent="Q", task="Owns: c.py")
+        tt.open_slice(self.repo, "D", host="omp", parent="P", task="Owns: d.py")
+        tt.close_slice(self.repo, "D", "done")
+        head = self.git("log", "-1", "--format=%h", cwd=tree)
+        lines = tt.board(self.repo, "P")
+        self.assertEqual(lines, [
+            "- B (omp/?) owns nothing declared; worktree none on ? @ ?",
+            "- A (omp/task) owns hooks/**; worktree %s on lease-board @ %s" % (tree, head)])
+        self.assertEqual(len(tt.board(self.repo, None)), 3)
+        self.assertEqual(tt.board(self.repo, "P", limit=1)[1], "- 1 more open slice(s)")
+        proc = self.task("slice", "board", "--parent", "Q")
+        self.assertEqual((proc.returncode, proc.stdout.strip()),
+                         (0, "- C (omp/?) owns c.py; worktree none on ? @ ?"))
+
+    def test_two_writing_slices_naming_one_worktree_are_warned(self):
+        tree = self.worktree("shared")
+        two = {"context": "repo work",
+               "tasks": [{"name": "W1", "agent": "task", "task": "edit in %s" % tree},
+                         {"name": "W2", "agent": "task", "task": "edit in %s" % tree}]}
+        warning = tt.worktree_clash(self.repo, "task", two, "P")
+        self.assertIn("writing slices W1, W2 all name worktree %s" % tree, warning or "")
+        # a reviewer panel on one checkout is the allowed case
+        panel = {"tasks": [{"name": "R1", "agent": "tezgah-reviewer", "task": "read %s" % tree},
+                           {"name": "R2", "agent": "reviewer", "task": "read %s" % tree}]}
+        self.assertIsNone(tt.worktree_clash(self.repo, "task", panel, "P"))
+        # one new slice against an open sibling of the same parent
+        tt.open_slice(self.repo, "Old", host="omp", agent="task", parent="P",
+                      task="edit in %s" % tree)
+        one = {"tasks": [{"name": "New", "agent": "task", "task": "edit in %s" % tree}]}
+        self.assertIn("New, Old", tt.worktree_clash(self.repo, "task", one, "P") or "")
+        self.assertIsNone(tt.worktree_clash(self.repo, "task", one, "Other"))
+
+    def test_merge_plan_orders_branches_by_their_forecast_conflicts(self):
+        with open(os.path.join(self.repo, ".gitattributes"), "w") as fh:
+            fh.write("CHANGELOG.md merge=union\n")
+        for name in ("f.txt", "g.txt", "CHANGELOG.md"):
+            with open(os.path.join(self.repo, name), "w") as fh:
+                fh.write("one\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "base")
+        fork = self.git("rev-parse", "HEAD")
+
+        def branch(name, edits):
+            self.git("checkout", "-q", "-b", name, fork)
+            for path, text in edits.items():
+                with open(os.path.join(self.repo, path), "a") as fh:
+                    fh.write(text)
+            self.git("commit", "-q", "-am", name)
+            tt._write_record(self.repo, {"id": name, "status": "done", "branch": name,
+                                         "base": fork, "updated": "2026-10-11T00:00:00Z"})
+
+        branch("conf", {"f.txt": "conf\n"})
+        branch("pair-a", {"g.txt": "a\n"})
+        branch("pair-b", {"g.txt": "b\n"})
+        branch("clean", {"CHANGELOG.md": "clean\n"})
+        self.git("checkout", "-q", "main")
+        with open(os.path.join(self.repo, "f.txt"), "a") as fh:
+            fh.write("main\n")
+        with open(os.path.join(self.repo, "CHANGELOG.md"), "a") as fh:
+            fh.write("main\n")
+        self.git("commit", "-q", "-am", "main moves")
+        proc = self.task("slice", "merge-plan", "--base", "main")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [
+            "1. clean (slice clean): 0 conflict(s) with main",
+            "2. pair-a (slice pair-a): 0 conflict(s) with main; overlaps pair-b on g.txt",
+            "3. pair-b (slice pair-b): 0 conflict(s) with main; overlaps pair-a on g.txt",
+            "4. conf (slice conf): 1 conflict(s) with main: f.txt"])
+        self.assertEqual(self.task("slice", "merge-plan", "--base", "nope").returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

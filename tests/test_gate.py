@@ -30,9 +30,9 @@ class Gate(TempHome):
         self.envv = self.env()
         self.probe = support.PROBE_GATE
 
-    def decide(self, tool, inp, cwd=None, session_id="s1", capture_log=None):
+    def decide(self, tool, inp, cwd=None, session_id="s1", capture_log=None, agent=None):
         payload = {"tool": tool, "input": inp, "cwd": cwd or self.repo,
-                   "session_id": session_id}
+                   "session_id": session_id, "agent": agent}
         if capture_log:
             payload["capture_log"] = capture_log
         out, proc = run_json([self.probe], payload, env=self.envv)
@@ -1171,6 +1171,107 @@ class Gate(TempHome):
         self.seed_write("mine", target)
         self.assertIn("the session this one was forked from (ledger %s)" % ti._slug("mine"),
                       self.decide("Edit", edit, session_id="forkee") or "")
+
+    # ---- lease: a sibling slice owns this file (research S6, pick V2) --------
+    def test_a_sibling_slices_lease_refuses_its_file_and_frees_the_owner(self):
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        tt.open_slice(self.repo, "LeaseA", host="omp", agent="task", parent="P",
+                      task="Owns: src/a.py, docs/**")
+        tt.open_slice(self.repo, "LeaseB", host="omp", agent="task", parent="P",
+                      task="Owns: src/b.py")
+        self.lineage("kidA", "spawned", "P", agent="LeaseA")
+        self.lineage("kidB", "spawned", "P", agent="LeaseB")
+
+        def edit(rel, who):
+            return self.decide("Edit", {"file_path": os.path.join(self.repo, rel),
+                                        "old_string": "a", "new_string": "b"},
+                               session_id=who)
+
+        reason = edit("src/a.py", "kidB") or ""
+        self.assertIn("Lease: src/a.py is owned by sibling slice LeaseA "
+                      "(owns src/a.py, docs/**)", reason)
+        self.assertIn("`write agent://LeaseA`", reason)
+        # a shell redirect relative to the cwd is the same write
+        self.assertIn("Lease: docs/x.md", self.decide(
+            "Bash", {"command": "echo x > docs/x.md"}, session_id="kidB") or "")
+        # the owner, an unleased file, the parent and an unmapped session pass
+        for rel, who in (("src/a.py", "kidA"), ("src/c.py", "kidB"),
+                         ("src/a.py", "P"), ("src/a.py", "stranger")):
+            self.assertIsNone(edit(rel, who), (rel, who))
+        # orchestrate-off lifts it (a session that started after the switch)
+        switch = os.path.join(self.home, ".config", "tezgah", "orchestrate-off")
+        self.touch(switch)
+        self.lineage("kidB2", "spawned", "P", agent="LeaseB")
+        self.assertIsNone(edit("src/a.py", "kidB2"))
+        os.remove(switch)
+        # a closed owner frees its files
+        tt.close_slice(self.repo, "LeaseA", "done")
+        self.assertIsNone(edit("src/a.py", "kidB"))
+
+    def test_a_claude_background_childs_agent_id_maps_it_to_its_slice(self):
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        for agent_id, owns in (("agA", "src/a.py"), ("agB", "src/b.py")):
+            proc = support.run([support.POSTTOOLUSE], {
+                "hook_event_name": "PostToolUse", "cwd": self.repo, "session_id": "PC",
+                "tool_name": "Agent",
+                "tool_input": {"description": agent_id, "prompt": "Owns: " + owns},
+                "tool_response": {"status": "async_launched", "agentId": agent_id}},
+                env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        # the launch keeps both records open, keyed by the child's id
+        self.assertEqual(sorted((r["child"], r["status"]) for r in tt.slices(self.repo)),
+                         [("agA", "open"), ("agB", "open")])
+        edit = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                "old_string": "a", "new_string": "b"}
+        self.assertIn("`SendMessage` to agA",
+                      self.decide("Edit", edit, session_id="PC", agent="agB") or "")
+        for agent in ("agA", None, "agZ"):
+            self.assertIsNone(self.decide("Edit", edit, session_id="PC", agent=agent), agent)
+
+    def test_a_slice_with_a_worktree_may_not_write_the_main_checkout(self):
+        import tezgah_task as tt
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+
+        def git(*args):
+            subprocess.run(["git", "-C", self.repo, "-c", "user.name=t",
+                            "-c", "user.email=t@localhost"] + list(args),
+                           check=True, capture_output=True, env=env)
+
+        git("init", "-q", "-b", "main")
+        self.touch(os.path.join(self.repo, "README"))
+        git("add", "README")
+        git("commit", "-q", "-m", "init")
+        tree = os.path.join(self.home, "wt-s6")
+        git("worktree", "add", "-q", "-b", "s6", tree)
+        tree = os.path.realpath(tree)
+        tt.open_slice(self.repo, "InTree", host="omp", agent="task", parent="P3",
+                      task="work only in %s" % tree)
+        self.lineage("kidT", "spawned", "P3", agent="InTree")
+        main_edit = {"file_path": os.path.join(self.repo, "src", "x.py"),
+                     "old_string": "a", "new_string": "b"}
+        reason = self.decide("Edit", main_edit, session_id="kidT") or ""
+        self.assertIn("Lease: src/x.py is in the main checkout %s, but your slice "
+                      "InTree works in worktree %s" % (self.repo, tree), reason)
+        # plan 086 wave 1: a relative path resolved against the parent's cwd
+        self.assertIn("is in the main checkout", self.decide(
+            "Bash", {"command": "printf x > src/y.py"}, session_id="kidT") or "")
+        self.assertIsNone(self.decide("Edit", dict(main_edit, file_path=os.path.join(
+            tree, "src", "x.py")), session_id="kidT"))
+        self.assertNotIn("Lease", self.decide("Write", {
+            "file_path": os.path.join(self.repo, ".tezgah", "notes.md"),
+            "content": "x"}, session_id="kidT") or "")
+        # the parent's own write into its checkout is not a slice's
+        self.assertIsNone(self.decide("Edit", main_edit, session_id="P3"))
+        # and a second writing slice sent to the same worktree is warned at spawn
+        out, proc = run_json([support.OMP_HOOK], {
+            "event": "pre_tool_use", "cwd": self.repo, "session_id": "P3", "tool": "task",
+            "input": {"tasks": [{"name": "Also", "agent": "task",
+                                 "task": "edit in %s" % tree}]}}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("writing slices Also, InTree all name worktree %s" % tree,
+                      (out or {}).get("advice", ""))
 
     def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
         # finding 7: cwd decides which project's rules apply, so a write into

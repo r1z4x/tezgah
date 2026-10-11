@@ -884,34 +884,147 @@ def find_slice(root, ref, session=None):
     return named[0] if len(named) == 1 else None
 
 
+def _worktree_in(root, text):
+    """The linked worktree of this repository `text` names, else "": the one
+    named last (an omp brief is the shared context, which may list every
+    slice's worktree, followed by this slice's own task); on a tie the longer
+    path, since `.../a` is found inside `.../a-b` at the same place."""
+    if not text:
+        return ""
+    from tezgah_paths import worktrees
+    found = [p for p in worktrees(root)[1:] if p in text]
+    return max(found, key=lambda p: (text.rfind(p), len(p))) if found else ""
+
+
 def _named_worktree(root, brief):
     """(worktree, branch) for the linked worktree of this repository the brief
     names, else ("", "")."""
-    if not brief:
-        return "", ""
-    from tezgah_paths import worktrees
-    found = [p for p in worktrees(root)[1:] if p in brief]
-    if not found:
-        return "", ""
-    # the one named last: an omp brief is the shared context (which may list
-    # every slice's worktree) followed by this slice's own task; on a tie the
-    # longer path, since `.../a` is found inside `.../a-b` at the same place
-    top = max(found, key=lambda p: (brief.rfind(p), len(p)))
-    return top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or ""
+    top = _worktree_in(root, brief)
+    return (top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or "") if top else ("", "")
+
+
+# `Owns:` in a slice's own task: the repository-relative globs only that slice
+# writes while its record is open (research orchestrator-flow-audit S6, pick
+# V2). The gate refuses a sibling's write into them (`tezgah_gate.lease_reason`).
+# One line or several, globs split on commas and spaces, Markdown emphasis and
+# backticks dropped; an absolute glob under the slice's checkout is cut to it.
+_OWNS = re.compile(r"(?im)^[\s>#*_-]*owns[*_]*\s*:[*_]*\s*(.+)$")
+
+
+def owned_globs(text, tops=()):
+    """The `Owns:` globs `text` names, in order, each once."""
+    out = []
+    for line in _OWNS.findall(text or ""):
+        for glob in re.split(r"[\s,]+", line.replace("`", "")):
+            glob = glob.rstrip(".;")
+            top = next((t for t in tops if t and glob.startswith(t + "/")), "")
+            glob = glob[len(top) + 1:] if top else glob
+            if glob and glob not in out:
+                out.append(glob)
+    return out
+
+
+def slice_of(root, parent, name):
+    """The newest record `parent` spawned under `name` - a subagent's own
+    record, read from its `spawned` row (`tezgah_integrity.spawn_of`), or from
+    Claude's `agent_id`, which a background spawn stores as `child` - else
+    None. omp names a re-dispatch `<name>-2`, so the bare name counts too."""
+    base = re.sub(r"-\d+$", "", name or "")
+    return next((r for r in slices(root) if parent and name and r.get("parent") == parent
+                 and ((r.get("name") or r["id"]) in (name, base)
+                      or r.get("child") == name)), None)
+
+
+def owner_of(root, path, parent, me):
+    """The open record of another slice `parent` spawned whose `owns` matches
+    the repository-relative `path`, else None; `me` is the writing slice's id.
+    A hit re-reads after `pending`, which closes an omp sibling whose child
+    transcript ended, so a finished owner frees its files."""
+    def held():
+        return next((r for r in slices(root) if parent and r.get("parent") == parent
+                     and r.get("status") == "open" and r["id"] != me
+                     and any(match(path, g) for g in r.get("owns") or ())), None)
+    if held() is None:
+        return None
+    pending(root)
+    return held()
+
+
+BOARD_LINES = 12
+
+
+def board(root, parent=None, limit=BOARD_LINES):
+    """One bounded line (SLICE_LINE) per open record `parent` spawned - every
+    open record without one - newest first, at most `limit` and a count of the
+    rest: what each slice owns, where it works and its last commit. A pull
+    read: siblings see each other's leases here instead of by message."""
+    recs = [r for r in pending(root) if r.get("status") == "open"
+            and r.get("kind") != "job" and (parent is None or r.get("parent") == parent)]
+    out = []
+    for rec in recs[:limit]:
+        tree = rec.get("worktree") or ""
+        head = _git(tree, "log", "-1", "--format=%h") if tree and os.path.isdir(tree) else None
+        out.append(_cut("- %s (%s/%s) owns %s; worktree %s on %s @ %s" % (
+            rec.get("name") or rec["id"], rec.get("host") or "?", rec.get("agent") or "?",
+            ", ".join(rec.get("owns") or ()) or "nothing declared", tree or "none",
+            rec.get("branch") or "?", head or "?")))
+    if len(recs) > limit:
+        out.append("- %d more open slice(s)" % (len(recs) - limit))
+    return out
+
+
+# An agent whose name reads as a read-only role shares a worktree freely: a
+# reviewer panel on one slice's checkout is the allowed case (research
+# orchestrator-flow-audit S6, finding 5). A brief with `Owns:` writes whatever
+# its agent is called.
+_READ_ONLY_AGENT = re.compile(r"review|explor|research|scout|audit|critic|judge", re.I)
+SHARED_WORKTREE = (
+    "tezgah: writing slices %s all name worktree %s. Every writing slice gets its own "
+    "branch and checkout (`orca worktree create` inside Orca, else `git worktree "
+    "add`): two slices in one checkout overwrite each other's edits.")
+
+
+def _writing(agent, owns):
+    return bool(owns) or not _READ_ONLY_AGENT.search(agent or "")
+
+
+def worktree_clash(root, tool, inp, parent=""):
+    """SHARED_WORKTREE when two writing slices - of this spawn call, or this
+    call and an open record `parent` spawned - name one worktree, else None.
+    Each task's own text decides its worktree; one that names none takes the
+    shared context's, which is how ten slices landed in one checkout."""
+    main = _journal_root(root)
+    seen = {}
+    for rec in slices(root):
+        if parent and rec.get("parent") == parent and rec.get("status") == "open" \
+                and rec.get("worktree") and _writing(rec.get("agent"), rec.get("owns")):
+            seen.setdefault(rec["worktree"], set()).add(rec.get("name") or rec["id"])
+    context = str(inp.get("context") or "").strip() if isinstance(inp, dict) else ""
+    for sid, agent, brief in spawned(tool, inp):
+        task = brief[len(context):] if context else brief
+        tree = _worktree_in(main, task) or _worktree_in(main, brief)
+        if tree and _writing(agent, owned_globs(task)):
+            seen.setdefault(tree, set()).add(sid)
+    clash = sorted((t, sorted(n)) for t, n in seen.items() if len(n) > 1)
+    return SHARED_WORKTREE % (", ".join(clash[0][1]), clash[0][0]) if clash else None
 
 
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
-               cwd="", repo="", task=""):
+               cwd="", repo="", task="", child=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
-    are derived from the brief, the base is the main checkout's HEAD. A re-open
+    are derived from the slice's own task (else the brief), the base is the main
+    checkout's HEAD, and `owns` holds the `Owns:` globs of the task (else the
+    brief, `owned_globs`). A re-open
     of an existing id counts one more attempt, sets the status back to open and
     clears the failure; a field the new call leaves empty keeps its old value.
     A record another session holds under another brief is not re-opened: the
     spawn gets its own id (`_own_id`), and `name` keeps the spawned name.
     `repo` names the repository the slice works in when that is not this
-    journal's (`_brief_repo`)."""
+    journal's (`_brief_repo`); `child` is the host's id for the running child
+    (Claude's background `agentId`), the key its own writes carry."""
     base = slice_id(sid, brief)
     main = _journal_root(root)
+    own = task or brief or ""
     brief = (brief or "")[:SLICE_BRIEF]
     now = _now()
     sid = _own_id(root, base, brief, parent)
@@ -920,7 +1033,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
         rec = {"id": sid, "name": base, "kind": kind if kind in SLICE_KINDS else "agent",
                "host": host, "agent": agent, "brief": brief, "parent": parent,
                "cwd": cwd, "repo": repo, "worktree": "", "branch": "", "attempts": 1,
-               "opened": now}
+               "opened": now, "child": child}
     else:
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
         if parent and parent != rec.get("parent"):
@@ -929,13 +1042,18 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
             # one holds the first run, whose end must not close this record
             rec["transcript_dir"] = ""
         for key, value in (("host", host), ("agent", agent), ("brief", brief),
-                           ("parent", parent), ("cwd", cwd), ("repo", repo)):
+                           ("parent", parent), ("cwd", cwd), ("repo", repo),
+                           ("child", child)):
             if value:
                 rec[key] = value
     if task:  # the slice's own task, without a batch's shared context
         rec["task"] = task[:SLICE_BRIEF]
     if brief or not rec.get("worktree"):
-        rec["worktree"], rec["branch"] = _named_worktree(main, rec.get("brief"))
+        found = _named_worktree(main, task)
+        rec["worktree"], rec["branch"] = found if found[0] else _named_worktree(
+            main, rec.get("brief"))
+    if own:
+        rec["owns"] = owned_globs(own, (rec["worktree"], main))
     if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
         # one glob over every omp project at open, so `pending` - run on every
         # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
@@ -1023,7 +1141,8 @@ def spawned(tool, inp):
     return [row for row in out if row[2]]
 
 
-def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
+def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text="",
+               child=""):
     """Open one record per slice a spawn call started, and return them. A host
     that runs the subagent synchronously (Claude's PostToolUse on Agent/Task)
     passes `failed` as a bool and the record closes at once: stopped with the
@@ -1031,7 +1150,8 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
     under `slices-off` or outside a git checkout. The record stays in cwd's
     journal, the one the owner's Stop rule, resume block and review guard
     read, and names the repository its brief works in as `repo`
-    (`_brief_repo`) when that is another one."""
+    (`_brief_repo`) when that is another one. `child` is the id the host
+    returned for a background child (Claude's `agentId`)."""
     from tezgah_paths import _toplevel, off
     if off("slices-off") or not cwd:
         return []
@@ -1046,7 +1166,8 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
         rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
                          parent=session_id or "", cwd=cwd,
                          repo="" if repo == here else repo,
-                         task=brief[len(context):].strip() if context else brief)
+                         task=brief[len(context):].strip() if context else brief,
+                         child=child)
         if failed is True:
             rec = close_slice(root, rec["id"], "stopped",
                               classify(result_text) or "error")
