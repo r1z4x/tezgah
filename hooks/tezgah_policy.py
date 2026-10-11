@@ -327,7 +327,11 @@ line) create it with `orca worktree create --name <slug> --parent-worktree
 active --json` and track it with `orca worktree ps --json` or `tezgah-status
 --orca` - a raw `git worktree add` gets no card, terminal tracking or agent
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
-absolute paths under that checkout.
+absolute paths under that checkout. A writing slice commits `wip: <step>`
+after each step, so a crash leaves it resumable. A stopped slice (quota, abort,
+cut off) is resumed - `tezgah-task slice resume <id>` - or re-dispatched, never
+silently absorbed inline; run `tezgah-task slice reconcile --prune` before the
+turn that merged slices ends.
 Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier, or the specialist whose whole job the brief is (tezgah-tester,
 -docs, -security, -ui, -researcher, -reviewer) - and the spawn uses that name,

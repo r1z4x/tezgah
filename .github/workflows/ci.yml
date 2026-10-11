@@ -92,6 +92,8 @@ jobs:
           python-version: "3.12"
       - name: Every docs citation lands in the symbol it names
         run: python3 bin/tezgah-docs --citations
+      - name: The docs prose audit
+        run: python3 bin/tezgah-docs --clarity
       - name: The modules the change maps to
         env:
           BASE: ${{ needs.changes.outputs.base }}
@@ -134,6 +136,8 @@ jobs:
         run: ruff check .
       - name: Every docs citation lands in the symbol it names
         run: python3 bin/tezgah-docs --citations
+      - name: The docs prose audit
+        run: python3 bin/tezgah-docs --clarity
       - name: The plan and decision rules, in a real project
         run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
 
