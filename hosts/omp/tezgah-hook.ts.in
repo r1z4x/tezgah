@@ -387,6 +387,15 @@ function sessionOf(ctx: any): string | undefined {
   }
 }
 
+// The session file is omp's transcript: the router-context line reads it.
+function sessionFileOf(ctx: any): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionFile?.() ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // A task subagent runs in its own session with the same extensions, so it gets
 // session_start too. It must get the subagent brief, not the parent's payload:
 // the parent's runs the indexer, regenerates the agents and tells the model to
@@ -627,7 +636,7 @@ export default function tezgahOmp(pi: any): void {
     const prompt = String(event?.prompt ?? "").trim();
     if (!prompt) return undefined;
     const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
-                      session_id: session });
+                      session_id: session, transcript_path: sessionFileOf(ctx) });
     if (hookError) return noticeMessage(ctx, session);
     if (!res.context) return undefined;
     // A hidden message, not a system-prompt rewrite: omp keeps per-request

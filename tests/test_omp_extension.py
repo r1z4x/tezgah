@@ -286,6 +286,19 @@ class OmpExtension(TempHome):
         out = self.drive([{"event": "before_agent_start", "arg": {"prompt": ""}}])
         self.assertIsNone(self.results(out)[0])
 
+    def test_the_session_file_reaches_the_hook_as_the_transcript(self):
+        # omp's session file is the transcript the router-context line reads
+        # (orchestrator-flow-audit S2 F1a): a heavy newest step yields the line
+        file = os.path.join(self.home, "sessions", "2026_abc.jsonl")
+        os.makedirs(os.path.dirname(file))
+        with open(file, "w") as fh:
+            fh.write(json.dumps({"type": "message", "message": {
+                "role": "assistant", "usage": {"input": 10, "cacheRead": 724370,
+                                               "cacheWrite": 0}}}) + "\n")
+        out = self.drive([{"event": "before_agent_start", "arg": {"prompt": "x"}}],
+                         sessionFile=file)
+        self.assertIn("Router context 724k tokens", self.results(out)[0]["message"]["content"])
+
     def test_tool_call_blocks_the_attribution_credit(self):
         out = self.drive([{"event": "tool_call", "arg": {
             "toolName": "bash",

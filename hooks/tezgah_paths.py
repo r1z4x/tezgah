@@ -862,6 +862,16 @@ def pony_level():
     return value if value in PONY_LEVELS else "full"
 
 
+# The router's input-side tokens (input plus cache reads and writes) on its
+# newest step, above which the per-turn reminder asks it to push heavy reads
+# through a slice (tezgah_context.context_nudge). Measured on 12,576 omp
+# main-thread steps (orchestrator-flow-audit S2 F1): median 396 k, p90 724 k. The
+# median is the normal working state and would fire on every other turn, so the
+# line sits just under p90: it marks the heaviest tenth of steps and stays rare
+# enough to be read.
+CONTEXT_NUDGE_TOKENS = 700000
+
+
 def tool(name):
     """Stable installed path for a tezgah CLI, else the plugin's own copy, so
     the text injected into a session names something that actually exists."""
