@@ -18,6 +18,7 @@ HOOKS = os.path.join(REPO, "hooks")
 TESTS = os.path.dirname(os.path.abspath(__file__))
 # the same for the tests that call the status functions in this very process
 os.environ.setdefault("TEZGAH_UPDATE_CHECK", "0")
+os.environ.setdefault("TEZGAH_HEALTH_CHECK", "0")
 
 PROBE_PATHS = os.path.join(TESTS, "_probe_paths.py")
 PROBE_GATE = os.path.join(TESTS, "_probe_gate.py")
@@ -187,6 +188,9 @@ def base_env(home, roots=None, extra=None):
         # no release check from a test: a stale cache would start a detached
         # network fetch; tests/test_update.py turns it on where it is the subject
         "TEZGAH_UPDATE_CHECK": "0",
+        # no provider probe either: it asks a model or OpenRouter's key endpoint
+        # (tezgah_models.start_health); tests/test_models.py drives it directly
+        "TEZGAH_HEALTH_CHECK": "0",
         # an OpenRouter key also resolves the `jev-openrouter` carrier: a test
         # that sets one for the chat fallback must not reach OpenRouter's System
         # One endpoint, so its default is a refused loopback port
