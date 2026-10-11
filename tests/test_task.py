@@ -1094,7 +1094,9 @@ class Cli(TempHome):
         with open(readme, "w") as fh:
             fh.write("# x\n## Acceptance\n- [ ] a\n## Next\nold\n")
         before = read(readme)
-        for args in (("note", readme, "next", "x"), ("tick", readme, "1")):
+        for args in (("note", readme, "next", "x"), ("tick", readme, "1"),
+                     ("start", readme, "--phase", "discovery"),
+                     ("review", readme, "r", "approve")):
             proc = self.task(*args)
             self.assertEqual(proc.returncode, 1, args)
             self.assertIn("is not an open plan", proc.stdout)

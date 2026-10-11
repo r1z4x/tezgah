@@ -464,7 +464,7 @@ def cmd_start(args):
     if not args:
         return misuse("start needs a plan id or path")
     root = repo_root(os.getcwd())
-    path, problem = plan_path(root, args[0])
+    path, problem = open_plan(args[0])
     phase = None
     allow = []
     any_path = False
@@ -727,7 +727,7 @@ def unfinished_review(root, reviewer, plan="", since=0):
 def cmd_review(args):
     if len(args) != 3 or args[2] not in VERDICTS:
         return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
-    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    path, problem = open_plan(args[0])
     if problem:
         return problems([problem])
     fields = tt.frontmatter(read(path))

@@ -1001,31 +1001,73 @@ def unnamed_target(path, inp, top=None):
     """True when a write target is no file the task rule can place in the
     checkout: a URI (a host tool device such as `xd://<tool>`, an agent message,
     a `conflict://N` resolution) or a shell target whose variable has no known
-    value and whose rest names nothing in the checkout (`known_tail`). Refusing
-    either names a path that does not exist. A write tool's own path is never
-    read for `$`: `Outer$Inner.java` is a real file name."""
+    value and that `known_tail` cannot place. Refusing either names a path
+    that does not exist. A write tool's own path is never read for `$`:
+    `Outer$Inner.java` is a real file name."""
     if URI_TARGET.match(path):
         return True
-    shell = isinstance(inp, dict) and bool(inp.get("command") or inp.get("cmd"))
-    return shell and bool(UNEXPANDED.search(path)) and not known_tail(path, top)
+    if not isinstance(inp, dict):
+        return False
+    command = str(inp.get("command") or inp.get("cmd") or "")
+    return bool(command) and bool(UNEXPANDED.search(path)) and not known_tail(
+        path, top, command)
 
 
-def known_tail(path, top):
-    """The checkout path the part after a target's last unknown variable names,
-    or None. `$R/src/a.py` with `R=$(git rev-parse --show-toplevel)` writes
-    `src/a.py` whatever `R` is, so when `src` exists in the checkout the rule
-    holds that file; `$B/$n.tracked.patch` names nothing there and stays unnamed."""
+# A value that is the checkout itself: `R=$(git rev-parse --show-toplevel)`,
+# `R=$(pwd)`, `R=$PWD`.
+ROOT_VALUE = re.compile(
+    r"^[\"']?(?:\$\(\s*(?:git\s+rev-parse\s+--show-toplevel|pwd)\s*\)"
+    r"|`\s*(?:git\s+rev-parse\s+--show-toplevel|pwd)\s*`|\$\{?PWD\}?)[\"']?$")
+
+
+def known_tail(path, top, command=""):
+    """The checkout path a target names when it opens on a variable the same
+    command line set to the checkout (`ROOT_VALUE`), or None. `R=$(git
+    rev-parse --show-toplevel); printf x > $R/src/a.py` writes `src/a.py`, so the
+    rule holds that file. Any other unknown variable - a `mktemp -d` directory,
+    a loop variable, one an earlier call exported - leaves the target unnamed:
+    re-rooting `$D/README.md` or `packages/$p/x` at the checkout refused writes
+    that never touched it (review of plan 083, N1).
+    ponytail: a root exported by an earlier call (`export R=$PWD`, then `> $R/x`)
+    is not seen, so that write passes unnamed."""
     if not top:
         return None
     pieces = list(UNEXPANDED_PIECE.finditer(path))
-    if not pieces:
+    if len(pieces) != 1 or pieces[0].start() != 0:
         return None
-    rest = path[pieces[-1].end():].lstrip("/")
+    name = pieces[0].group(0).strip("${}")
+    rest = path[pieces[0].end():].lstrip("/")
     if not rest or UNEXPANDED.search(rest):
         return None
-    if not os.path.lexists(os.path.join(top, rest.split("/")[0])):
-        return None
-    return os.path.join(top, rest)
+    cut = command.find(path)
+    head = command[:cut if cut >= 0 else len(command)]
+    values = re.findall(r"(?:^|(?<=[\s;&|(]))%s=(\$\([^)]*\)|`[^`]*`|\"[^\"]*\"|\S+)"
+                        % re.escape(name), head)
+    return (os.path.join(top, rest)
+            if values and ROOT_VALUE.match(values[-1]) else None)
+
+
+# The front matter key that makes a plan the active task (tezgah_task.active).
+PLAN_PHASE_LINE = re.compile(r"(?m)^\s*\+?\s*phase\s*:\s*\S")
+
+
+def workspace_free(rel, inp):
+    """True when `rel` is tezgah's own workspace the plan does not scope: every
+    `.tezgah/` path but the slice journal (`tezgah-task slice` writes it) and a
+    plan file that could make itself the active task - a shell write into
+    `.tezgah/plans/open/` (its text is unknown) or a write tool's text that
+    carries a `phase:` line. plan-add's own plan file and README stay free.
+    Compared casefolded: on a case-insensitive disk `.tezgah/PLANS/` is the
+    plans directory (review of plan 083, N2 and N5)."""
+    low = (rel or "").casefold()
+    if not low.startswith(".tezgah/") or low.startswith(".tezgah/slices/"):
+        return False
+    if low.startswith(".tezgah/plans/open/"):
+        if not isinstance(inp, dict) or inp.get("command") or inp.get("cmd"):
+            return False
+        return not any(isinstance(inp.get(k), str) and PLAN_PHASE_LINE.search(inp[k])
+                       for k in EDIT_TEXT)
+    return True
 
 
 def race_reason(inp, session_id, cwd=None):
@@ -1215,20 +1257,15 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     paths = write_paths(inp)
     project = []
     top = tezgah_task.repo_root(cwd, base) if cwd else None
-    for path in paths:
-        if unnamed_target(path, inp, top):
+    command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
+    for spelled in paths:
+        if unnamed_target(spelled, inp, top):
             continue
-        if UNEXPANDED.search(path) and isinstance(inp, dict) and (
-                inp.get("command") or inp.get("cmd")):
-            path = known_tail(path, top) or path
+        path = (known_tail(spelled, top, command) or spelled) if command else spelled
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
-        # the plans and the slice journal are records the CLI writes: only the
-        # rest of the workspace is free (a plan file written by hand could make
-        # itself the active task with `allowed_paths: ["**"]`)
-        if rel is not None and rel.startswith(".tezgah/") and not rel.startswith(
-                (".tezgah/plans/", ".tezgah/slices/")):
+        if rel is not None and workspace_free(rel, inp):
             continue
-        project.append((path, rel))
+        project.append((spelled, path, rel))
     if paths and not project:
         return None
     if task["phase"] not in tezgah_task.WRITE_PHASES:
@@ -1237,11 +1274,12 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     patterns = task["allowed_paths"]
     if not patterns:
         return None
-    for path, rel in project:
-        if scratch_target(path, cwd):
+    for spelled, path, rel in project:
+        if scratch_target(spelled, cwd):
             continue
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
-            return TASK_SCOPE_DENY % (path, task["id"], ", ".join(patterns))
+            # the call's own spelling: the agent has to recognize its argument
+            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns))
     return None
 
 

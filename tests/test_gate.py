@@ -1976,26 +1976,44 @@ class TaskGate(TempHome):
             self.assertIsNone(self.write_path(rel), rel)
         reason = self.write_path(".tezgah/plans/open/017-gate-rule.md")
         self.assertIn("own record", reason or "")
-        # the CLI's records stay guarded: a plan written by hand could make
-        # itself the active task with `allowed_paths: ["**"]`, and the journal
-        # is `tezgah-task slice`'s (review of plan 083, F1)
-        for rel in (".tezgah/plans/open/000-x.md", ".tezgah/slices/s.json"):
+        # the CLI's records stay guarded: a plan file that could make itself the
+        # active task and the slice journal (review of plan 083, F1, N2)
+        for rel in (".tezgah/slices/s.json", ".tezgah/SLICES/s.json"):
             self.assertIn("outside the paths", self.write_path(rel) or "", rel)
+        active = "---\nid: 000\nphase: implementation\nallowed_paths:\n  - '**'\n---\n"
+        for rel in (".tezgah/plans/open/000-x.md", ".tezgah/PLANS/open/000-x.md"):
+            reason = self.decide({"file_path": rel, "content": active}, tool="Write")
+            self.assertIn("outside the paths", reason or "", rel)
         reason = self.decide({"command": "cat > .tezgah/plans/open/017-*.md <<'EOF'\nx\nEOF"},
                              tool="Bash")
         self.assertIsNotNone(reason)
+        # plan-add's own files stay free: a new plan with no phase, and the README
+        # (review of plan 083, N5)
+        fresh = "---\nid: 084\ntitle: next\nallowed_paths:\n  - app/**\n---\n## Goal\nx\n"
+        self.assertIsNone(self.decide({"file_path": ".tezgah/plans/open/084-next.md",
+                                       "content": fresh}, tool="Write"))
+        self.assertIsNone(self.write_path(".tezgah/plans/README.md"))
 
-    def test_a_file_uri_and_a_known_tail_stay_guarded(self):
-        # review of plan 083, F2 and F3: `file://` names a checkout file, and the
-        # part after an unknown variable can name one too
+    def test_a_file_uri_and_a_root_variable_stay_guarded(self):
+        # review of plan 083, F2 and F3: `file://` names a checkout file, and so
+        # does a target under a variable the same line set to the checkout
         self.plan(phase="implementation", allowed=("app/**",))
         os.makedirs(os.path.join(self.repo, "src"), exist_ok=True)
         uri = "file://" + os.path.join(self.repo, "src", "a.py")
         self.assertIsNotNone(self.write_path(uri))
-        reason = self.decide({"command": "R=$(git rev-parse --show-toplevel); "
-                                         "printf x > $R/src/a.py"}, tool="Bash")
-        self.assertIn("outside the paths", reason or "")
-        self.assertIsNone(self.decide({"command": "printf x > $R/app/a.py"}, tool="Bash"))
+        for command in ("R=$(git rev-parse --show-toplevel); printf x > $R/src/a.py",
+                        "R=$(pwd); printf x > $R/src/a.py"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("outside the paths", reason or "", command)
+            # the refusal names the target as the call spelled it (N3)
+            self.assertIn("$R/src/a.py", reason or "")
+        # any other unknown variable is not re-rooted at the checkout (N1)
+        with open(os.path.join(self.repo, "README.md"), "w") as fh:
+            fh.write("x")
+        for command in ("printf x > $R/app/a.py",
+                        "D=$(mktemp -d); git show HEAD:README.md > $D/README.md",
+                        "for p in a b; do printf x > app/$p/README.md; done"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"), command)
 
     def test_a_shell_write_into_the_record_is_refused(self):
         # the record's other file route: a redirect or `tee` into it moves the
