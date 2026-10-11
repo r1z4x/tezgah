@@ -578,6 +578,47 @@ class OmpHook(TempHome):
         self.assertEqual((row.get("source"), row.get("out_bytes")),
                          ("subagent", 7))
 
+    def test_an_idle_wait_with_ready_steps_gets_a_warning_never_a_deny(self):
+        # plan 086 (S1), the owner's default: a `wait` right after a spawn while
+        # the todo list holds a ready step is warned about, never refused
+        repo = self.make_repo()
+        post = {"event": "post_tool_use", "cwd": repo, "session_id": "s-wait",
+                "failed": False}
+        wait = {"event": "pre_tool_use", "cwd": repo, "session_id": "s-wait",
+                "tool": "wait", "input": {"i": "Waiting"}}
+
+        def asked():
+            out, proc = self.event(wait)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = out or {}  # an empty answer prints nothing
+            self.assertNotIn("deny", out)
+            return out.get("advice", "")
+
+        # the bridge's list from the todo result (`details.phases`) becomes the row
+        self.event(dict(post, tool="todo", input={"op": "start", "task": "A"},
+                        todo=[{"content": "Slice A", "status": "in_progress"},
+                              {"content": "Write the docs page", "status": "pending"},
+                              {"content": "Merge", "status": "blocked",
+                               "blocker": "slice A"}]))
+        self.assertEqual(asked(), "")  # no spawn yet
+        self.event(dict(post, tool="task", input={"tasks": [{"name": "A"}]}))
+        advice = asked()
+        self.assertIn("idle wait", advice)
+        self.assertIn("Write the docs page", advice)
+        self.assertNotIn("Merge", advice)
+        # a wait after a wait is still idle
+        self.event(dict(post, tool="wait", input={"i": "Waiting"}))
+        self.assertIn("idle wait", asked())
+        # any other call since the spawn ends it
+        self.event(dict(post, tool="bash", input={"command": "ls"}))
+        self.assertEqual(asked(), "")
+        # so does a list with no ready step, after a new spawn
+        self.event(dict(post, tool="task", input={"tasks": [{"name": "B"}]}))
+        self.event(dict(post, tool="todo", input={"op": "start"},
+                        todo=[{"content": "Write the docs page",
+                               "status": "in_progress"}]))
+        self.assertEqual(asked(), "")
+
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",
                                         "cwd": self.make_repo()},

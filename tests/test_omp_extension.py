@@ -342,6 +342,36 @@ class OmpExtension(TempHome):
         self.assertEqual([p["tool"] for p in self.asked(log)
                           if p["event"] == "pre_tool_use"], ["find"])
 
+    def test_the_todo_list_and_the_wait_reach_the_hook(self):
+        # plan 086 (S1): omp's todo call holds one op, so the bridge sends the
+        # list from the result's `details.phases`; a `wait` reaches the gate and
+        # its warning rides back with the wait's result, never as a block
+        hook, log = self.fake_hook({"advice": "tezgah: idle wait"})
+        self.ext = self.make_ext(hook, name="todo-hook.ts")
+        phases = [{"name": "Build", "tasks": [
+            {"content": "Write the parser", "status": "pending"},
+            {"content": "Review", "status": "blocked", "blocker": "slice A"}]},
+            {"name": "Ship", "tasks": [{"content": "Merge", "status": "pending"}]}]
+        out = self.results(self.drive([
+            {"event": "tool_result", "arg": {"toolName": "todo", "toolCallId": "t1",
+                                             "input": {"op": "view"}, "content": "list",
+                                             "details": {"op": "view", "phases": phases}}},
+            {"event": "tool_call", "arg": {"toolName": "wait", "toolCallId": "w1",
+                                           "input": {}}},
+            {"event": "tool_result", "arg": {"toolName": "wait", "toolCallId": "w1",
+                                             "input": {}, "content": "settled"}}]))
+        self.assertIsNone(out[1])
+        self.assertEqual(out[2], {"additionalContext": "tezgah: idle wait"})
+        asked = self.asked(log)
+        todo = [p for p in asked if p["event"] == "post_tool_use"
+                and p["tool"] == "todo"]
+        self.assertEqual(todo[0]["todo"], [t for p in phases for t in p["tasks"]])
+        self.assertEqual([(p["event"], p["tool"]) for p in asked
+                          if p["tool"] == "wait"],
+                         [("pre_tool_use", "wait"), ("post_tool_use", "wait")])
+        # every other tool's result still sends no list
+        self.assertNotIn("todo", [k for p in asked if p["tool"] == "wait" for k in p])
+
     def test_a_broken_hook_is_visible_and_never_blocks(self):
         # the audit's reproduction: with the hook missing, every event was a
         # silent no-op - an attribution commit and an unverified done-claim both

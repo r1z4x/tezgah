@@ -312,8 +312,15 @@ default, not a favour the user has to ask for: two or more independent items -
 a list, several files or areas, todo entries that share nothing - go to one
 subagent each, and every writing slice gets its own branch and checkout (see
 below), never the main checkout. The
-orchestrator is the main thread itself: it does not wait idle on a slice while
-independent work remains. Fan out only when
+orchestrator is the main thread itself, and the todo list is its step queue:
+each open item is ready, or blocked on something named - a slice id, KARAR,
+YETKİ, GERİ ALINAMAZ or ORTAM. After every spawn and every landed slice it
+dispatches every ready item at once, independent ones as subagents in one
+message, before any `wait`. It never calls `wait` while a ready step exists:
+`wait` is for the moment every open item is blocked, and ending the turn is
+the non-blocking alternative, since the host wakes it on the result. Checks
+run in the background and are joined at merge. A turn ends only when no item
+is ready, never on a question about a step it can take. Fan out only when
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
 sequence them. The shared artifact is the coordination channel, not chatter -
@@ -988,9 +995,10 @@ one, and outside a plan `orca worktree rm --worktree path:<p>` (else `git
 worktree remove <p>`) does it; never leave one for the user to find. Pick each agent by task class from
 the specialists line; `{ROUTE_BIN}` names the tier for code work. Serialize
 only a real dependency - one slice's output is another's input, or two slices
-edit one file - and say which. Never wait idle on a spawned slice while
-independent work remains. A subagent does its own slice and never fans out
-again. Off: `orchestrate-off`.
+edit one file - and say which. The todo list is the step queue: dispatch every
+ready step at once, never `wait` while one is ready, and end the turn instead
+of a `wait` when every open step is blocked. A subagent does its own slice and
+never fans out again. Off: `orchestrate-off`.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
@@ -1019,8 +1027,9 @@ FANOUT_ACTION = ("count the independent items, spawn one subagent per item in "
                  "ONE message, each the agent `tezgah-route` names - a specialist "
                  "by name, never the generic task agent - (each writing slice in "
                  "its own worktree, absolute paths), and keep the main thread for "
-                 "integrating and verifying; a subagent does its own slice and "
-                 "never fans out again.")
+                 "integrating and verifying; the todo list is the step queue, so "
+                 "dispatch every ready step before any `wait`; a subagent does "
+                 "its own slice and never fans out again.")
 
 # The always-on replacement for the conditional paragraphs: one line each so a
 # host without a per-turn hook still knows the rule exists and where the full

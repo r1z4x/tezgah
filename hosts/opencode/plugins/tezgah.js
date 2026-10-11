@@ -1159,6 +1159,28 @@ const DETAIL_MAX = 200
 // agree on the credential itself; they differ only for an astral character
 // inside a quoted named value.
 
+// The `todo` row for opencode's `todowrite` (hooks/tezgah_integrity.note_todo):
+// the open, ready and blocked counts of the whole list in `todos[]`, and the
+// ready items' heads in `detail`, one per line. ponytail: the typed-blocker test
+// is the four tokens and `blocked`, without the Python reader's negation rule.
+const TODO_CLOSED = new Set(["completed", "done", "cancelled", "abandoned"])
+const TODO_TYPED = /KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE|YETK[İI]|ORTAM|ACCESS|\bENV\b/
+async function recordTodo(sessionID, tool, args, workspace) {
+  if (!Array.isArray(args?.todos)) return
+  const open = args.todos.filter((i) => i && String(i.content || "").trim()
+    && !TODO_CLOSED.has(String(i.status || "pending").toLowerCase()))
+  const typed = (i) => TODO_TYPED.test(i.content) || /\bblocked\b/i.test(i.content)
+  const ready = open.filter((i) => String(i.status || "pending").toLowerCase() === "pending"
+    && !typed(i))
+  await appendRow(sessionID, {
+    kind: "todo", ts: Math.floor(Date.now() / 1000),
+    detail: redact(ready.map((i) => String(i.content).split(/\s+/).join(" ").trim()
+      .slice(0, 60)).join("\n")).slice(0, DETAIL_MAX),
+    id: actionID(tool, args), workspace: workspace || null, tool,
+    open: open.length, ready: ready.length, blocked: open.filter(typed).length,
+  })
+}
+
 // Evidence ledger, the store the Python gate and Stop hook read. Written
 // per tool call so a "done/tested" claim can be checked against what ran.
 // The bash tool returns `metadata.exit` (the process exit code), so a check's
@@ -1182,6 +1204,7 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
                               source) {
   if (!sessionID) return
   const t = String(tool || "").toLowerCase()
+  if (t === "todowrite") return await recordTodo(sessionID, tool, args, workspace)
   const exit = result?.metadata?.exit
   let kind = null
   let detail = String(args?.command || writtenPath(args) || "")

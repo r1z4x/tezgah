@@ -393,7 +393,7 @@ SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
 # "testler geçti" beside "Açık kalanlar" or a stopped slice is no false
 # completion. Counted in `blocked_claims` under their own class, kept out of
 # `false_completion`.
-LIST_BLOCKS = frozenset(("residual work", "stopped slice"))
+LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
@@ -501,6 +501,8 @@ PERMANENT_ERROR = re.compile(
 # slices the turn like any other, and it is no boundary for `_in_flight`.
 # `reask` is a Stop refusal row's `_prompt_key` of its own text: the key the
 # `turn` row carries when a host hands the refusal back as a prompt (plan 083).
+# `open`, `ready` and `blocked` are a `todo` row's counts of the host's todo list
+# (`note_todo`): its `detail` is the ready items' heads, one per line.
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -509,7 +511,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
-                           "reask"))
+                           "reask", "open", "ready", "blocked"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -3206,9 +3208,52 @@ def unanswered(rows, delivered=()):
     return sum(1 for row in waiting if row.get("tool") in seen)
 
 
+# The host todo list is the orchestrator's step queue (plan 086, S1): each open
+# item is ready, in progress or blocked. These tools carry the whole list: omp's
+# `todo` in its result (`details.phases`, which the bridge sends as `todo`, since
+# the call holds one op), Claude's and dsh's `TodoWrite`, opencode's `todowrite`
+# and Cursor's `todo_write` in `todos[]`, Codex's `update_plan` in `plan[]`.
+TODO_TOOLS = frozenset(("todo", "todowrite", "todo_write", "update_plan"))
+# The statuses that close an item. `pending` is ready; `in_progress` is open and
+# taken, so it is not ready; omp's `blocked` (an item with a `blocker`) is open
+# and waits on something named.
+TODO_CLOSED = frozenset(("completed", "done", "cancelled", "abandoned"))
+TODO_ROW = re.compile(r'"kind"\s*:\s*"todo"')
+# How much of each ready item the row keeps: a head that names it in a refusal.
+TODO_HEAD = 60
+
+
+def note_todo(session_id, tool, inp, snapshot=None, cwd=None):
+    """Write one `todo` row for a todo call: the `open`, `ready` and `blocked`
+    counts and the ready items' heads in `detail`, one per line. A call whose
+    list is not in hand (an omp `todo` result without its `details`) writes
+    nothing, so it cannot read as an empty queue. An item whose own text types
+    a blocker (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM, or `blocked`) counts as
+    blocked: Claude's and Codex's lists have no blocked status. ponytail: a
+    Cursor `merge: true` call carries only the items it changes and is
+    recorded as the whole list, so its counts can run low."""
+    raw = snapshot if snapshot is not None else inp.get("todos", inp.get("plan"))
+    if not isinstance(raw, list):
+        return
+    items = [(str(i.get("content") or i.get("step") or "").strip(),
+              "blocked" if i.get("blocker") else str(i.get("status") or "pending").lower())
+             for i in raw if isinstance(i, dict)]
+    items = [(text, status) for text, status in items
+             if text and status not in TODO_CLOSED]
+    blocked = [text for text, status in items if status == "blocked" or
+               BLOCKER_SAID.search(text) or BLOCKER_TRIED.search(text)
+               or re.search(r"\bblocked\b", text, re.I)]
+    ready = [text for text, status in items
+             if status == "pending" and text not in blocked]
+    note(session_id, "todo", "\n".join(" ".join(t.split())[:TODO_HEAD] for t in ready),
+         id=call_id(tool, inp), tool=str(tool or "").strip() or None,
+         workspace=root_for(cwd) if cwd else None,
+         open=len(items), ready=len(ready), blocked=len(blocked))
+
+
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
               out_bytes=None, error=None, cwd=None, source=None, empty_run=False,
-              agent=None, host=None):
+              agent=None, host=None, todo=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -3254,8 +3299,20 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     `agent` is the host's subagent id (Claude's `agent_id`), written into the
     row's `agent` field so the turn readers can key on (session, agent).
     `host` names the calling host for the slice journal (`_note_slice`); None
-    reads it off the hook process (`_hook_host`)."""
+    reads it off the hook process (`_hook_host`). A todo call (TODO_TOOLS)
+    writes its `todo` row instead (`note_todo`), from `todo` when the host's
+    list is in the result rather than the call (omp). omp's `wait` writes a
+    `wait` row: no step, the call the idle-wait warning counts as idle."""
     inp = inp or {}
+    name = str(tool or "").strip().lower()
+    if name in TODO_TOOLS:
+        if not failed and not interrupted:
+            note_todo(session_id, tool, inp, todo, cwd)
+        return
+    if name == "wait":
+        note(session_id, "wait", "", id=call_id(tool, inp), tool="wait",
+             workspace=root_for(cwd) if cwd else None)
+        return
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
@@ -5270,6 +5327,18 @@ STOPPED_SLICE = (
     "work was finished another way, record that with `tezgah-task slice done "
     "%s`.")
 
+# The `ready steps` class (plan 086, S1): the newest todo list (`note_todo`)
+# holds a pending item, not taken and not blocked, and the reply ends the turn
+# without it. Filled with the count and up to three heads.
+READY_STEPS = (
+    "Hazır adımlar bekliyor. The newest todo list holds %d ready step(s) this "
+    "turn neither did nor typed as a blocker: %s. Dispatch every ready step "
+    "now - independent ones as subagents in one message - and tick each one "
+    "you finish. A step that waits on a running slice or on the user is marked "
+    "blocked in the todo list (omp `block`, naming the slice or the blocker), "
+    "or named in the reply on one line with its KARAR, YETKİ, GERİ ALINAMAZ "
+    "or ORTAM. End the turn only when no step is ready.")
+
 
 def _tr_lower(text):
     """`text` lowercased the Turkish way (I -> ı, İ -> i): `str.lower` reads
@@ -5464,6 +5533,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
                     cwd=None):
     """`verdict` when it refuses; else, in a turn that did work (a STEP_KINDS
     row), the `residual work` class when `unblocked_items` names one; else the
+    `ready steps` class when `ready_left` names one; else the
     `stopped slice` class when `_stopped_slice` finds one; else `verdict`. Not
     asked for a subagent's end (`shape` false) or a nested session: both
     replies are read by code, not by the user (`_shape_block`). Residual work
@@ -5481,12 +5551,43 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
         named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
                           for label, item in left[:3])
         return ("residual work", RESIDUAL_WORK % named)
+    ready = ready_left(text, rows, session_id)
+    if ready:
+        return ("ready steps", READY_STEPS % (
+            len(ready), "; ".join(cut(head, 48) for head in ready[:3])))
     stopped = _stopped_slice(session_id, cwd)
     if not stopped:
         return verdict
     sid = str(stopped.get("id") or "")
     return ("stopped slice", STOPPED_SLICE % (
         sid, stopped.get("failure") or "error", sid, sid))
+
+
+def ready_left(text, rows, session_id):
+    """The heads of the ready steps the reply leaves: the newest `todo` row's
+    ready items (`note_todo`), less each one a line of the reply names (its
+    first 24 characters) beside a KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token.
+    Asked like `residual work`: in a turn that did work, of a ledger with a
+    turn marker, off under `orchestrate-off`. The row is found by its
+    serialized shape and only that line is parsed, so the Stop path still
+    parses the turn and not the session (StopReadBound). A done item is gone
+    from the list, so it never needs the reply."""
+    if not session_id or off("orchestrate-off") or not any(
+            str(r.get("kind")) in STEP_KINDS for r in rows):
+        return []
+    lines = _ledger_lines(_path(session_id))
+    if not _turn_count(lines):
+        return []
+    row = next((_parse([line]) for line in reversed(lines) if TODO_ROW.search(line)),
+               None)
+    if not row or row[0].get("kind") != "todo" or not row[0].get("ready"):
+        return []
+    typed = [_tr_lower(" ".join(line.split())) for line in
+             (_prose(line) for line in str(text or "").splitlines())
+             if BLOCKER_SAID.search(line) or BLOCKER_TRIED.search(line)]
+    heads = [h for h in str(row[0].get("detail") or "").split("\n") if h.strip()]
+    return [h for h in heads
+            if not any(_tr_lower(h)[:24] in line for line in typed)]
 
 
 def _stopped_slice(session_id, cwd):

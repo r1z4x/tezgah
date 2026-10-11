@@ -1278,6 +1278,19 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "pytest -q"}, exit=0)
         self.assertIn("verify_ok", self.kinds())
 
+    def test_todowrite_records_the_todo_row_python_reads(self):
+        # plan 086 (S1): the same row hooks/tezgah_integrity.note_todo writes,
+        # so the Python Stop rule reads opencode's queue like any other
+        self.after("todowrite", {"todos": [
+            {"content": "Write  the parser", "status": "pending"},
+            {"content": "Push the tag - GERİ ALINAMAZ", "status": "pending"},
+            {"content": "Run the suite", "status": "in_progress"},
+            {"content": "Old step", "status": "cancelled"}]})
+        rows = [r for r in self.ledger() if r["kind"] == "todo"]
+        self.assertEqual([(r["open"], r["ready"], r["blocked"], r["detail"], r["tool"])
+                          for r in rows], [(3, 1, 1, "Write the parser", "todowrite")])
+        self.assertNotIn("unknown", self.kinds())
+
     def test_a_child_session_s_ledger_opens_with_its_parent(self):
         # opencode names a subagent session's parent on session.created; the
         # route report joins the parent's route row to the child's checks by it

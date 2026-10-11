@@ -224,7 +224,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2666-2670`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2689-2693`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -413,7 +413,7 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2413-2423`).
+`hosts/opencode/plugins/tezgah.js:2436-2446`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm

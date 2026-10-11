@@ -851,6 +851,61 @@ class StopReadBound(unittest.TestCase):
                               if r.get("kind") == "claim"]), 2)
 
 
+class TodoRows(unittest.TestCase):
+    """Plan 086 (S1): each host's todo call becomes one `todo` row - the open,
+    ready and blocked counts and the ready heads - and omp's `wait` a `wait`
+    row, never an `unknown` one."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "%s.jsonl" % session)
+
+    def todo(self):
+        rows = [r for r in ti.events("s") if r.get("kind") == "todo"]
+        return rows[-1] if rows else None
+
+    def test_every_host_shape_is_counted(self):
+        # Codex `update_plan`: the list is `plan[]`, each item a `step`
+        ti.note_tool("s", "update_plan", {"plan": [
+            {"step": "Write the parser", "status": "pending"},
+            {"step": "Read the spec", "status": "completed"}]}, failed=False)
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (1, 1, 0, "Write the parser"))
+        # omp: the call holds one op, the list comes from the result
+        ti.note_tool("s", "todo", {"op": "done", "task": "Write the parser"},
+                     failed=False, todo=[
+                         {"content": "Write the parser", "status": "completed"},
+                         {"content": "Review slice A", "status": "blocked",
+                          "blocker": "slice A runs"},
+                         {"content": "Merge   the\nbranches", "status": "pending"},
+                         {"content": "Run the suite", "status": "in_progress"},
+                         {"content": "Old idea", "status": "abandoned"}])
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (3, 1, 1, "Merge the branches"))
+        # an omp op without the result's list writes nothing: no empty queue
+        n = len(ti.events("s"))
+        ti.note_tool("s", "todo", {"op": "view"}, failed=False)
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": "x"}]}, failed=True)
+        self.assertEqual(len(ti.events("s")), n)
+        # Cursor `todo_write`: an item whose text types its blocker is blocked
+        ti.note_tool("s", "todo_write", {"todos": [
+            {"content": "Ask for the token - YETKİ", "status": "pending"},
+            {"content": "Cancelled thing", "status": "cancelled"}]})
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (1, 0, 1, ""))
+        # omp's `wait` is its own row, no step and no `unknown`
+        ti.note_tool("s", "wait", {"i": "Waiting"}, failed=False)
+        last = ti.events("s")[-1]
+        self.assertEqual((last["kind"], last["tool"]), ("wait", "wait"))
+        self.assertNotIn("wait", ti.STEP_KINDS)
+
+
+
 class ScratchEvidenceReader(unittest.TestCase):
     """scratch_evidence: the session whose whole evidence base is its own scratch
     work.
@@ -2961,6 +3016,60 @@ class StopHook(TempHome):
             "Parser yazıldı.\n\n**Engeller:**\n- main'e push — GERİ ALINAMAZ — "
             "`git push origin main` bekliyor — onayın"))
 
+    def todos(self, *items):
+        """One Claude `TodoWrite` call holding these (content, status) items."""
+        self.seed("TodoWrite", {"todos": [{"content": c, "status": s}
+                                          for c, s in items]})
+
+    def work(self):
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+
+    def test_a_ready_todo_step_left_is_refused_once(self):
+        # plan 086 (S1) through the real Claude hooks: a verified turn ends while
+        # its todo list still holds a pending step, and the reply names the
+        # step without a blocker - refused once, the reply after it recorded
+        self.turn("parser")
+        self.todos(("Write the parser", "completed"),
+                   ("Update the README", "pending"),
+                   ("Spawned review slice", "in_progress"))
+        todo = self.rows("todo")[-1]
+        self.assertEqual((todo["open"], todo["ready"], todo["blocked"],
+                          todo["detail"]), (2, 1, 0, "Update the README"))
+        self.work()
+        out = self.stop("Parser yazıldı. Update the README adımı da duruyor.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Hazır adımlar bekliyor.", out["reason"])
+        self.assertIn("Update the README", out["reason"])
+        self.assertNotIn("Spawned review slice", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: ready steps"])
+        self.assertIsNone(self.stop("Parser yazıldı.", stop_hook_active=True))
+        self.assertEqual([r.get("detail") for r in self.rows("after_block")],
+                         ["would block: ready steps"])
+
+    def test_a_ready_step_typed_done_or_in_a_turn_with_no_work_passes(self):
+        # typed: the step named on one line with its blocker
+        self.turn("release")
+        self.todos(("Push the release tag", "pending"))
+        self.work()
+        self.assertIsNone(self.stop(
+            "Parser yazıldı. Push the release tag: GERİ ALINAMAZ, onayın gerekiyor."))
+        # done: the newest list holds no ready step
+        self.turn("devam")
+        self.todos(("Push the release tag", "completed"))
+        self.work()
+        self.assertIsNone(self.stop("Parser yazıldı."))
+        # an item whose own text types its blocker is not ready
+        self.turn("next")
+        self.todos(("Merge to main (blocked: KARAR)", "pending"))
+        self.work()
+        self.assertIsNone(self.stop("Parser yazıldı."))
+        # a turn with no work is not asked, whatever the list holds
+        self.turn("plan")
+        self.todos(("Write the schema", "pending"))
+        self.assertIsNone(self.stop("Plan hazır."))
+        self.assertNotIn("blocked: ready steps", self.claim_rows())
+
     def test_a_ledger_with_no_turn_marker_is_not_judged_for_residuals(self):
         # exits C3: with no marker the whole ledger is the "turn", so an
         # earlier turn's steps would make an answer with no work a work turn
@@ -3261,8 +3370,8 @@ class ReplyShapeCorpus(unittest.TestCase):
         "turkish with identifiers and a short list": (
             "Stop kuralı artık beşten uzun listeyi ve Türkçe olmayan düzyazıyı "
             "engelliyor; `tests/test_integrity.py` içindeki korpus testi yeşil.\n\n"
-            "1. `hooks/tezgah_integrity.py:1802` liste sınırı\n"
-            "2. `hooks/tezgah_integrity.py:1860` dil kontrolü\n"
+            "1. `hooks/tezgah_integrity.py:1804` liste sınırı\n"
+            "2. `hooks/tezgah_integrity.py:1862` dil kontrolü\n"
             "3. `hosts/omp/hook.py` subagent yönlendirmesi\n\n"
             "Sıradaki adım: `python3 -m unittest test_integrity` çalıştır."),
         "turkish around a quoted english sentence": (

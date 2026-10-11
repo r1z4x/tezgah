@@ -108,6 +108,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
+from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -1773,6 +1774,44 @@ def effectful(tool, inp):
     if t in BASH_TOOLS:
         return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
     return mcp_class(tool) is not None
+
+
+# --- ready: an idle `wait` while ready steps are open (plan 086, S1) ----------
+# omp's `wait` blocks the parent until a job settles. Measured over 15 omp
+# sessions, 68.3% of spawns were followed by `wait` with no other call between,
+# and at 86 of the 163 such waits that had a todo list two or more items were
+# open. The owner's default is a warning, never a deny: the line rides back with
+# the wait's result, as the graph line does (`graph_advice`).
+READY_WAIT = (
+    "tezgah: idle wait - nothing ran since the spawn while %d ready todo "
+    "step(s) are open: %s. Dispatch every ready step now, independent ones as "
+    "subagents in one message, or mark it blocked on the slice it waits for. "
+    "Ending the turn is the non-blocking alternative to `wait`: the host wakes "
+    "you on the result.")
+
+
+def ready_advice(tool, session_id):
+    """The idle-wait warning for a `wait` call, else None: the newest spawn in
+    the ledger tail is followed by no call but waits and todo updates, and the
+    newest `todo` row (`tezgah_integrity.note_todo`) holds ready items. A row
+    with no `tool` (a turn marker, a `spawn` row) is no call. Off under
+    `orchestrate-off`, whose rule text it backs."""
+    if str(tool or "").lower() != "wait" or not session_id or off("orchestrate-off"):
+        return None
+    rows = events(session_id, tail=DRIFT_TAIL)
+    for row in reversed(rows):
+        name = str(row.get("tool") or "").lower()
+        if name in SUBAGENT_TOOLS:
+            break
+        if name and name != "wait" and name not in TODO_TOOLS:
+            return None
+    else:
+        return None
+    todo = next((r for r in reversed(rows) if r.get("kind") == "todo"), None)
+    if not todo or not todo.get("ready"):
+        return None
+    heads = [h for h in str(todo.get("detail") or "").split("\n") if h.strip()]
+    return READY_WAIT % (todo["ready"], "; ".join(cut(h, 48) for h in heads[:3]))
 
 
 # --- plan required: work that spans files on main has no plan ----------------
