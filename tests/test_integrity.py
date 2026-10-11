@@ -1048,7 +1048,7 @@ class ScratchEvidenceReader(unittest.TestCase):
         # gate's own half of the pair is timed in test_gate; this is the one
         # `redact()` uses on every ledger row.
         probe = "api_key" + "=" + "x"
-        small = "echo " + "X" * 50000 + " " + probe
+        small = "echo " + "X" * 25000 + " " + probe
         big = "echo " + "X" * 100000 + " " + probe
 
         # The best of five per size, the two sizes interleaved. One sample read
@@ -1068,10 +1068,12 @@ class ScratchEvidenceReader(unittest.TestCase):
         big_out, big_s = out["big"], best["big"]
         self.assertIn("api_key=[redacted:", small_out or "")
         self.assertIn("api_key=[redacted:", big_out or "")
-        # doubling the input must roughly double the time, not square it: the
-        # quadratic form took 4.03 s at 16 KB and 174 s at 100 KB (audit H-3)
-        self.assertLess(big_s, max(0.2, small_s * 3),
-                        "50 KB %.3fs -> 100 KB %.3fs is not linear"
+        # 4x the input must take about 4x the time, not 16x: the quadratic form
+        # took 4.03 s at 16 KB and 174 s at 100 KB (audit H-3). A doubling read
+        # 3.4x under the sharded suite's load (CI run 38184017634), too close to
+        # a 3x cut; at 4x the linear 4x and the quadratic 16x stay far apart.
+        self.assertLess(big_s, max(0.2, small_s * 8),
+                        "25 KB %.3fs -> 100 KB %.3fs is not linear"
                         % (small_s, big_s))
 
     def test_the_impacted_runner_is_a_check(self):
