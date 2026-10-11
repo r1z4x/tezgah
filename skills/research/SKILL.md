@@ -509,7 +509,8 @@ newest row:
 5. `promoted`: the full experiment, the ordinary loop above - protocol first,
    repeats, the arena's evaluator.
 6. `confirmed`: a fresh run, not the promoting one, on a held-out set or seeds
-   whose first `held_out_log.jsonl` look is this idea's own and its only one.
+   whose first `held_out_log.jsonl` look is this idea's own, with no look of it
+   dated before the promotion (each look carries its `YYYY-MM-DD` date).
 
 Budget discipline: spend pilots only on screened ideas and full runs only on
 piloted ones, never let a ranking stand in for a pilot, and stop at the budget

@@ -5786,7 +5786,12 @@ def _confirm_problems(label, row, base, repo, state, history, git):
         return problems
     looks = [r for r in _row_objects(os.path.join(base, "held_out_log.jsonl"))
              if str(r.get("set")) == held]
-    mine = [r for r in looks if str(r.get("candidate")) == iid]
+    # a look dated before the promotion was part of the selection; dates, unlike
+    # positions in two files, order the log against the stage rows, and a look
+    # appended after the confirmation never changes the verdict
+    since = max((str(r.get("date")) for r in history if r.get("stage") == "promoted"
+                 and ISO_DATE.fullmatch(str(r.get("date") or ""))), default="")
+    mine = [str(r.get("date") or "") for r in looks if str(r.get("candidate")) == iid]
     if not looks:
         problems.append("%s: held_out_log.jsonl records no look at set %s - log the "
                         "confirmation's look before the stage" % (label, held))
@@ -5794,10 +5799,14 @@ def _confirm_problems(label, row, base, repo, state, history, git):
         problems.append("%s: held_out_log.jsonl shows %s looked at set %s first, so the "
                         "set was looked at during selection"
                         % (label, looks[0].get("candidate"), held))
-    elif len(mine) > 1:
-        problems.append("%s: held_out_log.jsonl shows %s looked at set %s %d times, so "
-                        "the set was looked at during selection, not only to confirm"
-                        % (label, iid, held, len(mine)))
+    elif any(not ISO_DATE.fullmatch(d) for d in mine):
+        problems.append("%s: a held_out_log.jsonl look of %s at set %s carries no "
+                        "YYYY-MM-DD date, so it cannot be placed against the promotion"
+                        % (label, iid, held))
+    elif any(d < since for d in mine):
+        problems.append("%s: held_out_log.jsonl shows %s looked at set %s before its "
+                        "promotion (%s), so the set was looked at during selection"
+                        % (label, iid, held, since))
     return problems
 
 
@@ -5898,6 +5907,13 @@ def match_problems(row, ideas):
     return problems
 
 
+def _valid_matches(matches, ideas):
+    """The tournament rows `match_problems` accepts: the one read point every
+    report and warning takes its matches from, so a hand-edited row of the wrong
+    shape is the refusal `check` prints and never a crash further on."""
+    return [m for m in matches if isinstance(m, dict) and not match_problems(m, ideas)]
+
+
 def _campaign_line(repo, slug):
     """(base, state, refusal) for the exploratory line a campaign row goes to.
     Raises FileNotFoundError when the line does not exist."""
@@ -5958,7 +5974,7 @@ def append_stage(repo, slug, row, kill_reason=None, git=True):
     if not isinstance(row, dict):
         return stage_problems(row, base, repo, state, {}, [], [])
     ideas = {r["id"]: r for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
-    matches = _rows_of(base, TOURNAMENT_FILE)
+    matches = _valid_matches(_rows_of(base, TOURNAMENT_FILE), ideas)
     evaluator = evaluator_problem(repo, state)
     if git:
         # the hash in the working state.json is the one a session can rewrite: while
@@ -6148,14 +6164,14 @@ def _check_exploratory(repo, base, state, errors, warnings, strict, git):
                       for p in idea_problems(row, state, held))
         held.append(row)
     ideas = {r.get("id"): r for r in held if _text(r.get("id"))}
-    matches = [row for _n, row in found[TOURNAMENT_FILE][0]]
+    valid = _valid_matches([row for _n, row in found[TOURNAMENT_FILE][0]], ideas)
     evaluator = evaluator_problem(repo, state)
     histories = {}
     for n, row in found[STAGES_FILE][0]:
         key = row.get("idea") if isinstance(row.get("idea"), str) else None
         history = histories.setdefault(key, [])
         errors.extend("%s:%d %s" % (STAGES_FILE, n, p) for p in stage_problems(
-            row, base, repo, state, ideas, list(history), matches, evaluator, git))
+            row, base, repo, state, ideas, list(history), valid, evaluator, git))
         history.append(row)
     for iid in sorted((i for i in histories if isinstance(i, str)), key=_idea_number):
         last = histories[iid][-1]
@@ -6166,7 +6182,7 @@ def _check_exploratory(repo, base, state, errors, warnings, strict, git):
     for n, row in found[TOURNAMENT_FILE][0]:
         errors.extend("%s:%d %s" % (TOURNAMENT_FILE, n, p)
                       for p in match_problems(row, ideas))
-    warnings.extend(_tournament_warnings(ideas, matches))
+    warnings.extend(_tournament_warnings(ideas, valid))
     _check_tested(base, histories, warnings)
     if git:
         _check_arena_order(repo, base, state, errors, warnings, strict)
@@ -6262,9 +6278,7 @@ def board(repo, slug):
         files[name] = {"rows": len(found), "fragment": fragment, "problems": problems}
     ideas = {r["id"]: r for r in rows[IDEAS_FILE] if _text(r.get("id"))}
     histories = _stage_histories(rows[STAGES_FILE])
-    matches = [m for m in rows[TOURNAMENT_FILE]
-               if _is_idea(m.get("a"), ideas) and _is_idea(m.get("b"), ideas)
-               and m.get("a") != m.get("b")]
+    matches = _valid_matches(rows[TOURNAMENT_FILE], ideas)
     scores = bradley_terry(list(ideas), matches)
     entries = []
     for iid, idea in ideas.items():
@@ -6496,7 +6510,8 @@ def yield_report(repo, all_lines=False):
         base = line_dir(repo, slug)
         ideas = {r["id"]: r for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
         histories = _stage_histories(_rows_of(base, STAGES_FILE))
-        scores = bradley_terry(list(ideas), _rows_of(base, TOURNAMENT_FILE))
+        scores = bradley_terry(list(ideas), _valid_matches(
+            _rows_of(base, TOURNAMENT_FILE), ideas))
         for iid, idea in sorted(ideas.items(), key=lambda kv: _idea_number(kv[0])):
             total += 1
             history = histories.get(iid, [])

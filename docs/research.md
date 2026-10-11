@@ -648,7 +648,7 @@ object.
 | `prior-art` | `{"verdict": "novel\|incremental\|known", "nearest": [...], "delta": "<one sentence>"}` | `nearest` names at least `NEAREST_MIN` (3) notes. `literature/INDEX.jsonl` indexes each one, and not all of them are `agent-report`. `delta` is one sentence (`_prior_art_problems`) |
 | `screened` | none | `tournament.jsonl` holds at least one match that names the idea |
 | `piloted`, `promoted` | `<h>` or `experiments/<h>` | `protocol.md` names the idea id and repeats its `kill` text. `results.jsonl` holds a row. When the check asks git, `protocol.md` is in a commit. If `results.jsonl` is committed too, `protocol.md` entered the history before it (`_run_problems`) |
-| `confirmed` | `{"experiment": "<h>", "set": "<set>"}` | the arena has an evaluator. The experiment differs from every `promoted` row's experiment. The run passes the same `_run_problems` checks. The first `held_out_log.jsonl` row for that set names this idea, and the idea looked at the set exactly once. A second look means the set was used during selection (`_confirm_problems`) |
+| `confirmed` | `{"experiment": "<h>", "set": "<set>"}` | the arena has an evaluator. The experiment differs from every `promoted` row's experiment. The run passes the same `_run_problems` checks. The first `held_out_log.jsonl` row for that set names this idea. Each look of this idea at the set carries a `YYYY-MM-DD` date, and none is dated before the idea's promotion: an earlier look was part of the selection. A look logged after the confirmation changes nothing (`_confirm_problems`) |
 | `killed` | `--reason "<why>"` | a reason |
 
 A `known` prior art kills the idea in the same write. `append_stage`

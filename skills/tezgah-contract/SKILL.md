@@ -734,8 +734,8 @@ not an answer.
 
 **New ideas are an exploratory line.** When the user asks for new ideas, methods
 or approaches rather than an answer, open `tezgah-research init --method
-exploratory` with its arena - `--arena` (the problem, verbatim), `--in`, `--out`,
-`--budget`, and `--evaluator` with `--metric` when a number can judge a candidate -
+exploratory` with `--ask` and its arena - `--arena` (the problem, verbatim), `--in`,
+`--out`, `--budget`, and `--evaluator` with `--metric` when a number can judge a candidate -
 committed before the first idea; every other line keeps the question lock above.
 Ideas, stage moves and judged matches are rows (`idea`, `stage`, `match`), a
 ranking is a prior and never a verdict, and `tezgah-research board <slug>` names

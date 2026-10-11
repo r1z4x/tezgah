@@ -5930,11 +5930,15 @@ class Exploratory(Workspace):
         self.assertTrue(tr.append_idea(repo, "camp", self.idea(3, op=["mutation"]))[1])
         self.assertTrue(tr.append_stage(repo, "camp", self.stage(
             "I1", "duplicate", {"of": ["I2"], "similarity": 0.9})))
-        self.rows(base, "tournament.jsonl", self.match(["I1"], "I2"))
+        self.rows(base, "tournament.jsonl", self.match(["I1"], "I2"),
+                  self.match("I1", "I2", order=["ab"]), self.match("I1", "I2", judge="g"),
+                  self.match("I1", "I2", winner={"x": 1}))
         self.rows(base, "stages.jsonl", {"idea": ["I1"], "stage": "killed"})
-        self.assertTrue(self.at(repo, "tournament.jsonl:1"))
+        for n in range(1, 5):
+            self.assertTrue(self.at(repo, "tournament.jsonl:%d" % n), n)
         self.assertTrue(self.at(repo, "stages.jsonl:1"))
-        self.assertEqual(tr.board(repo, "camp")["files"]["tournament.jsonl"]["rows"], 1)
+        self.assertEqual(tr.board(repo, "camp")["files"]["tournament.jsonl"]["rows"], 4)
+        self.assertEqual(tr.yield_report(repo)["ideas"], 2)
 
     def test_a_rewritten_arena_hash_does_not_reopen_the_writer(self):
         repo = self.repo()
@@ -6050,7 +6054,7 @@ class Exploratory(Workspace):
         self.write(log, "".join(json.dumps({"set": "s900", "candidate": "I1",
                                             "date": d, "result": 1}) + "\n"
                                 for d in ("2026-01-02", "2026-01-04")))
-        self.assertTrue(hit("2 times", self.at(repo, "stages.jsonl:3")))
+        self.assertTrue(hit("before its promotion", self.at(repo, "stages.jsonl:3")))
 
     def test_an_arena_with_no_evaluator_never_reaches_confirmed(self):
         repo = self.repo()
