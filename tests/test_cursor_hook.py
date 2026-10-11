@@ -226,7 +226,8 @@ class CursorHook(TempHome):
     def test_stop_refuses_a_done_claim_whose_check_reported_no_outcome(self):
         # A shell result with no `exitCode` in `tool_output` is a check that
         # RAN, never one that passed: a "done" the session cannot evidence does
-        # not end the turn, and the honest spelling passes on the same evidence.
+        # not end the turn. Since plan 080 the admission alone does not either:
+        # it passes once the check ran and failed, with the failure named.
         self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
                    "conversation_id": "s", "tool_name": "Shell",
                    "tool_input": {"command": "pytest -q"}})
@@ -235,6 +236,12 @@ class CursorHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out["reason"])
         self.response("Doğrulanmadı.")
+        self.assertEqual(self.stop().get("decision"), "block")
+        self.call({"hook_event_name": "postToolUse", "cwd": self.repo,
+                   "conversation_id": "s", "tool_name": "Shell",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_output": '{"exitCode":1,"stdout":"1 failed"}'})
+        self.response("pytest -q düşüyor (1 failed); doğrulanmadı.")
         self.assertEqual(self.stop(), {})
 
     def test_stop_passes_a_done_claim_its_exit_zero_check_backs(self):
