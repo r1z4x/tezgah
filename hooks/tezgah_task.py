@@ -757,6 +757,12 @@ def _write_record(root, rec):
     import json
     folder = slice_dir(root)
     os.makedirs(folder, mode=0o700, exist_ok=True)
+    # the records are runtime state that changes every turn: the private
+    # `.tezgah` repository ignores them rather than listing `slices/` untracked
+    ignore = os.path.join(folder, ".gitignore")
+    if not os.path.exists(ignore):
+        with open(ignore, "w", encoding="utf-8") as fh:
+            fh.write("*\n")
     path = os.path.join(folder, rec["id"] + ".json")
     tmp = "%s.%d.tmp" % (path, os.getpid())
     with open(tmp, "w", encoding="utf-8") as fh:

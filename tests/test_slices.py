@@ -155,6 +155,16 @@ class Records(Journal):
         self.assertEqual(tt.spawned("bash", {"command": "ls"}), [])
         self.assertEqual(tt.spawned("task", "not a dict"), [])
 
+    def test_the_private_repository_ignores_the_journal(self):
+        # the records change every turn; `git status` in `.tezgah` listed
+        # `?? slices/` in every project that ran a subagent
+        ws = os.path.join(self.repo, ".tezgah")
+        os.makedirs(ws, exist_ok=True)
+        self.git("init", "-q", ws, cwd=self.home)
+        tt.open_slice(self.repo, "W1", host="omp", brief="b")
+        self.assertEqual(self.git("status", "--porcelain", cwd=ws), "")
+        self.assertEqual([r["id"] for r in tt.slices(self.repo)], ["W1"])
+
 
 class NoteSpawn(Journal):
 
