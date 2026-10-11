@@ -8,6 +8,12 @@
   tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
   tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
   tezgah-task close <NNN|path> done|discarded [--resolved TEXT] move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
+  tezgah-task slice open --id ID [--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]
+                                                              record a delegated slice (a re-open counts one more attempt)
+  tezgah-task slice done ID | slice stop ID [--class C]      close a slice record
+  tezgah-task slice reconcile [--prune]                       every open or stopped slice with its resume brief; --prune also removes landed worktrees and branches
+  tezgah-task slice resume ID                                 the native resume path, else a re-dispatch brief; marks the record resumed
+  tezgah-task slice stats [--window DAYS] [--json]            counts per status, failure class and host, and the RSI lever candidates
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and at most one open plan carries a phase
@@ -60,6 +66,22 @@ moment. The gate refuses a write in the phase only while the recorded sha is
 still HEAD and the tree is still dirty, so committing is the whole way out of it
 and the commit clears the refusal by itself; the per-file snapshots
 (bin/tezgah-rollback) are not one state to return to.
+
+`slice` keeps the slice journal (hooks/tezgah_task.py): one record per delegated
+slice under `.tezgah/slices/` of the main checkout, opened by the post-tool path
+on a spawn call or by `slice open`, so a parent crash, an omp `/clear`, a quota
+stop or a model or host switch loses no slice. `reconcile` reads each open omp
+record's child transcript and closes the ones that ended, then prints one
+resume brief per open or stopped slice; `--prune` first runs the same worktree
+removal `close` does, deletes (`git branch -d`) every local branch that has
+landed and is checked out nowhere - never main, master or the current branch -
+and marks done each record whose branch landed with a commit of its own.
+`resume` prints the host's native path first (omp `write agent://<id>` while
+the parent session lives, Claude `SendMessage`), then a brief any host or model
+can re-dispatch: the original brief plus the last commit, the branch and the
+uncommitted files. `stats` flags a `class+host` signature at 3 events or 5% of
+the window's slices and names its lever from a closed set. `review ... approve`
+is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
 with nothing written - 2 misuse.
@@ -584,6 +606,26 @@ def budget_spent(path, ident):
             % (path, REVIEW_ROUNDS, ident, ident))
 
 
+def unfinished_review(root, reviewer):
+    """The refusal of an `approve` while a slice journal record whose id or agent
+    is `reviewer` is not done: a review slice that died on a provider limit had
+    its approve recorded anyway, and a NameError it would have caught reached
+    main (plan 078). The omp records are reconciled with their transcripts first
+    (`tt.pending`), so a review that has finished reads as done."""
+    from tezgah_paths import off
+    if off("slices-off"):
+        return []
+    tt.pending(root)
+    return ["review slice %s is %s%s: finish it, or resume it with `tezgah-task "
+            "slice resume %s`, before recording approve - an approve from a "
+            "review that did not finish reads nothing"
+            % (rec["id"], rec.get("status"),
+               (" (%s)" % rec["failure"]) if rec.get("failure") else "", rec["id"])
+            for rec in tt.slices(root)
+            if reviewer in (rec.get("id"), rec.get("agent"))
+            and rec.get("status") != "done"]
+
+
 def cmd_review(args):
     if len(args) != 3 or args[2] not in VERDICTS:
         return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
@@ -597,6 +639,10 @@ def cmd_review(args):
     # the project's HEAD, never the private `.tezgah` repository's: the next
     # round's delta is `git diff <this>..HEAD` over the project
     root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    if args[2] == "approve":
+        bad = unfinished_review(root, args[1])
+        if bad:
+            return problems(bad)
     sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]
     record = {"review": "%s %s %s" % (args[1], args[2], today()),
               "review_round": str(int(prior) + 1 if prior.isdigit() else 1),
@@ -720,6 +766,15 @@ def _keeps(root, path, branch, bases, agents):
     return None
 
 
+def landing_bases(root):
+    """The refs a branch's work counts as landed in, those that exist: HEAD,
+    main, master, and the remote's default branch too - a PR merged on the host
+    lands there first."""
+    return [b for b in ("HEAD", "main", "master", "origin/HEAD", "origin/main",
+                        "origin/master")
+            if git_out(root, "rev-parse", "-q", "--verify", b)]
+
+
 def prune_worktrees(root):
     """Remove every linked worktree of the repository whose branch has landed and
     which holds nothing else, so a closed plan leaves no checkout behind; one line
@@ -745,10 +800,7 @@ def prune_worktrees(root):
                 for p in linked]
     orca = {os.path.realpath(r.get("path") or ""): r for r in rows or []
             if isinstance(r, dict)}
-    # the remote's default branch too: a PR merged on the host lands there first
-    bases = [b for b in ("HEAD", "main", "master", "origin/HEAD", "origin/main",
-                         "origin/master")
-             if git_out(root, "rev-parse", "-q", "--verify", b)]
+    bases = landing_bases(root)
     out = []
     for path in linked:
         branch = git_out(path, "symbolic-ref", "-q", "--short", "HEAD")
@@ -830,6 +882,264 @@ def cmd_status(args):
     return 1 if bad else 0
 
 
+# ------------------------------------------------------------------ slice
+
+# The closed lever set a stats candidate is named from (the research line's
+# RSI loop): one file or mechanism per failure class, never prose.
+LEVERS = {"rate_limit": "hooks/tezgah_models.py fallback chain",
+          "quota": "hooks/tezgah_models.py fallback chain",
+          "cut_off": "per-slice deadline", "timeout": "per-slice deadline",
+          "aborted": "wip: commit cadence", "duplicate": "journal background jobs",
+          "error": "none (read the transcript)"}
+STATS_WINDOW = 14
+# A signature is a candidate at this many events, or at this share of the slices
+# in the window.
+STATS_EVENTS = 3
+STATS_SHARE = 0.05
+
+
+def parse_options(args, valued, flags=()):
+    """(options, positionals, problem) for `args`: each `valued` option takes the
+    next argument, each flag stands alone, any other `--x` is a problem."""
+    opts, pos, i = {}, [], 0
+    while i < len(args):
+        arg = args[i]
+        if arg in valued:
+            if i + 1 >= len(args):
+                return None, None, "%s needs a value" % arg
+            opts[arg] = args[i + 1]
+            i += 2
+        elif arg in flags:
+            opts[arg] = True
+            i += 1
+        elif arg.startswith("--"):
+            return None, None, "unknown option %r" % arg
+        else:
+            pos.append(arg)
+            i += 1
+    return opts, pos, None
+
+
+def resume_text(root, rec):
+    """The way back into one record's work: the host's native path first (omp
+    `write agent://<id>` while the parent session lives, Claude `SendMessage`),
+    else a re-dispatch brief that runs on any host or model - the original brief
+    plus where the work stands (last commit, branch, uncommitted files)."""
+    sid = rec["id"]
+    lines = [tt.slice_line(rec)]
+    if rec.get("kind") == "job":
+        lines.append("  command: %s" % (rec.get("brief") or "(none recorded)"))
+        return "\n".join(lines)
+    tree = rec.get("worktree") or ""
+    cwd = rec.get("cwd") or ""
+    where = (tree if tree and os.path.isdir(tree) else
+             cwd if cwd and os.path.isdir(cwd) else root)
+    last = git_out(where, "log", "-1", "--format=%h %s") or "(none)"
+    branch = (rec.get("branch") or git_out(where, "symbolic-ref", "-q", "--short", "HEAD")
+              or "(detached HEAD)")
+    dirty = [line[3:] for line in (git_out(where, "status", "--porcelain") or "").splitlines()]
+    resume = ("Resume: last commit %s on %s; uncommitted: %s; continue from there, "
+              "do not redo committed steps" % (last, branch, ", ".join(dirty) or "none"))
+    native = {"omp": "`write agent://%s` (while omp session %s still runs)"
+                     % (sid, rec.get("parent") or "?"),
+              "claude": "`SendMessage` to %s" % sid}.get(rec.get("host"))
+    if native:
+        lines.append("  native: %s with: %s" % (native, resume))
+    lines.append("  %sre-dispatch on any host or model with this brief:"
+                 % ("else " if native else ""))
+    lines.append(rec.get("brief") or "(no brief recorded)")
+    lines.append(resume)
+    return "\n".join(lines)
+
+
+def own_commits(root, rec):
+    """Does the record's branch carry a commit past the base it was opened on?
+    A branch still at its base is a slice that has not started, not one whose
+    work landed."""
+    base, branch = rec.get("base"), rec.get("branch")
+    if not base or not branch:
+        return False
+    count = git_out(root, "rev-list", "--count", "%s..%s" % (base, branch))
+    return bool(count) and count != "0"
+
+
+def prune_branches(root, bases):
+    """`git branch -d` every local branch whose work landed in `bases` and that no
+    worktree has checked out - never main, master or the current branch. One
+    line per branch it deletes or git refuses."""
+    current = git_out(root, "symbolic-ref", "-q", "--short", "HEAD")
+    held = {line[len("branch refs/heads/"):] for line in
+            (git_out(root, "worktree", "list", "--porcelain") or "").splitlines()
+            if line.startswith("branch refs/heads/")}
+    out = []
+    for branch in (git_out(root, "for-each-ref", "--format=%(refname:short)",
+                           "refs/heads") or "").splitlines():
+        if branch in ("main", "master", current) or branch in held:
+            continue
+        if not any(_landed(root, branch, b) for b in bases):
+            continue
+        done = subprocess.run(["git", "-C", root, "branch", "-d", branch],
+                              capture_output=True, text=True)
+        out.append("branch deleted: %s" % branch if done.returncode == 0 else
+                   "branch kept: %s (`git branch -d %s` refused: %s)"
+                   % (branch, branch, (done.stderr.strip().splitlines() or ["?"])[0]))
+    return out
+
+
+def _stamp(value):
+    """Seconds since the epoch of an ISO-8601 UTC record time, None when bad."""
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return None
+
+
+def slice_stats(rows, window, now=None):
+    """Counts per status, failure class and host over the records updated in the
+    last `window` days, and the candidate signatures: `class+host`, one event per
+    record (the class it last stopped with) and `duplicate+host` per job record
+    run more than once, at STATS_EVENTS events or STATS_SHARE of the slices."""
+    from collections import Counter
+    cutoff = (time.time() if now is None else now) - window * 86400
+    picked = [r for r in rows if (_stamp(r.get("updated") or r.get("opened")) or 0) >= cutoff]
+    sigs = Counter()
+    for rec in picked:
+        host = rec.get("host") or "?"
+        if rec.get("failure") in LEVERS:
+            sigs[(rec["failure"], host)] += 1
+        if rec.get("kind") == "job" and int(rec.get("attempts") or 1) > 1:
+            sigs[("duplicate", host)] += 1
+    total = len(picked)
+    candidates = [{"signature": "%s+%s" % key, "events": n,
+                   "share": round(n / total, 3), "lever": LEVERS[key[0]]}
+                  for key, n in sorted(sigs.items(), key=lambda kv: (-kv[1], kv[0]))
+                  if n >= STATS_EVENTS or n >= STATS_SHARE * total]
+    return {"window_days": window, "slices": total,
+            "status": dict(Counter(r.get("status") or "?" for r in picked)),
+            "failure": dict(Counter(r["failure"] for r in picked if r.get("failure"))),
+            "host": dict(Counter(r.get("host") or "?" for r in picked)),
+            "candidates": candidates}
+
+
+def _counts(counter):
+    return ", ".join("%s %d" % kv for kv in sorted(counter.items())) or "none"
+
+
+def cmd_slice(args):
+    usage = ("slice takes open|done|stop|reconcile|resume|stats (open --id ID "
+             "[--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] "
+             "[--parent P] [--cwd PATH]; done ID; stop ID [--class C]; reconcile "
+             "[--prune]; resume ID; stats [--window DAYS] [--json])")
+    if not args:
+        return misuse(usage)
+    sub, rest = args[0], args[1:]
+    root = repo_root(os.getcwd())
+    if sub == "open":
+        opts, pos, bad = parse_options(rest, ("--id", "--kind", "--host", "--agent",
+                                              "--brief", "--brief-file", "--parent",
+                                              "--cwd"))
+        if bad or pos:
+            return misuse(bad or "slice open takes options only (%r)" % pos[0])
+        if not opts.get("--id"):
+            return misuse("slice open needs --id ID")
+        if "--brief" in opts and "--brief-file" in opts:
+            return misuse("--brief and --brief-file contradict each other")
+        kind, host = opts.get("--kind", "agent"), opts.get("--host", "")
+        if kind not in tt.SLICE_KINDS:
+            return misuse("--kind is one of %s" % ", ".join(tt.SLICE_KINDS))
+        if host and host not in tt.SLICE_HOSTS:
+            return misuse("--host is one of %s" % ", ".join(tt.SLICE_HOSTS))
+        brief = opts.get("--brief", "")
+        if "--brief-file" in opts:
+            try:
+                brief = read(opts["--brief-file"])
+            except (OSError, UnicodeDecodeError) as exc:
+                return problems(["cannot read %s: %s" % (opts["--brief-file"], exc)])
+        try:
+            rec = tt.open_slice(root, opts["--id"], kind=kind, host=host,
+                                agent=opts.get("--agent", ""), brief=brief,
+                                parent=opts.get("--parent", ""),
+                                cwd=opts.get("--cwd") or os.getcwd())
+        except OSError as exc:
+            return problems(["cannot write the slice record: %s" % exc])
+        print("slice %s open (%s, attempt %d)%s" % (
+            rec["id"], rec["kind"], rec["attempts"],
+            " worktree %s on %s" % (rec["worktree"], rec["branch"] or "?")
+            if rec["worktree"] else ""))
+        return 0
+    if sub in ("done", "stop"):
+        opts, pos, bad = parse_options(rest, ("--class",) if sub == "stop" else ())
+        if bad or len(pos) != 1:
+            return misuse(bad or "slice %s takes one ID%s" % (
+                sub, " [--class C]" if sub == "stop" else ""))
+        failure = opts.get("--class", "")
+        if failure and failure not in tt.FAILURES:
+            return misuse("--class is one of %s" % ", ".join(tt.FAILURES))
+        status = "done" if sub == "done" else "stopped"
+        try:
+            rec = tt.close_slice(root, pos[0], status, failure)
+        except OSError as exc:
+            return problems(["cannot write the slice record: %s" % exc])
+        if rec is None:
+            return problems(["no slice record %s under %s" % (pos[0], tt.slice_dir(root))])
+        print("slice %s %s%s" % (rec["id"], status,
+                                 " (%s)" % rec["failure"] if rec.get("failure") else ""))
+        return 0
+    if sub == "reconcile":
+        opts, pos, bad = parse_options(rest, (), ("--prune",))
+        if bad or pos:
+            return misuse(bad or "slice reconcile takes --prune and nothing else")
+        if opts.get("--prune"):
+            bases = landing_bases(root)
+            # read before the prune: a removed worktree takes its branch with it
+            landed = [rec for rec in tt.slices(root)
+                      if rec.get("status") != "done" and own_commits(root, rec)
+                      and any(_landed(root, rec["branch"], b) for b in bases)]
+            for line in prune_worktrees(root) + prune_branches(root, bases):
+                print(line)
+            for rec in landed:
+                tt.close_slice(root, rec["id"], "done")
+                print("slice %s done: %s landed" % (rec["id"], rec["branch"]))
+        rows = tt.pending(root)
+        if not rows:
+            print("no open or stopped slice")
+        for rec in rows:
+            print(resume_text(root, rec))
+        return 0
+    if sub == "resume":
+        if len(rest) != 1:
+            return misuse("slice resume takes one ID")
+        rec = next((r for r in tt.slices(root) if r["id"] == rest[0]), None)
+        if rec is None:
+            return problems(["no slice record %s under %s" % (rest[0], tt.slice_dir(root))])
+        print(resume_text(root, rec))
+        tt.close_slice(root, rec["id"], "resumed")
+        return 0
+    if sub == "stats":
+        opts, pos, bad = parse_options(rest, ("--window",), ("--json",))
+        if bad or pos:
+            return misuse(bad or "slice stats takes [--window DAYS] [--json]")
+        window = opts.get("--window", str(STATS_WINDOW))
+        if not window.isdigit() or int(window) < 1:
+            return misuse("--window takes a whole number of days")
+        stats = slice_stats(tt.slices(root), int(window))
+        if opts.get("--json"):
+            print(json.dumps(stats, indent=2, sort_keys=True))
+            return 0
+        print("slices in the last %d days: %d" % (stats["window_days"], stats["slices"]))
+        for key in ("status", "failure", "host"):
+            print("  %s: %s" % (key, _counts(stats[key])))
+        for row in stats["candidates"]:
+            print("candidate: %s - %d events (%d%% of slices) - lever: %s" % (
+                row["signature"], row["events"], round(row["share"] * 100), row["lever"]))
+        if not stats["candidates"]:
+            print("no signature at %d events or %d%% of the slices"
+                  % (STATS_EVENTS, round(STATS_SHARE * 100)))
+        return 0
+    return misuse(usage)
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -849,8 +1159,10 @@ def main(argv):
         return cmd_review(rest)
     if cmd == "close":
         return cmd_close(rest)
+    if cmd == "slice":
+        return cmd_slice(rest)
     return misuse("unknown command %r (start, phase, allow, stop, status, review, "
-                  "close)" % cmd)
+                  "close, slice)" % cmd)
 
 
 if __name__ == "__main__":
