@@ -646,9 +646,10 @@ slice line says `(in <name>)` (`hooks/tezgah_task.py::_brief_repo`). A repositor
 own `.tezgah` counts as that repository (`hooks/tezgah_task.py::main_repo`).
 
 The slice's own task text (without a batch's shared `context`) decides its
-worktree and its lease. The worktree is the checkout a `Worktree:`, `Checkout`
-or `Cwd:` line declares, never one the brief merely names
-(`hooks/tezgah_task.py::_worktree_in`). Its `Owns:` lines name
+worktree and its lease. The worktree is the one the task names last, else the
+brief (`hooks/tezgah_task.py::_worktree_in`). `declared` holds the checkout a
+`Worktree:`, `Checkout` or `Cwd:` line declares, which only the main-checkout
+refusal reads (`hooks/tezgah_task.py::_declared_in`). Its `Owns:` lines name
 repository-relative globs, and only that slice may write those paths while its
 record runs (`hooks/tezgah_task.py::owned_globs`, `hooks/tezgah_task.py::owner_of`). A
 Claude background child's record also keeps the launch's `agentId` as `child`,

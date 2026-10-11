@@ -1002,7 +1002,8 @@ its own branch and checkout - inside Orca `orca worktree create --name <slug>
 --parent-worktree active --json`, else `git worktree add -b <branch> <absolute
 path>`; its brief names every read, edit and shell `cwd` as an absolute path
 under that checkout, never the main checkout, whose `git status --short` must
-not grow. Every writing brief names its `Owns:` globs, and siblings message
+not grow. Every writing brief names its `Owns:` globs and declares its
+checkout on a `Worktree: <abs path>` line, and siblings message
 each other only on an interface or ownership change. Read-only slices need no
 worktree. Once a slice's branch is merged,
 its worktree goes in the same turn - `tezgah-task close` removes every merged

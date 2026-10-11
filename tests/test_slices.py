@@ -470,7 +470,10 @@ class Cli(Journal):
     def test_reconcile_prune_deletes_landed_branches_and_keeps_unmerged_ones(self):
         tree = self.worktree("slice-done")
         self.assertEqual(self.task("slice", "open", "--id", "D", "--host", "omp",
-                                   "--brief", "Worktree: " + tree).returncode, 0)
+                                   "--brief", "work in " + tree).returncode, 0)
+        # round 2 (N1): a brief that only names the worktree still journals it
+        self.assertEqual((self.record("D")["worktree"], self.record("D")["branch"]),
+                         (tree, "slice-done"))
         self.commit_file("d.txt", cwd=tree)
         self.git("merge", "-q", "--no-ff", "--no-edit", "slice-done")
         self.git("branch", "loose")
@@ -504,7 +507,7 @@ class Cli(Journal):
 
     def test_reconcile_keeps_an_unstarted_slice_open(self):
         tree = self.worktree("slice-new")
-        self.task("slice", "open", "--id", "N", "--brief", "Worktree: " + tree)
+        self.task("slice", "open", "--id", "N", "--brief", "work in " + tree)
         proc = self.task("slice", "reconcile", "--prune")
         self.assertIn("worktree kept: %s" % tree, proc.stdout)
         self.assertIn("- slice N (?/?) open attempts 1", proc.stdout)
@@ -728,24 +731,31 @@ class Leases(Journal):
         self.assertEqual(self.record("Rev")["owns"], ["c.py"])
         self.assertIsNone(tt.owner_of(self.repo, "c.py", "P", "W"))
         self.assertEqual(tt.owner_of(self.repo, "a.py", "P", "W")["id"], "W-2")
+        # round 2: a reader holds no lease even when its own task quotes one
+        tt.open_slice(self.repo, "Scout", host="omp", agent="tezgah-scout", parent="P",
+                      task="Owns: d.py")
+        self.assertIsNone(tt.owner_of(self.repo, "d.py", "P", "W"))
 
-    def test_only_a_declared_checkout_is_the_slices_worktree(self):
-        # F2: an integrator that names worktrees to remove does not work in them
+    def test_the_named_worktree_is_journalled_and_only_a_declared_one_is_declared(self):
+        # review of S6, round 2 (N1): reconcile, resume, the board and
+        # merge-plan keep the worktree a brief names; only the main-checkout
+        # refusal needs a declaration, and a declared main checkout is none
         a, b = self.worktree("decl-a"), self.worktree("decl-b")
         merger = tt.open_slice(self.repo, "Merge", host="omp", parent="P", task=(
             "Integrate on main.\nCwd: %s\nRemove the merged worktrees %s and %s."
             % (self.repo, a, b)))
-        self.assertEqual(merger["worktree"], "")
+        self.assertEqual((merger["worktree"], merger["declared"]), (b, ""))
         named = tt.open_slice(self.repo, "Mention", host="omp", parent="P",
-                              task="read %s/x.py" % a)
-        self.assertEqual(named["worktree"], "")
+                              task="work in %s" % a)
+        self.assertEqual((named["worktree"], named["branch"], named["declared"]),
+                         (a, "decl-a", ""))
         (row,) = tt.spawned("task", {"context": "Worktree: %s" % a,
                                      "tasks": [{"name": "Main", "task": "Checkout %s" % self.repo}]})
         rec = tt.open_slice(self.repo, row[0], brief=row[2],
                             task="Checkout %s" % self.repo)
-        self.assertEqual(rec["worktree"], "")
+        self.assertEqual((rec["worktree"], rec["declared"]), (a, ""))
         rec = tt.open_slice(self.repo, "Decl", task="# Target\nCheckout %s (branch decl-b)" % b)
-        self.assertEqual((rec["worktree"], rec["branch"]), (b, "decl-b"))
+        self.assertEqual((rec["worktree"], rec["branch"], rec["declared"]), (b, "decl-b", b))
 
     def test_the_board_lists_one_parents_open_slices_bounded(self):
         tree = self.worktree("lease-board")

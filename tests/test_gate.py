@@ -1282,11 +1282,35 @@ class Gate(TempHome):
         # review of S6, F1: a shell whose own cwd or `cd` is the worktree writes there
         for inp in ({"cwd": tree, "command": "printf x > out.txt"},
                     {"command": "cd %s && printf x > out.txt" % tree},
-                    {"command": "cd %s && printf x | tee out.txt" % tree}):
+                    {"command": "cd %s && printf x | tee out.txt" % tree},
+                    {"command": "pushd %s >/dev/null && printf x > out.txt" % tree},
+                    {"command": "cd %s 2>/dev/null && printf x > out.txt" % tree}):
             self.assertIsNone(self.decide("Bash", inp, session_id="kidT"), inp)
         self.assertIn("is in the main checkout", self.decide(
             "Bash", {"cwd": tree, "command": "cd %s && printf x > out.txt" % self.repo},
             session_id="kidT") or "")
+        # round 2: a cd or pushd whose own output goes to /dev/null or a
+        # descriptor still moves the directory the file lands in
+        for command in ("pushd %s >/dev/null && printf x > out.txt",
+                        "cd %s 2>/dev/null && printf x > out.txt",
+                        "cd %s 2>&1 && printf x > out.txt"):
+            self.assertEqual(tg._shell_dir({"command": command % tree}, self.repo), tree)
+        self.assertEqual(tg._shell_dir({"command": "printf x > out.txt; cd %s" % tree},
+                                       self.repo), self.repo)
+        # and a second writing slice sent to the same worktree is warned at spawn
+        out, proc = run_json([support.OMP_HOOK], {
+            "event": "pre_tool_use", "cwd": self.repo, "session_id": "P3", "tool": "task",
+            "input": {"tasks": [{"name": "Also", "agent": "task",
+                                 "task": "Checkout %s" % tree}]}}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("writing slices Also, InTree all name worktree %s" % tree,
+                      (out or {}).get("advice", ""))
+        # round 2 (N1): a brief that only names the worktree declares nothing,
+        # so its main-checkout write is not refused
+        tt.open_slice(self.repo, "Named", host="omp", agent="task", parent="P4",
+                      task="work only in %s" % tree)
+        self.lineage("kidN", "spawned", "P4", agent="Named")
+        self.assertIsNone(self.decide("Edit", main_edit, session_id="kidN"))
         # F2: an integrator whose task declares the main checkout works there,
         # whatever worktrees it names to remove
         tt.open_slice(self.repo, "Merger", host="omp", agent="task", parent="P3",
@@ -1297,14 +1321,6 @@ class Gate(TempHome):
             "old_string": "a", "new_string": "b"}, session_id="kidM"))
         # the parent's own write into its checkout is not a slice's
         self.assertIsNone(self.decide("Edit", main_edit, session_id="P3"))
-        # and a second writing slice sent to the same worktree is warned at spawn
-        out, proc = run_json([support.OMP_HOOK], {
-            "event": "pre_tool_use", "cwd": self.repo, "session_id": "P3", "tool": "task",
-            "input": {"tasks": [{"name": "Also", "agent": "task",
-                                 "task": "Checkout %s" % tree}]}}, env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("writing slices Also, InTree all name worktree %s" % tree,
-                      (out or {}).get("advice", ""))
 
     def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
         # finding 7: cwd decides which project's rules apply, so a write into

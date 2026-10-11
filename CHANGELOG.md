@@ -15,12 +15,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   worktree on a `Worktree:`, `Checkout` or `Cwd:` line. The gate then refuses
   that slice's write into the main checkout, the shape two wave-1 slices hit
   with relative paths. A shell target resolves against the call's own `cwd`
-  and its `cd`. A path the brief only mentions is no worktree, so an integrator
-  that lists worktrees to remove still works in the main checkout. The refusal
-  names the owner, its globs, how to reach it - omp `write agent://<name>`,
-  Claude `SendMessage`, else the parent - and the `tezgah-task slice done
-  <id>` that frees it. `.tezgah/` and scratch stay free. A closed owner frees
-  its files, and a reviewer holds no lease. omp maps a writing session to its
+  and its `cd` or `pushd`. A path the brief only names declares nothing, so an
+  integrator that lists worktrees to remove still works in the main checkout.
+  The journal keeps that named worktree for reconcile, resume and the board.
+  The refusal names the owner, its globs, how to reach it - omp `write
+  agent://<name>`, Claude `SendMessage`, else the parent - and the
+  `tezgah-task slice done <id>` that frees it. `.tezgah/` and scratch stay
+  free. A closed owner frees its files. A reader agent holds no lease. omp
+  maps a writing session to its
   record through its ledger's `spawned` row. A Claude background child maps
   through the `agentId` its launch result names, and its SubagentStop closes
   the record. Every other host fails open. `tezgah-task slice board` lists one
@@ -28,8 +30,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `slice merge-plan` puts a branch touching MANIFEST or the citation baseline
   last. It orders the rest by their forecast `git merge-tree` conflicts and
   leaves CHANGELOG.md to its union driver. It names a branch it cannot
-  forecast and exits 1. A spawn whose writing slices declare one worktree gets
-  a warning. The orchestration text now tells every writing brief to name
+  forecast and exits 1. A spawn whose writing slices name one worktree gets a
+  warning. The orchestration text now tells every writing brief to name
   `Owns:` globs and declare its worktree. It gives the shared append points to
   the integrator. Siblings message each other only on an interface or
   ownership change. `orchestrate-off` and `slices-off` disarm it.

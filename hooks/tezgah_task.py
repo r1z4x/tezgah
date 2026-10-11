@@ -884,25 +884,18 @@ def find_slice(root, ref, session=None):
     return named[0] if len(named) == 1 else None
 
 
-# Where a brief says its slice works: a `Worktree:`, `Checkout` or `Cwd:` line
-# opening with an absolute path. A path merely mentioned - a worktree to remove,
-# a sibling's tree, a file to read - is no declaration (review of S6, F2).
-_DECLARED = re.compile(r"(?im)^[ \t>#*_-]*(?:worktree|checkout|cwd)\b[*_]*[ \t]*:?"
-                       r"[*_]*[ \t]*`?(/[^\s`'\"()<>,;]+)")
-
-
 def _worktree_in(root, *texts):
-    """The linked worktree of this repository the first of `texts` that
-    declares a checkout of it declares, else "": a slice's own task before the
-    batch's shared context, and the last declaration in a text. A declared main
-    checkout is no worktree - an integrator works there."""
+    """The linked worktree of this repository the first of `texts` that names
+    one names, else "": a slice's own task before the batch's shared context
+    (which may list every slice's worktree), the one named last in a text, and
+    on a tie the longer path, since `.../a` is found inside `.../a-b` at the
+    same place. What reconcile, resume, the board and merge-plan read."""
     from tezgah_paths import worktrees
-    trees = worktrees(root)
+    trees = worktrees(root)[1:]
     for text in texts:
-        found = [os.path.realpath(p.rstrip("/.:")) for p in _DECLARED.findall(text or "")]
-        found = [p for p in found if p in trees]
+        found = [p for p in trees if text and p in text]
         if found:
-            return found[-1] if found[-1] != trees[0] else ""
+            return max(found, key=lambda p: (text.rfind(p), len(p)))
     return ""
 
 
@@ -911,6 +904,29 @@ def _named_worktree(root, *texts):
     `texts`, else ("", "")."""
     top = _worktree_in(root, *texts)
     return (top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or "") if top else ("", "")
+
+
+# Where a brief says its slice works: a `Worktree:`, `Checkout` or `Cwd:` line
+# opening with an absolute path. A path merely mentioned - a worktree to remove,
+# a sibling's tree, a file to read - is no declaration (review of S6, F2). Only
+# the main-checkout refusal reads it (`tezgah_gate.lease_reason`).
+_DECLARED = re.compile(r"(?im)^[ \t>#*_-]*(?:worktree|checkout|cwd)\b[*_]*[ \t]*:?"
+                       r"[*_]*[ \t]*`?(/[^\s`'\"()<>,;]+)")
+
+
+def _declared_in(root, *texts):
+    """The linked worktree of this repository the first of `texts` that
+    declares a checkout of it declares, else "": a slice's own task before the
+    batch's shared context, the last declaration in a text. A declared main
+    checkout is none - an integrator works there."""
+    from tezgah_paths import worktrees
+    trees = worktrees(root)
+    for text in texts:
+        found = [os.path.realpath(p.rstrip("/.:")) for p in _DECLARED.findall(text or "")]
+        found = [p for p in found if p in trees]
+        if found:
+            return found[-1] if found[-1] != trees[0] else ""
+    return ""
 
 
 # `Owns:` in a slice's own task: the repository-relative globs only that slice
@@ -967,12 +983,14 @@ def slice_of(root, parent, name):
 def owner_of(root, path, parent, me):
     """The open record of another writing slice `parent` spawned whose `owns`
     matches the repository-relative `path`, else None; `me` is the writing
-    slice's id. A read-only record (`_writes`) holds no lease. A hit re-reads
-    after `pending`, which closes an omp sibling whose child transcript ended,
-    so a finished owner frees its files."""
+    slice's id. A reader - an agent named for a read-only role - holds no
+    lease, whatever `Owns:` line its task quotes. A hit re-reads after
+    `pending`, which closes an omp sibling whose child transcript ended, so a
+    finished owner frees its files."""
     def held():
         return next((r for r in slices(root) if parent and r.get("parent") == parent
-                     and r.get("status") == "open" and r["id"] != me and _writes(r)
+                     and r.get("status") == "open" and r["id"] != me
+                     and not _READ_ONLY_AGENT.search(r.get("agent") or "")
                      and any(match(path, g) for g in r.get("owns") or ())), None)
     if held() is None:
         return None
@@ -1057,10 +1075,10 @@ def worktree_clash(root, tool, inp, parent=""):
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
                cwd="", repo="", task="", child=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
-    are the ones the slice's own task declares (else the brief,
-    `_worktree_in`), the base is the main checkout's HEAD, and `owns` holds the
-    `Owns:` globs of the task (else the
-    brief, `owned_globs`). A re-open
+    are the ones the slice's own task names (else the brief, `_worktree_in`);
+    `declared` is the worktree a `Worktree:`/`Checkout`/`Cwd:` line declares
+    (`_declared_in`); the base is the main checkout's HEAD, and `owns` holds the
+    `Owns:` globs of the task (else the brief, `owned_globs`). A re-open
     of an existing id counts one more attempt, sets the status back to open and
     clears the failure; a field the new call leaves empty keeps its old value.
     A record another session holds under another brief is not re-opened: the
@@ -1096,6 +1114,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
         rec["task"] = task[:SLICE_BRIEF]
     if brief or not rec.get("worktree"):
         rec["worktree"], rec["branch"] = _named_worktree(main, task, rec.get("brief"))
+        rec["declared"] = _declared_in(main, task, rec.get("brief"))
     if own:
         rec["owns"] = owned_globs(own, (rec["worktree"], main))
     if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
