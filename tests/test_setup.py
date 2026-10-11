@@ -2179,7 +2179,7 @@ class KillSwitchStaticFiles(SetupBase):
             fh.write("")
         self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
         text = self.read_text(self.path(".claude", "CLAUDE.md"))
-        self.assertNotIn('**Integrity: evidence, or "doğrulanmadı".**', text)
+        self.assertNotIn('**Integrity: evidence, or a named blocker.**', text)
         self.assertIn("**Loop discipline.**", text)
 
 
@@ -3120,8 +3120,12 @@ class VersionPrefixIsNotContract(SetupBase):
         # session-scope paragraph tells every session to run
         # `tezgah-skill <words>` and read only the returned range (+113 B). The
         # band is here to catch an accidental move, so a deliberate one is
-        # recorded.
-        self.assertEqual(10499, band, "the always-on band moved")
+        # recorded. Re-pinned 2026-10-11: the integrity paragraph carries the
+        # residual rule (leftover work is done now or named as one of four
+        # blockers under "Engeller"), and the BLUF, ponytail, output-shape and
+        # deliver paragraphs stop asking for skipped-item notes and next steps
+        # the session can take itself (+1473 B).
+        self.assertEqual(11972, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 
