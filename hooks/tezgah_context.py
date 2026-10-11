@@ -1703,8 +1703,11 @@ CONSTRAINT_SHAPES = _constraint_shapes()
 
 def _shape(m):
     """(kind, group, pack) of a CONSTRAINT_SHAPES match: `obj` for a
-    prohibition's object, `ask` for an ask-first clause's verb."""
-    group = m.lastgroup
+    prohibition's object, `ask` for an ask-first clause's verb. Read off the
+    one named group that matched (`groupdict`), so a pack fragment's own
+    groups cannot stand in for it (tests/test_lang_packs.py holds each
+    fragment to its one named group)."""
+    group = next(k for k, v in m.groupdict().items() if v is not None)
     kind, code = group.split("_", 1)
     return kind, group, packs()[code]
 

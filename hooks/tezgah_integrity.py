@@ -5053,10 +5053,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "its output, or read the rendered screen (`analyze-app`: the "
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
-                "what a person sees, and \"doğrulanmadı\" does not stand in for "
+                "what a person sees, and \"{UNVERIFIED}\" does not stand in for "
                 "the screen; if nothing can render it here, write "
-                "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM with "
-                "the command that failed."
+                "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
+                "with the command that failed."
                 % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
@@ -5080,7 +5080,7 @@ def _evidence_block(rows, worked, external, where="this turn"):
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
                     "violation it prints; if the check cannot run here, write "
-                    "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM "
+                    "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
                     "with the command that failed."
                     % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,

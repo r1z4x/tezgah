@@ -173,6 +173,48 @@ class RefusalWords(TempHome):
         self.assertIn("KARAR (a choice", residual)
         self.assertIn('"doğrulanmadı" ends the turn', admission)
 
+    def test_no_refusal_text_in_the_module_names_a_turkish_token_under_en(self):
+        """Review F1: two `no ui_ok` refusals still said "doğrulanmadı",
+        "Engeller" and ORTAM under `en`. A sweep, not a list: every string
+        literal in hooks/tezgah_integrity.py outside a docstring, filled by
+        `_said` under `en`, carries no Turkish letter or tr token - so the next
+        refusal written with a literal token fails here. The allowlist is the
+        three literals that are regex letter classes or the Turkish fold."""
+        import ast
+        import re
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_integrity as ti
+        with open(os.path.join(support.HOOKS, "tezgah_integrity.py"),
+                  encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        docs = {id(n.body[0].value) for n in ast.walk(tree)
+                if isinstance(n, (ast.Module, ast.FunctionDef, ast.ClassDef))
+                and n.body and isinstance(n.body[0], ast.Expr)
+                and isinstance(n.body[0].value, ast.Constant)}
+        allowed = {r"\b(?:%s|%s)[A-ZÇĞİIÖŞÜ]*\b", "İ", "ı"}
+        token = re.compile(r"[çğıöşüÇĞİÖŞÜ]|\b(?:KARAR|YETK|ORTAM|ALINAMAZ|Engeller)\b")
+        with mock.patch("tezgah_paths.config", return_value={"language": "en"}):
+            found = [(n.lineno, n.value[:60]) for n in ast.walk(tree)
+                     if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                     and id(n) not in docs and n.value not in allowed
+                     and token.search(ti._said(n.value))]
+        self.assertEqual(found, [])
+
+    def test_the_hookless_copy_names_both_spellings(self):
+        """Review F2: the static output style serves every language, so it
+        names the English token and its tr alias, and tr's banned openers."""
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc
+        import tezgah_policy as policy
+        core = tc.always_on_core()
+        for key, words in policy.REPLY_LANG_HOOKLESS.items():
+            core = core.replace(key, words)
+        for words in ('"unverified"/"doğrulanmadı"', '"Blockers"/"Engeller"',
+                      "DECISION\n(tr: KARAR;", "ENV (tr: ORTAM;", '"haklısın"',
+                      "\"you're right\""):
+            self.assertIn(words, core)
+        self.assertNotRegex(core, r"\{[A-Z_]+\}")
+
     def test_the_default_render_keeps_the_first_rules_line_breaks(self):
         """Installed CLAUDE.md/AGENTS.md hold the rendered core: under `tr` the
         first rule must render to the bytes it had before `reply_lang`, or every
@@ -246,6 +288,16 @@ class InstallFlag(TempHome):
         self.assertEqual(self.stored()["reply_lang"], "tr")
         self.assertNotIn("language", self.stored())
         self.assertIn("**Turkish, BLUF.**", self.claude_md())
+
+    def test_a_config_only_jev_wrote_is_still_a_first_install(self):
+        """Review F3: `--jev` writes config.json too, so the file's existence
+        made the next install read as an upgrade and pinned `tr`."""
+        proc = self.install("--jev", "auto", lang="de_DE.UTF-8")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.exists(self.cfg))
+        proc = self.install(lang="de_DE.UTF-8")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.stored()["language"], "en")
 
     def test_an_unknown_value_is_a_usage_error(self):
         proc = self.install("--reply-lang", "de")

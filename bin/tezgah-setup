@@ -1028,10 +1028,13 @@ def detected():
 def install_common(new_roots, hosts):
     # tezgah's own config is refused like a host's: tp.config() reads a malformed
     # file as {}, and writing that back would drop the user's roots and settings
-    first = not os.path.exists(tp.CONFIG)
     cfg = read_config(tp.CONFIG, {})
     own = cfg is not None
     cfg = cfg if own else {}
+    # a first install is a config no install wrote yet: `--jev` alone writes
+    # the file too, so its existence says nothing; an install always writes
+    # `roots` and `prefix`
+    first = not any(key in cfg for key in ("roots", "prefix"))
     cfg["roots"] = [expand(r) for r in new_roots] if new_roots else \
         (tp.roots() or [tp.DEFAULT_ROOT])
     if tp.codegraph_bin():

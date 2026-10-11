@@ -134,6 +134,18 @@ class PackParity(unittest.TestCase):
         for code in codes:
             self.assertEqual(shape(load(code)), en, code)
 
+    def test_each_constraint_shape_captures_only_its_named_group(self):
+        """Review F5: `_shape` names the matched shape by its group, so a pack
+        fragment with another capturing group would be read as a shape of its
+        own. Each `dont` fragment holds exactly `obj`, each `ask` exactly `ask`."""
+        import re
+        for code in ("en", "tr"):
+            for kind, group in (("dont", "obj"), ("ask", "ask")):
+                for frag in load(code)["constraint"][kind]:
+                    rx = re.compile(frag)
+                    self.assertEqual((rx.groups, list(rx.groupindex)), (1, [group]),
+                                     (code, kind, frag))
+
 
 class NoRegression(unittest.TestCase):
     def test_the_probe_answers_what_the_inlined_regexes_did(self):

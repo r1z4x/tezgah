@@ -153,19 +153,28 @@ REPLY_ANY = {"reply_lang": "Reply language",
              "reply_split": "in the language the user writes",
              "reply_short": "reply in the user's language"}
 # The hookless copy (output-styles/tezgah.md) is a static file no install
-# renders, so it names the setting instead of one value of it, and the
-# contract's tokens in their canonical English spelling (the Stop rule reads
-# every pack's spelling).
+# renders, so it names the setting instead of one value of it, and each
+# contract token in both shipped spellings - canonical English first, the tr
+# alias beside it, as docs/contract.md does - with tr's banned openers (which
+# carry the English ones). The Stop rule reads every pack's spelling.
 _HOOKLESS_IN = ("in the language `language` sets in ~/.config/tezgah/config.json "
                 "(`tr`: Turkish, even when the user writes English; `en`: English; "
                 "`any`: the user's own; a new install takes it from the "
                 "environment's locale)")
+_EN, _TR = say("en"), say("tr")
 REPLY_LANG_HOOKLESS = dict(
-    {"{%s}" % key.upper(): word for key, word in say("en").items()},
+    {"{%s}" % key.upper(): word for key, word in _EN.items()},
     **{"{REPLY_LANG}": "Reply language",
        "{REPLY_IN}": _HOOKLESS_IN,
        "{REPLY_SPLIT}": _HOOKLESS_IN,
-       "{REPLY_SHORT}": "reply in the configured language"})
+       "{REPLY_SHORT}": "reply in the configured language",
+       # the token sits inside the template's own quotes: "unverified"/"doğrulanmadı"
+       "{UNVERIFIED}": '%s"/"%s' % (_EN["unverified"], _TR["unverified"]),
+       "{BLOCKERS_HEADING}": '%s"/"%s' % (_EN["blockers_heading"],
+                                         _TR["blockers_heading"]),
+       "{OPENER_SHORT}": _TR["opener_short"]},
+    **{"{%s_GLOSS}" % k.upper(): "tr: %s; " % _TR[k]
+       for k in ("decision", "access", "irreversible", "env")})
 
 EXEC = """
 ## Reporting contract: executive mode (auto-armed, tezgah roots only)
