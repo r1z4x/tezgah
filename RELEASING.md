@@ -21,7 +21,11 @@ later does not reach them. So no release goes back below 1.0.0
    version it names and `release.yml` skips one npm already has, so a stale
    `package.json` ships nothing (`tests/test_packaging.py` holds it to step 2).
 2. Add a `## [x.y.z] - YYYY-MM-DD` section to `CHANGELOG.md`, newest first, and
-   add the tag link at the bottom.
+   add the tag link at the bottom. Between releases, parallel branches each add
+   lines under `[Unreleased]`. `.gitattributes` merges `CHANGELOG.md` with git's
+   union driver, so those merges keep both sides' lines and raise no conflict.
+   Union can interleave bullets or bring back a deleted line, so read the
+   section once here before you cut it.
 3. Run the checks. All but the plan report also run in CI. The plan report reads
    the gitignored `.tezgah/`, so it runs only here:
 
@@ -73,3 +77,7 @@ later does not reach them. So no release goes back below 1.0.0
 7. Nothing else to edit: the `release`, `license` and `ci` badges in the READMEs
    read `github/v/release`, `github/license` and the workflow status live, and
    `bin/tezgah-setup --version` reports the new version for anyone who pulls.
+8. Bring this machine's own install to the release:
+   `bin/tezgah-setup --refresh && bin/tezgah-setup --version`. The refresh
+   re-renders the armed hosts' contract files from the checkout, and the version
+   read must print the number just released.

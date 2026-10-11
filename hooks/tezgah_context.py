@@ -19,20 +19,21 @@ import tezgah_orca
 import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
-from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
+from tezgah_integrity import (GRANT_KIND, STEP_KINDS, _heredocs, _path as _ledger_path,
                               _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
-                              note_compaction, note_turn, redact, scratch_evidence,
-                              UNTRUSTED_CHANNEL)
+                              note_compaction, note_turn, outward_classes, redact,
+                              scratch_evidence, UNTRUSTED_CHANNEL)
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
-                           PROMPT_REMINDER, REPLY_LANG_TEXT, open_lines_note,
+                           PROMPT_REMINDER, REPLY_ANY, open_lines_note,
                            pony_level_line)
-from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
+from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
+                          ai_research_dir, alts, armed,
                           cache_dir, codegraph_bin, consult_options,
-                          ensure_workspace, fallback_cache, have_judge_key, off,
-                          orx_bin, pony_level, reply_lang, root_for, roots, tool,
+                          ensure_workspace, fallback_cache, have_judge_key, language,
+                          off, orx_bin, packs, pony_level, root_for, roots, say, tool,
                           workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
@@ -55,325 +56,95 @@ except ImportError:  # pragma: no cover - only where the module has not landed
 
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
-# patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
-# an identifier; Turkish hints are included because the user writes Turkish.
+# patterns are reviewable. The words are data: each language pack
+# (hooks/lang/<code>.json, `hints.<key>`) lists its own half, and `_hints`
+# joins every pack's into one pattern per key, so a prompt in any shipped
+# language arms the same rules. Word-ish boundaries keep "deploy" from firing
+# inside an identifier.
 #
-# Turkish is agglutinative and the hints are verb/noun stems, so an English-style
-# trailing \b would kill the most natural phrasing (düzgün çalışsın, hipotezi
-# test et): a Turkish alternation therefore carries \w* where a suffix can land,
-# which \b then closes. \w is Unicode-aware, so it eats Türkçe letters. A whole
-# word keeps its plain boundary, so "deney" still does not fire on "deneyim".
+# Turkish is agglutinative and its hints are verb/noun stems, so an
+# English-style trailing \b would kill the most natural phrasing (düzgün
+# çalışsın, hipotezi test et): such a fragment carries \w* where a suffix can
+# land, which \b then closes. \w is Unicode-aware. A whole word keeps its plain
+# boundary, so "deney" still does not fire on "deneyim".
 #
-# The craft words in the spec class that are ALSO ordinary English nouns are
-# qualified by one of these rather than matched bare: the bare word armed the
-# paragraph on asks that had no UI in them at all. One closed list and one
-# helper, so qualifying a new sibling is a one-line change and no word can be
-# left bare by omission - `_ui_ask` is applied at the word's own place in the
-# pattern below, and both halves are pinned in tests/test_hint_coverage.py.
-# Every entry is word-bounded, so `app` cannot match inside `happen`.
-UI_OBJECTS = (r"components?|ui|ux|css|layout|styles?|tokens?|themes?|buttons?|"
-              r"cards?|icons?|labels?|elements?|widgets?|containers?|headers?|"
-              r"footers?|sidebars?|toolbars?|navbars?|nav|menu|modals?|dialogs?|"
-              r"dropdowns?|popovers?|tooltips?|badges?|avatars?|spinners?|"
-              r"skeletons?|inputs?|fields?|forms?|headings?|images?|logos?|"
-              r"grids?|panels?|columns?|screens?|pages?|views?|dashboards?|"
-              r"viewport|tables?|app")
-# What a UI ask says about the thing: "the badges look wrong", "the theme
-# renders late". A quality word alone answers for the object it follows.
-UI_QUALITY = r"look\w*|feels?\w*|seems?\w*|renders?\w*"
+# The craft words in the spec class that are ALSO ordinary nouns are qualified
+# by a UI object rather than matched bare (a pack fragment `{"ui_ask": word}`):
+# the bare word armed the paragraph on asks that had no UI in them at all.
+# `_ui_ask` expands one in the pack's own word order - a `verb_first` pack (en)
+# takes a UI object beside the word or a quality word after it, an
+# `object_first` pack (tr: "adım akışını sadeleştir" is a UI ask, "bu
+# fonksiyonu sadeleştir" a refactor) only an object before it - and both halves
+# are pinned in tests/test_hint_coverage.py. Every object is word-bounded, so
+# `app` cannot match inside `happen`.
 
 
-def _ui_ask(word):
-    """`word` as a UI ask: a UI object beside it, or a quality word after it.
-
-    The gap is bounded and stops at a sentence's end, so the qualification is
-    about the phrase the word sits in and not about the paragraph it is in."""
-    obj = r"\b(?:%s)\b" % UI_OBJECTS
+def _ui_ask(word, pack):
+    """`word` as a UI ask in `pack`'s word order. The gap is bounded and stops
+    at a sentence's end, so the qualification is about the phrase the word sits
+    in and not about the paragraph it is in."""
+    objects = "|".join(pack["ui_objects"]) or "(?!)"
+    if pack["word_order"] == "object_first":
+        # the object takes its case suffix through \w*
+        return r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (objects, word)
+    obj = r"\b(?:%s)\b" % objects
     return (r"(?:%s[^.!?\n]{0,40}\b(?:%s)\b"
             r"|\b(?:%s)\b(?=[^.!?\n]{0,40}(?:%s|\b(?:%s))))"
-            % (obj, word, word, obj, UI_QUALITY))
+            % (obj, word, word, obj, "|".join(pack["ui_quality"]) or "(?!)"))
 
 
-# The Turkish surfaces a simplify ask names before its verb (Turkish puts the
-# object first): "adım akışını sadeleştir" is a UI ask, "bu fonksiyonu
-# sadeleştir" is a refactor. Each takes its case suffix through \w*.
-TR_UI_OBJECTS = (r"akış|adım|ekran|sayfa|arayüz|form|menü|buton|düğme|panel|"
-                 r"tasarım|görünüm|kart|bileşen|sekme|pencere")
+def _hints(key):
+    """Every pack's `hints.<key>` fragments as one `\\b(...)\\b` pattern."""
+    return r"\b(%s)\b" % "|".join(
+        frag if isinstance(frag, str) else _ui_ask(frag["ui_ask"], pack)
+        for pack in packs().values() for frag in pack["hints"][key])
 
 
-def _tr_ui_ask(word):
-    """`word` after a Turkish UI surface in the same phrase - `_ui_ask`'s
-    object-first half, for the language whose object comes first."""
-    return (r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (TR_UI_OBJECTS, word))
+def _fanout():
+    """The fan-out hint: two or more independent items - a numbered or bulleted
+    list of at least two entries on their own lines, or the explicit delegation
+    ask. The owner had to say "do everything with subagents and in parallel" on
+    every task because nothing armed the fan-out rule from the shape of the
+    request. `parallelize` alone is code work, so only the delegation phrasings
+    count. The owner's own shapes armed nothing until 2026-10-09: `1 - `, `1- `,
+    `1:`, `a)`, `+` items, an inline `1. ... 2. ...`, "subagentlerle", three
+    files named as one list, "First, ... Second, ...", and three imperative
+    clauses in one sentence (clause-initial in a `verb_first` pack, clause-final
+    in an `object_first` one). A timestamp, a range and a traceback stay out
+    (the corpus)."""
+    # A list item's marker: `1.`, `1)`, `1 -`, `1:`, `a)`, or a `-`/`*`/`+`/`•`
+    # bullet, then its text.
+    item = r"(?:\d+[ \t]*[.):\u2013-]|[a-z]\)|[-*+\u2022])[ \t]+\S"
+    # A file a prompt names: a path with a directory, or a name with an
+    # extension. Anchored at a token start: unanchored, a long run of word
+    # characters made every position a start and the search quadratic (100 KB
+    # took minutes).
+    file = (r"(?<![\w./-])[`'\"]?(?:(?:[\w.-]+/)+[\w.-]*\w|"
+            r"\w[\w-]*\.[a-z]{1,4}\b)[`'\"]?")
+    join = "|".join(w for p in packs().values() for w in p["fan_join"])
+    parts = [r"(?ms:^[ \t]*" + item + r".*?^[ \t]*" + item + r")",
+             r"(?<![\w.])1[ \t]*[.)-][ \t]+\S[^\n]*?(?<![\w.])2[ \t]*[.)-][ \t]+\S",
+             file + r"(?:[ \t]*(?:,[ \t]*(?:(?:%s)[ \t]+)?|(?:%s|&)[ \t]+)" % (join, join)
+             + file + r"){2,}"]
+    for pack in packs().values():
+        first, second = pack["fan_ordinals"]
+        parts.append(r"(?s:\b%s[,:].*?\b%s[,:])" % (first, second))
+    for pack in packs().values():
+        verbs, joins = "|".join(pack["fan_verbs"]), "|".join(pack["fan_join"])
+        if pack["word_order"] == "object_first":
+            parts.append(r"(?m:(?:\b(?:%s)\w{0,4}[ \t]*(?:[,;.]|\b(?:%s)\b|$)"
+                         r"[^\n]*?){3})" % (verbs, joins))
+        else:
+            parts.append(r"(?m:(?:(?:^|[,;]|\b(?:%s)\b)[ \t]*(?:(?:%s)[ \t]+)?(?:%s)"
+                         r"\b[^\n]*?){3})" % (joins, joins, verbs))
+    parts.append(r"\b(?:%s)\b" % "|".join(
+        d for p in packs().values() for d in p["fan_directives"]))
+    return "|".join(parts)
 
 
-# The fan-out hint's parts (PROMPT_HINTS["fanout"]). A list item's marker:
-# `1.`, `1)`, `1 -`, `1:`, `a)`, or a `-`/`*`/`+`/`•` bullet, then its text.
-_FAN_ITEM = r"(?:\d+[ \t]*[.):\u2013-]|[a-z]\)|[-*+\u2022])[ \t]+\S"
-# A file a prompt names: a path with a directory, or a name with an extension.
-# Anchored at a token start: unanchored, a long run of word characters made
-# every position a start and the search quadratic (100 KB took minutes).
-_FAN_FILE = (r"(?<![\w./-])[`'\"]?(?:(?:[\w.-]+/)+[\w.-]*\w|"
-             r"\w[\w-]*\.[a-z]{1,4}\b)[`'\"]?")
-# The imperative that opens an English clause and closes a Turkish one.
-_FAN_VERB_EN = (r"(?:fix|add|update|write|remove|delete|rename|move|refactor|"
-                r"document|bump|create|implement|migrate|replace)")
-_FAN_VERB_TR = (r"(?:düzelt|güncelle|ekle|yaz|sil|kaldır|taşı|bitir|tamamla|"
-                r"incele|oluştur|değiştir)")
-
-
-PROMPT_HINTS = (
-    ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
-             r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
-             r"usable|look)|look(s)? better|düzgün çalış\w*|düzgün görün\w*|"
-             r"güzel görün\w*|daha iyi (ol|görün)\w*|kullanıcı dostu|"
-             r"modern görün\w*|şık (ol|görün)\w*|profesyonel görün\w*|"
-             r"temiz (bir )?(arayüz|görün)\w*|anlaşılır\w*|"
-             # simplify is qualified by the surface it is about: "bu fonksiyonu
-             # sadeleştir" is a refactor, "adım akışını sadeleştir" a UI ask
-             r"kullanılabilirlik\w*|"
-             + _tr_ui_ask(r"basitleştir\w*|sadeleştir\w*") + r"|"
-             r"yeniden tasarla\w*|baştan tasarla\w*|"
-             # UI work said as work. The class fired on a quality adjective
-             # alone, so "refactor the components" or "the hover state is wrong"
-             # armed nothing and a UI task was built with no standard named for
-             # what a person sees. These are the craft words and the rendered
-             # formats, not the surface nouns: "ekran" and "arayüz" stay with the
-             # product class, so a surface ask still pays one paragraph.
-             #
-             # Each craft word that is also an ordinary English noun is qualified
-             # by a UI object through `_ui_ask` (above), because the bare word
-             # armed the paragraph on asks that are not UI at all - "refactor the
-             # parser module", "align the two arrays", "what colors does
-             # matplotlib use", "add a font to the PDF", "the card model in the
-             # game", "focus the terminal window" - and the same held for the six
-             # siblings below: "our margins are down this quarter", "the theme of
-             # the meeting", "the badges in the README", "scaffold the skeleton of
-             # the parser", "cluttered imports in the module", "the data center".
-             # The UI asks still arm it through `component\w*`, `ui`, `layout`,
-             # `spacing`, `hover`, `focus durum\w*`, `hizala\w*`, `renk\w*` and
-             # the rest (tests/test_hint_coverage.py holds both halves).
-             r"refactor\w* (the |this |our )?(\w+ ){0,2}(components?|ui|ux|css|"
-             r"layout|screens?|pages?|styles?|theme|forms?|fields?|inputs?|"
-             r"views?|widgets?|buttons?|modals?|dialogs?)|"
-             r"ui|ux|css|tailwind|tasarım\w*|layout|responsive|"
-             r"hover|focus[- ](?:state|ring|outline|visible|indicator|style|"
-             r"durum\w*)|spacing|tipografi\w*|typography|component\w*|"
-             r"bileşen\w*|dark mode|dark theme|light theme|"
-             + _ui_ask(r"theme\w*") + r"|tema\w*|animasyon\w*|animations?|"
-             r"erişilebilir\w*|accessib\w*|wireframe|mockup|prototip\w*|"
-             # The craft, and the surfaces a person names without the word
-             # component. Kept off the product class's surface nouns on purpose
-             # (tablo, filtre, ekran stay there) so an ordinary surface ask still
-             # pays one paragraph, and off bare `table`/`filter` so that pin holds.
-             # `align`/`alignment`/`misalign` are one family with the property
-             # spellings: `align-?items` allowed only a hyphen between the two
-             # words, so "align items in the header" armed nothing and neither
-             # adjective form was a hint at all. The nouns read bare the way
-             # `spacing` does - qualifying them by a UI object would drop "the
-             # alignment is off", the ask that named this defect - and the
-             # non-UI phrasings stay dead in the corpus ("align the two arrays",
-             # "align the teams on the roadmap").
-             r"align[- ]?(?:items|self|content)|text-align|alignment\w*|"
-             r"misalign\w*|hizala\w*|hiza\w*|"
-             r"padding|" + _ui_ask(r"cent(er|re)\w*") + r"|"
-             + _ui_ask(r"margins?") + r"|"
-             r"gutter\w*|boşluk\w*|satır aral\w*|line-?height|letter-?spacing|"
-             r"drop-?shadow|box-?shadow|border-?radius|corner radius|gölge\w*|"
-             r"kenarlık\w*|fonts?[- ](?:size|family|weight|face|stack|scale)\w*|"
-             r"yazı tipi\w*|punto\w*|type ?scale|"
-             r"colou?r[- ](?:role|scheme|palette|token|contrast)|palette|"
-             r"renk\w*|palet\w*|"
-             r"cards?[- ](?:component\w*|layout|grid|list|view|title|body|"
-             r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
-             r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
-             + _ui_ask(r"badges?") + r"|"
-             # pagination is qualified like the craft nouns above: "add
-             # pagination to the API" is an endpoint, "the data table pagination
-             # is wrong" a rendered surface
-             r"breadcrumbs?|" + _ui_ask(r"pagination") + r"|tab ?bar|steppers?|"
-             r"spinners?|"
-             + _ui_ask(r"skeletons?") + r"|"
-             r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
-             r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
-             r"viewport|media quer\w*|mobil (uyumlu|görünüm)|karanlık mod\w*|"
-             r"aydınlık mod\w*|renk şema\w*|design (system|token|guide|library|"
-             r"language)\w*|style guides?|stil rehber\w*|tasarım sistemi|"
-             r"tasarım token\w*|wcag\w*|a11y|aria-?\w*|screen readers?|"
-             r"ekran okuyucu\w*|tab order|keyboard naviga\w*|kontrast\w*|"
-             r"contrast (ratio|level|check|issue)|screenshots?|"
-             r"ekran görüntü\w*|visual (review|regression|diff|check)|"
-             r"görsel (incele|kontrol|karşılaştır)\w*|redesign\w*|revamp\w*|"
-             r"restyle\w*|makeover|" + _ui_ask(r"cluttered")
-             + r"|outdated|cohesive)\b"),
-    ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
-                r"security|trade-?off|which approach|design decision|"
-                r"irreversible|rollback|schema change|mimari\w*|kök neden\w*|"
-                r"geri dönüşü olmayan|"
-                # The durable-structure asks the rule's own trigger list names,
-                # which reached no rule: a rewrite of a unit, a contract others
-                # inherit, a live-data move, a budget or a hard-to-undo call.
-                # `refactor` is qualified by its object rather than left bare, so
-                # a UI refactor still pays the spec paragraph alone; `güvenlik`,
-                # `şema` and `göç` are the Turkish halves of security/schema/
-                # migration, which the rule text already named in English only.
-                r"re-?architect\w*|restructur\w*|rewrite\w*|"
-                r"(refactor\w*|rewrite\w*) (the |this |our )?(\w+ ){0,2}"
-                r"(module|subsystem|service|system|layer|engine|architecture|"
-                r"data ?model|code ?base|ingest\w*)|"
-                r"breaking change\w*|backwards?[- ]incompatib\w*|"
-                r"kırıcı değişiklik\w*|geriye dönük uyum\w*|"
-                r"api version\w*|version(ing)? the api|api sürüm\w*|"
-                r"sürümleme\w*|versiyonlama\w*|backfill\w*|şema\w*|göç\w*|"
-                r"migrasyon\w*|veri (taşı|göç)\w*|revert\w*|rollback|"
-                r"geri al\w*|geri (alınamaz|dönüşü (yok|olmaz|olmayan))|"
-                r"performance budget|perf budget|latency budget|hot ?path|"
-                r"performans bütçe\w*|gecikme bütçe\w*|threat model\w*|"
-                r"security review\w*|güvenlik\w*|zafiyet\w*|cve\b|"
-                r"threat model\w*|bağımlılık(ları)? güncelle\w*|"
-                r"paket güncelle\w*|sürüm yükselt\w*|tedarik zincir\w*|"
-                r"concurren\w*|race condition\w*|deadlock\w*|eş ?zamanlı\w*|"
-                r"yarış (durumu|koşulu)\w*|capacit\w* (plan|budget|test|limit)\w*|"
-                r"scal(e|ing) (plan|strategy|limit|test)\w*|load test\w*|"
-                r"kapasite (plan|hesab|test|sınır)\w*|ölçeklen\w*|yük test\w*|"
-                r"adrs?\b|architecture decision record\w*|design doc\w*|"
-                r"mimari karar\w*|tasarım karar\w*|politika değiş\w*|"
-                r"sözleşme (değiş|yenile)\w*|yayına al\w*|canlıya al\w*|"
-                r"sürüm çıkar\w*|rollout|ödün (ver|vermey)\w*)\b"),
-    ("research", r"\b(research|literature|hypothes(is|es)|experiment(al)?|"
-                 r"ablation|hyperparameter|benchmark|survey|paper|dataset|"
-                 r"araştır\w*|literatür\w*|hipotez\w*|deney|"
-                 # The study asks the rule's own opening names - a comparison of
-                 # variants under a metric, a study with people, a claim that
-                 # needs a number - which reached no rule. `compar` is qualified
-                 # nowhere on purpose: a file diff asks the same question of the
-                 # evidence, so the turn pays the paragraph and says so.
-                 r"compar\w*|karşılaştır\w*|karşılaştırmalı analiz|kıyaslama\w*|"
-                 r"varyant\w*|(a/?b|ab) tests?|a/b testi|"
-                 r"(user|kullanıcı|müşteri) (interview\w*|görüşme\w*|mülakat\w*)|"
-                 r"anket\w*|root[ -]?cause (analys|investigat)\w*|"
-                 r"kök neden (analiz|araştır)\w*|reference review|"
-                 r"lit(erature)?[ -]review|kaynak tarama\w*|referans tarama\w*|"
-                 r"evaluat(e|ing) (whether|the (librar|technique|approach|tool|"
-                 r"option|alternative))|(yöntem|yaklaşım|kütüphane|varyant|"
-                 r"seçenek)\w* karşılaştır\w*|"
-                 # a timing ask is not a study: "measure how long the hook
-                 # takes" is a stopwatch, "measure the effect of X" a study
-                 r"measure(?! how (?:long|fast|much time)| the (?:time|duration|"
-                 r"latency|speed|runtime))\w*|ölçüm\w*|deneysel\w*|"
-                 r"deneyler\w*|makale\w*|veri (seti|kümesi)|post[ -]?mortem|"
-                 r"error budget|incident (review|report)|olay sonrası (analiz|"
-                 r"değerlendirme)\w*|hata bütçe\w*|is (this|that|it) (actually )?"
-                 r"(true|right)|does (this|that) (claim )?hold|gerçekten (doğru|"
-                 r"öyle) mu|kanıt\w*|test kapsam\w*|kapsam oran\w*|"
-                 r"kapsamı (artır|yükselt)\w*|doküman(tasyon)?\w* "
-                 r"(yetersiz|eksik|kötü|zayıf))\b"),
-    # A product question reached no rule at all before this: the four above are
-    # about code, a UI adjective or a study, so "ürünümü nasıl iyileştiririz"
-    # armed nothing and the answer came from priors. `product` excludes
-    # production/productivity/productive explicitly - those are code words that
-    # merely share the prefix, and matching them would arm product analysis on a
-    # deploy question.
-    # The generic stems are qualified, never dropped (decision 006): each keeps
-    # its product sense and loses the code sense a lookahead names - a feature
-    # flag, a segment fault, a tier list, writing to the screen, a SQL table, a
-    # page number - so the frozen corpus keeps its rows.
-    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|"
-                r"feature(?!s?[ -](?:flags?|toggles?|gates?|branch\w*))\w*|roadmap|"
-                r"yol harita\w*|backlog|prd|north star|kuzey yıldız\w*|jtbd|"
-                r"retention|churn|onboarding|aktivasyon\w*|cohort|funnel|"
-                r"dönüşüm\w*|conversion rate|pricing|fiyatlandır\w*|"
-                r"prioriti[sz]\w*|önceliklendir\w*|user research|"
-                r"user interview\w*|kullanıcı araştırma\w*|ürün keşf\w*|"
-                r"müşteri geri bildirim\w*|ab test|a/b test|"
-                # The product vocabulary the rule's five axes name and the table
-                # never carried: the HEART signals as people say them, the
-                # packaging and positioning words, the segmentation input, and
-                # the plural forms the bare singulars' trailing \b rejected.
-                r"activations?\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|"
-                r"roadmaps?|priorit(y|ies)|adoption|benimsen\w*|"
-                r"conversion (rate|funnel|drop\w*)|packaging|monetiz\w*|"
-                r"price\w*|tier(?!s?[ -]lists?)\w*|positioning|value proposition|"
-                r"konumlandır\w*|\bicp\b|ideal customer profile|persona\w*|"
-                r"segment(?!(?:ation)?[ -]faults?)\w*|segmentasyon\w*|hedef kitle\w*|"
-                r"(customer|user|product|problem|kullanıcı|müşteri) discovery|"
-                r"keşif (görüşme|çalışma)\w*|opportunity (tree|solution|space|"
-                r"score)|fırsat\w*|\bnps\b|net promoter|\bcsat\b|satisfaction|"
-                r"memnuniyet\w*|anket\w*|(customer|user|kullanıcı|müşteri)"
-                r"[ -]?(feedback|geri bildirim)\w*|support ticket\w*|"
-                r"şikayet\w*|competitor\w*|competitive (analysis|landscape|"
-                r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
-                r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
-                r"özellik\w*|sayfa(?! numara)\w*|"
-                # A single feature said by its surface: an admin screen, a table,
-                # a filter, a form, a step flow. These armed nothing before, so a
-                # feature-level audit got a screen-level answer. The lookaheads
-                # keep the code senses out: "ekran kartı" is a GPU, "adım sayısı"
-                # is a count, "format" is not a form.
-                r"ekran(?! kart)(?!a\b[^.!?\n]{0,40}\b(?:yaz|bas)\w*)\w*|arayüz\w*|"
-                r"arama kutu\w*|filtre\w*|"
-                r"tablo(?![^.!?\n]{0,60}\b(?:sütun|kolon|sql|index|indeks)\w*)\w*|"
-                r"wizard|adım(?! sayı)\w*|crud|kullanıcı liste\w*|"
-                r"form(u|un|da|daki|lar|ları|unu)\w*|"
-                r"form (validation|field|error|label)|data table|step flow|"
-                r"search (dropdown|box)|form validation|user management|"
-                r"(admin|users?) (panel|screen|page|list)|"
-                + _ui_ask(r"(?:admin|users?) table") + r")\b"),
-    ("graph", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
-            r"blast radius|where is|where's|definition of|who invokes|"
-            r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
-            r"etkilenir\w*|hangi dosyalar etkilen\w*|"
-            # The structural questions the graph answers and the table never
-            # asked: impact in the active voice, direction and layering, the
-            # import edge, reachability, cycles, entry points, and a rename's
-            # blast radius. The Turkish who-uses form is anchored to a code noun,
-            # because bare "kim kullanıyor" is user research, not a caller.
-            r"impact (analysis|assessment|of (changing|renaming|removing|"
-            r"deleting|editing))|change impact|ripple effect|"
-            r"(who|what|anything)( else)? (depends on|uses)|dependents? of|"
-            r"dependenc(y|ies) (graph|direction|inversion|cycle)|"
-            r"layer (violation|boundar\w*|direction)|layering|who imports|"
-            r"which (files|modules) import|call (graph|chain|path|tree|"
-            r"hierarchy)|transitive callers?|callers? of|usages? of|"
-            r"find usages|references? to|is \w+ (still )?(used|referenced|"
-            r"called)|never called|dead code|unused (code|function|method|"
-            r"module|export|class|variable|import|param\w*)|unreachable code|"
-            r"orphan(ed)? (module|file|code)|circular (import|dependenc\w*)|"
-            r"(import|dependenc\w*) cycle|cycle (between|detection)|"
-            r"(code|app|program|service|main|server|cli|boot) entry ?points?|"
-            r"boot (path|sequence|order)|startup (path|sequence|order)|"
-            r"how is (this|it|\w+) wired|wired up|rename\w*|"
-            r"etki (analiz|alan)\w*|neyi etkile\w*|neleri etkile\w*|"
-            r"etkilen\w*|bağımlı\w*|kullanılmayan\w*|kullanılmıyor|ölü kod|"
-            r"döngüsel (bağımlılık|import)\w*|giriş nokta\w*|"
-            r"uygulama (nerede|nereden) başl\w*|kim import ed\w*|"
-            r"(fonksiyon|metod|sınıf|modül|api)\w* (kim|nerede) kullan\w*|"
-            r"nerede (kullanıl|çağrıl)\w*|tanım\w* nerede|kullanım yerleri|"
-            r"çağrı (zinciri|grafiği)|bağımlılık (grafiği|ağacı)|"
-            r"yeniden adlandır\w*)\b"),
-    # Two or more independent items: a numbered or bulleted list of at least
-    # two entries on their own lines, or the explicit delegation ask. The owner
-    # had to say "do everything with subagents and in parallel" on every task
-    # because nothing armed the fan-out rule from the shape of the request.
-    # `parallelize` alone is code work, so only the delegation phrasings count.
-    # The owner's own shapes armed nothing until 2026-10-09: `1 - `, `1- `,
-    # `1:`, `a)`, `+` items, an inline `1. ... 2. ...`, "subagentlerle", three
-    # files named as one list, "First, ... Second, ...", and three imperative
-    # clauses in one sentence (clause-initial in English, clause-final in
-    # Turkish). A timestamp, a range and a traceback stay out (the corpus).
-    ("fanout", r"(?ms:^[ \t]*" + _FAN_ITEM + r".*?^[ \t]*" + _FAN_ITEM + r")|"
-               r"(?<![\w.])1[ \t]*[.)-][ \t]+\S[^\n]*?(?<![\w.])2[ \t]*[.)-][ \t]+\S|"
-               + _FAN_FILE + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|ve)[ \t]+)?|"
-               r"(?:and|ve|&)[ \t]+)" + _FAN_FILE + r"){2,}|"
-               r"(?s:\bfirst(?:ly)?[,:].*?\bsecond(?:ly)?[,:])|"
-               r"(?s:\bbirinci(?:si)?[,:].*?\bikinci(?:si)?[,:])|"
-               r"(?m:(?:(?:^|[,;]|\band\b)[ \t]*(?:and[ \t]+)?" + _FAN_VERB_EN
-               + r"\b[^\n]*?){3})|"
-               r"(?m:(?:\b" + _FAN_VERB_TR + r"\w{0,4}[ \t]*(?:[,;.]|\bve\b|$)"
-               r"[^\n]*?){3})|"
-               r"\b(?:in parallel|paralel\w*|sub-?agent\w*|alt ?ajan\w*|"
-               r"worktrees?|fan[- ]?out|orchestrat\w*|orkestra\w*)\b"),
-)
+PROMPT_HINTS = tuple((key, _hints(key)) for key in
+                     ("spec", "consult", "research", "product", "graph")) + (
+    ("fanout", _fanout()),)
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
 INDEX_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -422,7 +193,7 @@ REMINDER_CLAUSES = (
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
     ("consult", "consult before irreversible calls; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
-                             r'unverified "done"; .*?under "Engeller"; ')),
+                             r'unverified "done"; .*?under "\{BLOCKERS_HEADING\}"; ')),
 )
 
 
@@ -449,12 +220,17 @@ def prompt_reminder(drop=()):
 
 
 def render(text, root=""):
-    """Fill the path placeholders with stable, existing paths, and the reply
-    language placeholders with the words config.json's `reply_lang` names."""
+    """Fill the path placeholders with stable, existing paths, and the language
+    placeholders - the reply language and the contract's own tokens, `{UNVERIFIED}`,
+    `{BLOCKERS_HEADING}`, `{DECISION}`... - with the configured language's words
+    (`tezgah_paths.say`; REPLY_ANY's reply clause under `any`)."""
     if not text:
         return text
-    for key, words in REPLY_LANG_TEXT[reply_lang()].items():
-        text = text.replace(key, words)
+    words = say()
+    if language() == "any":
+        words.update(REPLY_ANY)
+    for key, word in words.items():
+        text = text.replace("{%s}" % key.upper(), word)
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
@@ -937,7 +713,7 @@ def resume_state(root, session_id):
     # lessons, pointer - for a session whose ledger holds one bad line. So a
     # damaged ledger costs these two bullets and nothing else.
     try:
-        row = last_check(session_id) if session_id else None
+        row = last_check(session_id, root) if session_id else None
         files = sorted(changed_files(session_id)) if session_id else []
     except ValueError:
         row, files = None, []
@@ -1223,35 +999,8 @@ def constraint_notice(cwd, session_id):
 # So the ask is judged per clause: it arms `product` only when no code marker -
 # a file name, an identifier, SQL, a build, test or runtime word - shares its
 # clause (decision 006: qualify the stem, never drop it).
-DATA_ASK = re.compile(
-    r"\b(?:(?:design|create|make|build|sketch|propose|need|want)\w* (?:\w+ ){0,4}"
-    r"(?:dashboard|charts?|visuali[sz]ation)|"
-    r"(?:metri[ck]s?|kpis?|data|sales|revenue|veri\w*|satış\w*|gelir\w*) "
-    r"(?:\w+ ){0,2}(?:dashboard|pano)|"
-    r"(?:dashboard|gösterge panel)\w* (?:\w+ ){0,4}(?:tasarla|oluştur|hazırla|"
-    r"yap|göster)\w*|"
-    r"(?:what|which) (?:\w+ ){0,3}(?:metri[ck]s|kpis|charts?) (?:\w+ ){0,3}"
-    r"(?:should|to|do|matter|would)|"
-    r"what should (?:\w+ ){0,3}dashboard show|"
-    r"(?:choose|pick|define|track|design)(?:s|ing)? (?:\w+ ){0,3}(?:metri[ck]s|kpis)|"
-    r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
-    r"(?:track|measure|use|watch)|success metrics?|"
-    r"(?:suggest|recommend)\w* (?:\w+ ){0,3}charts?|öner\w* (?:\w+ ){0,3}grafi\w*|"
-    r"hangi (?:metri[ck]\w*|kpi\w*|grafi\w*|göstergeleri?)|"
-    r"(?:metri[ck]\w*|kpi\w*) (?:\w+ ){0,3}(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
-    r"gösterge panel\w*|visuali[sz]\w* (?:\w+ ){0,3}(?:data|numbers|veri\w*)|"
-    r"data visuali[sz]ation|veri\w* (?:\w+ ){0,3}görselleştir\w*)")
-CODE_SENSE = re.compile(
-    r"\w\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\b|\b\w+_\w+\b|"
-    r"/metrics\b|\bselect\b.{0,200}?\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
-    r"query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|"
-    r"handlers?|structs?|endpoints?|exporters?|export\w*|servers?|librar\w*|"
-    r"packages?|modules?|database|index\w*|indeks\w*|"
-    r"middleware|debugger|data (?:structure|flow)s?|clipboard|spinner|threads?|"
-    r"commit|git|functions?|class|component|prop|hooks?|prometheus|grafana|"
-    r"kibana|statsd|opentelemetry|config\w*|provision\w*|api|routes?|snake_case|"
-    r"veri yapı\w*|fonksiyon\w*|bileşen\w*|modül\w*|dosya\w*|kopyala\w*|"
-    r"seçici\w*|yükleme|ilerleme|paket\w*)\b")
+DATA_ASK = re.compile(r"\b(?:%s)" % alts("data_ask"))
+CODE_SENSE = re.compile(alts("code_sense"))
 
 
 def _data_ask(low):
@@ -1494,10 +1243,14 @@ def session_of(payload):
 # healthy fixture (13588 B) gave up its lessons, plans and steer blocks (950 B;
 # 1002 B where a subagents note rides along), and at 6000 B the busiest prompt
 # turn its active-task line (255 B), so
-# the session budgets move to 14500 B and the prompt budget to 6500 B. A
+# the session budgets move to 14500 B and the prompt budget to 6500 B.
+# Moved again on 2026-10-12 (plan 086, S3): the integrity paragraph carries
+# the Ask policy (+913 B of core), and at 14500 B the healthy fixture gave up
+# its lessons, plans or knowledge block (235-338 B), so the session budgets
+# move to 15500 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 14500, "post_compact": 14500,
+CONTEXT_BUDGET = {"session_start": 15500, "post_compact": 15500,
                   "subagent_start": 5500, "user_prompt": 6500}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
@@ -1525,7 +1278,8 @@ DEFAULT_BUDGET = 13000
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate",
-              "index", "resume", "slices", "scratch", "task", "delta", "pointer")
+              "index", "resume", "slices", "context", "scratch", "task", "delta",
+              "pointer")
 
 
 def _first_item(text):
@@ -1647,7 +1401,8 @@ SCRATCH_CHARS = 120
 # while the tool hooks never run - an unloaded plugin, a matcher the host
 # renamed, a hook path that moved. The gate is then off and nothing says so.
 # What the prompt hook can observe is the host's own transcript (Claude and
-# Codex hand `transcript_path` to every hook) and this session's ledger: gated
+# Codex hand `transcript_path` to every hook, omp's bridge hands its session
+# file to the prompt hook) and this session's ledger: gated
 # tool calls in the transcript since the session's first turn marker, and not
 # one row from the gate over the same span, is a gate that is not running. Only
 # a bounded tail of the transcript is read, the ledger is scanned as bytes, and
@@ -1656,7 +1411,8 @@ GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
 # The tool names whose every call leaves a PreToolUse row (`began`,
 # tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
-# Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
+# Claude's write and shell tools, omp's `bash`/`edit`/`write` and Codex's
+# `exec_command`/`apply_patch`. A
 # tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
 # call) is not counted, so its absence from the ledger is never read as a
 # disarmed gate.
@@ -1677,25 +1433,32 @@ def _iso_epoch(value):
         return None
 
 
-def _transcript_calls(path, since):
-    """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
-    after `since` (epoch seconds). Claude writes `{"timestamp", "message":
-    {"content": [{"type": "tool_use", "name"}]}}`, Codex `{"timestamp",
-    "payload": {"type": "function_call", "name"}}`; anything else counts 0."""
+def _tail_lines(path):
+    """The raw lines of a `.jsonl` transcript's last GATE_TAIL bytes, the cut
+    first line dropped. [] for any other path or an unreadable file, so a host
+    that hands no transcript pays nothing."""
     if not isinstance(path, str) or not path.endswith(".jsonl"):
-        return 0
+        return []
     try:
         with open(path, "rb") as fh:
             size = fh.seek(0, 2)
             fh.seek(max(0, size - GATE_TAIL))
             lines = fh.read().split(b"\n")
     except OSError:
-        return 0
-    if size > GATE_TAIL:
-        lines = lines[1:]  # the first line is cut, not a row
+        return []
+    return lines[1:] if size > GATE_TAIL else lines
+
+
+def _transcript_calls(path, since):
+    """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
+    after `since` (epoch seconds). Claude writes `{"timestamp", "message":
+    {"content": [{"type": "tool_use", "name"}]}}`, omp the same with
+    `"toolCall"` blocks, Codex `{"timestamp", "payload": {"type":
+    "function_call", "name"}}`. Anything else counts 0."""
     calls = 0
-    for raw in lines:
-        if b"tool_use" not in raw and b"function_call" not in raw:
+    for raw in _tail_lines(path):
+        if (b"tool_use" not in raw and b"toolCall" not in raw
+                and b"function_call" not in raw):
             continue
         try:
             row = json.loads(raw)
@@ -1708,7 +1471,7 @@ def _transcript_calls(path, since):
         msg = row.get("message")
         if isinstance(msg, dict) and isinstance(msg.get("content"), list):
             names = [b.get("name") for b in msg["content"]
-                     if isinstance(b, dict) and b.get("type") == "tool_use"]
+                     if isinstance(b, dict) and b.get("type") in ("tool_use", "toolCall")]
         pay = row.get("payload")
         if isinstance(pay, dict) and pay.get("type") == "function_call":
             names.append(pay.get("name"))
@@ -1716,10 +1479,72 @@ def _transcript_calls(path, since):
     return calls
 
 
+# The usage keys that make up one step's input side: Claude's names, then omp's.
+# Codex reports the cached share inside `input_tokens`.
+INPUT_KEYS = ("input_tokens", "cache_creation_input_tokens",
+              "cache_read_input_tokens", "input", "cacheRead", "cacheWrite")
+CONTEXT_NUDGE = (
+    "Router context %dk tokens: push heavy reads and check output through a "
+    "slice that returns the exit code and the failing lines. Hand the open "
+    "work to a slice or run `/compact` before the next heavy step.")
+# The row a compaction leaves: omp's `{"type": "compaction"}`, Claude's
+# `compact_boundary` system row. A step before it measured the old context.
+COMPACTED = re.compile(rb'"(?:type"\s*:\s*"compaction|subtype"\s*:\s*"compact_boundary)"')
+
+
+def context_tokens(path):
+    """Input-side tokens of the newest main-thread assistant step in the
+    transcript tail, or None. Claude and omp put `usage` on the assistant
+    message (a Claude `isSidechain` row is a subagent's), Codex on a
+    `token_count` event's `last_token_usage`. A compaction row met first means
+    no step since the compaction, so None."""
+    for raw in reversed(_tail_lines(path)):
+        if COMPACTED.search(raw):
+            return None
+        if b"usage" not in raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        msg, pay = row.get("message"), row.get("payload")
+        usage = None
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            usage = msg.get("usage")
+        elif isinstance(pay, dict) and pay.get("type") == "token_count":
+            usage = (pay.get("info") or {}).get("last_token_usage")
+        if isinstance(usage, dict):
+            n = sum(v for k, v in usage.items() if k in INPUT_KEYS and isinstance(v, int))
+            if n:
+                return n
+    return None
+
+
+def context_key(session_id):
+    """The router-context line's key in the `nudged` mark store."""
+    return "context:" + slug(str(session_id))
+
+
+def context_nudge(payload, session_id):
+    """The one line asking the router to delegate heavy reading, or "" below
+    CONTEXT_NUDGE_TOKENS, without a transcript, under `orchestrate-off`, or
+    once `context_for` latched it for this session (cleared by a compaction)."""
+    path = payload.get("transcript_path") if isinstance(payload, dict) else None
+    if not path or off("orchestrate-off") or tezgah_store.marked(
+            "nudged", context_key(session_id)):
+        return ""
+    tokens = context_tokens(path)
+    return CONTEXT_NUDGE % (tokens // 1000) if (
+        tokens or 0) >= CONTEXT_NUDGE_TOKENS else ""
+
+
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
 # refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
-# compaction, the subagent mark (SubagentStart writes it too), the guard's crash
+# compaction, the subagent mark (SubagentStart writes it too), the omp fork's
+# `forked` row, the guard's crash
 # row (any hook), the damage row any reader writes and the session start's
 # attest row. Every other kind - deny, nudge, began, snapshot, ... - can only
 # come from a tool hook.
@@ -1729,7 +1554,7 @@ def _transcript_calls(path, since):
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end", b"stop_spec",
                            b"shape", b"compact", b"orch", b"crash", b"route",
-                           b"spawned", b"lesson", b"disarm", b"ledger_damage",
+                           b"spawned", b"forked", b"lesson", b"disarm", b"ledger_damage",
                            b"attest"))
 # The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
 # not that the gate saw it - a PostToolUse hook keeps writing them while a
@@ -1866,15 +1691,31 @@ POINTER_NEEDLE = "tezgah-contract"
 # constraint that the user never meant is a rule the session did not get from
 # the user. tests/constraint-fixtures.md holds the real prompts it was measured
 # on, its false positives listed.
-CONSTRAINT_SHAPES = re.compile(
-    r"(?i)\b(?:(?:do not|don'?t|never)\s+(?:touch|modify|edit|change|delete|"
-    r"remove|rename|push|commit|merge|deploy|publish|release)\s+"
-    r"(?:(?:the|any|my|this|that|to|a|an)\s+)?[`\"“]?"
-    r"(?P<obj>[\w~@/-](?:[\w./@~-]*[\w@~/-])?)"
-    r"|ask\s+(?:me\s+)?(?:first\s+)?before\s+(?P<ask>\w+)"
-    r"|(?P<tr>[\w./@~-]+?)(?:'\w+)?\s+(?:sakın\s+)?dokunma(?:yın|yınız)?\b"
-    r"(?!\s+(?:hedef|alan|olay|duyar)\w*)"
-    r"|(?:bana\s+)?sormadan\s+(?P<trask>\w+)\s+(?:etme|yapma)\w*)")
+def _constraint_shapes():
+    """Every pack's `constraint.dont` and `constraint.ask` shapes in one
+    pattern, each named group suffixed with its pack's code (`obj_en`,
+    `ask_tr`), so `_shape` can tell which language's shape matched."""
+    return re.compile(r"(?i)\b(?:%s)" % "|".join(
+        frag.replace("(?P<obj>", "(?P<obj_%s>" % code).replace(
+            "(?P<ask>", "(?P<ask_%s>" % code)
+        for code, pack in packs().items() for kind in ("dont", "ask")
+        for frag in pack["constraint"][kind]))
+
+
+CONSTRAINT_SHAPES = _constraint_shapes()
+
+
+def _shape(m):
+    """(kind, group, pack) of a CONSTRAINT_SHAPES match: `obj` for a
+    prohibition's object, `ask` for an ask-first clause's verb. Read off the
+    one named group that matched (`groupdict`), so a pack fragment's own
+    groups cannot stand in for it (tests/test_lang_packs.py holds each
+    fragment to its one named group)."""
+    group = next(k for k, v in m.groupdict().items() if v is not None)
+    kind, code = group.split("_", 1)
+    return kind, group, packs()[code]
+
+
 # Pasted material is not the user's constraint: a shape that starts inside a
 # quoted span, inline code, a fenced block or a `>` quote line is skipped (a
 # quoted object after an unquoted shape stays the user's), and a prompt
@@ -1884,11 +1725,12 @@ CONSTRAINT_SHAPES = re.compile(
 # log alone matched six clauses of another agent's reasoning. ponytail: a long
 # prompt the user did write loses its constraints - the cost of a length rule.
 CONSTRAINT_PROMPT_MAX = 12000
+# Single quotes count only off a word ("main'e" is no quote), with ‘…’ and «…».
 QUOTED = re.compile(r"```.*?```|`[^`\n]*`|\"[^\"\n]{0,200}\"|“[^”\n]{0,200}”"
+                    r"|(?<!\w)'[^'\n]{1,200}'(?!\w)|‘[^’\n]{0,200}’|«[^»\n]{0,200}»"
                     r"|^\s*>.*$", re.S | re.M)
 SENTENCE_END = re.compile(r"[.!?;:](?=\s|$)|\n")
-NEEDLE_STOP = frozenset("while in on at without until unless and or for to with "
-                        "before after from into of but ve veya ile".split())
+NEEDLE_STOP = frozenset(w for p in packs().values() for w in p["needle_stop"])
 QUOTE_MARKS = re.compile(r"[`\"“”]")
 NEEDLE_WORDS = 3
 CONSTRAINT_CHARS = 120
@@ -1898,8 +1740,8 @@ CONSTRAINTS_MAX = 5
 def user_constraints(prompt):
     """The constraint clauses a prompt issues, redacted and cut, in order and
     once each. A clause runs from the shape to the end of its sentence - from the
-    sentence's start for the Turkish forms, whose object comes first. The stamp
-    keeps the clause, never the prompt."""
+    sentence's start for an `object_first` pack's prohibition (Turkish), whose
+    object comes first. The stamp keeps the clause, never the prompt."""
     text = prompt or ""
     if len(text) > CONSTRAINT_PROMPT_MAX:
         return []
@@ -1908,14 +1750,108 @@ def user_constraints(prompt):
     for m in CONSTRAINT_SHAPES.finditer(text):
         if any(a <= m.start() < b for a, b in quoted):
             continue
+        kind, _group, pack = _shape(m)
         start = (max((e.end() for e in SENTENCE_END.finditer(text, 0, m.start())),
-                     default=0) if m.group("tr") else m.start())
+                     default=0)
+                 if kind == "obj" and pack["word_order"] == "object_first"
+                 else m.start())
         end = SENTENCE_END.search(text, m.end())
         clause = " ".join(text[start:end.start() if end else len(text)].split())
         clause = cut(redact(clause.strip("-*• ")), CONSTRAINT_CHARS)
         if clause not in out:
             out.append(clause)
     return out
+
+# A grant is the positive half of the same reader (plan 086, S3): "bana sormadan
+# pushla", "without asking", "onay veriyorum" lets the session take an outward
+# step without asking again; "artık bana sor", "ask me again" or a later
+# prohibition that names the step ("bana sormadan push etme", "don't push")
+# lifts it. Each is one `grant` row in the session's ledger, scoped to the
+# OUTWARD class the sentence names, `all` when it names none; the Stop rule's
+# `needless ask` and the ask-tool warning read them back
+# (`tezgah_integrity.grants_in_force`). Never a class-F step: a grant lowers
+# asks, it never licenses a force push, a delete or a spend over the cap.
+LIFT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift"))
+# A negated outward step ("Don't push.", "şimdilik push yapma") lifts only the
+# class its own words name, never `all`.
+LIFT_OUTWARD = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift_outward"))
+# A grant shape in a sentence that forbids, complains or asks is no grant:
+# "bana sormadan hiçbir şey yapma", "neden bana sormadan pushladın?", "Never
+# tag without asking me". Each pack's rules read only the sentences its own
+# grant shape matched, so "theme" is no Turkish -me: `grant_not` anywhere in
+# the sentence with the grant shape blanked ("don't ask me again" stays a
+# grant), the pack's question particle, and `grant_not_verb` only on the word
+# right after the grant shape or the sentence's last word - one of
+# `grant_not_soft` ("durma", "unutma") only after an outward word. ponytail: a
+# Turkish noun ending in -ma/-me in those two places also reads as a
+# prohibition - a missed grant costs one question, a false one an unasked push.
+
+
+def _any(frags):
+    return re.compile(r"(?i)(?:%s)" % ("|".join(frags) or "(?!)"))
+
+
+GRANT_PACKS = [(re.compile(r"(?i)\b(?:%s)" % "|".join(p["constraint"]["grant"])),
+                _any(p["constraint"]["grant_not"]
+                     + [r"\b(?:%s)\b" % q for q in p["question_end"]]),
+                _any(p["constraint"]["grant_not_verb"]),
+                _any(p["constraint"]["grant_not_soft"]))
+               for p in packs().values() if p["constraint"]["grant"]]
+WORD = re.compile(r"[^\W\d_]+")
+
+
+def _refuses(text, start, at, to, stop, nots, verb, soft):
+    """True when the sentence `text[start:stop]` takes back the grant shape
+    at `text[at:to]` (GRANT_PACKS' rules of the pack that matched it)."""
+    if text[stop:stop + 1] == "?" or nots.search(text[start:at] + " " + text[to:stop]):
+        return True
+    words = [m for m in WORD.finditer(text, start, stop) if not at <= m.start() < to]
+    near = [m for m in words if m.start() >= to][:1] + words[-1:]
+    return any(verb.fullmatch(m.group(0)) and not (
+        soft.fullmatch(m.group(0)) and not outward_classes(text[start:m.start()]))
+        for m in near)
+
+
+def user_grants(prompt):
+    """[(clause, target)] for every grant and lift a prompt issues, in order:
+    `target` is an OUTWARD class or `all`, `lift:` before it for a lift. A
+    sentence is read whole for the class it names, since a Turkish grant often
+    names the step before "sormadan"; a grant its sentence takes back
+    (`_refuses`) is none, a lift shape inside a grant shape ("don't ask me
+    again") is the grant's, and a LIFT_OUTWARD match lifts only the classes it
+    names. Pasted material and an over-long prompt are skipped as
+    `user_constraints` skips them."""
+    text = prompt or ""
+    if len(text) > CONSTRAINT_PROMPT_MAX:
+        return []
+    quoted = [q.span() for q in QUOTED.finditer(text)]
+    found = [(m.start(), m.end(), rules) for shapes, *rules in GRANT_PACKS
+             for m in shapes.finditer(text)]
+    grants = [(a, b) for a, b, _r in found]
+    found += [(m.start(), m.end(), kind) for kind, shapes in
+              (("lift", LIFT_SHAPES), ("outward", LIFT_OUTWARD))
+              for m in shapes.finditer(text)
+              if not any(a <= m.start() < b for a, b in grants)]
+    out = []
+    for at, to, rules in sorted(found, key=lambda f: f[:2]):
+        if any(a <= at < b for a, b in quoted):
+            continue
+        lift = isinstance(rules, str)
+        start = max((e.end() for e in SENTENCE_END.finditer(text, 0, at)), default=0)
+        end = SENTENCE_END.search(text, to)
+        stop = end.start() if end else len(text)
+        if not lift and _refuses(text, start, at, to, stop, *rules):
+            continue
+        sentence = " ".join(text[start:stop].split())
+        clause = cut(redact(sentence.strip("-*• ")), CONSTRAINT_CHARS)
+        classes = (sorted(outward_classes(text[at:to])) if rules == "outward"
+                   else sorted(outward_classes(sentence)) or ["all"])
+        for cls in classes:
+            out.append((clause, ("lift:" if lift else "") + cls))
+    for clause in user_constraints(text):
+        out += [(clause, "lift:" + cls) for cls in sorted(outward_classes(clause))]
+    return list(dict.fromkeys(out))
+
 
 
 def constraint_needle(clause):
@@ -1938,13 +1874,14 @@ def constraint_needle(clause):
             if len(kept) == NEEDLE_WORDS or bare != word:
                 break
         return kept
-    if m.group("obj"):
-        needle = " ".join(phrase(clause[m.start("obj"):].split()))
-    elif m.group("tr"):
-        before = phrase(reversed(clause[:m.end("tr")].split()))
+    kind, group, pack = _shape(m)
+    if kind == "ask":
+        needle = m.group(group)
+    elif pack["word_order"] == "object_first":
+        before = phrase(reversed(clause[:m.end(group)].split()))
         needle = " ".join(reversed(before)).split("'")[0]
     else:
-        needle = m.group("ask") or m.group("trask")
+        needle = " ".join(phrase(clause[m.start(group):].split()))
     return needle or clause
 
 
@@ -2031,6 +1968,8 @@ def context_for(event, cwd, payload=None, with_core=True):
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
         forget_seen(session_of(payload))
+        # the context line may fire again on the compacted context
+        tezgah_store.drop("nudged", context_key(session_of(payload)))
     # The switch latch: every off() below answers for this session, and a
     # prompt's turn marker (with its `authorized` row) is written first, so a
     # switch the user's prompt names is honored from this very turn.
@@ -2061,6 +2000,13 @@ def context_for(event, cwd, payload=None, with_core=True):
         # even when the per-turn text is off. Never in DROP_ORDER, so no budget
         # gives it up - it says the rules below are not being enforced.
         gate = gate_inactive(session_id, payload)
+        # The user's grants and lifts (`user_grants`), before the reminder
+        # switch too: the Stop rule reads them whether or not this turn's text
+        # is shown. A subagent's prompt is its parent's brief, never the
+        # user's grant (omp's bridge sends `subagent`).
+        for clause, target in ([] if isinstance(payload, dict) and payload.get("subagent")
+                               else user_grants(prompt)):
+            note(session_id, GRANT_KIND, clause, target=target)
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response. The conditional rules ride along
@@ -2162,6 +2108,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         pending = slice_lines(root, session_id)
         if pending:
             parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
+        # The router's own context: above the threshold, one line asks it to
+        # push heavy reading through a slice (orchestrator-flow-audit S2 F1).
+        heavy = context_nudge(payload, session_id)
+        if heavy:
+            parts.append(("context", heavy))
         # a long session outlives a provider's reset: the same due check as
         # session start (one small JSON read), so a family rejoins omp's chain
         # without waiting for the next session
@@ -2178,6 +2129,12 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("offnote", "(off this session: %s)"
                           % ", ".join(disabled)))
         text = budgeted(event, parts)
+        # latched only when the budget kept it, so a dropped line comes back
+        if heavy and heavy in text:
+            try:
+                tezgah_store.mark("nudged", context_key(session_id))
+            except tezgah_store.ERRORS:
+                pass  # fail open: an unwritable store shows the line again
         items = [ln for ln in relevant.split("\n") if ln.startswith("- ")]
         shown = ([k for k, ln in zip(keys, items) if ln in text] if items
                  else keys if relevant and relevant in text else [])
@@ -2242,10 +2199,10 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "research to a host subagent and say the tooling is "
                       "unavailable; do not improvise its protocol."))
     if event == "session_start":
-        note = sync_agents(root)
-        if note:
+        synced = sync_agents(root)
+        if synced:
             parts.append(("subagents",
-                          "Subagents (this repo, generated): %s" % note))
+                          "Subagents (this repo, generated): %s" % synced))
         # the provider health behind omp's subagent chains: re-probed in the
         # background at most every few hours or once a recorded reset passes, so
         # a family at its limit leaves the chain and rejoins it after the reset

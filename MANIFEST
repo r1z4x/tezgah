@@ -1,3 +1,4 @@
+.gitattributes
 .github/ISSUE_TEMPLATE/bug_report.yml
 .github/ISSUE_TEMPLATE/config.yml
 .github/ISSUE_TEMPLATE/feature_request.yml
@@ -111,6 +112,8 @@ docs/status-line.md
 docs/testing.md
 docs/vision.md
 hooks/hooks.json
+hooks/lang/en.json
+hooks/lang/tr.json
 hooks/projects-auto-init.py
 hooks/projects-posttooluse.py
 hooks/projects-pretooluse.py
@@ -719,6 +722,7 @@ tests/test_integrity.py
 tests/test_interpreter.py
 tests/test_judge.py
 tests/test_lang.py
+tests/test_lang_packs.py
 tests/test_lesson_lineage.py
 tests/test_lessons.py
 tests/test_lessons_compile.py

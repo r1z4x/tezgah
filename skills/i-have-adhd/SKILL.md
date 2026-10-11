@@ -89,12 +89,15 @@ would otherwise fight the exec contract's ban on summaries.
 
 If something is left that only the reader can do - a decision, a credential or
 grant, consent for a step that cannot be undone - name that ONE step, small
-enough to start now. A step you can take yourself is not a next step: take it.
-When nothing is left, end on what now works.
+enough to start now. Several such decisions go in one numbered approval batch,
+each with a recommended default, and the work proceeds on the defaults (the
+tezgah contract's Ask policy). A step you can take yourself is not a next step:
+take it, and never end on asking whether to. When nothing is left, end on what
+now works.
 
 Bad: "Hope that helps. Let me know if you want to dig deeper."
 Bad: "Next: run `npm test` and paste the first failing line." (you can run it)
-Good: "Engeller: the push to `main` - GERİ ALINAMAZ - `git push origin main` waits - your yes."
+Good: "Blockers: the push to `main` - IRREVERSIBLE - `git push origin main` waits - your yes." (tr: "Engeller", GERİ ALINAMAZ)
 
 ### 5. Suppress tangents
 

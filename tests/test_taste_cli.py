@@ -89,10 +89,48 @@ class Mine(support.TempHome):
             {"type": "user", "message": {"role": "user", "content": "child"}}])
         self.app = app
 
-    def run_cli(self, *args):
-        proc = support.run([CLI, *args], env=self.env())
+    def run_cli(self, *args, cwd=None):
+        # `mine` reads the current repository's sessions by default
+        proc = support.run([CLI, *args], env=self.env(), cwd=cwd or self.app)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return proc.stdout
+
+    def test_another_repository_is_read_only_when_asked_and_then_pseudonymised(self):
+        # research orchestrator-flow-audit S7, finding 5: the miner read every
+        # project, and another project's names landed in this repo's research data
+        web = self.make_repo("web")
+        os.makedirs(os.path.join(web, ".git"))
+        jsonl(os.path.join(self.home, ".omp", "agent", "sessions", "-web-", "w1.jsonl"), [
+            '{"type":"session","id":"w1","cwd":%s}' % json.dumps(web),
+            omp_tool("write"), omp_user("fix the web login in %s/app.py" % web)])
+        self.assertNotIn("w1", self.run_cli("mine"))
+        rows = [json.loads(line) for line in
+                self.run_cli("mine", "--host", "omp", "--all-projects").splitlines()]
+        alias = {r["session"]: r for r in rows}["w1"]
+        self.assertTrue(alias["repo"].startswith("project-"), alias)
+        self.assertEqual(alias["cwd"], alias["repo"])
+        self.assertEqual(alias["prompt"], "fix the %s login in %s/app.py"
+                         % (alias["repo"], alias["repo"]))
+        self.assertNotIn(web, json.dumps(rows))
+
+    def test_every_mined_repository_is_unnamed_in_any_case_in_every_prompt(self):
+        # review of S7 (F5): only the row's own repository was unnamed, and only
+        # in the case it was spelled, so `WEB` in an app prompt leaked
+        web = self.make_repo("web")
+        os.makedirs(os.path.join(web, ".git"))
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions")
+        jsonl(os.path.join(sessions, "-web-", "w1.jsonl"), [
+            '{"type":"session","id":"w1","cwd":%s}' % json.dumps(web),
+            omp_tool("write"), omp_user("fix the Web login")])
+        jsonl(os.path.join(sessions, "-app-", "a2.jsonl"), [
+            '{"type":"session","id":"a2","cwd":%s}' % json.dumps(self.app),
+            omp_tool("write"), omp_user("port the WEB login into App, not web-kit")])
+        rows = {r["session"]: r for r in (json.loads(line) for line in self.run_cli(
+            "mine", "--host", "omp", "--all-projects").splitlines())}
+        web_alias, app_alias = rows["w1"]["repo"], rows["a2"]["repo"]
+        self.assertEqual(rows["w1"]["prompt"], "fix the %s login" % web_alias)
+        self.assertEqual(rows["a2"]["prompt"], "port the %s login into %s, not web-kit"
+                         % (web_alias, app_alias))
 
     def test_stats_count_top_level_sessions_under_the_root(self):
         self.assertEqual(self.run_cli("mine", "--stats").splitlines(), [

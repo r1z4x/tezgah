@@ -8,7 +8,7 @@ the gate and the evidence ledger underneath are the shared core in `hooks/`,
 the same code every other host runs.
 
     {"event": "session_start", "cwd": ..., "session_id": ..., "subagent": bool,
-     "parent": <the main session's id>, "agent": <the child's AgentId>}
+     "parent": <the main session's id>, "agent": <the child's AgentId>, "fork_of": <id>}
         -> {"context": <this repo's live state, or the subagent brief>,
             "status": "pony✓ ...", "idx": glyph}
     {"event": "status", "cwd": ..., "session_id": ...}
@@ -19,10 +19,11 @@ the same code every other host runs.
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
-        -> {"deny": reason} | {"advice": line} (the graph line the bridge hands
-           the model with this call's result; never a block)
+        -> {"deny": reason} | {"advice": line} (the graph line, the idle-wait
+           warning on a `wait`, or the ask-policy warning on an `ask`, the
+           bridge hands the model with this call's result; never a block)
     {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
-     "failed": bool, "idx": glyph}
+     "failed": bool, "idx": glyph, "todo": [...]}
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
            (records the evidence the Stop rule reads; `idx` echoed from the
            payload skips the git probe; `label` is the untrusted-content notice
@@ -59,7 +60,9 @@ try:
     from tezgah_context import (  # noqa: E402
         color_default, command_text, context_for, health_segments, record,
         render_tiers, shell_kind, skill_read_kind)
-    from tezgah_gate import decision, graph_advice  # noqa: E402
+    from tezgah_gate import (  # noqa: E402
+        ask_advice, cross_project_note, decision, graph_advice, ready_advice,
+        spawn_advice)
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
@@ -69,7 +72,8 @@ try:
 except Exception as exc:
     import_failed(exc)
 
-# omp has no subagent-end event: `session_stop` does not fire for task sessions.
+# omp has no subagent-end event: `session_stop` does not fire for task sessions,
+# so the bridge sends `subagent_stop` from the child's terminal `agent_end`.
 # The re-ask budget is the core's (tezgah_integrity.STOP_REASKS, plan 083).
 
 
@@ -147,7 +151,10 @@ def handle(payload):
         reason = decision(tool, inp, cwd, session_id)
         if reason:
             return {"deny": reason}
-        advice = graph_advice(tool, inp, cwd, "omp")
+        advice = (graph_advice(tool, inp, cwd, "omp")
+                  or ready_advice(tool, session_id, cwd)
+                  or spawn_advice(tool, inp, session_id, cwd)
+                  or ask_advice(tool, inp, session_id, cwd))
         return {"advice": advice} if advice else {}
     if not root_for(cwd):
         return {}
@@ -169,6 +176,11 @@ def handle(payload):
             # `tezgah-route --report` joins the two through this row
             note(session_id, "spawned", "", parent=str(payload["parent"]),
                  agent=payload.get("agent"))
+        elif payload.get("fork_of"):
+            # an omp fork names the session it was forked from: the race rule
+            # names that relation instead of an opaque ledger id
+            # (tezgah_integrity._relation)
+            note(session_id, "forked", "", parent=str(payload["fork_of"]))
         context = context_for(kind, cwd, dict(payload, host="omp"),
                               with_core=False)
         if context:
@@ -228,7 +240,8 @@ def handle(payload):
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,
                   source=source, cwd=cwd,
-                  empty_run=payload.get("empty_run") is True)
+                  empty_run=payload.get("empty_run") is True,
+                  todo=payload.get("todo") if isinstance(payload.get("todo"), list) else None)
         if str(tool).lower() == "task" and isinstance(inp.get("tasks"), list):
             # omp names a child's ledger by its task name (`<parent>/<name>.jsonl`)
             # and only this call knows which agent that name runs - `task` when
@@ -247,10 +260,13 @@ def handle(payload):
         # reads where the text came from - or, on an effect after such a read,
         # the taint notice - while it reads the result.
         # the opt-in taste note for the first write to this file type
-        # (hooks/tezgah_taste.write_note) rides the same label
+        # (hooks/tezgah_taste.write_note) and the cross-project write notice
+        # (hooks/tezgah_gate.py::cross_project_note) ride the same label
         taste = (safe(session_id, write_note, session_id, inp, cwd, tool)
                  if failed is not True else None)
-        label = "\n".join(t for t in (label, taste) if t)
+        cross = (safe(session_id, cross_project_note, session_id, tool, inp, cwd)
+                 if failed is not True else None)
+        label = "\n".join(t for t in (label, taste, cross) if t)
         if label:
             out["label"] = label
         return out
@@ -264,6 +280,14 @@ def handle(payload):
                       payload.get("last_assistant_message"), session_id,
                       cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
         return {"decision": "block", "reason": reason} if reason else {}
+    if event == "subagent_stop":
+        # record-only (ADR 011): judged on the child's own rows, the row lands
+        # in the parent's ledger so the parent's Stop reads its residual count
+        if not off("verify-off") and payload.get("parent"):
+            safe(session_id, stop_reason, payload.get("last_assistant_message"),
+                 session_id, cwd=cwd, subagent=True, agent=payload.get("agent"),
+                 parent=str(payload["parent"]))
+        return {}
     return {}
 
 

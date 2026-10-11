@@ -35,10 +35,12 @@ class AfterBlock(TempHome):
         self.work()
 
     def work(self):
-        """Work with no passing check: the first stop on a claim is refused."""
+        """Work with no passing check: the first stop on a claim is refused. A
+        script run, not `ls`: a turn of reads owes no check (S4 finding 3)."""
         run_json([support.PROBE_INTEGRITY],
                  {"fn": "note_tool", "session": self.session, "tool": "Bash",
-                  "input": {"command": "ls"}, "failed": False}, env=self.envv)
+                  "input": {"command": "python3 build.py"}, "failed": False},
+                 env=self.envv)
 
     def payload(self, host, text=CLAIM, active=True):
         if host == "omp":
@@ -384,6 +386,104 @@ class AfterBlock(TempHome):
         self.turn("second")
         self.work()
         self.assertEqual(self.stop("claude", active=False).get("decision"), "block")
+
+    # S4 finding 1: the observed shape - a reply refused for its language, then
+    # a Turkish rewrite with the same untyped list and no tool call
+    ENGLISH = ("The parser change is in place and every test in the module "
+               "passes now, so the report below names what was left for later.\n\n"
+               "Remaining:\n- update the README section")
+    REWRITE = ("Parser değişikliği yerinde, modülün testleri geçiyor.\n\n"
+               "**Açık kalanlar**\n- README bölümü güncellenmedi")
+
+    def checked(self, failed=False, command="pytest -q"):
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": command}, "failed": failed}, env=self.envv)
+
+    def test_the_reply_after_an_omp_re_ask_is_asked_for_residual_work(self):
+        for host in ("claude", "omp"):
+            with self.subTest(host=host):
+                self.session = "s-s4-" + host
+                self.turn("ship the parser")
+                self.work()
+                self.checked()
+                out = self.reask(host, self.ENGLISH, 0)
+                self.assertEqual(out.get("decision"), "block")
+                self.resume(check=False)
+                out = self.reask(host, self.REWRITE, 1)
+                self.assertEqual(out.get("decision"), "block")
+                self.assertIn("Açık kalanlar", out["reason"])
+
+    def test_a_failure_quoted_from_the_refused_turn_counts_after_an_omp_re_ask(self):
+        typed = ("Parser değişikliği yerinde, modülün testleri geçiyor.\n\n"
+                 "**Engeller**\n- e2e — ORTAM — `npx playwright test`: "
+                 "Executable doesn't exist")
+        for host in ("claude", "omp"):
+            with self.subTest(host=host):
+                self.session = "s-s4-quote-" + host
+                self.turn("ship the parser")
+                self.work()
+                self.checked(failed=True, command="npx playwright test")
+                self.checked()
+                self.assertEqual(self.reask(host, self.ENGLISH, 0).get("decision"),
+                                 "block")
+                # a pass in the re-ask turn: it holds a step, no failed row
+                self.resume(check=True)
+                self.assertNotIn("decision", self.reask(host, typed, 1))
+
+    def test_a_subagent_s_untyped_items_are_owed_by_the_parent(self):
+        # S4 finding 2: the child is never refused (ADR 011); its count rides
+        # on the subagent_end row and the parent's reply has to type them
+        report = ("Parser yazıldı.\n\n**Unresolved**\n"
+                  "- canlı model çağrısı çalıştırılmadı")
+        done = "Parser değişikliği yerinde, modülün testleri geçiyor."
+        # a KARAR item carries its options or a default (plan 086, S3)
+        typed = done + ("\n\n**Engeller**\n- canlı model çağrısı — KARAR — "
+                        "ücretli çağrı, Öneri: koşmamak — onayın")
+        for parent, decision in ((done, "block"), (typed, None)):
+            with self.subTest(parent=parent):
+                self.session = "s-s4-sub-" + str(decision)
+                self.turn("ship the parser")
+                self.work()
+                self.checked()
+                self.assertEqual(self.subagent_stop("claude", text=report), {})
+                self.assertEqual([r.get("residual") for r in self.rows("subagent_end")],
+                                 [1])
+                out = self.stop("claude", text=parent, active=False)
+                self.assertEqual(out.get("decision"), decision)
+                if decision:
+                    self.assertIn("handed up", out["reason"])
+
+    def test_an_omp_subagent_s_untyped_items_reach_the_parent(self):
+        # review F3: omp fires no session_stop for a task session; the bridge's
+        # `subagent_stop` judges the child's reply on the child's own ledger
+        # and writes the row into the parent's
+        report = ("Parser yazıldı.\n\n**Unresolved**\n"
+                  "- canlı model çağrısı çalıştırılmadı")
+        self.session = "s-s4-omp-parent"
+        self.turn("ship the parser")
+        self.work()
+        self.checked()
+        def end(agent):
+            out, proc = run_json([support.OMP_HOOK], {
+                "event": "subagent_stop", "cwd": self.repo,
+                "session_id": "s-s4-omp-" + agent, "parent": self.session,
+                "agent": agent, "last_assistant_message": report}, env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(out or {}, {})
+        end("Scout")
+        self.assertEqual([(r.get("residual"), r.get("agent"))
+                          for r in self.rows("subagent_end")], [(1, "Scout")])
+        # review N4: the same child's end again is one row; a sibling with the
+        # same report is its own
+        end("Scout")
+        end("Scout2")
+        self.assertEqual([r.get("agent") for r in self.rows("subagent_end")],
+                         ["Scout", "Scout2"])
+        out = self.stop("omp", text="Parser değişikliği yerinde, modülün testleri geçiyor.",
+                        active=False)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("handed up", out["reason"])
 
     def test_a_raising_core_still_yields_an_empty_answer(self):
         for host in ("claude", "codex", "omp"):

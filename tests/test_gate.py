@@ -30,9 +30,9 @@ class Gate(TempHome):
         self.envv = self.env()
         self.probe = support.PROBE_GATE
 
-    def decide(self, tool, inp, cwd=None, session_id="s1", capture_log=None):
+    def decide(self, tool, inp, cwd=None, session_id="s1", capture_log=None, agent=None):
         payload = {"tool": tool, "input": inp, "cwd": cwd or self.repo,
-                   "session_id": session_id}
+                   "session_id": session_id, "agent": agent}
         if capture_log:
             payload["capture_log"] = capture_log
         out, proc = run_json([self.probe], payload, env=self.envv)
@@ -1056,7 +1056,8 @@ class Gate(TempHome):
         reason = self.decide("Edit", {"file_path": target, "old_string": "a",
                                       "new_string": "b"}, session_id="mine")
         self.assertIsNotNone(reason)
-        self.assertIn("other", reason)    # names the other session
+        # names the other session by its relation and its ledger id
+        self.assertIn("another, unrelated session %s" % ti._slug("other"), reason)
         self.assertIn(target, reason)     # and the file
         self.assertIn("Re-read", reason)  # and what to do about it
 
@@ -1112,6 +1113,260 @@ class Gate(TempHome):
             self.assertIn("Concurrent write", reason or "", inp)
         self.assertIsNone(self.decide("Bash", {"command": "printf y > src/b.py"},
                                       session_id="mine"))
+
+    def lineage(self, session, kind, parent, agent=None):
+        """The `spawned` or `forked` row a session's start writes."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note", "session": session, "kind": kind,
+                              "parent": parent, "agent": agent}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_an_own_child_that_ended_is_no_race_and_a_live_one_is(self):
+        # research orchestrator-flow-audit S7, finding 3: a child stopped on a
+        # 403 and the parent's takeover of its file was refused for 10 minutes
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        self.lineage("kid", "spawned", "mine", agent="Worker")
+        self.seed_write("kid", target)
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        # no slice record: nothing says the child ended
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.open_slice(self.repo, "Worker", host="claude", parent="mine", brief="b")
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.close_slice(self.repo, "Worker", "stopped", "quota")
+        self.assertIsNone(self.decide("Edit", edit, session_id="mine"))
+        # another session is still refused on the same child's write
+        self.assertIn("unrelated session", self.decide("Edit", edit,
+                                                       session_id="else") or "")
+
+    def test_a_child_that_wrote_after_its_record_closed_is_live(self):
+        # review of S7 (F4): a closed record is no proof the child stopped
+        # writing - a write newer than the close is a live writer
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("kid2", "spawned", "mine2", agent="Late")
+        tt.open_slice(self.repo, "Late", host="claude", parent="mine2", brief="b")
+        rec = tt.close_slice(self.repo, "Late", "stopped", "quota")
+        rec["updated"] = "2026-01-01T00:00:00Z"
+        tt._write_record(self.repo, rec)
+        self.seed_write("kid2", target)
+        self.assertIn("your own subagent Late", self.decide("Edit", edit,
+                                                            session_id="mine2") or "")
+
+    def test_a_fork_is_named_as_one_in_the_refusal(self):
+        # finding 4: the bare ledger id read as "a second window of this session"
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("forkee", "forked", "mine")
+        self.seed_write("forkee", target)
+        reason = self.decide("Edit", edit, session_id="mine") or ""
+        self.assertIn("an omp fork of this session (ledger %s)" % ti._slug("forkee"),
+                      reason)
+        # and seen from the fork, the writer is the session it was forked from
+        self.seed_write("mine", target)
+        self.assertIn("the session this one was forked from (ledger %s)" % ti._slug("mine"),
+                      self.decide("Edit", edit, session_id="forkee") or "")
+
+    # ---- lease: a sibling slice owns this file (research S6, pick V2) --------
+    def test_a_sibling_slices_lease_refuses_its_file_and_frees_the_owner(self):
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        tt.open_slice(self.repo, "LeaseA", host="omp", agent="task", parent="P",
+                      task="Owns: src/a.py, docs/**")
+        tt.open_slice(self.repo, "LeaseB", host="omp", agent="task", parent="P",
+                      task="Owns: src/b.py")
+        tt.open_slice(self.repo, "LeaseC", host="omp", agent="task", parent="P",
+                      task="Owns: src/c.py")
+        self.lineage("kidA", "spawned", "P", agent="LeaseA")
+        self.lineage("kidB", "spawned", "P", agent="LeaseB")
+        self.lineage("kidC", "spawned", "P", agent="LeaseC")
+
+        def edit(rel, who):
+            return self.decide("Edit", {"file_path": os.path.join(self.repo, rel),
+                                        "old_string": "a", "new_string": "b"},
+                               session_id=who)
+
+        reason = edit("src/a.py", "kidB") or ""
+        self.assertIn("Lease: src/a.py is owned by sibling slice LeaseA "
+                      "(owns src/a.py, docs/**)", reason)
+        self.assertIn("`write agent://LeaseA`", reason)
+        # review of S6, F3: the refusal names the command that frees the lease
+        self.assertIn("`tezgah-task slice done LeaseA` frees it", reason)
+        # a shell redirect relative to the cwd is the same write
+        self.assertIn("Lease: docs/x.md", self.decide(
+            "Bash", {"command": "echo x > docs/x.md"}, session_id="kidB") or "")
+        # the owner, an unleased file, the parent and an unmapped session pass
+        for rel, who in (("src/a.py", "kidA"), ("src/x.py", "kidB"),
+                         ("src/a.py", "P"), ("src/a.py", "stranger")):
+            self.assertIsNone(edit(rel, who), (rel, who))
+        # orchestrate-off lifts it (a session that started after the switch)
+        switch = os.path.join(self.home, ".config", "tezgah", "orchestrate-off")
+        self.touch(switch)
+        self.lineage("kidB2", "spawned", "P", agent="LeaseB")
+        self.assertIsNone(edit("src/a.py", "kidB2"))
+        os.remove(switch)
+        # a slice whose own record closed is no longer held to it
+        tt.close_slice(self.repo, "LeaseB", "done")
+        self.assertIsNone(edit("src/a.py", "kidB"))
+        # a closed owner frees its files
+        self.assertIn("Lease", edit("src/a.py", "kidC") or "")
+        tt.close_slice(self.repo, "LeaseA", "done")
+        self.assertIsNone(edit("src/a.py", "kidC"))
+
+    def test_a_claude_background_childs_agent_id_maps_it_to_its_slice(self):
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        for agent_id, owns in (("agA", "src/a.py"), ("agB", "src/b.py")):
+            proc = support.run([support.POSTTOOLUSE], {
+                "hook_event_name": "PostToolUse", "cwd": self.repo, "session_id": "PC",
+                "tool_name": "Agent",
+                "tool_input": {"description": agent_id, "prompt": "Owns: " + owns},
+                "tool_response": {"status": "async_launched", "agentId": agent_id}},
+                env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        # the launch keeps both records open, keyed by the child's id
+        self.assertEqual(sorted((r["child"], r["status"]) for r in tt.slices(self.repo)),
+                         [("agA", "open"), ("agB", "open")])
+        edit = {"file_path": os.path.join(self.repo, "src", "a.py"),
+                "old_string": "a", "new_string": "b"}
+        self.assertIn("`SendMessage` to agA",
+                      self.decide("Edit", edit, session_id="PC", agent="agB") or "")
+        for agent in ("agA", None, "agZ"):
+            self.assertIsNone(self.decide("Edit", edit, session_id="PC", agent=agent), agent)
+        # review of S6, F3: agA's SubagentStop closes its record, and its lease
+        proc = support.run([support.STOP_HOOK], {
+            "hook_event_name": "SubagentStop", "cwd": self.repo, "session_id": "PC",
+            "agent_id": "agA", "last_assistant_message": "finished"}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted((r["child"], r["status"]) for r in tt.slices(self.repo)),
+                         [("agA", "done"), ("agB", "open")])
+        self.assertIsNone(self.decide("Edit", edit, session_id="PC", agent="agB"))
+
+    def test_a_slice_with_a_worktree_may_not_write_the_main_checkout(self):
+        import tezgah_task as tt
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
+
+        def git(*args):
+            subprocess.run(["git", "-C", self.repo, "-c", "user.name=t",
+                            "-c", "user.email=t@localhost"] + list(args),
+                           check=True, capture_output=True, env=env)
+
+        git("init", "-q", "-b", "main")
+        self.touch(os.path.join(self.repo, "README"))
+        git("add", "README")
+        git("commit", "-q", "-m", "init")
+        tree = os.path.join(self.home, "wt-s6")
+        git("worktree", "add", "-q", "-b", "s6", tree)
+        tree = os.path.realpath(tree)
+        tt.open_slice(self.repo, "InTree", host="omp", agent="task", parent="P3",
+                      task="# Target\nCheckout %s (branch s6)\nwork only there" % tree)
+        self.lineage("kidT", "spawned", "P3", agent="InTree")
+        main_edit = {"file_path": os.path.join(self.repo, "src", "x.py"),
+                     "old_string": "a", "new_string": "b"}
+        reason = self.decide("Edit", main_edit, session_id="kidT") or ""
+        self.assertIn("Lease: src/x.py is in the main checkout %s, but your slice "
+                      "InTree works in worktree %s" % (self.repo, tree), reason)
+        # plan 086 wave 1: a relative path resolved against the parent's cwd
+        self.assertIn("is in the main checkout", self.decide(
+            "Bash", {"command": "printf x > src/y.py"}, session_id="kidT") or "")
+        self.assertIsNone(self.decide("Edit", dict(main_edit, file_path=os.path.join(
+            tree, "src", "x.py")), session_id="kidT"))
+        self.assertNotIn("Lease", self.decide("Write", {
+            "file_path": os.path.join(self.repo, ".tezgah", "notes.md"),
+            "content": "x"}, session_id="kidT") or "")
+        # review of S6, F1: a shell whose own cwd or `cd` is the worktree writes there
+        for inp in ({"cwd": tree, "command": "printf x > out.txt"},
+                    {"command": "cd %s && printf x > out.txt" % tree},
+                    {"command": "cd %s && printf x | tee out.txt" % tree},
+                    {"command": "pushd %s >/dev/null && printf x > out.txt" % tree},
+                    {"command": "cd %s 2>/dev/null && printf x > out.txt" % tree}):
+            self.assertIsNone(self.decide("Bash", inp, session_id="kidT"), inp)
+        self.assertIn("is in the main checkout", self.decide(
+            "Bash", {"cwd": tree, "command": "cd %s && printf x > out.txt" % self.repo},
+            session_id="kidT") or "")
+        # round 2: a cd or pushd whose own output goes to /dev/null or a
+        # descriptor still moves the directory the file lands in
+        for command in ("pushd %s >/dev/null && printf x > out.txt",
+                        "cd %s 2>/dev/null && printf x > out.txt",
+                        "cd %s 2>&1 && printf x > out.txt"):
+            self.assertEqual(tg._shell_dir({"command": command % tree}, self.repo), tree)
+        self.assertEqual(tg._shell_dir({"command": "printf x > out.txt; cd %s" % tree},
+                                       self.repo), self.repo)
+        # and a second writing slice sent to the same worktree is warned at spawn
+        out, proc = run_json([support.OMP_HOOK], {
+            "event": "pre_tool_use", "cwd": self.repo, "session_id": "P3", "tool": "task",
+            "input": {"tasks": [{"name": "Also", "agent": "task",
+                                 "task": "Checkout %s" % tree}]}}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("writing slices Also, InTree all name worktree %s" % tree,
+                      (out or {}).get("advice", ""))
+        # round 2 (N1): a brief that only names the worktree declares nothing,
+        # so its main-checkout write is not refused
+        tt.open_slice(self.repo, "Named", host="omp", agent="task", parent="P4",
+                      task="work only in %s" % tree)
+        self.lineage("kidN", "spawned", "P4", agent="Named")
+        self.assertIsNone(self.decide("Edit", main_edit, session_id="kidN"))
+        # F2: an integrator whose task declares the main checkout works there,
+        # whatever worktrees it names to remove
+        tt.open_slice(self.repo, "Merger", host="omp", agent="task", parent="P3",
+                      task="Integrate.\nCwd: %s\nThen remove the worktree %s." % (self.repo, tree))
+        self.lineage("kidM", "spawned", "P3", agent="Merger")
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": os.path.join(self.repo, "CHANGELOG.md"),
+            "old_string": "a", "new_string": "b"}, session_id="kidM"))
+        # the parent's own write into its checkout is not a slice's
+        self.assertIsNone(self.decide("Edit", main_edit, session_id="P3"))
+
+    def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
+        # finding 7: cwd decides which project's rules apply, so a write into
+        # another repository runs under none of its plans; a notice, no refusal
+        other = self.make_repo("other")
+        for repo in (self.repo, other):
+            os.makedirs(os.path.join(repo, ".git"), exist_ok=True)
+        there = os.path.join(other, "x.py")
+        note = tg.cross_project_note("xp", "Edit", {"file_path": there}, self.repo)
+        self.assertIn("this write is in %s, not in this session's repository (%s)"
+                      % (other, self.repo), note or "")
+        self.assertIsNone(tg.cross_project_note("xp", "Write", {"file_path": there},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Bash", {"command": "ls > a.py"},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Read", {"path": there}, self.repo))
+        self.assertIsNotNone(tg.cross_project_note(
+            "xp", "Bash", {"command": "echo x > %s" % os.path.join(self.repo, "y")}, other))
+
+    def test_a_write_into_the_repositorys_own_tezgah_is_no_other_project(self):
+        # review of S7 (F2): `.tezgah` keeps a git repository of its own, and a
+        # plan or lesson write read as a write into another project
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, ".tezgah", ".git"))
+        plan = os.path.join(self.repo, ".tezgah", "plans", "open", "001.md")
+        self.assertIsNone(tg.cross_project_note("xp2", "Write", {"file_path": plan},
+                                                self.repo))
+
+    def test_the_post_tool_hook_records_its_row_without_the_notice(self):
+        # review of S7 (F6): a gate module that cannot give the notice must cost
+        # that one line, never the evidence row the hook exists to write
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        body = ("import runpy, sys; sys.path.insert(0, %r); sys.modules['tezgah_gate'] = None;"
+                " runpy.run_path(%r, run_name='__main__')"
+                % (support.HOOKS, os.path.join(support.HOOKS, "projects-posttooluse.py")))
+        proc = subprocess.run(
+            [sys.executable, "-c", body], capture_output=True, text=True, env=self.envv,
+            input=json.dumps({"hook_event_name": "PostToolUse", "session_id": "nogate",
+                              "tool_name": "Write", "cwd": self.repo, "tool_response": {},
+                              "tool_input": {"file_path": os.path.join(self.repo, "a.py")}}),
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows, _ = run_json([support.PROBE_INTEGRITY], {"fn": "events", "session": "nogate"},
+                           env=self.envv)
+        self.assertEqual([r.get("tool") for r in rows or [] if r.get("kind") == "edit"],
+                         ["Write"])
 
     def test_a_scratch_file_is_no_shared_work(self):
         # review of plan 057: shell rows carried scratch targets, so two
@@ -1836,10 +2091,15 @@ class TaskGate(TempHome):
         self.plan(phase="implementation", allowed=("hooks/**",))
         scope_reason = self.write_path("src/y.py")
         self.assertIn("tezgah-task phase implementation", phase_reason)
-        self.assertIn("tezgah-task allow", scope_reason)
+        # S2 F4b: the ready line keeps the current globs (allow replaces the list)
+        self.assertIn("`tezgah-task allow 'hooks/**' src/y.py --why", scope_reason)
         for reason in (phase_reason, scope_reason):
             self.assertNotIn("the user", reason, reason)
             self.assertNotIn("task-off", reason, reason)
+        # a target outside the repository gets no allow line: no glob reaches it
+        outside = self.write_path(os.path.join(self.home, "elsewhere.py"))
+        self.assertIn("outside this repository", outside)
+        self.assertNotIn("`tezgah-task allow '", outside)
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):
@@ -2742,6 +3002,84 @@ class GraphAdvice(TempHome):
         out = second["hookSpecificOutput"]
         self.assertNotIn("permissionDecision", out)
         self.assertIn("mcp__codegraph__codegraph_explore", out["additionalContext"])
+
+
+class AskAdvice(TempHome):
+    """Plan 086 (S3): an ask-tool question with no recommended option gets a
+    warning beside the call, never a deny, and every such call leaves an `ask`
+    row with its counts; a question about a granted outward step gets a line
+    saying it is taken, not asked again. Before the rule the call passed with
+    nothing said and nothing recorded."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+
+    def claude(self, inp, session="ask"):
+        payload = {"tool_name": "AskUserQuestion", "tool_input": inp,
+                   "cwd": self.repo, "session_id": session}
+        out, proc = run_json([support.PRETOOLUSE], payload, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return (out or {}).get("hookSpecificOutput") or {}
+
+    def rows(self, session="ask"):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": session}, env=self.env())
+        return out or []
+
+    def test_a_question_without_a_recommended_option_is_warned_and_recorded(self):
+        bare = {"questions": [{"question": "Hangi yol?", "header": "Yol",
+                               "options": [{"label": "A"}, {"label": "B"}]}]}
+        out = self.claude(bare)
+        self.assertNotIn("permissionDecision", out)
+        self.assertIn("1 of 1 question(s)", out["additionalContext"])
+        asks = [r for r in self.rows() if r.get("kind") == "ask"]
+        self.assertEqual([(r.get("questions"), r.get("defaults")) for r in asks], [(1, 0)])
+        # a recommended option is the policy: no line, still a row
+        good = {"questions": [{"question": "Hangi yol?", "options": [
+            {"label": "A (önerilen)"}, {"label": "B"}]}]}
+        self.assertEqual(self.claude(good), {})
+        asks = [r for r in self.rows() if r.get("kind") == "ask"]
+        self.assertEqual([(r.get("questions"), r.get("defaults")) for r in asks],
+                         [(1, 0), (1, 1)])
+
+    def test_a_question_about_a_granted_push_is_named_as_granted(self):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"prompt": "bana sormadan pushla",
+                                          "session_id": "gr"}}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([(r.get("kind"), r.get("target")) for r in self.rows("gr")
+                          if r.get("kind") == "grant"], [("grant", "push")])
+        out = self.claude({"questions": [{"question": "main'i push edeyim mi?",
+                                          "options": [{"label": "Evet (önerilen)"}]}]},
+                          session="gr")
+        self.assertIn("already granted push", out["additionalContext"])
+
+    def test_omp_ask_is_routed_and_warned(self):
+        out, proc = run_json([support.OMP_HOOK],
+                             {"event": "pre_tool_use", "cwd": self.repo, "tool": "ask",
+                              "session_id": "omp-ask",
+                              "input": {"questions": [{"id": "q", "question": "Hangi?",
+                                                       "options": [{"label": "x"}]}]}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("deny", out)
+        self.assertIn("recommended option", out["advice"])
+        with open(support.OMP_EXTENSION, encoding="utf-8") as fh:
+            self.assertRegex(fh.read(), r'const GATED = \[[^\]]*"ask"\]')
+
+    def test_a_subagent_prompt_grants_nothing(self):
+        # review round 1: a task prompt is the parent's brief, not the user
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"prompt": "bana sormadan pushla",
+                                          "session_id": "sub", "subagent": True}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r for r in self.rows("sub") if r.get("kind") == "grant"], [])
 
 
 if __name__ == "__main__":

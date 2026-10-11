@@ -29,7 +29,7 @@ try:
     from tezgah_context import (  # noqa: E402
         TOOL_USE_MEASURES, command_text, context_for, health_lines, record,
         shell_kind)
-    from tezgah_gate import decision, graph_advice  # noqa: E402
+    from tezgah_gate import cross_project_note, decision, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, changed_files_notice, note_tool, ran_nothing,
         report_bytes, stop_reason, untrusted_source)
@@ -206,7 +206,10 @@ def main():
         # (hooks/tezgah_taste.write_note), on the same channel
         taste = (safe(session_id, write_note, session_id, inp, cwd, tool)
                  if root_for(cwd) and not verify_outcome(payload) else None)
-        notice = "\n".join(p for p in (notice, advice, taste) if p)
+        # the cross-project write notice (tezgah_gate.cross_project_note)
+        cross = (safe(session_id, cross_project_note, session_id, tool, inp, cwd)
+                 if root_for(cwd) and not verify_outcome(payload) else None)
+        notice = "\n".join(p for p in (notice, advice, taste, cross) if p)
         if notice:
             # Codex's PostToolUse output carries `additionalContext` with the
             # result - the field is part of its own hook output schema

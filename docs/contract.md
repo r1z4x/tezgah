@@ -144,6 +144,26 @@ looks for each clause's object phrase, the words a paraphrasing summary keeps
 precise rather than complete. `tests/constraint-fixtures.md` lists the real
 prompts the shapes ran on, the misses and the known false positives.
 
+A grant is the positive half of the same reader (plan 086, S3). "bana sormadan
+pushla", "without asking" and "onay veriyorum" let the session take an outward
+step without asking again. The shapes live in each language pack's
+`constraint.grant` list. `user_grants` (`hooks/tezgah_context.py::user_grants`)
+reads the whole sentence for the class it names: `push`, `release`, `publish`,
+`pr`, or `all` when it names none. Each prompt's grants land as `grant` rows in
+the session's ledger. They come before the reminder switch, so `reminder-off`
+keeps them. A `constraint.lift` shape ("artık bana sor", "ask me again",
+"Don't push.", "şimdilik push yapma") lifts them. So does a later constraint that
+names the class. A grant shape grants nothing in a sentence that ends in "?" or
+that its own pack's rules take back (`hooks/tezgah_context.py::_refuses`): a
+`constraint.grant_not` word such as "don't" or a complaint ("pushladın"), or a
+`grant_not_verb` prohibition ("yapma") right after the shape or at the
+sentence's end. A negated outward step lifts only the class it names. Quoted text and a subagent's prompt grant nothing.
+`grants_in_force` (`hooks/tezgah_integrity.py::grants_in_force`) folds the rows
+oldest first. The Stop rule's `needless ask` class and the ask-tool warning read
+that fold. A grant never covers a never-default step: a force push, a delete, a
+credential, or a spend over `spend_cap` in `~/.config/tezgah/config.json`. That
+cap is a number of USD, and 0 when unset (`hooks/tezgah_paths.py::spend_cap`).
+
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
@@ -167,7 +187,7 @@ change with an executable oracle - a checker, a gate rule, a parser - spends the
 same budget. Its round one is four direction-led reviewers, and each claim
 becomes a fixture that runs before it counts. That population is a tentative
 default, measured on two research lines with a written flip
-(`skills/tezgah-contract/SKILL.md:519-550`).
+(`skills/tezgah-contract/SKILL.md:532-563`).
 
 ## Composition order of the always-on core
 
@@ -187,7 +207,7 @@ stay English.**` :941, `**Session scope: the user's repo, not tezgah.**` :947,
 ``**Workspace: `.tezgah/` only.**`` :958, `**Parallel by default: fan out
 independent items.**` :965 *(conditional)*,
 `**Kill switches:**` :990. The first label renders as `**Turkish, BLUF.**` under
-the default `reply_lang`.
+`language` `tr`.
 
 `always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the six
 conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py::POINTERS`):
@@ -211,17 +231,65 @@ applied, and it also returns the names of the switches that fired.
 
 ## What each always-on rule is for
 
-- **Turkish, BLUF.** Every user-facing reply is Turkish even when the prompt is English, outcome first; code, commits, docs and subagent prompts stay English. That is the default. `reply_lang` in `~/.config/tezgah/config.json` picks another: `tr`, `en` or `any`. `tezgah-setup --install --reply-lang` sets it, and the label follows it. The value is the switch. The Stop rule checks the language only under `tr`: under `en` and `any` it judges none.
+- **{Language}, BLUF.** Every user-facing reply is in the configured language, outcome first. Code, commits, docs and subagent prompts stay English. `language` in `~/.config/tezgah/config.json` picks it: `tr`, `en` or `any` (see [Reply language and language packs](#reply-language-and-language-packs)). The value is the switch, and the label follows it.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py::_pony_level_line`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
-- **Integrity: evidence, or a named blocker.** A done/tested claim holds only if the check ran in this session and its output was seen; "doğrulanmadı" follows a check that ran and failed; leftover work is done, or stays as one of four blockers (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its evidence. The mechanical half is enforced by [gate.md](gate.md), the residual half by the Stop rule's `residual work` class ([evidence.md](evidence.md)).
+- **Integrity: evidence, or a named blocker.** A done/tested claim holds only if the check ran in this session and its output was seen; "unverified" (tr: "doğrulanmadı") follows a check that ran and failed; leftover work is done, or stays as one of four blockers (DECISION, ACCESS, IRREVERSIBLE, ENV; tr: KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its evidence. The mechanical half is enforced by [gate.md](gate.md), the residual half by the Stop rule's `residual work` class ([evidence.md](evidence.md)). Its **Ask policy** says what is asked at all. Work and process are never asked. An outward step runs on a grant. A never-default step waits for an answer. Every other question goes in one batch with a recommended default. The Stop rule's `needless ask` class refuses a reply that ends on a question the agent can decide, and the gate warns on an ask-tool question with no default ([gate.md](gate.md#ask-an-ask-tool-question-with-no-recommended-option)).
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start, and up to three older ones a prompt shares words with ride that turn, each once per session when the host sends a session id (a compaction resets that, because the compacted context no longer holds them; without an id every matching turn carries them). Write a line rule first, `<rule> - <incident>` (`LESSON_SEPARATOR`, `hooks/tezgah_context.py::LESSON_SEPARATOR`). The session block counts the shown lines that do not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves both blocks while that gate rule or test is on (`hooks/tezgah_lessons.py::lines`). That one reader serves the context, the gate and the CLI. It cuts that clause, a `|| check: ...` clause and an `@<sha> <path>` stamp off each line (`hooks/tezgah_lessons.py::parse`). None of them changes the key, the per-turn digest, the cut or the ranking. The gate records a line written after untrusted text in the same turn as a `lesson_tainted` row ([evidence.md](evidence.md)). That line still rides both blocks, behind a per-line data label (`hooks/tezgah_context.py::LESSON_TAINTED`). ADR 010 makes it a row, never a refusal. `bin/tezgah-lessons` proposes rewrites, merges and retirements, and never writes the file.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper; one already in pushed history is reported.
 - **Identifiers and messages stay English.** A branch, a plan slug, a commit subject, a PR or issue title is in the repository - often a public one - from the moment it exists, so the gate refuses one that is not English - any non-ASCII letter, or a Turkish word from a curated list - and names the English to write instead (`hooks/tezgah_policy.py::CORE`, [gate.md](gate.md#language-an-identifier-or-message-that-is-not-english)). The word list behind it is a heuristic, not a language detector, and the rule says so where it refuses.
 - **Session scope: the user's repo, not tezgah.** The session never maintains tezgah itself; a missing capability is one line plus the documented fallback.
 - **Kill switches.** The switch list itself, so a session can tell the user how to disarm a rule it is asked to ignore; pinned against the shipped skill by `tests/test_skills.py::SkillStandards`.
+
+## Reply language and language packs
+
+The reply language is `language` in `~/.config/tezgah/config.json`
+(`hooks/tezgah_paths.py::language`). A config written before the key existed
+may say `reply_lang` instead. It is still read and never rewritten. A config
+with neither key reads as `tr`.
+
+- **Install default.** `tezgah-setup --install --language <code>` stores it.
+  `--reply-lang` is the older spelling of the same flag. A first install with no
+  flag takes the environment's language. That is the first of `LANGUAGE`,
+  `LC_ALL`, `LC_MESSAGES` and `LANG` that is set, cut to its language code. A
+  code with no pack, `C` or `POSIX` gives `en`
+  (`hooks/tezgah_paths.py::env_language`). An install over a config that has
+  neither key writes `tr`. So an upgrade changes no one's reply language
+  (`bin/tezgah-setup::install_common`).
+- **Language packs.** Each language is one data file, `hooks/lang/<code>.json`.
+  `en` and `tr` ship. A pack holds that language's half of every detection
+  class. That covers claims, admissions, openers, closers, residual labels,
+  blocker spellings, prompt hints, constraint shapes, ranking stopwords and
+  reply markers. `hooks/tezgah_paths.py::packs` reads them once. Every reader
+  compiles the union of all packs (`hooks/tezgah_paths.py::alts`). So a prompt
+  or a reply in any shipped language arms the same classes, whatever `language`
+  says. A pack's `word_order` picks the shape of its word-order hints. Turkish
+  is `object_first`, because its object comes before the verb
+  (`hooks/tezgah_context.py::_ui_ask`, `hooks/tezgah_context.py::_fanout`,
+  `hooks/tezgah_context.py::user_constraints`).
+  `tests/test_lang_packs.py` holds every pack to one key set and pins the probe
+  rows the packs must keep.
+- **Contract words.** A pack's `say` map holds the words the contract asks the
+  model to write. Those are the admission (`unverified`), the blocker heading
+  (`Blockers`), the four blocker tokens and the opener examples. `render` fills
+  the placeholders with the configured language's words
+  (`hooks/tezgah_context.py::render`). The Stop refusals use the same map
+  (`hooks/tezgah_integrity.py::_said`). Under `en` and `any` the contract names
+  the canonical English tokens. Under `tr` it names the Turkish ones. There the
+  residual, ready-step and stopped-slice refusals open with a Turkish line,
+  because Claude Code shows a refusal's first line to the user. The Stop rule
+  reads every pack's spelling either way.
+- **Reply check.** The Stop rule's `reply language` class judges only a
+  language whose pack ships reply `markers`, which today is `tr`
+  (`hooks/tezgah_integrity.py::reply_share`). `en` replies are not judged,
+  because an English reply often quotes the user's other language. `any` is
+  never judged.
+
+Adding a language is one file. Copy `hooks/lang/en.json` and write the
+language's words into each class and into `say`. Leave `markers` empty unless
+its replies should be held to it.
 
 ## Which mechanism enforces each always-on rule
 
@@ -260,7 +328,7 @@ sentence of the rule.
 
 | rule | decision |
 |---|---|
-| exec | Only the reply language is refused, and only under `reply_lang` `tr`. Answer-first (BLUF) has no mechanism. |
+| exec | Only the reply language is refused, and only for a language whose pack ships reply markers (`tr`). Answer-first (BLUF) has no mechanism. |
 | fidelity | Only the placating opener is refused, and only while the output-shape switches are on. Delivering the whole ask has no mechanism. |
 | loop | Only an identical repeat is refused, under `verify-off`. Re-running a check that already passed is not refused. |
 | ponytail | no decision |
@@ -305,6 +373,16 @@ arms no paragraph, and no gate enforces the rule. The session-start text ends wi
 telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py::context_for`), whose two appendixes apply only on a machine
 missing the code graph or every consult option (`hooks/tezgah_policy.py::NO_GRAPH`, `hooks/tezgah_policy.py::NO_CONSULT`).
+
+The router's own context gets one line too (`hooks/tezgah_context.py::context_nudge`).
+The prompt hook reads the newest main-thread step's input-side tokens from the
+host transcript (`hooks/tezgah_context.py::context_tokens`). Claude and Codex
+hand that path to every hook. omp's bridge hands over its session file. The
+threshold is `CONTEXT_NUDGE_TOKENS` (`hooks/tezgah_paths.py::CONTEXT_NUDGE_TOKENS`),
+700 k, just under the measured p90 of 724 k. Above it, the line asks the router
+to push heavy reads through a slice, or to run `/compact`. It fires once per session. A
+compaction clears the `nudged` mark, and `orchestrate-off` silences it. A host
+with no transcript pays nothing.
 
 ## How a rule is disarmed
 
@@ -425,7 +503,7 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 
 ## When the injected text grows too large
 
-Each event has a byte budget: `session_start` and `post_compact` 14500,
+Each event has a byte budget: `session_start` and `post_compact` 15500,
 `user_prompt` 6500, `subagent_start` 5500, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
@@ -438,6 +516,8 @@ rules, so the budget moved to 13000 B. The residual rule (plan 080) added
 11972 B (`tests/test_setup.py`). At 13000 B the healthy fixture gave up its
 lessons, plans and steer blocks. At 6000 B the busiest prompt turn gave up its
 active-task line. The session budgets moved to 14500 B, the prompt budget to 6500 B.
+The Ask policy (plan 086, S3) added 913 B to the core. At 14500 B the healthy
+fixture then gave up a lessons, plans or knowledge block. The session budgets moved to 15500 B.
 The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A

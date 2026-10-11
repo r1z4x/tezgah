@@ -37,8 +37,8 @@ try:
 except ImportError:  # not POSIX: a legacy JSONL ledger was appended unlocked
     fcntl = None
 
-from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
-                          root_for)
+from tezgah_paths import (SWITCHES, _toplevel, alts, cache_dir, language, latch,
+                          off, pack_values, packs, root_for, say, spend_cap)
 import tezgah_store as ts
 
 # A command that actually checks the change, as opposed to one that merely runs.
@@ -254,8 +254,10 @@ LITERALS = re.compile(
     r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
     r"/\*(?:.|\n)*?\*/|//[^\n]*|#[^\n]*")
 HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
-# a completion / verification claim, English and Turkish. The forms are the ones
-# the machine's own transcripts were measured to use (161 final replies in
+# a completion / verification claim, in every shipped language: the fragments
+# live in hooks/lang/<code>.json (`done`, `verified`), and `alts` joins every
+# pack's into one alternation (S5). The forms are the ones the machine's own
+# transcripts were measured to use (161 final replies in
 # ~/.omp/agent/sessions/-Projects-tezgah, 2026-09-19): the completed-state
 # spelling is the common one and the list this replaces missed 13 of 15
 # hand-drawn completions - "güncellendi", "Push tamam", "kuruldu", "eklendi",
@@ -264,19 +266,8 @@ HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 # is refused on its evidence whatever the vocabulary says (the trigger below),
 # so this list is read for the claim row's detail - and therefore for the
 # false-completion denominator - not for the verdict.
-DONE = re.compile(
-    r"\b(done|complete[d]?|finished|implemented|fixed|shipped|landed|merged|"
-    r"wired up|wired into|all tests? pass|all checks? pass|"
-    r"(?:tests?|checks?|suite) (?:is |are )?(?:green|passing)|"
-    r"build (?:passes|is green)|"
-    r"yaptım|tamamladım|tamamlandı|bitirdim|bitirildi|ekledim|eklendi|"
-    r"düzelttim|düzeltildi|hallettim|güncellendi|kuruldu|uygulandı|"
-    r"yayına girdi|kapatıldı|yüklendi|"
-    r"tüm testler geçti|testler geçti|testler yeşil|çalışıyor)\b", re.I)
-VERIFIED = re.compile(
-    r"\b(tested|verified|i ran|ran the (?:tests?|suite|build|lint|checks?)|"
-    r"doğruladım|test ettim|kontrol ettim|denetledim|doğrulandı|test edildi)\b",
-    re.I)
+DONE = re.compile(r"\b(%s)\b" % alts("done"), re.I)
+VERIFIED = re.compile(r"\b(%s)\b" % alts("verified"), re.I)
 # The DONE forms that say a check passed ("all tests pass", "testler yeşil"):
 # such a claim rests on a pass even when the turn only edited prose.
 TESTED_WORD = re.compile(r"test|check|suite", re.I)
@@ -285,16 +276,16 @@ TESTED_WORD = re.compile(r"test|check|suite", re.I)
 # it now clears only a class whose repair is a check (ADMITTED_CLASSES), and
 # only when a check ran and failed after the turn's newest change
 # (`_failed_since_change`, applied by `_admitted`).
-NEGATED = re.compile(
-    r"doğrulanmadı|doğrulamadım|unverified|not verified|could ?n[o']t verify|"
-    r"verification (?:was )?skipped|kontrol edilmedi|test edilmedi", re.I)
+NEGATED = re.compile(alts("negated"), re.I)
 ADMITTED_CLASSES = frozenset(("check failed", "partial failure", "stale evidence",
                               "no verify_ok"))
 # What the evidence classes tell the model the admission takes, in one place.
-ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and failed '
+# The admission word and the blocker tokens are the contract's own, filled from
+# the configured language's pack when the refusal is written (`_said`).
+ADMISSION = ('"{UNVERIFIED}" ends the turn only after a check that ran and failed '
              'since the newest change; quote its error line. A failing check of '
              'your own code is work to fix, not a blocker: list it under '
-             '"Engeller" only when it truly is YETKİ or ORTAM, typed so')
+             '"{BLOCKERS_HEADING}" only when it truly is {ACCESS} or {ENV}, typed so')
 # Rule 10 of skills/i-have-adhd/SKILL.md - "No preamble, no recap, no closer" -
 # names the forms a reply may neither open nor close on. Each alternative below
 # is quoted from that rule's own lines; none is invented:
@@ -315,13 +306,9 @@ ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and fai
 # carve-out does not reopen the end: "The user asks to explain or walk through:
 # explain fully. No preamble, no closer, but the body runs as long as the topic
 # needs" - only the body's length is freed.
-SYCOPHANT = re.compile(
-    r"^\s*(?:(?:evet|yes|ah|oh|hmm)[,!\s]+)?"
-    r"(?:haklısın|haklısınız|you'?re (?:absolutely )?right|you are right|"
-    r"absolutely right|good catch|great catch|iyi yakaladın|"
-    r"detaylı bakmadım|i didn'?t look closely|i should have checked|"
-    r"my mistake|my bad|sorry, i|"
-    r"great question|let me\b|i['’]ll\b|sure[!,.]|looking at your\b)", re.I)
+SYCOPHANT = re.compile(r"^\s*(?:(?:%s)[,!\s]+)?(?:%s)"
+                       % (alts("sycophant", "interjection"), alts("sycophant", "opener")),
+                       re.I)
 # The closer half of the same rule. Read on the reply's last PROSE line only
 # (`_closing_prose`), so a reply that ends on a code block, a heading or a table
 # ends on structure and is not judged here at all. Accepted false positive: a
@@ -329,9 +316,7 @@ SYCOPHANT = re.compile(
 # reads the same as making the sign-off. The skill's carve-out does not reopen
 # this end either: an explain/walkthrough run keeps "No preamble, no closer", and
 # the question rule 5 surfaces at the end is the user's question, not a sign-off.
-CLOSER = re.compile(
-    r"let me know if you need anything else|hope (?:this|that) helps|"
-    r"happy to clarify", re.I)
+CLOSER = re.compile(alts("closer"), re.I)
 # The reply shapes the contract bans and nothing counted: a reply that opens on a
 # table, and one that closes on a recap instead of a next action. Read by
 # `shape_flags` for a report-only row - a table is sometimes the right answer and
@@ -342,9 +327,7 @@ HEADING = re.compile(r"^\s*#{1,6}\s")
 FENCE = re.compile(r"^\s*(?:```|~~~)")
 # A closing line that names what comes next is the shape the contract asks for,
 # so its absence on a long reply's last line is what `recap-close` records.
-NEXT_ACTION = re.compile(
-    r"(?i)(?:next (?:step|action|up)|sıradaki adım|sonraki adım|next:)"
-    r"|^\s*(?:→|->)\s")
+NEXT_ACTION = re.compile(r"(?i)(?:%s)|^\s*(?:→|->)\s" % alts("next_action"))
 # A reply longer than this that closes on a recap is `recap-close`.
 SHAPE_LINES = 15
 # A top-level list item: a marker in column 0, the shape rules 2 and 8 count (a
@@ -356,22 +339,19 @@ ITEM = re.compile(r"^(?:\d+[.)]|[-*+])\s")
 # escape for a list whose completeness is the point is "headers so it can be
 # skimmed", and a heading ends the run below, as does any prose line.
 LIST_CAP = 5
-# The reply-language half of the exec rule ("Every user-facing reply in
-# Turkish"). A word list and six letters are not a language detector; they only
-# have to separate Turkish prose from English prose, which differ sharply on
-# both. Calibrated on the owner's omp transcripts (2026-09-27: 16,511 assistant
-# messages, 1,495 with at least LANG_MIN_WORDS prose words): English prose
-# scored 0.000-0.026, the most English-heavy Turkish reply 0.077 and the bulk
-# 0.3-0.7, so the cut sits between the two; 24 of the 1,495 fall under it, all
-# English or Chinese prose. Prose shorter than LANG_MIN_WORDS is not judged - a
-# one-line answer, a path or a command list is too short to call.
-TR_LETTERS = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
-TR_WORDS = frozenset((
-    "ve", "bir", "bu", "şu", "için", "ile", "da", "de", "ama", "fakat", "ya",
-    "veya", "ne", "mi", "mı", "mu", "mü", "çok", "daha", "en", "gibi", "kadar",
-    "sonra", "önce", "var", "yok", "değil", "olarak", "olan", "her", "hem",
-    "ise", "ki", "artık", "hâlâ", "hala", "şimdi", "yani", "diye", "tüm",
-    "bütün", "kalan", "neden", "nasıl", "yeni", "eski", "evet", "hayır"))
+# The reply-language half of the exec rule. A word list and a letter set are
+# not a language detector; they only have to separate the configured
+# language's prose from English, which differ sharply on both: a pack's
+# `markers` (`reply_share`), and a language whose pack ships none is not
+# judged. The tr markers are calibrated on the owner's omp transcripts
+# (2026-09-27: 16,511 assistant messages, 1,495 with at least LANG_MIN_WORDS
+# prose words): English prose scored 0.000-0.026, the most English-heavy
+# Turkish reply 0.077 and the bulk 0.3-0.7, so the cut sits between the two;
+# 24 of the 1,495 fall under it, all English or Chinese prose. The short words
+# Spanish, French and Dutch share with Turkish (de, da, en, ne, ya, her, mi)
+# left the list (S5 F8: they passed those replies as Turkish at 0.07-0.31).
+# Prose shorter than LANG_MIN_WORDS is not judged - a one-line answer, a path
+# or a command list is too short to call.
 PROSE_WORD = re.compile(r"[^\W\d_]+", re.U)
 # Text inside a reply that is not prose in any language: inline code, a URL,
 # a path, a dotted or snake_case identifier, a `path:line` citation.
@@ -381,19 +361,18 @@ LANG_MIN_SHARE = 0.06
 # A lead that announces what follows instead of being it (rule 1 "Lead with the
 # answer", rule 10 "No preamble"). Report-only: "Sonuç:" over a list is an
 # answer label, not a preamble, and the two read the same to a regex.
-PREAMBLE = re.compile(
-    r"(?i)^\s*(?:here(?:'s| is| are)\b|below\b|the following\b|"
-    r"aşağıda|şöyle\b|öncelikle\b|şimdi\b)")
+PREAMBLE = re.compile(r"(?i)^\s*(?:%s)" % alts("preamble"))
 # The Stop classes that judge how a reply is written, not whether its claim has
 # evidence. They stay `claim` rows (the verdict is one row per reply) but are not
 # false completions: counters folds them into `shape_blocked` instead.
 SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
                           "reply language"))
 # The Stop classes that refuse the work a reply left, not its claim: a backed
-# "testler geçti" beside "Açık kalanlar" or a stopped slice is no false
-# completion. Counted in `blocked_claims` under their own class, kept out of
-# `false_completion`.
-LIST_BLOCKS = frozenset(("residual work", "stopped slice"))
+# "testler geçti" beside "Açık kalanlar", a stopped slice or a question the
+# agent could decide is no false completion. Counted in `blocked_claims` under
+# their own class, kept out of `false_completion`.
+LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice",
+                         "needless ask"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
@@ -444,7 +423,9 @@ USER_ERROR = re.compile(
     r"authentication (?:failed|required)|"
     r"(?:invalid|missing|no|bad|expired) (?:api[ _-]?key|credentials?)|"
     r"(?:api[ _-]?key|token|credentials?) (?:is |are |has )?(?:invalid|missing|expired)|"
-    r"not logged in|login required", re.I)
+    r"not logged in|login required|"
+    # a spent quota is a grant only the user can renew (S4 finding 6)
+    r"quota|key limit exceeded|usage limit", re.I)
 PERMANENT_ERROR = re.compile(
     r"command not found|no such file|not found|cannot find|permission denied|"
     r"unrecognized|unknown option|invalid|syntax error|does not exist|"
@@ -501,6 +482,16 @@ PERMANENT_ERROR = re.compile(
 # slices the turn like any other, and it is no boundary for `_in_flight`.
 # `reask` is a Stop refusal row's `_prompt_key` of its own text: the key the
 # `turn` row carries when a host hands the refusal back as a prompt (plan 083).
+# `open`, `ready` and `blocked` are a `todo` row's counts of the host's todo list
+# (`note_todo`), and `heads` the list of its ready items' heads, each redacted:
+# `detail` holds the same heads, one per line, under the row's cut.
+# `residual` is a `subagent_end` row's count of residual items no blocker type
+# accounts for (`unblocked_items`): the parent's Stop owes them (S4 finding 2).
+# `questions` and `defaults` are an `ask` row's counts (`note_ask`): the
+# questions an ask-tool call put to the user and how many carried a
+# recommended option. A `grant` row's `target` is the outward class a user's
+# grant covers (`all`, or an OUTWARD key), or `lift:<class>` when a prompt took
+# it back (`grants_in_force`).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -509,7 +500,8 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
-                           "reask"))
+                           "reask", "open", "ready", "blocked", "heads", "residual",
+                           "questions", "defaults"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -1187,9 +1179,10 @@ def scratch_target(path, cwd=None):
     return False
 
 
-def writers_elsewhere(path, session_id, minutes=10, cwd=None):
+def writers_elsewhere(path, session_id, minutes=10, cwd=None, lineage=False):
     """The other sessions that recorded a write of `path` in the last `minutes`,
-    newest first, as ledger ids.
+    newest first, as ledger ids. With `lineage`, each one is a (ledger id,
+    relation, agent, newest write ts) tuple instead (`_relation`).
 
     `path` is resolved against `cwd` (`_abs_target`) and matched against the
     `target` the writing session's PostToolUse hook stored, which is that
@@ -1234,7 +1227,69 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
             continue
         if isinstance(row, dict) and row.get("target") == want:
             found[stem] = max(found.get(stem, stamp), stamp)
-    return sorted(found, key=lambda stem: -found[stem])
+    stems = sorted(found, key=lambda stem: -found[stem])
+    return [(stem,) + _relation(stem, session_id) + (found[stem],)
+            for stem in stems] if lineage else stems
+
+
+# The rows that name a session's lineage at its start: `spawned` (a subagent's
+# parent, written by the hosts' subagent start) and `forked` (an omp fork's
+# parent, written by the omp hook from the session header's `parentSession`).
+LINEAGE_KINDS = ("spawned", "forked")
+
+
+def _lineage(stem):
+    """{kind: (parent ledger id, raw parent id, agent)} of the first row of each
+    LINEAGE_KINDS in ledger `stem`; {} when it has none or cannot be read."""
+    out = {}
+    for kind in LINEAGE_KINDS:
+        try:
+            texts = ts.evidence_rows(os.path.join(cache_dir(), "evidence",
+                                                  stem + ".jsonl"), kind=kind)
+        except ts.ERRORS:
+            continue
+        for text in texts:
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("parent"):
+                raw = str(row["parent"])
+                out[kind] = (_slug(raw), raw, str(row.get("agent") or ""))
+                break
+    return out
+
+
+def _relation(stem, session_id):
+    """(relation, agent) of writer ledger `stem` to session `session_id`: `child`
+    (its `spawned` row names this session; agent is the child's name),
+    `parent`, `sibling` (both spawned by one parent), `fork` (an omp fork of
+    this session), `forked-from` (the session this one was forked from), else
+    `unrelated`. The race rule names it and exempts a child that has ended
+    (research orchestrator-flow-audit S7, findings 3 and 4)."""
+    theirs, mine = _lineage(stem), _lineage(_slug(session_id))
+    spawn, fork = theirs.get("spawned"), theirs.get("forked")
+    if spawn and spawn[1] == session_id:
+        return "child", spawn[2]
+    if fork and fork[1] == session_id:
+        return "fork", ""
+    own_spawn, own_fork = mine.get("spawned"), mine.get("forked")
+    if own_spawn and own_spawn[0] == stem:
+        return "parent", ""
+    if own_fork and own_fork[0] == stem:
+        return "forked-from", ""
+    if spawn and own_spawn and spawn[1] == own_spawn[1]:
+        return "sibling", spawn[2]
+    return "unrelated", ""
+
+
+def spawn_of(session_id):
+    """(raw parent session id, spawned name) from this session's `spawned` row,
+    else None: how a subagent's own session finds its slice record (the lease
+    rule, `tezgah_gate.lease_reason`). The name is omp's child file stem, so a
+    re-dispatch reads `<name>-2`."""
+    hit = _lineage(_slug(session_id)).get("spawned") if session_id else None
+    return (hit[1], hit[2]) if hit and hit[2] else None
 
 
 def _prompt_key(text):
@@ -3206,9 +3261,55 @@ def unanswered(rows, delivered=()):
     return sum(1 for row in waiting if row.get("tool") in seen)
 
 
+# The host todo list is the orchestrator's step queue (plan 086, S1): each open
+# item is ready, in progress or blocked. These tools carry the whole list: omp's
+# `todo` in its result (`details.phases`, which the bridge sends as `todo`, since
+# the call holds one op), Claude's and dsh's `TodoWrite`, opencode's `todowrite`
+# and Cursor's `todo_write` in `todos[]`, Codex's `update_plan` in `plan[]`.
+TODO_TOOLS = frozenset(("todo", "todowrite", "todo_write", "update_plan"))
+# The statuses that close an item. `pending` is ready; `in_progress` is open and
+# taken, so it is not ready; omp's `blocked` (an item with a `blocker`) is open
+# and waits on something named.
+TODO_CLOSED = frozenset(("completed", "done", "cancelled", "abandoned"))
+TODO_ROW = re.compile(r'"kind"\s*:\s*"todo"')
+# How much of each ready item the row keeps: a head that names it in a refusal.
+TODO_HEAD = 60
+
+
+def note_todo(session_id, tool, inp, snapshot=None, cwd=None, agent=None):
+    """Write one `todo` row for a todo call: the `open`, `ready` and `blocked`
+    counts, every ready item's head in `heads` (redacted, TODO_HEAD characters
+    each) and the same heads in `detail`, one per line, which the row's cut may
+    shorten. A call whose list is not in hand (an omp `todo` result without
+    its `details`) writes nothing, so it cannot read as an empty queue. An item
+    whose own text types a blocker (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM, or
+    `blocked`) counts as blocked: Claude's and Codex's lists have no blocked
+    status. `agent` is the host's subagent id: a subagent's list is its own,
+    and the readers skip it. ponytail: a Cursor `merge: true` call carries
+    only the items it changes and is recorded as the whole list, so its counts
+    can run low."""
+    raw = snapshot if snapshot is not None else inp.get("todos", inp.get("plan"))
+    if not isinstance(raw, list):
+        return
+    items = [(str(i.get("content") or i.get("step") or "").strip(),
+              "blocked" if i.get("blocker") else str(i.get("status") or "pending").lower())
+             for i in raw if isinstance(i, dict)]
+    items = [(text, status) for text, status in items
+             if text and status not in TODO_CLOSED]
+    blocked = [text for text, status in items if status == "blocked" or
+               BLOCKER_SAID.search(text) or BLOCKER_TRIED.search(text)
+               or re.search(r"\bblocked\b", text, re.I)]
+    heads = [_stored_text(" ".join(text.split()))[:TODO_HEAD] for text, status in items
+             if status == "pending" and text not in blocked]
+    note(session_id, "todo", "\n".join(heads),
+         id=call_id(tool, inp), tool=str(tool or "").strip() or None,
+         workspace=root_for(cwd) if cwd else None, agent=agent or None,
+         open=len(items), ready=len(heads), blocked=len(blocked), heads=heads)
+
+
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
               out_bytes=None, error=None, cwd=None, source=None, empty_run=False,
-              agent=None, host=None):
+              agent=None, host=None, todo=None, child=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -3254,8 +3355,22 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     `agent` is the host's subagent id (Claude's `agent_id`), written into the
     row's `agent` field so the turn readers can key on (session, agent).
     `host` names the calling host for the slice journal (`_note_slice`); None
-    reads it off the hook process (`_hook_host`)."""
+    reads it off the hook process (`_hook_host`). `child` is the id a spawn's
+    result gave a background child (Claude's `agentId`), stored on its slice
+    record so the lease rule finds it. A todo call (TODO_TOOLS)
+    writes its `todo` row instead (`note_todo`), from `todo` when the host's
+    list is in the result rather than the call (omp). omp's `wait` writes a
+    `wait` row: no step, the call the idle-wait warning counts as idle."""
     inp = inp or {}
+    name = str(tool or "").strip().lower()
+    if name in TODO_TOOLS:
+        if not failed and not interrupted:
+            note_todo(session_id, tool, inp, todo, cwd, agent)
+        return
+    if name == "wait":
+        note(session_id, "wait", "", id=call_id(tool, inp), tool="wait",
+             workspace=root_for(cwd) if cwd else None)
+        return
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
     if kind == "verify":
@@ -3344,7 +3459,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         fields["repo"] = _check_repo(cmd, cwd, inp)
         fields["empty_run"] = True if empty_run else None
     note(session_id, kind, detail, **fields)
-    _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host)
+    _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host, child)
     if kind == "edit" and not failed:
         # the taste capture (tezgah_taste, opt-in): the edit's text under this
         # row's id, and the bytes it left - read here because only PostToolUse
@@ -3390,7 +3505,8 @@ def _hook_host():
     return name
 
 
-def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
+def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host,
+                child=None):
     """Hand a spawn call to the slice journal (`tezgah_task.note_spawn`), and
     open a `job` record for an omp `bash` call sent to the background, so a
     `/clear` keeps the pointer to the run. Swallows every exception.
@@ -3399,7 +3515,8 @@ def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
     the child is no longer running, so a call with no failure signal (dsh's
     bridge sends none) closes as done rather than staying open forever - a
     journal entry, never a pass on the ledger. A Claude call sent with
-    `run_in_background` returns before its child ends and stays open."""
+    `run_in_background`, or whose result names a background `child`, returns
+    before its child ends and stays open."""
     name = str(tool or "").strip().lower()
     if not cwd:
         return
@@ -3410,14 +3527,15 @@ def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
             spawn = getattr(tt, "note_spawn", None)
             if spawn is None:
                 return
-            sync = host in SYNC_SPAWN_HOSTS and inp.get("run_in_background") is not True
+            sync = (host in SYNC_SPAWN_HOSTS and inp.get("run_in_background") is not True
+                    and not child)
             text = str(error or "") or ("aborted" if interrupted else "")
             # Codex's hook maps `spawn_agent` onto `Task` before this row; the
             # journal parses the call by the host's own name and fields
             spawn(cwd, session_id, host,
                   "spawn_agent" if host == "codex" else tool, inp,
                   failed=bool(failed or interrupted or error) if sync else None,
-                  result_text=text)
+                  result_text=text, **({"child": child} if child else {}))
         elif host == "omp" and name == "bash" and inp.get("async") is True:
             opener = getattr(tt, "open_slice", None)
             root = _toplevel(os.path.realpath(cwd))
@@ -3505,9 +3623,7 @@ def ran_nothing(result):
 # `claims` is the false-done reader the benchmarks count with; the Stop verdict
 # and its claim row read the vocabulary (`asserted_claims`), where an admitted
 # claim is a claim NEGATED lets through.
-ADMITTED = re.compile(
-    r"contradict|çeliş|unsatisfiable|(?:can ?not|can't|can ?never|never) pass|"
-    r"geçemez|impossible|imk[aâ]nsız", re.I)
+ADMITTED = re.compile(alts("admitted"), re.I)
 
 
 def claims(text):
@@ -3526,10 +3642,10 @@ def claims(text):
 # the clause after it. So "Don't worry, it's done.", "All tests pass so should
 # I open the PR?", "Done (no regressions?)" and "Tamamlandı, push edeyim mi?"
 # all still assert.
-NEGATION_BEFORE = re.compile(r"(?:\bnot|n't|\bnever|\bdeğil)(?:\s+\S+){0,2}\s+\Z",
+NEGATION_BEFORE = re.compile(r"(?:%s)(?:\s+\S+){0,2}\s+\Z" % alts("negation_before"),
                              re.I)
-QUESTION_PARTICLE = re.compile(r"\s*(?:m[ıiuü]|değil)\b", re.I)
-CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:so|and|but|ama|ve)\b",
+QUESTION_PARTICLE = re.compile(r"\s*(?:%s)\b" % alts("question_particle"), re.I)
+CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:%s)\b" % alts("clause_join"),
                         re.I)
 
 
@@ -3869,9 +3985,11 @@ def last_verify(session_id):
     return _last_verify(events(session_id))
 
 
-def last_check(session_id):
+def last_check(session_id, repo=None):
     """The newest verification row the ledger holds - a `verify_ok` or a
     `verify_fail`, with its command in `detail` - or None when no check ran.
+    With `repo`, a check whose own `repo` names another repository is skipped
+    (`_same_repo`): a check run in another project says nothing about this one.
 
     `last_verify` answers the same question as a state; this hands the row back
     for a reader that has to name the command the state came from, the way the
@@ -3881,7 +3999,8 @@ def last_check(session_id):
     buys out of."""
     newest = None
     for row in events(session_id, tail=SCRATCH_TAIL):
-        if row.get("kind") in ("verify_ok", "verify_fail"):
+        if row.get("kind") in ("verify_ok", "verify_fail") \
+                and _same_repo(row.get("repo"), repo):
             newest = row
     return newest
 
@@ -4041,13 +4160,32 @@ def prose_words(text):
     return words
 
 
-def turkish_share(words):
-    """The share of `words` that mark Turkish: a Turkish letter in the word, or
-    a word from TR_WORDS. None for an empty list."""
-    if not words:
+def _markers(code):
+    """Pack `code`'s reply markers as (words, letters), or None when it ships
+    none: only such a language's replies are held to it."""
+    marks = packs().get(code, {}).get("markers") or {}
+    words, letters = frozenset(marks.get("words", ())), "".join(marks.get("letters", ()))
+    return (words, letters) if words or letters else None
+
+
+def reply_share(words, code="tr"):
+    """The share of `words` that mark language `code` (`_markers`): a marker
+    letter in the word, or a marker word. None for an empty list or a language
+    with no markers."""
+    marks = _markers(code)
+    if not words or not marks:
         return None
-    hits = sum(1 for w in words if w in TR_WORDS or TR_LETTERS.search(w))
+    hits = sum(1 for w in words if w in marks[0] or any(c in marks[1] for c in w))
     return round(hits / len(words), 3)
+
+
+def _said(text):
+    """`text` with each `{WORD}` placeholder filled with the configured
+    language's contract word (`tezgah_paths.say`): the refusal names the
+    tokens the contract the model was given names."""
+    for key, word in say().items():
+        text = text.replace("{%s}" % key.upper(), word)
+    return text
 
 
 def reply_shape(text):
@@ -4077,7 +4215,7 @@ def reply_shape(text):
     return {"lines": len(lines), "chars": len(text),
             "items": sum(1 for line in lines if ITEM.match(line)),
             "longest_list": longest_list(text),
-            "tr_share": turkish_share(prose_words(text)),
+            "tr_share": reply_share(prose_words(text)),
             "answer_first": answer_first}
 
 
@@ -4151,8 +4289,7 @@ def _shape_block(text, cwd):
                     "Start with the answer: \"Great question\" / \"Let me...\" / "
                     "\"I'll...\" / \"Sure!\" / \"Looking at your...\" are never "
                     "the first line. If the user is right, state the fact and the "
-                    "fix in one plain sentence - never \"haklısın\" / \"you're "
-                    "right\" / \"detaylı bakmadım\" / an apology.")
+                    "fix in one plain sentence - {OPENER_BAN}.")
         # only the last prose line is read, so a reply that ends on a code
         # block, a heading or a table is not judged here at all
         last = _closing_prose(lines)
@@ -4162,7 +4299,7 @@ def _shape_block(text, cwd):
                     "(rule 10: no preamble, no recap, no closer): \"Let me know "
                     "if you need anything else\" / \"Hope this helps\" / \"Happy "
                     "to clarify\". End when the answer is done; what is left is "
-                    "done now, or named under \"Engeller\" as a blocker.")
+                    "done now, or named under \"{BLOCKERS_HEADING}\" as a blocker.")
         longest = longest_list(text)
         if longest > LIST_CAP:
             return ("list cap",
@@ -4173,20 +4310,22 @@ def _shape_block(text, cwd):
                     "whole enumeration is the point, split it under headings of "
                     "at most five items each, or give it as a table."
                     % (longest, LIST_CAP))
-    # `reply_lang` is the switch, and only `tr` is judged: this is a Turkish
-    # detector, and an English reply carries the contract's own hedge word or
-    # quotes the user's Turkish, so it cannot hold a reply to English (`en`).
-    if reply_lang() == "tr" and not off("exec-mode.off"):
+    # `language` is the switch, and only a pack that ships reply markers (tr)
+    # is judged: the markers tell that language from English, and an English
+    # reply quotes the user's other language, so English is not held to.
+    if _markers(language()) and not off("exec-mode.off"):
         words = prose_words(text)
-        share = turkish_share(words)
+        share = reply_share(words, language())
+        name = packs()[language()]["name"]
         if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
             return ("reply language",
-                    "Reply prose is not in Turkish (%d prose words, %.0f%% of "
-                    "them Turkish). The contract's first rule: every user-facing "
-                    "reply is in Turkish, even when the user writes English. "
-                    "Rewrite the prose in Turkish; code, commands, paths, "
+                    "Reply prose is not in %s (%d prose words, %.0f%% of "
+                    "them %s). The contract's first rule: every user-facing "
+                    "reply is in %s, even when the user writes English. "
+                    "Rewrite the prose in %s; code, commands, paths, "
                     "identifiers and quoted output stay as they are (put them in "
-                    "backticks or a code block)." % (len(words), share * 100))
+                    "backticks or a code block)."
+                    % (name, len(words), share * 100, name, name, name))
     return (None, None)
 
 
@@ -4205,7 +4344,8 @@ def _blocked(entry):
 
 
 def _turn_refusals(session_id, rows):
-    """This rule's refusal rows in the user turn `rows` belongs to.
+    """(this rule's refusal rows in the user turn `rows` belongs to, that turn's
+    rows).
 
     omp hands a Stop block back to the model as a queued message, and its
     prompt hook records that text as a new `turn` row (`note_turn`), so the
@@ -4215,10 +4355,14 @@ def _turn_refusals(session_id, rows):
     new user turn, and that turn's refusals count too. Read back no further
     than STOP_REASKS refusals, and only the lines that carry a `reask` key are
     parsed: the Stop path stays a read of the turn, not of the session
-    (StopReadBound)."""
+    (StopReadBound). When the chain reaches back, the rows returned run from
+    the chain's first turn with the re-ask markers left out, so the reply after
+    a block is judged on the turn's whole work, as on a host that writes no
+    such marker (S4 finding 1)."""
     refused = [entry for entry in rows if _blocked(entry)]
-    lines = _ledger_lines(_path(session_id))
-    end = _turn_line(lines)
+    path = _path(session_id)
+    lines = _ledger_lines(path)
+    end = first = _turn_line(lines)
     while end and len(refused) < STOP_REASKS:
         marker = _parse([lines[end - 1]])
         start = _turn_line(lines[:end - 1])
@@ -4230,7 +4374,11 @@ def _turn_refusals(session_id, rows):
             break
         refused = before + refused
         end = start
-    return refused
+    if end != first:
+        rows = [row for row in _pair(_parse(lines[end:], path), path, lines,
+                                     lines[:end])
+                if row.get("kind") != TURN_KIND]
+    return refused, rows
 
 
 def _record_only(refused, turns, after_block, cls):
@@ -4252,7 +4400,7 @@ def _record_only(refused, turns, after_block, cls):
 
 
 def stop_reason(text, session_id, cwd=None, after_block=0,
-                subagent=False, agent=None):
+                subagent=False, agent=None, parent=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
     `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
@@ -4297,13 +4445,15 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
     blocked, not that this one did. `subagent` is a subagent's end (ADR 011):
     judged the same way, never refused, recorded as a `subagent_end` row with
     the same detail vocabulary, the host's subagent id in `agent` when it sent
-    one, and no turn precondition. Both return None. A reply counts as
+    one, and no turn precondition. `parent` is the ledger that row goes to when
+    the child keeps a ledger of its own (omp's task sessions); the child's own
+    rows still judge it. Both return None. A reply counts as
     claiming only with `asserted_claims`: "Testler geçti mi?" leaves no
     `claim ok` row."""
     rows, turns = turn_rows(session_id, turns=True)
-    refused = [str(entry.get("detail"))[len("blocked: "):] for entry in
-               (_turn_refusals(session_id, rows) if turns
-                else filter(_blocked, rows))]
+    chain, rows = (_turn_refusals(session_id, rows) if turns
+                   else (list(filter(_blocked, rows)), rows))
+    refused = [str(entry.get("detail"))[len("blocked: "):] for entry in chain]
     if after_block and not subagent and not refused:
         return None
     cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
@@ -4349,10 +4499,12 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
                 raise
     # A refusal is skipped only as the same verdict on the same reply: the same
     # reply text refused for a new class is the turn's next refusal, and
-    # `_record_only` counts refusals by these rows.
+    # `_record_only` counts refusals by these rows. A row bound for a parent's
+    # ledger is looked up there, so one child's end is one row.
     if not any(entry.get("kind") == kind and entry.get("id") == key
                and (entry.get("detail") == detail or not reason)
-               for entry in rows):
+               and (not parent or entry.get("agent") == (str(agent) if agent else None))
+               for entry in (turn_rows(parent) if parent else rows)):
         if cls == "no verify_ok" and not record_only:
             shape = dict(shape, cause=_no_pass_cause(rows))
         if reason:
@@ -4360,6 +4512,13 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
             shape = dict(shape, reask=_prompt_key(str(reason).strip()))
         if subagent and agent:
             shape = dict(shape, agent=str(agent))
+        if subagent:
+            # the child is never refused (ADR 011); the parent's Stop reads
+            # this count (`_residual_block`), so an untyped item handed up
+            # still owes a type before the user's turn ends
+            handed = len(unblocked_items(text, rows))
+            if handed:
+                shape = dict(shape, residual=handed)
         if kind == "claim":
             # "harness drifted" rides on the claim as a record, read from the
             # mark the session start left; it never refuses the turn. Imported
@@ -4371,7 +4530,7 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
                 drifted = ""
             if drifted:
                 shape = dict(shape, harness="drifted: " + drifted)
-        note(session_id, kind, detail, id=key, **shape)
+        note(parent or session_id, kind, detail, id=key, **shape)
     return reason
 
 
@@ -4412,18 +4571,59 @@ WORK_KINDS = frozenset(STEP_KINDS) - {"verify_ok"}
 # that writes would excuse an unverified change.
 READ_ONLY_PROGRAMS = frozenset((
     "ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "which", "stat",
-    "du", "df", "date", "whoami", "grep", "rg", "cd", "true"))
+    "du", "df", "date", "whoami", "grep", "rg", "cd", "true", "find", "jq", "sort",
+    "diff", "ps", "curl"))
 GIT_BOOKKEEPING = frozenset((
     "status", "log", "diff", "show", "add", "commit", "push", "fetch", "branch",
     "tag", "remote", "rev-parse", "describe", "shortlog", "blame", "ls-files"))
+# The git subcommands that only read: a turn made of these and READ_ONLY_PROGRAMS
+# owes no check at all (`_stop_block`, S4 finding 3). A command not on the lists
+# is work - an unknown program owes the check, a known one never excuses a write.
+GIT_READS = GIT_BOOKKEEPING - {"add", "commit", "push", "fetch", "branch", "tag",
+                               "remote"}
+# ssh's options that take the next word, so the host is read after them
+SSH_VALUE_OPTS = frozenset(("-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
+                            "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S",
+                            "-W", "-w"))
+# sqlite3 arguments that write a file or run a script even on a read-only open:
+# a dot-command that writes, runs or reads one, an init script, a second
+# database, a vacuum into a file
+SQLITE_WRITE = re.compile(r"^\s*\.(?:output|once|shell|system|save|backup|import|"
+                          r"excel|clone|log|trace|cd|open|read)\b|^-{1,2}init\b|"
+                          r"\battach\b|\bvacuum\b", re.I | re.M)
+# sqlite3's options that take the next word, so the database is read after them
+SQLITE_VALUE_OPTS = frozenset(("cmd", "init", "separator", "newline", "nullvalue",
+                               "vfs", "lookaside", "pagecache", "mmap", "heap",
+                               "maxsize", "escape"))
+# A script argument of sed or awk that writes a file or runs a command: sed's
+# `w`/`W`/`e` commands and flags, awk's redirect, pipe, system() and getline.
+SCRIPT_WRITE = {"sed": re.compile(r"(?:^|[;}/\n$\d])\s*[wWe]\b"),
+                "awk": re.compile(r"[>|]|\b(?:system|getline)\b"),
+                "gawk": re.compile(r"[>|]|\b(?:system|getline)\b")}
+# The read verbs of a program whose subcommand decides what it does
+SUBCOMMAND_READS = {"gh": (("pr", "view"), ("pr", "list"), ("issue", "view"),
+                           ("issue", "list")),
+                    "codegraph": (("explore",), ("callers",), ("callees",),
+                                  ("impact",), ("search",), ("node",), ("files",),
+                                  ("status",))}
 # The options that make an allowlisted program write a file or run one after
-# all (review F6): git's `--output` and external diff/textconv drivers,
-# ripgrep's `--pre`. A word that starts with one of these is not a read.
-# `tree` and `file` left the list instead of growing one here: tree writes
-# through clustered short options (`-fo out`) and `-R -H`, file through `-C`
-# (review N4).
-WRITING_OPTIONS = {"git": ("--output", "--ext-diff", "--textconv"),
-                   "rg": ("--pre",)}
+# all (review F6), as a pattern read at an argument's start: git's `--output`
+# and external diff/textconv drivers, ripgrep's `--pre`, find's actions, a
+# short-option cluster holding sort's `-o`, sed's `-i`/`-f`, awk's `-i`/`-f`,
+# and curl's writes to a file and non-GET requests. `tree` and `file` left the
+# list instead of growing one here: tree writes through clustered short options
+# (`-fo out`) and `-R -H`, file through `-C` (review N4).
+WRITING_OPTIONS = {
+    "git": re.compile(r"--(?:output|ext-diff|textconv)"),
+    "rg": re.compile(r"--pre"),
+    "find": re.compile(r"-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$"),
+    "sort": re.compile(r"-[^-]*o|--output"),
+    "sed": re.compile(r"-[^-]*[if]|--(?:in-place|file)"),
+    "awk": re.compile(r"-[^-]*[if]|--(?:include|file|load)"),
+    "gawk": re.compile(r"-[^-]*[if]|--(?:include|file|load|inplace)"),
+    "curl": re.compile(r"-[^-]*[oOdTFKXcD]|--(?:output|remote-name|data|upload-file|"
+                       r"form|json|request|config|cookie-jar|dump-header|trace|"
+                       r"stderr|libcurl|etag-save|hsts|alt-svc|create-dirs)")}
 # git global options that set configuration or the program path, and so can
 # name a program a read subcommand then runs (`git -c diff.external=./x diff`)
 GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
@@ -4505,12 +4705,18 @@ def _shell_read(cmd):
     return ">" in text or "<(" in text, "".join(out).replace("<", " ")
 
 
-def _bookkeeping_command(cmd):
-    """True when every simple command of `cmd` reads, or does VCS bookkeeping
-    that changes no working-tree file. A redirect, a substitution, an env
-    assignment in front of a program, a git config override and an option that
-    makes a reader write (`WRITING_OPTIONS`) are never bookkeeping: each can
-    write or run something this reader does not follow.
+def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
+    """True when every simple command of `cmd` reads, or runs a git subcommand
+    in `git` (VCS bookkeeping that changes no working-tree file by default,
+    GIT_READS for a pure read). A redirect, a substitution, an env assignment
+    in front of a program, a git config override and an option that makes a
+    reader write (`WRITING_OPTIONS`) are never bookkeeping: each can write or
+    run something this reader does not follow. `sed` and `awk` read with no
+    writing script (`SCRIPT_WRITE`), `uniq` with one operand, `gh` and
+    `codegraph` with a read verb (`SUBCOMMAND_READS`). `sqlite3` reads with a
+    read-only open (the option, or `mode=ro` in the database URI) and no
+    writing dot-command or stdin (`SQLITE_WRITE`), `ssh` with a remote command
+    that is itself one of these reads.
 
     ponytail: `git commit` and `git push` run the repository's hooks, and a
     pre-commit autofixer can rewrite files the row never names. They stay on
@@ -4532,9 +4738,44 @@ def _bookkeeping_command(cmd):
         if "/" in words[i]:
             return False
         program, args = words[i], words[i + 1:]
-        if any(a.startswith(WRITING_OPTIONS.get(program, ("\0",))) for a in args):
+        writes = WRITING_OPTIONS.get(program)
+        if writes and any(writes.match(a) for a in args):
             return False
         if program in READ_ONLY_PROGRAMS:
+            continue
+        plain = [a for a in args if not a.startswith("-")]
+        if program in SCRIPT_WRITE:
+            if any(SCRIPT_WRITE[program].search(a) for a in plain):
+                return False
+            continue
+        if program == "uniq":
+            # `uniq IN OUT` writes its second operand
+            if len(plain) > 1:
+                return False
+            continue
+        if program in SUBCOMMAND_READS:
+            if not any(tuple(plain[:len(verb)]) == verb
+                       for verb in SUBCOMMAND_READS[program]):
+                return False
+            continue
+        if program == "sqlite3":
+            j, ro = 0, False
+            while j < len(args) and args[j].startswith("-"):
+                ro = ro or args[j].lstrip("-") == "readonly"
+                j += 2 if args[j].lstrip("-") in SQLITE_VALUE_OPTS else 1
+            db = args[j] if j < len(args) else ""
+            # read-only from the option or the database URI itself, never
+            # from words in the SQL
+            ro = ro or (db.startswith("file:") and "mode=ro" in db.partition("?")[2])
+            if "<" in raw or not ro or any(SQLITE_WRITE.search(a) for a in args):
+                return False
+            continue
+        if program == "ssh":
+            j = 0
+            while j < len(args) and args[j].startswith("-"):
+                j += 2 if args[j][:2] in SSH_VALUE_OPTS and len(args[j]) == 2 else 1
+            if j + 1 >= len(args) or not _bookkeeping_command(" ".join(args[j + 1:]), git):
+                return False
             continue
         if program != "git":
             return False
@@ -4543,14 +4784,15 @@ def _bookkeeping_command(cmd):
             if args[j].startswith(GIT_CONFIG_OPTS):
                 return False
             j += 2 if args[j] in GIT_VALUE_OPTS else 1
-        if j >= len(args) or args[j].lower() not in GIT_BOOKKEEPING:
+        if j >= len(args) or args[j].lower() not in git:
             return False
     return bool(segs)
 
 
-def _bookkeeping_turn(rows):
-    """True when every work row in `rows` is a shell call that read or did VCS
-    bookkeeping and was not seen to change a file.
+def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):
+    """True when every work row in `rows` is a shell call that read or ran a
+    git subcommand in `git` (`_bookkeeping_command`) and was not seen to
+    change a file.
 
     A detail of DETAIL_MAX characters or more is never bookkeeping: the ledger
     cut it there, and the command after the cut is unread (review F1). Nor is
@@ -4561,7 +4803,7 @@ def _bookkeeping_turn(rows):
         r.get("kind") == "run" and not _change_row(r)
         and len(str(r.get("detail") or "")) < DETAIL_MAX
         and "[redacted:" not in str(r.get("detail") or "")
-        and _bookkeeping_command(r.get("detail")) for r in steps)
+        and _bookkeeping_command(r.get("detail"), git) for r in steps)
 
 
 def _settled(rows):
@@ -4638,7 +4880,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
             import tezgah_stopspec
             tezgah_stopspec.check(verdict[0], text, session_id, rows, cwd, shape)
-        return verdict
+        return (verdict[0], verdict[1] and _said(verdict[1]))
     t = str(text or "")
     shaped = _shape_block(t, cwd) if shape else (None, None)
     if shaped[0]:
@@ -4671,7 +4913,13 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     if not worked and any(_prose_edit(r) for r in rows) and (
             verified or any(TESTED_WORD.search(m.group(0)) for m in DONE.finditer(t))):
         worked = {"edit"}
-    if not worked:
+    # A turn whose steps are only reads - every simple command a known reader
+    # or a git read (`_bookkeeping_turn` with GIT_READS), no change row - is
+    # judged like a turn that did no work (S4 finding 3): a `git status`, a
+    # `tail` or a read-only query owes no check. Its claim words are read the
+    # same way, and a claim is judged against the session's earlier turns below.
+    quiet = _bookkeeping_turn(rows, GIT_READS)
+    if not worked or quiet:
         # With no work, the words are the whole trigger, so a question or a
         # negation is not read as the claim it names (`asserted_claims`).
         done, verified = asserted_claims(t)
@@ -4695,7 +4943,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # exit below - "nothing was done and nothing was claimed" - is exactly the
     # shape that used to leave such a claim unjudged.
     external = _external_claim(t)
-    if not worked and not (done or verified) and not external:
+    if (not worked or quiet) and not (done or verified) and not external:
         return _residual_block(t, rows, shape, session_id=session_id, cwd=cwd)
     if lost:
         return _residual_block(t, rows, shape,
@@ -4726,7 +4974,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 return _residual_block(t, rows, shape, fold(
                     _before_turn(srows), True, None, "this session"),
                     session_id, cwd)
-        elif not worked and (done or verified):
+        if (not worked or quiet) and (done or verified):
             # A claim in a turn that did nothing: "Tamamlandı, tüm testler
             # geçti" after a turn that edited and ended "doğrulanmadı" was
             # allowed on all five Stop hosts (audit INT-01 / M-2).
@@ -4736,7 +4984,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 "this session")
             if refused[0]:
                 return refused
-    return _residual_block(t, rows, shape, fold(rows, worked, external),
+    judged = rows
+    if quiet:
+        # the fold reads work off the rows too (the spec's `W` atom), so a turn
+        # of reads hands it none - only an external read, the one thing such a
+        # turn can prove
+        judged, worked = [r for r in rows if not _work_row(r) or (
+            external and _external_read_row([r]) == 0)], set()
+    return _residual_block(t, rows, shape, fold(judged, worked, external),
                            session_id, cwd)
 
 
@@ -4819,10 +5074,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "its output, or read the rendered screen (`analyze-app`: the "
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
-                "what a person sees, and \"doğrulanmadı\" does not stand in for "
+                "what a person sees, and \"{UNVERIFIED}\" does not stand in for "
                 "the screen; if nothing can render it here, write "
-                "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM with "
-                "the command that failed."
+                "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
+                "with the command that failed."
                 % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
@@ -4846,7 +5101,7 @@ def _evidence_block(rows, worked, external, where="this turn"):
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
                     "violation it prints; if the check cannot run here, write "
-                    "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM "
+                    "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
                     "with the command that failed."
                     % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,
@@ -4956,18 +5211,13 @@ EXTERNAL_SYSTEM = re.compile(
     r"\b(?:npm|yarn|pnpm|pip|pypi|py ?pi|crates(?:\.io)?|rubygems|gem|"
     r"brew|homebrew|formula|tap|dist-tag|tarball|registry|releases?|tags?|"
     r"workflow|pipeline|ci|github)\b", re.I)
-EXTERNAL_STATE = re.compile(
-    r"\b(?:missing|absent|unpublished|exists?|not (?:published|released|found|"
-    r"there|listed|present)|published|released|deprecated|outdated|stale|"
-    r"yok|eksik|yayımlan|yayınlan)\b", re.I)
+EXTERNAL_STATE = re.compile(r"\b(?:%s)\b" % alts("external_state"), re.I)
 # The status of a run, which pairs with a CI subject alone: "the workflow is red"
 # and "CI passed" are claims about a system tezgah does not own, while the same
 # words beside `release` are prose ("Suite green, release ready"), which is what
 # the split is for.
 EXTERNAL_CI = re.compile(r"\b(?:workflow|pipeline|ci|github)\b", re.I)
-EXTERNAL_CI_STATE = re.compile(
-    r"\b(?:green|red|passing|passes|passed|failing|fails|failed|behind|flaky|"
-    r"geçti|başarısız)\b", re.I)
+EXTERNAL_CI_STATE = re.compile(r"\b(?:%s)\b" % alts("external_ci_state"), re.I)
 # How far apart, on one line, the two halves of a claim may sit. 45 characters
 # holds every form the incident took ("npm 0.22.0 yayımlanmadı" is 12 apart,
 # "the registry has no such version published" is 30) and drops the long report
@@ -4979,10 +5229,8 @@ EXTERNAL_GAP = 45
 # numbers in prose. A two-part number was the single largest source of false
 # positives in the measurement above.
 EXTERNAL_VERSION = re.compile(
-    r"\bv\d+\.\d+\.\d+[^\n]{0,40}?\b(?:missing|absent|unpublished|exists?|"
-    r"published|released|yok|eksik|yayımlan|yayınlan)\b"
-    r"|\b(?:missing|absent|unpublished|exists?|published|released|yok|eksik|"
-    r"yayımlan|yayınlan)\b[^\n]{0,40}?v\d+\.\d+\.\d+", re.I)
+    r"\bv\d+\.\d+\.\d+[^\n]{{0,40}}?\b(?:{0})\b|\b(?:{0})\b[^\n]{{0,40}}?v\d+\.\d+\.\d+"
+    .format(alts("publish_state")), re.I)
 # The read that answers it, at a command position on the masked text - the
 # convention `UI_CHECK` and `NETWORK_READ` follow - so a reply that merely names
 # `npm view`, and the search whose pattern is that name, are not reads of
@@ -5177,98 +5425,130 @@ def _admitted(fold, text):
 # list read at line starts, not a reader of what an item means - a doable item
 # typed KARAR passes, which the question endings `tezgah-gate replay` counts are
 # there to watch.
-RESIDUAL_LABEL = re.compile(
-    r"(?:açık (?:kalan|iş|madde|nokta|soru)|eksik(?!siz)|"
-    r"yapılama|yapılma(?:yan|dı)|yapılacak|bekleyen|bakıla?ma|bitme(?:yen|di)|"
-    r"tamamlanma|kısmen|doğrulan(?:a)?ma|test edile?me|çalıştırıla?ma|koşula?ma|"
-    r"dokunula?ma|sonraki adım|sıradaki|sırada\b|kapsam dışı|atlan(?:an|dı)|"
-    r"ertelen|bilinen (?:hata|sınırlama|sorun)|teknik borç|ileride|"
-    r"gelecek (?:iş|çalışma)|önerilen (?:iyileştirme|adım)|manuel doğrulama|"
-    r"elle doğrula|engel(?:ler)?\b|engelleyenler\b|erişilemeyen|fix-?later|"
-    r"open (?:items?|issues?|questions?|points?|work)|remaining\b|"
-    r"what(?:'s| is) left|left to do|pending\b|outstanding\b|"
-    r"not (?:done|verified|tested|run|checked|covered)|unverified|untested|"
-    r"next\s+(?:steps?|up|actions?)\b|next(?=\s*(?:\(|$))|out of scope|"
-    r"follow[- ]?ups?\b|deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|"
-    r"future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|"
-    r"manual (?:verification|checks?|testing)|blockers?\b|partially)")
+# The first-person negatives ("Yapamadım", "Bakmadıklarım", "Test etmedim"),
+# the passive stems "kontrol edil-", "incelen-", "ölçül-", "çözül-", "denen-" and
+# the English forms after them were added from the S4 corpus (finding 4).
+RESIDUAL_LABEL = re.compile(r"(?:%s)" % alts("residual_label"))
 # "Kalan" is also an adjective ("Kalan riskler", "Kalan süre", "Ayakta kalan
 # tek şey"): it opens a list only as the label's first word and on the work it
 # names - "Kalan:", "Kalanlar", "Kalan iş", "Kalan adımlar", "Kalan tek şey".
-RESIDUAL_FIRST = (r"kalan(?:lar)?(?=\s*(?:\(|$))|kalan\s+(?:tek\s+)?"
-                  r"(?:iş|işler|adım|adımlar|madde|maddeler|görev|görevler|şey)\b")
-# At most two words may lead any other stem: "Bu turda açık kalanlar", "Henüz
-# yapılmayanlar", "Bilerek kapsam dışı bırakılanlar".
-RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,2}(?:%s)"
+RESIDUAL_FIRST = alts("residual_first")
+# At most three words may lead any other stem: "Bu turda açık kalanlar", "Henüz
+# yapılmayanlar", "Bu turda henüz bakılmayanlar".
+RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,3}(?:%s)"
                          % (RESIDUAL_FIRST, RESIDUAL_LABEL.pattern))
 # A label whose own words close the list: a claim word (`asserted_claims`), or
 # a completion verb or participle the claim vocabulary does not carry ("Eksik
 # kapandı", "Düzeltilen eksik", "Doğrulanmayan kalmadı", "Eksik olan kanıt artık
 # var"). "Kısmen ..." stays open.
-LABEL_DONE = re.compile(r"\b(?:giderildi|çözüldü|yazıldı|bitti|ölçüldü|yapıldı|"
-                        r"halledildi|kapandı|kalmadı|tamamlanan|düzeltilen|"
-                        r"giderilen|kapatılan|çözülen|artık (?:var|mevcut)|"
-                        r"resolved|addressed|closed)\b")
-PARTIAL = re.compile(r"(?:kısmen|partially)\b")
+LABEL_DONE = re.compile(r"\b(?:%s)\b" % alts("label_done"))
+PARTIAL = re.compile(r"(?:%s)\b" % alts("partial"))
 # A short label that says nothing is left - it ends on "yok"/"none" or opens on
 # "no"/"none" - is no list ("Eksik yok"); in a longer one, or after a comma, the
 # "yok" is about something else ("Doğrulanmadı, kanıt yok"). A word in a
 # parenthesis is a comment on the label.
-NOTHING_LEFT = re.compile(r"(?:\byok|\bnone|\bnothing)\W*$|^(?:no|none|nothing)\b")
+NOTHING_LEFT = re.compile(r"(?:%s)\W*$|^(?:%s)\b"
+                          % (alts("nothing_left"), alts("nothing_lead")))
 NOTHING_SHORT = 4
 PARENTHESIS = re.compile(r"\([^)]*\)")
 # An item that is only that word, or opens on it before a stop ("yok, iş
 # bitti."), or is a bare zero, is no item; a "yok" inside an item ("playwright
 # yok") is content and is judged like the rest.
-EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
-                        r"(?:\s*[.,;:!—–-][^\n]*)?|0)\W*", re.I)
-# The blocker tokens, as the capitalised token the contract names them by, a
-# Turkish suffix allowed ("KARARI senin"); a token negated by the next word
-# ("KARAR gerekmiyor") is none, and code is blanked first (`_prose`).
+EMPTY_ITEM = re.compile(r"\W*(?:(?:%s)(?:\s*[.,;:!—–-][^\n]*)?|0)\W*"
+                        % alts("empty_item"), re.I)
+# The blocker tokens, as the capitalised token the contract names them by, in
+# every pack's spelling (`blockers.<kind>.pattern`: DECISION and KARAR alike), a
+# suffix allowed ("KARARI senin"); a token negated by the next word ("KARAR
+# gerekmiyor") is none, and code is blanked first (`_prose`).
 # BLOCKER_SAID needs no ledger row: a choice or a consent leaves none to check.
-# BLOCKER_TRIED is the attempt that failed - it counts only beside a quote of
-# a command that failed in the turn (`_quotes_failure`).
-BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))"
-BLOCKER_SAID = re.compile(
-    r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
-# After YETKİ/ORTAM, "yok" and "not" describe the blocker ("YETKİ yok", "ENV not
-# set"), so only "değil", "gerekmiyor" and "istemiyor" negate them; the Turkish
-# suffix is read on the Turkish stems only, so ACCESSIBILITY or ENVELOPE is no
-# type, while the plural ENVIRONMENTS is.
-BLOCKER_TRIED = re.compile(
-    r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|\bACCESS|\bENV(?:IRONMENTS?)?)\b"
-    r"(?!\s+(?:değil\b|gerek(?:mi|mez|tirm)|istem))")
+# BLOCKER_TRIED is the attempt that failed - it counts only beside the error
+# its type names (ENV_ERROR for the env token, ACCESS_ERROR for the access one,
+# read off the match's group name) and its ledger evidence: a quote of a
+# command that failed in the turn (`_quotes_failure`), or a spawn call of the
+# turn the host answered with a provider failure (`_spawn_failed`: a 429, a
+# quota, a credential).
+
+
+def _tokens(kind):
+    """Every pack's spelling of blocker `kind`, as one alternation."""
+    return "|".join(pack_values("blockers", kind, "pattern")) or "(?!)"
+
+
+BLOCKER_NOT = r"(?!\s+(?:%s))" % alts("blockers", "said_not")
+BLOCKER_SAID = re.compile(r"\b(?:%s|%s)[A-ZÇĞİIÖŞÜ]*\b"
+                          % (_tokens("decision"), _tokens("irreversible")) + BLOCKER_NOT)
+# BLOCKER_SAID's consent half: a GERİ ALINAMAZ item needs no options.
+IRREVERSIBLE_SAID = re.compile(BLOCKER_SAID.pattern.replace(_tokens("decision") + "|", "", 1))
+# After the access or env token, "yok" and "not" describe the blocker ("YETKİ
+# yok", "ENV not set"), so only a pack's `tried_not` words negate them; the
+# suffix is read on the stems a pack spells with one, so ACCESSIBILITY or
+# ENVELOPE is no type, while the plural ENVIRONMENTS is.
+BLOCKER_TRIED = re.compile(r"(?:\b(?P<access>%s)|\b(?P<env>%s))\b(?!\s+(?:%s))"
+                           % (_tokens("access"), _tokens("env"),
+                              alts("blockers", "tried_not")))
+# The word after the token that says the grant or tool is absent ("YETKİ yok").
+BLOCKER_ABSENT = r"(?:\s+(?:%s)\b)?" % alts("blockers", "absent")
+ENV_ERROR = re.compile(alts("env_error"), re.I)
+ACCESS_ERROR = re.compile(USER_ERROR.pattern + "|" + alts("access_error"), re.I)
+# A spawn call's failure classes that are the provider's, not the brief's: a
+# rate limit or a timeout (`transient`) and a quota or a credential (`user`).
+SPAWN_FAIL_CLASSES = frozenset(("transient", "user"))
+# The words that tie an item to a spawn call: only such an item borrows a
+# failed spawn's row as its evidence (`_tried_holds`).
+SPAWN_WORDS = re.compile(alts("spawn_words"))
+# A search that matched nothing exits 1 and failed nothing (`_failed_commands`).
+NO_MATCH_PROGRAMS = frozenset(("grep", "egrep", "fgrep", "rg", "ag"))
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 FENCED_BODY = re.compile(r"^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)", re.M | re.S)
 COMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
+# The refusal leads and blocker tokens are the configured language's
+# (`{RESIDUAL_LEAD}`, `{DECISION}`..., filled by `_said`): the owner's tr pack
+# opens in Turkish because Claude Code shows the refusal's first line to the
+# user; the canonical English pack adds no lead.
 RESIDUAL_WORK = (
-    "Bu maddeleri şimdi yap veya engel türü ve kanıtla yaz. The reply lists "
+    "{RESIDUAL_LEAD}The reply lists "
     "work that is left (%s) at the end of a turn that did work. Do each item "
-    "now with the tools you have; a step that cannot be undone (a push, a "
-    "merge, a delete, a release) is never taken to clear this list - it is "
-    "GERİ ALINAMAZ, and you ask. An item may stay only as one of four "
-    "blockers, named in capitals: KARAR (a choice only the user can make - "
-    "never \"which first\" or \"shall I go on\"), YETKİ (a credential or grant "
-    "no tool supplies), GERİ ALINAMAZ (needs consent), ORTAM (a tool or "
-    "environment is missing); a YETKİ or ORTAM item quotes, in backticks, the "
+    "now with the tools you have: a local merge of a branch this session made "
+    "and the removal of its worktree are such steps. A step that is outward or "
+    "cannot be undone (a push or a release with no grant from the user this "
+    "session, a force push, a delete of what the session did not make) is never "
+    "taken to clear this list - it is {IRREVERSIBLE}, and you ask. An item may "
+    "stay only as one of four "
+    "blockers, named in capitals: {DECISION} (a choice only the user can make, "
+    "with its options and a \"{RECOMMENDED}:\" default - never \"which first\" or "
+    "\"shall I go on\"), {ACCESS} (a credential or grant "
+    "no tool supplies), {IRREVERSIBLE} (needs consent), {ENV} (a tool or "
+    "environment is missing); a {ACCESS} or {ENV} item quotes, in backticks, the "
     "command that failed in this turn and its error - a quote with no type, "
     "or a type with no quote, is not one. \"Out of "
     "scope\", \"later\", \"time\" and \"could be added\" are not blockers. Report "
-    "what is left under one heading, \"Engeller\", at most three lines: item - "
+    "what is left under one heading, \"{BLOCKERS_HEADING}\", at most three lines: item - "
     "blocker - evidence - what unblocks it.")
 # The `stopped slice` class (plan 081): a subagent slice this session spawned
 # ended stopped - a quota, a 429, an abort, a cut-off - and the turn would end
 # with its work unresumed. Filled with the slice id, its failure class and the id
 # twice more.
 STOPPED_SLICE = (
-    "Durmuş bir dilim var. Slice %s, spawned by this session, stopped (%s) and "
+    "{SLICE_LEAD}Slice %s, spawned by this session, stopped (%s) and "
     "its work is not resumed. Resume it with `tezgah-task slice resume %s` - "
     "the native path first, else the re-dispatch brief it prints - or, if the "
     "work was finished another way, record that with `tezgah-task slice done "
     "%s`.")
+
+# The `ready steps` class (plan 086, S1): the newest todo list (`note_todo`)
+# holds a pending item, not taken and not blocked, and the reply ends the turn
+# without it. Filled with the count and up to three heads.
+READY_STEPS = (
+    "{READY_LEAD}The newest todo list holds %d ready step(s) this "
+    "turn neither did nor typed as a blocker: %s. Dispatch every ready step "
+    "now - independent ones as subagents in one message - and tick each one "
+    "you finish. A step that waits on a running slice or on the user is marked "
+    "blocked in the todo list (omp `block`, naming the slice or the blocker), "
+    "or named in the reply on one line with its {DECISION}, {ACCESS}, {IRREVERSIBLE} "
+    "or {ENV}. End the turn only when no step is ready.")
 
 
 def _tr_lower(text):
@@ -5306,12 +5586,14 @@ def _residual(label):
     """True when `label` names work that is left: it opens, after at most two
     words, with a RESIDUAL_LABEL form (TODO only in capitals, the marker), its
     own words close nothing ("Eksikler giderildi" is done, "Kısmen güncellendi"
-    is not) and it does not say nothing is left."""
+    is not) and it does not say nothing is left - in a few words, or after its
+    last colon ("Engeller: yok")."""
     if label.startswith("TODO"):
         return True
     for low in (_tr_lower(label), label.lower()):
         core = " ".join(PARENTHESIS.sub(" ", low).split())
-        if not RESIDUAL_AT.match(core) or (
+        _head, colon, after = core.rpartition(":")
+        if not RESIDUAL_AT.match(core) or (colon and EMPTY_ITEM.fullmatch(after)) or (
                 NOTHING_LEFT.search(core) and len(core.split()) <= NOTHING_SHORT
                 and not re.search(r"[,;:—–]", core)):
             continue
@@ -5319,6 +5601,22 @@ def _residual(label):
                                        or LABEL_DONE.search(core)):
             return True
     return False
+
+
+def _bare_label(line):
+    """The text of a plain line that is a label with no colon, else "": at most
+    four words that open on a RESIDUAL_FIRST or RESIDUAL_LABEL form with only a
+    suffix after it ("Açık kalanlar", "Unresolved"). "Pending changes" and
+    "Kod değişikliği yapılmadı" name something else and are no label."""
+    s = LEAD_SYMBOLS.sub("", line.strip()).strip()
+    if not s or ":" in s or len(s.split()) > 4:
+        return ""
+    for low in (_tr_lower(s), s.lower()):
+        core = " ".join(PARENTHESIS.sub(" ", low).split())
+        m = re.match(RESIDUAL_FIRST, core) or RESIDUAL_LABEL.match(core)
+        if m and not re.search(r"\s", core[m.end():]):
+            return s
+    return ""
 
 
 def _indent(line):
@@ -5345,6 +5643,12 @@ def _sections(text):
             inside = not inside
             continue
         found = None if inside or TABLE_ROW.match(line) else _label(line)
+        if (not found and not inside and not TABLE_ROW.match(line)
+                and not LIST_MARK.match(line) and i < len(lines)
+                and LIST_MARK.match(lines[i]) and _bare_label(line)):
+            # a label line with no colon right over a list ("Açık kalanlar\n-
+            # ...", S4 finding 4)
+            found = (_bare_label(line), "")
         if not found or not _residual(found[0]):
             continue
         label, rest = found
@@ -5422,39 +5726,285 @@ def _quotes_failure(item, failed):
     """True when a code span or a fenced line of `item` quotes a command that
     failed: the span is one of its commands, holds one whole (two words at
     least, so a bare `git` that failed is not `git push`), or opens one word for
-    word (`pytest` for `pytest -q`). A fragment such as `src` of `ls src/e2e`
-    quotes nothing."""
+    word (`pytest` for `pytest -q`). A span cut short with `…` or `...` opens
+    one with what is left of it, two words at least (`tezgah-task note 001
+    state …`). A fragment such as `src` of `ls src/e2e` quotes nothing."""
     spans = CODE_SPAN.findall(item) + [
         ln for body in FENCED_BODY.findall(item) for ln in body.split("\n")]
     for span in (re.sub(r"^\$\s+", "", s.strip()) for s in spans):
+        head = re.sub(r"\s*(?:…|\.\.\.)$", "", span)
+        shortened = head != span and len(head.split()) >= 2
         for cmd in failed:
             for seg in (s.strip() for s in COMMAND_SPLIT.split(cmd)):
                 if not seg or not span:
                     continue
                 if seg == span or (seg in span and len(seg.split()) >= 2) or (
-                        seg.startswith(span) and seg[len(span)].isspace()):
+                        seg.startswith(span) and seg[len(span)].isspace()) or (
+                        shortened and seg.startswith(head)):
                     return True
     return False
 
 
+def _failed_commands(rows):
+    """The commands that failed in `rows`: a `verify_fail`, or a shell row with
+    exit 1. A write tool's `edit` row is none (its detail is a path), and
+    neither is a search alone that matched nothing (NO_MATCH_PROGRAMS: grep's
+    exit 1 is its "no"); a grep after `&&`, `;` or a pipe reports the line's
+    exit, so that row stays a failure."""
+    out = []
+    for r in rows:
+        if r.get("kind") == "edit" or not (r.get("exit") == 1
+                                           or r.get("kind") == "verify_fail"):
+            continue
+        cmd = str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
+        segs = [words for words in _shell_segments(cmd) if words]
+        if (r.get("kind") != "verify_fail" and len(segs) == 1
+                and segs[0][0] in NO_MATCH_PROGRAMS):
+            continue
+        out.append(cmd)
+    return out
+
+
+def _spawn_failed(rows):
+    """True when `rows` hold a spawn call (SUBAGENT_TOOLS) the host answered
+    with a provider failure (SPAWN_FAIL_CLASSES): the ledger's evidence for a
+    YETKİ or ORTAM that no shell command shows."""
+    return any(str(r.get("tool") or "").lower() in SUBAGENT_TOOLS
+               and r.get("fail_class") in SPAWN_FAIL_CLASSES for r in rows)
+
+
+def _tried_holds(item, said, failed, spawn_failed=False):
+    """True when a YETKİ or ORTAM item carries its evidence: the error its type
+    names (ENV_ERROR for ORTAM/ENV, ACCESS_ERROR for YETKİ/ACCESS), read in the
+    item outside the type token and the quoted command, beside a quote of a
+    command that failed (`_quotes_failure`), or - for an item that names a
+    subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
+    spawn call failed at the provider (`spawn_failed`). A failure of another
+    kind - an assertion, a typo, a grep that matched nothing - is doable work,
+    whatever it is typed. So is a quota or rate limit on a model provider
+    while another family the routing allows is up (`_limit_move`)."""
+    kinds = {m.lastgroup for m in BLOCKER_TRIED.finditer(said)}
+    rest = re.sub(BLOCKER_TRIED.pattern + BLOCKER_ABSENT, " ", item)
+    rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
+                         else m.group(0), rest)
+    if not any((ENV_ERROR if k == "env" else ACCESS_ERROR).search(rest)
+               for k in kinds):
+        return False
+    if _limit_move(item, failed, spawn_failed):
+        return False
+    return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
+        _quotes_failure(item, failed)
+
+
+# The move a refused limit item can make (`_limit_move`), added to the
+# residual-work refusal so the reply knows what satisfies it.
+LIMIT_MOVE = (" A quota or rate limit on one model family is no {ACCESS} or {ENV} "
+              "while another is up: the work can move to %s - re-dispatch the "
+              "slice there.")
+
+
+def _limit_move(item, failed=(), spawn_failed=False):
+    """The family the work of `item` can move to, else None (research
+    orchestrator-flow-audit S2, F3b): the item quotes a quota or rate limit
+    (`tezgah_task.classify`) of a model provider - it names a family
+    (`tezgah_models.named_families`), or the turn's spawn failed at the provider
+    and the item quotes no failed command - and a family the routing allows is
+    up (`tezgah_models.other_family_up`), never one the item names. A GitHub
+    or npm rate limit stays a blocker: words such as "agent" or "provider" tie
+    nothing ("user-agent", "registry provider"). Fails open: None on any error."""
+    try:
+        import tezgah_task
+        if tezgah_task.classify(item) not in ("quota", "rate_limit"):
+            return None
+        import tezgah_models
+        if not (tezgah_models.named_families(item)
+                or (spawn_failed and not _quotes_failure(item, failed))):
+            return None
+        return tezgah_models.other_family_up(item)
+    except Exception:  # noqa: BLE001 - a health read never refuses on its own failure
+        return None
+
+
+# An item under a blocker label that tells a blocker it already removed: an
+# earlier sentence in the past ("reddediyordu", "yoktu") and a last sentence
+# that opens on "Artık" with a present verb ("Artık var", "Artık
+# reddedilmiyor", S4 finding 10). A negative past ("güncellenmedi") reports work
+# not done, and "şimdi"/"kendi" only end like a past tense, so neither is WAS.
+# A last sentence that still names work left (a RESIDUAL_LABEL stem) or a
+# future ("koşulacak") keeps the item open. ponytail: one adverb rule, not a
+# tense reader.
+BLOCKER_LABEL = re.compile(r"\W*(?:%s)" % alts("blocker_labels"))
+WAS = re.compile(r"\b(?!(?:%s)\b)(?:%s)\b" % (alts("was_exclude"), alts("was")))
+NOW = re.compile(alts("now"), re.S)
+FUTURE = re.compile(alts("future"))
+
+
+def _now_closed(item, label):
+    """True when `item`, under a blocker `label`, reports a blocker that is
+    gone (WAS, then NOW, with nothing left or due in the last sentence)."""
+    if not BLOCKER_LABEL.match(_tr_lower(label)):
+        return False
+    sentences = re.split(r"(?<=[.!?])\s+", _tr_lower(_prose(item)).strip())
+    last = sentences[-1].strip(" *_")
+    return (len(sentences) > 1 and bool(NOW.search(last))
+            and not RESIDUAL_LABEL.search(last) and not FUTURE.search(last)
+            and any(WAS.search(s) for s in sentences[:-1]))
+
+
+# The ask policy (plan 086, S3; the CORE integrity paragraph's "Ask policy").
+# Its vocabulary is the packs' `ask` map: the process-question shapes
+# (PROCESS_ASK: "Başlayayım mı?", "shall I proceed?", "which first?"), the
+# never-default class (NEVER_DEFAULT, and SPEND over `spend_cap`), a
+# recommended default (DEFAULT_MARK), a decision's options (OPTIONS_MARK), a
+# bare approval (CHEAP_ANSWER) and the outward classes a grant covers
+# (OUTWARD). QUESTION_END is a last line asking the user (`?`, or a pack's
+# question particle). ponytail: word lists read on the last line, not a reader
+# of what the question means; `tezgah-gate replay` counts what it refuses
+# (`process_questions`) to measure its precision.
+QUESTION_END = re.compile(r"(?:\?|\b(?:%s)[.!]?)$" % alts("question_end"))
+PROCESS_ASK = re.compile(alts("ask", "process"), re.I)
+NEVER_DEFAULT = re.compile(alts("ask", "never_default"), re.I)
+SPEND = re.compile(alts("ask", "spend"), re.I)
+AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?(?:\$|usd\b|dolar)", re.I)
+DEFAULT_MARK = re.compile(alts("ask", "default_mark"), re.I)
+OPTIONS_MARK = re.compile(alts("ask", "options"), re.I)
+CHEAP_ANSWER = re.compile(r"\W*(?:%s)\W*" % alts("ask", "cheap_answer"), re.I)
+OUTWARD = {cls: re.compile("|".join(
+    p for out in pack_values("ask", "outward") for c, p in out.items() if c == cls), re.I)
+    for cls in dict.fromkeys(c for out in pack_values("ask", "outward") for c in out)}
+GRANT_KIND = "grant"
+GRANT_ROW = re.compile(r'"kind"\s*:\s*"%s"' % GRANT_KIND)
+ASK_TOOLS = ("ask", "askuserquestion")
+# Filled with the question the reply ends on. No grant shape in it ("without
+# asking"): omp hands a refusal back as a prompt, and the prompt hook reads
+# grants off every prompt (`tezgah_context.user_grants`).
+NEEDLESS_ASK = (
+    "{ASK_LEAD}The reply ends on a question the agent can decide (\"%s\"). "
+    "Work and process steps - the order, \"shall I go on\", a check, a local "
+    "merge, a run parameter within the standing spend cap - are taken and "
+    "stated in one line, and an outward step the user granted this session is "
+    "taken, not asked again. An outward step the user has not granted waits "
+    "for the answer and never proceeds on a default. Do it now, or, when only "
+    "the user can decide it, put it under a \"{APPROVAL_HEADING}\" heading with "
+    "a \"{RECOMMENDED}:\" default and proceed on that default.")
+
+
+def outward_classes(text):
+    """The OUTWARD classes `text` names (push, release, publish, pr)."""
+    low = _tr_lower(str(text or ""))
+    return {cls for cls, rx in OUTWARD.items() if rx.search(low)}
+
+
+def never_default(text):
+    """True when `text` names a class-F step - one no default may take: a
+    force push, a delete of what the session did not make, production, a
+    credential or an account, a send to a third party (NEVER_DEFAULT), or a
+    spend (SPEND) with no amount or one over `spend_cap`."""
+    low = _tr_lower(str(text or ""))
+    if NEVER_DEFAULT.search(low):
+        return True
+    if not SPEND.search(low):
+        return False
+    amounts = [float(a or b) for a, b in AMOUNT.findall(low)]
+    return not amounts or max(amounts) > spend_cap()
+
+
+def grants_in_force(session_id):
+    """The OUTWARD classes the user granted this session and has not lifted,
+    folded oldest first over the session's `grant` rows (`target`: a class,
+    `all`, or `lift:<class|all>`). Only the lines in the row's serialized shape
+    are parsed, as `ready_left` reads `todo` rows."""
+    granted = set()
+    lines = [line for line in _ledger_lines(_path(session_id)) if GRANT_ROW.search(line)] \
+        if session_id else []
+    for row in _parse(lines):
+        target = str(row.get("target") or "")
+        if target == "all":
+            granted = set(OUTWARD)
+        elif target == "lift:all":
+            granted = set()
+        elif target.startswith("lift:"):
+            granted.discard(target[len("lift:"):])
+        elif target in OUTWARD:
+            granted.add(target)
+    return granted
+
+
+def needless_ask(text, granted=frozenset):
+    """The question the reply ends on when the agent can decide it, else None.
+
+    The last line asks (QUESTION_END), its paragraph carries no recommended
+    default (DEFAULT_MARK) and it names no class-F step (`never_default`); it
+    is then needless when it names an outward step (OUTWARD) the user granted
+    this session, every one it names (`granted()`, called only then, so a reply
+    that ends on no question reads no ledger), or, naming none, when it asks a
+    process question (PROCESS_ASK). A question about an ungranted outward step
+    is the one the policy asks: "push edip PR açayım mı?" waits."""
+    t = str(text or "").strip()
+    lines = [ln.strip().rstrip("*_` ") for ln in t.splitlines() if ln.strip()]
+    if not lines or not QUESTION_END.search(lines[-1]):
+        return None
+    last = lines[-1]
+    if never_default(last) or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1])):
+        return None
+    low = _tr_lower(last)
+    outward = outward_classes(low)
+    if outward:
+        return last if outward <= set(granted()) else None
+    if PROCESS_ASK.search(low):
+        return last
+    return None
+
+
+def undefaulted(inp):
+    """(questions, with a default) of an ask-tool payload: omp's `ask` marks
+    the default with a question's `recommended` index, Claude's
+    AskUserQuestion with an option label or description that names it
+    (DEFAULT_MARK: "(Recommended)", "(önerilen)")."""
+    inp = inp if isinstance(inp, dict) else {}
+    qs = inp.get("questions") if isinstance(inp.get("questions"), list) else [inp]
+    qs = [q for q in qs if isinstance(q, dict) and q.get("question")]
+
+    def has_default(q):
+        if isinstance(q.get("recommended"), int) and not isinstance(q.get("recommended"), bool):
+            return True
+        return any(isinstance(o, dict) and DEFAULT_MARK.search(_tr_lower(
+            "%s %s" % (o.get("label") or "", o.get("description") or "")))
+            for o in q.get("options") or ())
+    return len(qs), sum(1 for q in qs if has_default(q))
+
+
+# A blocker heading with nothing under it lists no blocker ("## Engeller" last).
+BLOCKERS_ONLY = re.compile(r"\s*(?:%s)\s*" % alts("blockers_only"))
+
+
 def unblocked_items(text, rows):
-    """[(label, item)] for every residual item nothing accounts for. A KARAR or
-    GERİ ALINAMAZ token in the label, the intro or the item accounts for it
-    (`BLOCKER_SAID`, on the prose); a YETKİ or ORTAM token does only beside a
-    quote of a command that failed in `rows` (a row with exit 1, or a
-    `verify_fail`) - the type and its evidence, never one of the two. An item
-    that says nothing is left is none."""
-    failed = [str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
-              for r in rows if r.get("exit") == 1 or r.get("kind") == "verify_fail"]
+    """[(label, item)] for every residual item nothing accounts for. A GERİ
+    ALINAMAZ token in the label, the intro or the item accounts for it, and so
+    does a KARAR token beside the decision's options or a recommended default
+    (`BLOCKER_SAID`, OPTIONS_MARK, DEFAULT_MARK, on the prose): a choice with
+    neither is one the agent can make (the ask policy). A YETKİ or ORTAM token
+    does only with its
+    evidence (`_tried_holds`: the error of its type and its ledger evidence) -
+    the type and its evidence, never one of the two. An empty blocker list
+    (BLOCKERS_ONLY), an item that says nothing is left and one that reports a
+    blocker already gone (`_now_closed`) are none; an empty item under any other
+    label is the label itself ("**V4 ölçülmedi.**")."""
+    failed = _failed_commands(rows)
+    spawn_failed = _spawn_failed(rows)
     out = []
     for label, intro, items in _sections(text):
         for item in items:
-            if EMPTY_ITEM.fullmatch(item.strip()):
+            if (EMPTY_ITEM.fullmatch(item.strip()) or _now_closed(item, label) or (
+                    not item.strip() and BLOCKERS_ONLY.fullmatch(_tr_lower(label)))):
                 continue
             said = _prose(" ".join((label, intro, item)))
-            if BLOCKER_SAID.search(said):
+            if BLOCKER_SAID.search(said) and (
+                    IRREVERSIBLE_SAID.search(said) or OPTIONS_MARK.search(_tr_lower(said))
+                    or DEFAULT_MARK.search(_tr_lower(said))):
                 continue
-            if BLOCKER_TRIED.search(said) and _quotes_failure(item, failed):
+            if BLOCKER_TRIED.search(said) and _tried_holds(item, said, failed,
+                                                           spawn_failed):
                 continue
             out.append((label, item))
     return out
@@ -5463,30 +6013,139 @@ def unblocked_items(text, rows):
 def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
                     cwd=None):
     """`verdict` when it refuses; else, in a turn that did work (a STEP_KINDS
-    row), the `residual work` class when `unblocked_items` names one; else the
+    row), the `residual work` class when `unblocked_items` names one, or when a
+    subagent ended in the turn handing up items no type accounts for (the
+    `residual` count on its `subagent_end` row) and this reply types none; else
+    the `needless ask` class when `needless_ask` names the question the reply
+    ends on (any turn, worked or not: the plan proposal that ends "Başlayayım
+    mı?" is its measured case); else the `ready steps` class when `ready_left`
+    names one; else the
     `stopped slice` class when `_stopped_slice` finds one; else `verdict`. Not
     asked for a subagent's end (`shape` false) or a nested session: both
     replies are read by code, not by the user (`_shape_block`). Residual work
     is not asked of a session whose ledger holds no turn marker either:
     `turn_rows` hands it the whole ledger as the turn, so the steps it sees are
-    not this turn's."""
+    not this turn's. ponytail: one typed item in the reply covers every item
+    handed up - the rule cannot tell which child item a parent item answers."""
     if verdict[0] or not shape or os.environ.get("TEZGAH_NESTED"):
         return verdict
     left = []
-    if any(str(r.get("kind")) in STEP_KINDS for r in rows):
+    # the newest end of each child counts once (`agent`): a child that ended
+    # twice, or a re-sent end, is one hand-up
+    handed = sum({r.get("agent") or id(r): int(r.get("residual") or 0)
+                  for r in rows if r.get("kind") == "subagent_end"}.values())
+    if handed or any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        _settle_slices(cwd)
         left = unblocked_items(text, rows)
+        if handed and not left and not any(
+                item.strip() and not EMPTY_ITEM.fullmatch(item.strip())
+                for _label, _intro, entries in _sections(text) for item in entries):
+            left = [("subagent report", "%d untyped item(s) handed up" % handed)]
         if left and session_id and not _turn_count(_ledger_lines(_path(session_id))):
             left = []
     if left:
         named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
                           for label, item in left[:3])
-        return ("residual work", RESIDUAL_WORK % named)
+        failed, spawn_failed = _failed_commands(rows), _spawn_failed(rows)
+        move = next(filter(None, (_limit_move(item, failed, spawn_failed)
+                                  for _label, item in left)), None)
+        return ("residual work", RESIDUAL_WORK % named + (LIMIT_MOVE % move if move else ""))
+    asked = needless_ask(text, lambda: grants_in_force(session_id))
+    if asked:
+        return ("needless ask", NEEDLESS_ASK % cut(asked, 80))
+    ready = ready_left(text, rows, session_id, cwd)
+    if ready:
+        return ("ready steps", READY_STEPS % (
+            len(ready), "; ".join(cut(head, 48) for head in ready[:3])))
     stopped = _stopped_slice(session_id, cwd)
     if not stopped:
         return verdict
     sid = str(stopped.get("id") or "")
     return ("stopped slice", STOPPED_SLICE % (
         sid, stopped.get("failure") or "error", sid, sid))
+
+
+def ready_heads(row, session_id, cwd):
+    """A `todo` row's ready heads (`note_todo`), less each one an open slice of
+    this session is working on: the slice id appears in the head, or the whole
+    head in the slice's own task (`task`, without an omp batch's shared
+    context), each as a word-bounded match of two characters or more,
+    case-insensitive. omp's `todo start` sets every other `in_progress` item
+    back to `pending`, so a dispatched item reads as ready in the list while
+    its slice runs. ponytail: a record written before `task` existed falls
+    back to its brief's last paragraph. Read from `tezgah_task.pending`, off
+    under `slices-off`, and fail open to the row's own heads."""
+    heads = [str(h) for h in row.get("heads") or () if str(h).strip()]
+    if not (heads and session_id and cwd) or off("slices-off"):
+        return heads
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        running = [(str(r.get("id") or "").lower(), " ".join(str(
+                    r.get("task") or str(r.get("brief") or "").rsplit("\n\n", 1)[-1]
+                    ).split()).lower())
+                   for r in (pending(root) if pending and root else [])
+                   if r.get("status") == "open" and r.get("parent") == session_id]
+    except Exception:
+        return heads
+
+    def word(needle, hay):
+        return len(needle) > 1 and re.search(
+            r"(?<![\w-])%s(?![\w-])" % re.escape(needle), hay)
+    return [h for h in heads
+            if not any(word(sid, h.lower()) or word(h.lower(), task)
+                       for sid, task in running)]
+
+
+def newest_todo(rows):
+    """The first `todo` row of the session's own list in `rows`, which run
+    newest first, else None: a subagent's row (`agent`) is its own queue,
+    never the parent's. Lazy, so a generator stops at the row it needs."""
+    return next((r for r in rows if r.get("kind") == "todo" and not r.get("agent")), None)
+
+
+def ready_left(text, rows, session_id, cwd=None):
+    """The heads of the ready steps the reply leaves: the newest `todo` row's
+    ready items (`ready_heads`), less each one a line of the reply names (its
+    first 24 characters, inline code kept) beside a KARAR, YETKİ, GERİ ALINAMAZ
+    or ORTAM token outside code. Asked like `residual work`: in a turn that
+    did work, of a ledger with a turn marker, off under `orchestrate-off`. The
+    row may come from an earlier turn: an unfinished step carries over. It is
+    found by its serialized shape and only the lines back to the newest
+    parent `todo` row are parsed, so the Stop path still parses the turn and
+    not the session (StopReadBound). A done item is gone from the list, so it
+    never needs the reply."""
+    if not session_id or off("orchestrate-off"):
+        return []
+    if not any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        return []
+    lines = _ledger_lines(_path(session_id))
+    if not _turn_count(lines):
+        return []
+    row = newest_todo(r for line in reversed(lines) if TODO_ROW.search(line)
+                      for r in _parse([line]))
+    if not row or not row.get("ready"):
+        return []
+    typed = [_tr_lower(" ".join(line.split())) for line in str(text or "").splitlines()
+             if BLOCKER_SAID.search(_prose(line)) or BLOCKER_TRIED.search(_prose(line))]
+    return [h for h in ready_heads(row, session_id, cwd)
+            if not any(_tr_lower(h)[:24] in line for line in typed)]
+
+
+def _settle_slices(cwd):
+    """Close the journal's ended omp records (`tezgah_task.pending`) before the
+    residual rule picks a move, so a child's limit stop already holds its
+    family (`close_slice`) and the move never names it. Off under
+    `slices-off`; fails open."""
+    if not cwd or off("slices-off"):
+        return
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        if pending and root:
+            pending(root)
+    except Exception:  # noqa: BLE001 - a broken journal costs the hold, never the Stop
+        pass
 
 
 def _stopped_slice(session_id, cwd):

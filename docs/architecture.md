@@ -114,9 +114,11 @@ One session, in order. Each step names the file that handles the event on Claude
    and the stale-index notice, which also starts the incremental re-index
    (`hooks/tezgah_context.py::index_notice`).
 3. **PreToolUse** — `hooks/projects-pretooluse.py::main` calls `decision` and emits
-   the deny envelope, or, for a code-symbol search it lets through, the graph line
-   as `additionalContext` (`hooks/tezgah_gate.py::graph_advice`). The gate is the same
-   object on every host: `hosts/omp/hook.py::handle`, `hosts/codex/hook.py::gate_reason`.
+   the deny envelope, or one `additionalContext` line beside a call it lets through.
+   That line is the graph line for a symbol search (`hooks/tezgah_gate.py::graph_advice`)
+   or, for a spawn, the shared-worktree warning (`hooks/tezgah_gate.py::spawn_advice`).
+   The gate is the same object on every host: `hosts/omp/hook.py::handle`,
+   `hosts/codex/hook.py::gate_reason`.
 4. **PostToolUse** — `hooks/projects-posttooluse.py::main` writes the evidence row
    through `note_tool` (`hooks/projects-posttooluse.py::main`), records the used
    kind for the status line (`tezgah_context.record`, `hooks/projects-posttooluse.py::main`),
@@ -158,7 +160,7 @@ lowest-value blocks are dropped in a fixed order rather than the rules
 | Session store (used marks) | the `used` rows of the cache dir's `tezgah.db`, one per session and kind (`hooks/tezgah_store.py::use`) | `record` (`hooks/tezgah_context.py::record`) from every adapter | nothing evidential: a convenience channel for a surface that has no transcript; an `orch` mark is also written to the evidence ledger (`hooks/tezgah_context.py::record`) so `fanout` can count it |
 | Snapshot store | the blobs under `<cache dir>/snapshots` (`hooks/tezgah_snapshot.py::_store`), their manifests the `snapshots` rows of `tezgah.db` (`hooks/tezgah_store.py::add_snapshot`) | `capture` on the write path (`hooks/tezgah_snapshot.py::capture`) | the pre-write bytes; the rollback source |
 | Turn stamp | the `turns` rows of the cache dir's `tezgah.db`, one per session (`hooks/tezgah_context.py::write_stamp`) | `write_stamp` (`hooks/tezgah_context.py::write_stamp`) | the comparison behind the one-line delta, nothing else |
-| Slice journal | `<repo root>/.tezgah/slices/slices.db`, one row per delegated slice (`hooks/tezgah_task.py::slice_dir`) | `note_spawn` from the hosts' spawn calls (`hooks/tezgah_task.py::note_spawn`) and `tezgah-task slice` | which slices are open or stopped and how to resume them, never evidence |
+| Slice journal | `<repo root>/.tezgah/slices/slices.db`, one row per delegated slice (`hooks/tezgah_task.py::slice_dir`) | `note_spawn` from the hosts' spawn calls (`hooks/tezgah_task.py::note_spawn`) and `tezgah-task slice` | which slices are open or stopped, how to resume them, and the `owns` lease (`hooks/tezgah_task.py::owned_globs`) - never evidence |
 | Installed config dir | `~/.config/tezgah` (`hooks/tezgah_paths.py::CONFIG_DIR`) | the installer and the user | which roots are armed, which kill switches are on |
 | Plugin copy | `~/.claude/plugins/cache/<marketplace>/tezgah/<version>/` (`bin/tezgah-setup::plugin_copies`) | `tezgah-setup --sync` (`bin/tezgah-setup::sync`) | what Claude Code actually executes — a copy, never this checkout |
 
@@ -206,7 +208,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `context_for` returns `None` (`hooks/tezgah_context.py::context_for`), the gate only acts
   inside one (`hooks/tezgah_gate.py::decision`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that
-  it is armed (`hosts/omp/hook.py:40-43`).
+  it is armed (`hosts/omp/hook.py:41-44`).
 - **No cross-host drift.** A host shares the core, never a copy of it. Adding a
   rule means editing the policy; adding behaviour means editing `hooks/` and
   letting every adapter inherit it.

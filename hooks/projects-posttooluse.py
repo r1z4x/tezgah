@@ -31,6 +31,18 @@ try:
 except Exception as exc:
     import_failed(exc)
 
+
+def cross_note(session_id, tool, inp, cwd):
+    """The cross-project write notice (hooks/tezgah_gate.py::cross_project_note),
+    imported here and not at the top: a gate module without it costs this one
+    line, never the evidence row."""
+    try:
+        from tezgah_gate import cross_project_note
+    except ImportError:
+        return None
+    return cross_project_note(session_id, tool, inp, cwd)
+
+
 # The tool-use kinds this hook can see, for the status line's used marks. Claude
 # reads them from its transcript and ignores this store, but dsh runs this same
 # file with no transcript of its own - the store is the only channel its Web
@@ -139,13 +151,20 @@ def main():
          # the Bash result's own stdout/stderr, read on a bounded tail for the
          # empty-run contract (tezgah_integrity.EMPTY_RUN)
          empty_run=ran_nothing(result),
-         agent=agent)
+         agent=agent,
+         # a background spawn's result names its child (`agentId`), the
+         # `agent_id` that child's own calls carry: its slice record keeps it
+         # (hooks/tezgah_gate.py::lease_reason)
+         child=(result.get("agentId") if isinstance(result, dict)
+                and result.get("status") == "async_launched" else None))
     # the opt-in taste note: the learnings in scope for the first write to this
-    # file type in the session (hooks/tezgah_taste.write_note), beside the
-    # provenance line rather than instead of it
+    # file type in the session (hooks/tezgah_taste.write_note), and the
+    # cross-project write notice (hooks/tezgah_gate.py::cross_project_note),
+    # beside the provenance line rather than instead of it
     if event == "PostToolUse" and not failed:
-        notice = "\n".join(t for t in (notice, safe(session_id, write_note, session_id,
-                                                     inp, cwd, tool)) if t)
+        notice = "\n".join(t for t in (
+            notice, safe(session_id, write_note, session_id, inp, cwd, tool),
+            safe(session_id, cross_note, session_id, tool, inp, cwd)) if t)
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,

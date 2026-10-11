@@ -37,7 +37,7 @@ import subprocess
 
 import tezgah_models as tm
 from tezgah_paths import (CONFIG_DIR, HOME, codegraph_bin, host_installed, off,
-                          root_for)
+                          root_for, say)
 from tezgah_paths import HOST_DIRS as HOST_HOMES
 
 MARKER = "# tezgah: managed by tezgah-agents; do not edit"
@@ -186,6 +186,7 @@ def detect_infra(root):
 # ------------------------------------------------------------------ roles ----
 
 def _reviewer_body(host):
+    decision = say()["decision"]
     return (
         "You are tezgah-reviewer, an adversarial code reviewer. Review a change,\n"
         "not the whole repo, with the code graph as below.\n\n"
@@ -223,9 +224,9 @@ def _reviewer_body(host):
         "verification phase; at most two rounds - only a confirmed critical or\n"
         "major finding opens round two; a minor or suggestion one is fixed in the\n"
         "session without a new round, or recorded fix-later only when it waits\n"
-        "on a user decision (KARAR); after round two what is left is fixed by\n"
+        "on a user decision (%s); after round two what is left is fixed by\n"
         "the session and closed with `--resolved`, or recorded fix-later only\n"
-        "with KARAR, never a third round. A round may be a fan-out of\n"
+        "with %s, never a third round. A round may be a fan-out of\n"
         "reviewers spawned at once, one per dimension (correctness and contract,\n"
         "security, tests and performance) or per file group: when your brief\n"
         "names a dimension or files, review only those - a sibling owns the rest.\n"
@@ -238,7 +239,7 @@ def _reviewer_body(host):
         "specific accusation needs it. The same defect family confirmed in both\n"
         "rounds is a sign the design needs a pivot, not another patch.\n\n"
         "%s" % (_graph_howto(host), _blast_radius(host), EMPTY_IS_NOT_PROOF,
-                _may_use(host)))
+                decision, decision, _may_use(host)))
 
 
 def _worker_body(tier):
@@ -420,9 +421,22 @@ def _orch_body(names):
         "--name <slug> --parent-worktree active --json` when the session runs\n"
         "inside Orca, else `git worktree add -b <branch> <absolute path>` - and\n"
         "brief it with absolute paths under that checkout only, never the main\n"
-        "checkout. Serialize only a real\n"
-        "dependency, and never wait idle while independent work remains; you\n"
-        "integrate the branches and run the checks once on the merged tree.\n"
+        "checkout. Every writing brief names its `Owns:` globs (the files only\n"
+        "that slice writes; the gate holds its siblings to them) and declares\n"
+        "its checkout on a `Worktree: <abs path>` line, and siblings\n"
+        "message each other only on an interface or ownership change - status\n"
+        "goes to you. Serialize only a real\n"
+        "dependency. Your todo list is the step queue: each open item is ready\n"
+        "or blocked on something named (a slice id, %s).\n"
+        "After every spawn and every landed slice, dispatch every ready\n"
+        "item at once, before any `wait`, and mark each dispatched item blocked\n"
+        "on its slice id. Never `wait` while a ready step exists. Once every\n"
+        "open item is blocked on a running slice, `wait` or end the turn - the\n"
+        "host wakes you on the result. You integrate the branches in the order\n"
+        "`tezgah-task slice merge-plan` prints, and own CHANGELOG.md, MANIFEST\n"
+        "and the citation baseline. The per-turn\n"
+        "checks of what changed still run in the turn, in the background; only\n"
+        "the heavy tier (full suite, neuter, e2e) is joined at merge.\n"
         "A slice commits `wip: <step>` after each step. A stopped slice is\n"
         "resumed (`tezgah-task slice resume <id>`) or re-dispatched, never\n"
         "silently absorbed inline; run `tezgah-task slice reconcile --prune`\n"
@@ -438,7 +452,7 @@ def _orch_body(names):
         "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
         "the same brief. Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
-        "returned claim against the code before acting." % listed)
+        "returned claim against the code before acting." % (listed, say()["blocker_tokens"]))
 
 
 # ---------------------------------------------------------------- renderers --

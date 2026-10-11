@@ -108,6 +108,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
+from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS, newest_todo, ready_heads
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -124,9 +125,9 @@ except ImportError:  # pragma: no cover - only on an integrity module without th
 try:  # The race rule reads the write history through tezgah_integrity; that
     # reader is newer than some checkouts of the module, and a missing name must
     # cost the rule, never the session (this import runs on every gated call).
-    from tezgah_integrity import writers_elsewhere
+    from tezgah_integrity import spawn_of, writers_elsewhere
 except ImportError:  # pragma: no cover - only on an integrity module without it
-    writers_elsewhere = None
+    spawn_of = writers_elsewhere = None
 
 try:  # The bytes a write is about to change. The snapshot module is newer than
     # some checkouts too, and a missing module must cost the snapshot, never the
@@ -896,11 +897,23 @@ RACE_WINDOW_MIN = 10
 # overwrite, so this rule cannot be a soft one.
 RACE_REFUSE = True
 RACE_DENY = (
-    "Concurrent write refused: session %s wrote this file within the last %d "
+    "Concurrent write refused: %s wrote this file within the last %d "
     "minutes, so the copy of %s in your context may already be stale. Re-read "
     "the file and re-apply your change to what is on disk now; if both sessions "
     "are editing it, say so and let one of them own the file rather than "
     "overwriting the other's work.")
+# How RACE_DENY names a writer, by its relation to this session
+# (tezgah_integrity._relation): the bare ledger id sent a model to the wrong
+# cause - it called an omp fork "a second window of the same session"
+# (research orchestrator-flow-audit S7, finding 4).
+RACE_WHO = {
+    "child": "your own subagent %s (ledger %s), not ended in the slice journal",
+    "parent": "your parent session (ledger %s)",
+    "sibling": "sibling subagent %s of your parent (ledger %s)",
+    "fork": "an omp fork of this session (ledger %s)",
+    "forked-from": "the session this one was forked from (ledger %s)",
+    "unrelated": "another, unrelated session %s",
+}
 # The file a write call names, per host dialect, plus the apply_patch headers
 # (tezgah_integrity.PATCH_FILE) for the dialect whose paths live in the body.
 # The race guard resolves each against the call's cwd to an absolute real path
@@ -1093,10 +1106,231 @@ def race_reason(inp, session_id, cwd=None):
         if (URI_CHANNEL.match(path) or scratch_target(path, cwd)
                 or (not URI_TARGET.match(path) and unnamed_target(path, inp))):
             continue    # a temp file or a device is no one's shared work
-        others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN, cwd=cwd)
+        others = [w for w in writers_elsewhere(path, session_id, RACE_WINDOW_MIN,
+                                               cwd=cwd, lineage=True)
+                  if not ended_child(w, session_id, path, cwd)]
         if others:
-            return RACE_DENY % (", ".join(str(s) for s in others[:3]),
+            return RACE_DENY % (", ".join(race_who(*w[:3]) for w in others[:3]),
                                 RACE_WINDOW_MIN, path)
+    return None
+
+
+def race_who(stem, relation, agent):
+    """One writer as RACE_DENY names it (RACE_WHO)."""
+    text = RACE_WHO.get(relation, RACE_WHO["unrelated"])
+    return text % ((agent or "?", stem) if text.count("%s") == 2 else (stem,))
+
+
+def ended_child(writer, session_id, path, cwd):
+    """True when `writer` (a writers_elsewhere (stem, relation, agent, ts)) is
+    this session's own subagent whose slice record closed after its newest
+    write of this file: a parent taking over a child that stopped on a quota
+    error is no race (research orchestrator-flow-audit S7, finding 3). The
+    record is read after `pending` closes an ended omp child, from cwd's journal
+    and the written file's. No record, one still open, or a write newer than the
+    record's close is a live writer and stays refused. ponytail: the close time
+    is stored to the second, so a write in the second the record closed counts
+    as before the close."""
+    import calendar
+    stem, relation, agent, wrote = writer
+    if relation != "child" or not agent or tezgah_task is None:
+        return False
+    repos = {r for r in (tezgah_task.main_repo(os.path.join(cwd or os.getcwd(), path)),
+                         tezgah_task.main_repo(cwd or os.getcwd())) if r}
+    base = re.sub(r"-\d+$", "", agent)
+    recs = []
+    try:
+        for repo in repos:
+            tezgah_task.pending(repo)   # closes an omp child whose transcript ended
+            recs += [r for r in tezgah_task.slices(repo) if r.get("parent") == session_id
+                     and (r.get("name") or r.get("id")) in (agent, base)]
+        closed = max(calendar.timegm(time.strptime(str(r.get("updated")), "%Y-%m-%dT%H:%M:%SZ"))
+                     for r in recs) if recs else None
+    except Exception:
+        return False
+    return (closed is not None and closed >= int(wrote)
+            and all(r.get("status") != "open" for r in recs))
+
+
+# --- lease: a sibling slice owns this file (plan 086, S6) --------------------
+# What this closes: the race rule refuses only after the other slice wrote, and
+# 24 genuine sibling refusals in real transcripts were all in a shared place -
+# one worktree for 4 or 10 concurrent slices, a predecessor's tree, a shared
+# plan record (research orchestrator-flow-audit S6, findings 3 and 5). A brief's
+# `Owns:` line is a lease on the slice record (`tezgah_task.owned_globs`), and a
+# write by one slice into a path an open sibling of the same parent owns is
+# refused before any work is lost. The second refusal is the checkout itself:
+# a slice whose record names a worktree writing into the main checkout (plan
+# 086 wave 1: two slices did, by relative paths that resolved against the
+# parent's cwd). Refused, not noted: a notice arrives after the file landed in
+# the parent's tree, and the fix - the same write under the worktree - costs
+# one re-issue. `.tezgah/` (the plan record, research data) and scratch stay
+# free: they live in the main checkout by design.
+#
+# The writing session is mapped to its record two ways. omp: its ledger's
+# `spawned` row (`tezgah_integrity.spawn_of`: parent session and spawned name);
+# omp writes it for every task child, and the record stays open while the child
+# runs. Claude: a background child's calls carry the parent's session id and
+# their own `agent_id`, which the spawn's result named and the record keeps as
+# `child` (`hooks/projects-posttooluse.py`). Every other case fails open:
+# Claude's foreground agents, dsh, Cursor and opencode open the record only when
+# the synchronous spawn returns, so no sibling record is open while the child
+# writes, and Codex writes no `spawned` row. A slice may write a path its own
+# `Owns:` names even when a sibling's names it too: the overlap is the parent's
+# brief, and the race rule still stands between the two.
+LEASE_DENY = (
+    "Lease: %s is owned by sibling slice %s (owns %s), still open under your "
+    "parent. Leave the file to it: %s, or ask your parent to move the lease; "
+    "once the owner has finished, `tezgah-task slice done %s` frees it. Every "
+    "lease is on `tezgah-task slice board`.")
+MAIN_CHECKOUT_DENY = (
+    "Lease: %s is in the main checkout %s, but your slice %s works in worktree "
+    "%s. Write the same path under that worktree: an absolute path, or a shell "
+    "whose `cwd` or `cd` is there - a relative path resolves against this "
+    "session's cwd.")
+
+
+def _channel(rec):
+    """How a sibling reaches the slice `rec` on its host."""
+    if rec.get("host") == "claude" and rec.get("child"):
+        return "message the owner (`SendMessage` to %s)" % rec["child"]
+    if rec.get("host") == "omp":
+        return "message the owner (`write agent://%s`)" % (rec.get("name") or rec["id"])
+    return "ask the owner through your parent"
+
+
+def _shell_dir(inp, cwd):
+    """The directory a shell call's redirect or `tee` target resolves against:
+    the call's own `cwd`/`workdir`, then each `cd`/`pushd` before the first
+    redirect or `tee` that writes a file, read the way `shell_control` walks
+    the line. A redirect to `/dev/*`, a descriptor (`2>&1`) or `-` writes no
+    file, so `pushd /wt >/dev/null && x > out` resolves `out` under `/wt`."""
+    base = inp.get("cwd") or inp.get("workdir")
+    where, words, pending = _full(base, cwd) if base else cwd, [], False
+    for word, is_op in _shell_words(inp.get("command") or inp.get("cmd") or ""):
+        if pending:
+            pending = False
+            if not is_op:
+                target = _unquote(word)
+                if not (target.startswith(("&", "/dev/")) or target.isdigit()
+                        or target == "-"):
+                    return where
+                continue
+        if is_op and ">" in word:
+            if words and words[-1].isdigit():
+                words.pop()  # the descriptor before `2>`
+            pending = True
+            continue
+        if not is_op:
+            if _unquote(word) == "tee" and not words:
+                return where
+            words.append(_unquote(word))
+            continue
+        while words and words[0] in SHELL_KEYWORDS:
+            words = words[1:]
+        if words and words[0] in ("cd", "pushd"):
+            dest = [a for a in words[1:] if not a.startswith("-")]
+            where = _full(dest[0] if dest else "~", where)
+        words = []
+    return where
+
+
+def lease_reason(inp, session_id, cwd=None, agent=None):
+    """LEASE_DENY or MAIN_CHECKOUT_DENY for the first of this call's files
+    that meets one, else None. `agent` is Claude's `agent_id`. Fails open: no
+    `spawned` row and no `agent_id`, no open record of that slice, an
+    unreadable journal."""
+    if spawn_of is None or tezgah_task is None or not session_id:
+        return None
+    spawn = spawn_of(session_id) or ((session_id, agent) if agent else None)
+    if not spawn:
+        return None
+    here = cwd or os.getcwd()
+    try:
+        if inp.get("command") or inp.get("cmd"):
+            here = _shell_dir(inp, here)
+        for path in write_paths(inp):
+            if (URI_CHANNEL.match(path) or scratch_target(path, here)
+                    or unnamed_target(path, inp)):
+                continue
+            real = os.path.realpath(os.path.join(here, os.path.expanduser(path)))
+            repo = tezgah_task.main_repo(real)
+            me = tezgah_task.slice_of(repo, *spawn) if repo else None
+            if not me or me.get("status") != "open":
+                continue
+            tree = me.get("declared") or ""
+            top = linked_main(real) and tezgah_task._sibling_worktree(real, repo)
+            rel = os.path.relpath(real, top or repo).replace(os.sep, "/")
+            if rel.startswith((".tezgah/", "../")) or rel == ".tezgah":
+                continue
+            if not top and tree and tree != repo and os.path.isdir(tree):
+                return MAIN_CHECKOUT_DENY % (rel, repo, me["id"], tree)
+            if any(tezgah_task.match(rel, g) for g in me.get("owns") or ()):
+                continue
+            owner = tezgah_task.owner_of(repo, rel, spawn[0], me["id"])
+            if owner:
+                return LEASE_DENY % (rel, owner.get("name") or owner["id"],
+                                     ", ".join(owner["owns"][:3]), _channel(owner),
+                                     owner["id"])
+    except Exception:
+        return None
+    return None
+
+
+def spawn_advice(tool, inp, session_id, cwd=None):
+    """The shared-worktree warning for a spawn call (`tezgah_task.worktree_clash`),
+    else None. A warning, never a deny: a fan-out of read-only reviewers on one
+    checkout is fine, and the agent name is how this reads which ones are. Off
+    under `orchestrate-off`, whose rule text it backs."""
+    if (str(tool or "").lower() not in SUBAGENT_TOOLS or tezgah_task is None
+            or not cwd or off("orchestrate-off")):
+        return None
+    try:
+        root = tezgah_task.main_repo(cwd)
+        return tezgah_task.worktree_clash(root, tool, inp, session_id or "") if root else None
+    except Exception:
+        return None
+
+
+# The cross-project write notice: a session works under the rules of the
+# repository its cwd is in, so a write into another one is under none of that
+# repository's plans, lessons or slice journal (research orchestrator-flow-audit
+# S7, finding 7). A notice, never a refusal: the write may be the user's ask.
+CROSS_PROJECT = (
+    "tezgah: this write is in %s, not in this session's repository (%s). That "
+    "repository's plans, lessons and slice journal do not apply to this session. "
+    "Work on that project from a session opened there.")
+
+
+def _main_repo(path):
+    """The main checkout of the repository holding `path`, else None
+    (`tezgah_task.main_repo`: a repository's own `.tezgah` is that repository)."""
+    return tezgah_task.main_repo(path) if tezgah_task is not None else None
+
+
+def cross_project_note(session_id, tool, inp, cwd):
+    """CROSS_PROJECT when this write call's file lies in another repository than
+    cwd's (a worktree counts as its main checkout), once per session per target
+    repository (a `nudged` mark), else None. Every host's post-tool channel
+    carries it beside its other notices. Total: any failure is no notice."""
+    try:
+        name = str(tool or "").lower()
+        if (name not in WRITE_TOOLS and name not in BASH_TOOLS) or not cwd \
+                or not isinstance(inp, dict) or inp.get("command") == "view":
+            return None
+        here = _main_repo(cwd)
+        for path in write_paths(inp):
+            if URI_CHANNEL.match(path) or scratch_target(path, cwd):
+                continue
+            there = _main_repo(os.path.join(cwd, path))
+            if not there or there == here:
+                continue
+            key = "cross:" + hashlib.sha1(("%s\0%s" % (session_id, there)).encode(
+                "utf-8", "replace")).hexdigest()[:16]
+            return CROSS_PROJECT % (there, here or cwd) \
+                if tezgah_store.mark("nudged", key) else None
+    except Exception:
+        return None
     return None
 
 
@@ -1134,9 +1368,15 @@ TASK_PHASE_DENY = (
     "the plan's Acceptance, spike and checkpoint are in order.")
 TASK_SCOPE_DENY = (
     "Task gate: %s is outside the paths the active task %s allows (%s). If the "
-    "plan's work genuinely reaches it, widen the scope yourself with `tezgah-task "
-    "allow <glob> ... --why \"<reason>\"` (listing the current globs too); "
-    "otherwise leave the file alone.")
+    "plan's work genuinely reaches it, widen the scope yourself (allow replaces "
+    "the list, so this keeps the current globs): `%s --why \"<what in the plan "
+    "reaches it>\"`; otherwise leave the file alone.")
+# a target outside the repository: an allow glob is repo-relative, so none reaches it
+TASK_SCOPE_OUTSIDE = (
+    "Task gate: %s is outside the paths the active task %s allows (%s). It lies "
+    "outside this repository, and an allow glob is relative to it, so no "
+    "`tezgah-task allow` line reaches it; leave the file alone, or do the work "
+    "under that repository's own task.")
 TASK_RECORD_DENY = (
     "Task gate: %s is the active task's own record; only `tezgah-task` writes it, checking the plan's "
     "Acceptance, spike and review on the way. The phase and allowlist: `tezgah-task phase|allow`; an "
@@ -1279,7 +1519,11 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             # the call's own spelling: the agent has to recognize its argument
-            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns))
+            if rel is None:
+                return TASK_SCOPE_OUTSIDE % (spelled, task["id"], ", ".join(patterns))
+            ready = " ".join(["tezgah-task allow"] + [shlex.quote(p) for p in
+                                                      list(patterns) + [rel]])
+            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns), ready)
     return None
 
 
@@ -1773,6 +2017,48 @@ def effectful(tool, inp):
     if t in BASH_TOOLS:
         return bool(WRITE_CMD.search(mask(str(inp.get("command") or ""))))
     return mcp_class(tool) is not None
+
+
+# --- ready: an idle `wait` while ready steps are open (plan 086, S1) ----------
+# omp's `wait` blocks the parent until a job settles. Measured over 15 omp
+# sessions, 68.3% of spawns were followed by `wait` with no other call between,
+# and at 86 of the 163 such waits that had a todo list two or more items were
+# open. The owner's default is a warning, never a deny: the line rides back with
+# the wait's result, as the graph line does (`graph_advice`).
+READY_WAIT = (
+    "tezgah: idle wait - nothing ran since the spawn while %d ready todo "
+    "step(s) are open: %s. Dispatch every ready step now, independent ones as "
+    "subagents in one message, or mark it blocked on the slice it waits for. "
+    "Ending the turn is the non-blocking alternative to `wait`: the host wakes "
+    "you on the result.")
+
+
+def ready_advice(tool, session_id, cwd=None):
+    """The idle-wait warning for a `wait` call, else None: the newest spawn in
+    the ledger tail is followed by no call but waits and todo updates, and the
+    session's newest `todo` row (`tezgah_integrity.newest_todo`) holds a ready
+    item no open slice of this session is working on
+    (`tezgah_integrity.ready_heads`). A row with no `tool` (a turn marker, a
+    `spawn` row) is no call. Off under `orchestrate-off`, whose rule text it
+    backs."""
+    if str(tool or "").lower() != "wait" or not session_id:
+        return None
+    if off("orchestrate-off"):
+        return None
+    rows = events(session_id, tail=DRIFT_TAIL)
+    for row in reversed(rows):
+        name = str(row.get("tool") or "").lower()
+        if name in SUBAGENT_TOOLS:
+            break
+        if name and name != "wait" and name not in TODO_TOOLS:
+            return None
+    else:
+        return None
+    todo = newest_todo(reversed(rows))
+    heads = ready_heads(todo, session_id, cwd) if todo else []
+    if not heads:
+        return None
+    return READY_WAIT % (len(heads), "; ".join(cut(h, 48) for h in heads[:3]))
 
 
 # --- plan required: work that spans files on main has no plan ----------------
@@ -2847,6 +3133,16 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         reason = race_reason(inp, session_id, cwd)
         if reason:
             return _deny(session_id, "race", reason, tool, inp, base)
+    # Lease: a write into a file an open sibling slice owns, or into the main
+    # checkout by a slice whose record names a worktree (see LEASE_DENY). After
+    # the race rule, which names a write already lost; before the task scope,
+    # since the allowlist is the plan's and the lease is one slice's share of it.
+    # It backs the fan-out rule's text, so its switch is that rule's; with the
+    # journal off there is no record to read.
+    if writes and not off("orchestrate-off") and not off("slices-off"):
+        reason = lease_reason(inp, session_id, cwd, agent)
+        if reason:
+            return _deny(session_id, "lease", reason, tool, inp, base)
     # Task scope: the active plan's phase and the files its allowlist names (see
     # task_reason). The record itself is refused first of all: only
     # bin/tezgah-task writes it, through the checks it makes on the way.
@@ -3042,6 +3338,54 @@ def _dry_decision(tool, inp, cwd, session_id, agent=None):
 DENY_RULES = {"control": None, "explorer": None, "shortcut": "verify-off",
               "piped": "verify-off",
               "attribution": None, "lang": "lang-off", "race": None,
+              "lease": "orchestrate-off",
               "task": "task-off", "workspace": "workspace-off", "secret": None,
               "plan": None, "order": "verify-off", "loop": "verify-off",
               "retry": "verify-off", "drift": "reminder-off"}
+
+
+# --- ask: an ask-tool question with no recommended option (plan 086, S3) -----
+# The ask policy's structured half: omp's `ask` and Claude's AskUserQuestion
+# carry their questions as data, so the check needs no word list for the
+# question itself. 7 of 51 distinct `ask` questions in the owner's omp
+# transcripts carried no `recommended` option (research orchestrator-flow-audit
+# S3, finding 4). A warning, never a deny (the owner's 2026-09-26 decision
+# removed the per-command consent gate): the line rides back with the call's
+# result, as the graph line does (`graph_advice`). Every such call leaves an
+# `ask` row, the counts `tezgah-gate replay` and the ledger read.
+ASK_NO_DEFAULT = (
+    "tezgah: %d of %d question(s) in this %s call carry no "
+    "recommended option. Each question put to the user names a recommended "
+    "default (omp `ask`: `recommended`; AskUserQuestion: a \"({RECOMMENDED})\" "
+    "option), and the work proceeds on it unless the step waits on the user's "
+    "answer by nature (a force push, a delete of what the session did not "
+    "make, production, a credential, a spend over the cap). ")
+ASK_GRANTED = (
+    "tezgah: the user already granted %s this session; that step is taken, "
+    "not asked again.")
+
+
+def ask_advice(tool, inp, session_id, cwd=None):
+    """The ask-policy warning for an ask-tool call, else None: a question with
+    no recommended option (`tezgah_integrity.undefaulted`), or one about an
+    outward step the user granted this session (`grants_in_force`). Records
+    one `ask` row per call with the counts. Off under `verify-off`, whose Stop
+    rule the policy's other half rides, and `pretooluse-off`."""
+    from tezgah_integrity import (ASK_TOOLS, _said as said, grants_in_force,
+                                  never_default, outward_classes, undefaulted)
+    name = str(tool or "").lower()
+    if name not in ASK_TOOLS or not session_id or not (cwd and root_for(cwd)) \
+            or off("pretooluse-off") or off("verify-off"):
+        return None
+    asked, defaulted = undefaulted(inp)
+    if not asked:
+        return None
+    qs = inp.get("questions") if isinstance(inp.get("questions"), list) else [inp]
+    text = " ".join(str(q.get("question") or "") for q in qs if isinstance(q, dict))
+    note(session_id, "ask", cut(" ".join(text.split()), 120), tool=str(tool),
+         questions=asked, defaults=defaulted)
+    out = ASK_NO_DEFAULT % (asked - defaulted, asked, tool) if defaulted < asked else ""
+    granted = outward_classes(text) & grants_in_force(session_id)
+    if granted and not never_default(text):
+        out += ASK_GRANTED % ", ".join(sorted(granted))
+    return said(out.strip()) if out else None

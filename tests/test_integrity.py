@@ -851,6 +851,117 @@ class StopReadBound(unittest.TestCase):
                               if r.get("kind") == "claim"]), 2)
 
 
+class TodoRows(unittest.TestCase):
+    """Plan 086 (S1): each host's todo call becomes one `todo` row - the open,
+    ready and blocked counts and the ready heads - and omp's `wait` a `wait`
+    row, never an `unknown` one."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "%s.jsonl" % session)
+
+    def todo(self):
+        rows = [r for r in ti.events("s") if r.get("kind") == "todo"]
+        return rows[-1] if rows else None
+
+    def test_every_host_shape_is_counted(self):
+        # Codex `update_plan`: the list is `plan[]`, each item a `step`
+        ti.note_tool("s", "update_plan", {"plan": [
+            {"step": "Write the parser", "status": "pending"},
+            {"step": "Read the spec", "status": "completed"}]}, failed=False)
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (1, 1, 0, "Write the parser"))
+        # omp: the call holds one op, the list comes from the result
+        ti.note_tool("s", "todo", {"op": "done", "task": "Write the parser"},
+                     failed=False, todo=[
+                         {"content": "Write the parser", "status": "completed"},
+                         {"content": "Review slice A", "status": "blocked",
+                          "blocker": "slice A runs"},
+                         {"content": "Merge   the\nbranches", "status": "pending"},
+                         {"content": "Run the suite", "status": "in_progress"},
+                         {"content": "Old idea", "status": "abandoned"}])
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (3, 1, 1, "Merge the branches"))
+        # an omp op without the result's list writes nothing: no empty queue
+        n = len(ti.events("s"))
+        ti.note_tool("s", "todo", {"op": "view"}, failed=False)
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": "x"}]}, failed=True)
+        self.assertEqual(len(ti.events("s")), n)
+        # Cursor `todo_write`: an item whose text types its blocker is blocked
+        ti.note_tool("s", "todo_write", {"todos": [
+            {"content": "Ask for the token - YETKİ", "status": "pending"},
+            {"content": "Cancelled thing", "status": "cancelled"}]})
+        t = self.todo()
+        self.assertEqual((t["open"], t["ready"], t["blocked"], t["detail"]),
+                         (1, 0, 1, ""))
+        # omp's `wait` is its own row, no step and no `unknown`
+        ti.note_tool("s", "wait", {"i": "Waiting"}, failed=False)
+        last = ti.events("s")[-1]
+        self.assertEqual((last["kind"], last["tool"]), ("wait", "wait"))
+        self.assertNotIn("wait", ti.STEP_KINDS)
+
+    def todos(self, items, agent=None):
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": c, "status": "pending"}
+                                                  for c in items]},
+                     failed=False, agent=agent)
+
+    def left(self, reply="Parser yazıldı."):
+        return ti.ready_left(reply, [{"kind": "edit"}], "s")
+
+    def test_every_ready_head_is_read_past_the_detail_cut(self):
+        # review F5b: the 200-character `detail` held four of six heads, so a
+        # step past the cut was never asked about
+        ti.note("s", "turn", "t1")
+        items = ["Step %d: write the module for the %s part" % (i, "abcdef"[i])
+                 for i in range(6)]
+        self.todos(items)
+        self.assertNotIn(items[5], self.todo()["detail"])
+        typed = "\n".join("%s - KARAR" % i for i in items[:5])
+        self.assertEqual(self.left(typed), [items[5]])
+
+    def test_a_typed_head_with_inline_code_passes(self):
+        # review F5a: the head is matched with its code span kept; only the
+        # blocker token is read outside code
+        ti.note("s", "turn", "t1")
+        self.todos(["Fix the `bin/tezgah-task` flag"])
+        self.assertEqual(self.left(), ["Fix the `bin/tezgah-task` flag"])
+        self.assertEqual(self.left("Fix the `bin/tezgah-task` flag: KARAR senin."), [])
+        self.assertEqual(self.left("Fix the `bin/tezgah-task` flag: `KARAR`"),
+                         ["Fix the `bin/tezgah-task` flag"])
+
+    def test_a_subagent_list_is_not_the_parent_queue(self):
+        # review F2: a Claude subagent's TodoWrite lands in the parent's ledger
+        # with its `agent`; neither reader takes it for the parent's list
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "TodoWrite", {"todos": [{"content": "Ship", "status": "completed"}]},
+                     failed=False)
+        self.todos(["Child step"], agent="sub-1")
+        self.assertEqual(self.todo()["agent"], "sub-1")
+        self.assertEqual(self.left(), [])
+        ti.note_tool("s", "task", {"tasks": [{"name": "x"}]}, failed=False)
+        self.assertIsNone(tg.ready_advice("wait", "s"))
+        # the parent's own list still counts
+        self.todos(["Parent step"])
+        self.assertEqual(self.left(), ["Parent step"])
+        self.assertIn("Parent step", tg.ready_advice("wait", "s"))
+
+    def test_orchestrate_off_turns_both_readers_off(self):
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "task", {"tasks": [{"name": "x"}]}, failed=False)
+        self.todos(["Write the parser"])
+        self.assertEqual(self.left(), ["Write the parser"])
+        self.assertIn("Write the parser", tg.ready_advice("wait", "s"))
+        switch = {"side_effect": lambda name: name == "orchestrate-off"}
+        with mock.patch.object(ti, "off", **switch):
+            self.assertEqual(self.left(), [])
+        with mock.patch.object(tg, "off", **switch):
+            self.assertIsNone(tg.ready_advice("wait", "s"))
+
+
 class ScratchEvidenceReader(unittest.TestCase):
     """scratch_evidence: the session whose whole evidence base is its own scratch
     work.
@@ -1041,6 +1152,39 @@ class WritersElsewhere(unittest.TestCase):
     def test_the_caller_is_never_in_the_list(self):
         self.write("mine", [self.edit("/repo/x.py")])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
+
+    def test_lineage_names_each_writers_relation(self):
+        # research orchestrator-flow-audit S7, findings 3 and 4: the race rule
+        # had only an opaque ledger id to name a writer by
+        now = int(time.time())
+        self.write("mine", [{"kind": "spawned", "ts": now, "parent": "boss"}])
+        self.write("kid", [{"kind": "spawned", "ts": now, "parent": "mine", "agent": "W1"},
+                           self.edit("/repo/x.py")])
+        self.write("fork", [{"kind": "forked", "ts": now, "parent": "mine"},
+                            self.edit("/repo/x.py", age=10)])
+        self.write("boss", [self.edit("/repo/x.py", age=20)])
+        self.write("peer", [{"kind": "spawned", "ts": now, "parent": "boss", "agent": "W2"},
+                            self.edit("/repo/x.py", age=30)])
+        self.write("stray", [self.edit("/repo/x.py", age=40)])
+        got = ti.writers_elsewhere("/repo/x.py", "mine", lineage=True)
+        self.assertEqual([w[:3] for w in got], [
+            (ti._slug("kid"), "child", "W1"), (ti._slug("fork"), "fork", ""),
+            (ti._slug("boss"), "parent", ""), (ti._slug("peer"), "sibling", "W2"),
+            (ti._slug("stray"), "unrelated", "")])
+        # the fourth field is the writer's newest write of the file
+        self.assertIn(got[-1][3], (now - 40, now - 39))
+        self.write("forked", [{"kind": "forked", "ts": now, "parent": "stray"}])
+        self.assertIn((ti._slug("stray"), "forked-from", ""),
+                      [w[:3] for w in ti.writers_elsewhere("/repo/x.py", "forked",
+                                                           lineage=True)])
+
+    def test_last_check_skips_a_check_of_another_repository(self):
+        # finding 8: the resume block named another project's check as this one's
+        now = int(time.time())
+        self.write("s", [{"kind": "verify_ok", "ts": now, "detail": "pytest", "repo": "/a"},
+                         {"kind": "verify_fail", "ts": now, "detail": "make", "repo": "/b"}])
+        self.assertEqual(ti.last_check("s")["detail"], "make")
+        self.assertEqual(ti.last_check("s", "/a")["detail"], "pytest")
 
     def test_a_write_outside_the_window_is_not_reported(self):
         self.write("old", [self.edit("/repo/x.py", age=20 * 60)])
@@ -2961,6 +3105,84 @@ class StopHook(TempHome):
             "Parser yazıldı.\n\n**Engeller:**\n- main'e push — GERİ ALINAMAZ — "
             "`git push origin main` bekliyor — onayın"))
 
+    def test_a_process_question_at_the_end_is_refused_once(self):
+        # plan 086 (S3) through the real Claude Stop hook: a plan proposal that
+        # ends "Başlayayım mı?" - no work in the turn - is refused once as
+        # `needless ask`, a refusal and not a claim, and the reply after it is
+        # record-only. Before the class it ended the turn.
+        self.turn("planla")
+        asked = "Plan hazır: üç adım.\n\nBaşlayayım mı?"
+        out = self.stop(asked)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu soruyu sorma", out["reason"])
+        self.assertIn("Onay için sorular", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: needless ask"])
+        self.assertIsNone(self.stop(asked, stop_hook_active=True))
+        self.assertEqual([r.get("detail") for r in self.rows("after_block")],
+                         ["would block: needless ask"])
+        # the same question in an approval batch with its default is the policy
+        self.turn("planla")
+        self.assertIsNone(self.stop(
+            "## Onay için sorular\nÖneri: evet - cevap gelmezse açıyorum.\n"
+            "1. **Plan açayım mı?**"))
+        # a never-default step waits on the user: asking it is no needless ask
+        self.turn("temizle")
+        self.assertIsNone(self.stop("Prod veritabanındaki eski tabloları sileyim mi?"))
+
+    def todos(self, *items):
+        """One Claude `TodoWrite` call holding these (content, status) items."""
+        self.seed("TodoWrite", {"todos": [{"content": c, "status": s}
+                                          for c, s in items]})
+
+    def work(self):
+        self.seed("Edit", {"file_path": "x.py"})
+        self.seed("Bash", {"command": "pytest -q"})
+
+    def test_a_ready_todo_step_left_is_refused_once(self):
+        # plan 086 (S1) through the real Claude hooks: a verified turn ends while
+        # its todo list still holds a pending step, and the reply names the
+        # step without a blocker - refused once, the reply after it recorded
+        self.turn("parser")
+        self.todos(("Write the parser", "completed"),
+                   ("Update the README", "pending"),
+                   ("Spawned review slice", "in_progress"))
+        todo = self.rows("todo")[-1]
+        self.assertEqual((todo["open"], todo["ready"], todo["blocked"],
+                          todo["detail"]), (2, 1, 0, "Update the README"))
+        self.work()
+        out = self.stop("Parser yazıldı. Update the README adımı da duruyor.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Hazır adımlar bekliyor.", out["reason"])
+        self.assertIn("Update the README", out["reason"])
+        self.assertNotIn("Spawned review slice", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: ready steps"])
+        self.assertIsNone(self.stop("Parser yazıldı.", stop_hook_active=True))
+        self.assertEqual([r.get("detail") for r in self.rows("after_block")],
+                         ["would block: ready steps"])
+
+    def test_a_ready_step_typed_done_or_in_a_turn_with_no_work_passes(self):
+        # typed: the step named on one line with its blocker
+        self.turn("release")
+        self.todos(("Push the release tag", "pending"))
+        self.work()
+        self.assertIsNone(self.stop(
+            "Parser yazıldı. Push the release tag: GERİ ALINAMAZ, onayın gerekiyor."))
+        # done: the newest list holds no ready step
+        self.turn("devam")
+        self.todos(("Push the release tag", "completed"))
+        self.work()
+        self.assertIsNone(self.stop("Parser yazıldı."))
+        # an item whose own text types its blocker is not ready
+        self.turn("next")
+        self.todos(("Merge to main (blocked: KARAR)", "pending"))
+        self.work()
+        self.assertIsNone(self.stop("Parser yazıldı."))
+        # a turn with no work is not asked, whatever the list holds
+        self.turn("plan")
+        self.todos(("Write the schema", "pending"))
+        self.assertIsNone(self.stop("Plan hazır."))
+        self.assertNotIn("blocked: ready steps", self.claim_rows())
+
     def test_a_ledger_with_no_turn_marker_is_not_judged_for_residuals(self):
         # exits C3: with no marker the whole ledger is the "turn", so an
         # earlier turn's steps would make an answer with no work a work turn
@@ -3261,8 +3483,8 @@ class ReplyShapeCorpus(unittest.TestCase):
         "turkish with identifiers and a short list": (
             "Stop kuralı artık beşten uzun listeyi ve Türkçe olmayan düzyazıyı "
             "engelliyor; `tests/test_integrity.py` içindeki korpus testi yeşil.\n\n"
-            "1. `hooks/tezgah_integrity.py:1802` liste sınırı\n"
-            "2. `hooks/tezgah_integrity.py:1860` dil kontrolü\n"
+            "1. `hooks/tezgah_integrity.py:1805` liste sınırı\n"
+            "2. `hooks/tezgah_integrity.py:1863` dil kontrolü\n"
             "3. `hosts/omp/hook.py` subagent yönlendirmesi\n\n"
             "Sıradaki adım: `python3 -m unittest test_integrity` çalıştır."),
         "turkish around a quoted english sentence": (
@@ -3326,6 +3548,126 @@ class ReplyShapeCorpus(unittest.TestCase):
         self.assertIn("preamble-open",
                       ti.shape_flags("Değişenler şunlar:\n- a\n- b"))
         self.assertEqual(ti.shape_flags("Üç dosya değişti.\n- a\n- b"), [])
+
+
+class AskPolicy(unittest.TestCase):
+    """Plan 086 (S3): the ask policy's readers. A reply ending on a process
+    question with no default is a needless ask, a question about a granted
+    outward step is one too, a class-F step is never one; a KARAR item owes
+    its options or a default; an ask-tool payload is counted for its
+    recommended options; grants fold oldest first with their lifts."""
+
+    NONE = staticmethod(lambda: frozenset())
+
+    def test_process_questions_are_needless_and_the_others_are_not(self):
+        for text in ("Plan hazır.\n\nBaşlayayım mı?", "hangisinden başlayayım?",
+                     "Commit atmamı ister misin?", "Shall I proceed?", "Which first?"):
+            self.assertTrue(ti.needless_ask(text, self.NONE), text)
+        for text in ("Bu doğru mu?", "Testler geçti mi?", "Tamamlandı.",
+                     "Prod veritabanını sileyim mi?", "Shall I force-push main?",
+                     "Öneri: evet.\n1. Başlayayım mı?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+
+    def test_an_ungranted_outward_question_waits_and_a_granted_one_does_not(self):
+        # review round 1: a process shape around an outward step is the one
+        # question the policy asks; only a grant for every class it names
+        # makes it needless
+        for text in ("Branch'i push edip PR açayım mı?", "Should I go ahead and push?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+        self.assertTrue(ti.needless_ask("Should I go ahead and push?", lambda: {"push"}))
+        self.assertIsNone(ti.needless_ask("Branch'i push edip PR açayım mı?",
+                                          lambda: {"push"}))
+        self.assertTrue(ti.needless_ask("Branch'i push edip PR açayım mı?",
+                                        lambda: {"push", "pr"}))
+
+    def test_a_forbidding_complaining_or_asking_sentence_grants_nothing(self):
+        # review round 1: the grant shape alone granted these; the polarity of
+        # the sentence around it decides, and a negated outward step lifts
+        import tezgah_context as tc
+        for text in ("bana sormadan hiçbir şey yapma", "bana sormadan main'e push etme",
+                     "bana sormadan pushlama", "sormadan yayınlama",
+                     "neden bana sormadan pushladın?", "Don't do anything without asking me",
+                     "Never tag without asking me", "bana sormadan pushlayayım mı?"):
+            self.assertEqual([t for _c, t in tc.user_grants(text)
+                              if not t.startswith("lift:")], [], text)
+        for text in ("Don't push.", "şimdilik push yapma", "bana sormadan pushlama"):
+            self.assertIn("lift:push", [t for _c, t in tc.user_grants(text)], text)
+        self.assertEqual([t for _c, t in tc.user_grants("Don't ask me again, just push.")],
+                         ["push"])
+        for text in ("he wrote 'bana sormadan pushla' there", "‘bana sormadan pushla’",
+                     "«bana sormadan pushla»"):
+            self.assertEqual(tc.user_grants(text), [], text)
+
+    def test_an_outward_negation_lifts_only_its_class_and_no_lookalike(self):
+        # review round 2: `pr\w*` read "Projeyi", `yay[ıi]n\w*` read "Yayın",
+        # and a negation that named no class lifted `all`
+        import tezgah_context as tc
+        for text in ("Projeyi tekrar test etmeyi unutma", "Problemi tespit etmeden düzeltme",
+                     "Yayın akışını kontrol etmek istiyorum", "Don't deploy yet."):
+            self.assertEqual(tc.user_grants(text), [], text)
+        self.assertEqual([t for _c, t in tc.user_grants(
+            "bana sormadan pushla. Projeyi tekrar test etmeyi unutma.")], ["push"])
+
+    def test_each_packs_polarity_reads_only_its_own_sentences(self):
+        # review round 2: the Turkish -me read "some" and "theme", "bütün" read
+        # as a complaint, and "durma" took back a grant to keep going
+        import tezgah_context as tc
+        for text, want in (("you have my approval to push some fixes", ["push"]),
+                           ("go ahead and push the theme change", ["push"]),
+                           ("bana sormadan ilerle, durma", ["all"]),
+                           ("bütün değişiklikleri bana sormadan pushla", ["push"])):
+            self.assertEqual([t for _c, t in tc.user_grants(text)], want, text)
+
+    def test_a_granted_outward_step_is_not_asked_again(self):
+        asked = "`main`'i push edeyim mi?"
+        self.assertIsNone(ti.needless_ask(asked, self.NONE))
+        self.assertTrue(ti.needless_ask(asked, lambda: {"push"}))
+        self.assertIsNone(ti.needless_ask(asked, lambda: {"release"}))
+
+    def test_a_spend_is_never_default_only_over_the_cap(self):
+        from unittest import mock
+        line = "$5 harcayarak koşayım mı?"
+        with mock.patch.object(ti, "spend_cap", return_value=0.0):
+            self.assertTrue(ti.never_default(line))
+            self.assertIsNone(ti.needless_ask(line, self.NONE))
+        with mock.patch.object(ti, "spend_cap", return_value=10.0):
+            self.assertFalse(ti.never_default(line))
+            self.assertTrue(ti.needless_ask(line, self.NONE))
+
+    def test_a_decision_item_owes_its_options_or_a_default(self):
+        edit = [{"kind": "edit", "detail": "app.py", "changed": True}]
+        bare = "**Engeller:**\n- şema seçimi — KARAR — seçimin"
+        self.assertEqual(len(ti.unblocked_items(bare, edit)), 1)
+        for item in ("şema seçimi — KARAR — A veya B — seçimin",
+                     "şema seçimi — KARAR — Öneri: A",
+                     "schema — DECISION — fast or safe",
+                     "main'e push — GERİ ALINAMAZ — `git push` bekliyor"):
+            self.assertEqual(ti.unblocked_items("**Engeller:**\n- " + item, edit), [],
+                             item)
+
+    def test_an_ask_payload_counts_its_recommended_options(self):
+        omp = {"questions": [{"question": "a?", "recommended": 0},
+                             {"question": "b?", "options": [{"label": "x"}]}]}
+        claude = {"questions": [{"question": "c?", "options": [
+            {"label": "Kademeli (önerilen)"}, {"label": "Tam"}]},
+            {"question": "d?", "options": [{"label": "A (Recommended)"}]}]}
+        self.assertEqual(ti.undefaulted(omp), (2, 1))
+        self.assertEqual(ti.undefaulted(claude), (2, 2))
+        self.assertEqual(ti.undefaulted({"questions": "x"}), (0, 0))
+
+    def test_grants_fold_oldest_first_with_their_lifts(self):
+        from unittest import mock
+
+        def rows(*targets):
+            return [json.dumps({"kind": "grant", "detail": "x", "target": t,
+                                "ts": 1}) + "\n" for t in targets]
+        for targets, want in ((("push",), {"push"}),
+                              (("all", "lift:push"), set(ti.OUTWARD) - {"push"}),
+                              (("push", "release", "lift:all"), set()),
+                              (("lift:all", "release"), {"release"})):
+            with mock.patch.object(ti, "_ledger_lines", return_value=rows(*targets)):
+                self.assertEqual(ti.grants_in_force("s"), want, targets)
+        self.assertEqual(ti.grants_in_force(None), set())
 
 
 class ResidualWork(unittest.TestCase):
@@ -3543,10 +3885,10 @@ class ResidualWork(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
         for text in ("Doğrulanmadı.\n\nEngeller:\n- YETKİ yok: `pytest tests/test_a.py` HTTP 403",
-                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` no yaml",
+                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` No module named yaml",
                      "Not verified.\n\nBlockers:\n- ENV not set: `pytest tests/test_a.py` no DB_URL",
                      "Not verified.\n\nBlockers:\n- ACCESS not granted: `pytest tests/test_a.py` 401",
-                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` no yaml"):
+                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` No module named yaml"):
             with self.subTest(text=text):
                 self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
         # an English word that merely opens on a stem is no type
@@ -3565,7 +3907,7 @@ class ResidualWork(unittest.TestCase):
         real = {"kind": "run", "exit": 1, "detail": "git push origin main " + ti.FAILED_MARK}
         self.assertEqual(self.left(push, [self.EDIT, real]), [])
         pytest = {"kind": "verify_fail", "exit": 1, "detail": "pytest -q " + ti.FAILED_MARK}
-        self.assertEqual(self.left("Engeller:\n- ORTAM: `pytest` modül yok", [self.EDIT, pytest]), [])
+        self.assertEqual(self.left("Engeller:\n- ORTAM: `pytest` modül bulunamadı", [self.EDIT, pytest]), [])
 
     def test_a_type_token_counts_outside_code_unnegated_and_inflected(self):
         # blockers D2-F4, D2-U1
@@ -3680,6 +4022,218 @@ class ResidualWork(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertTrue(self.left(text))
 
+    # ---- S4 (plan 086): the residual rule re-audited, failing first ---------
+    def test_s4_the_label_stems_the_corpus_missed(self):
+        # finding 4: first-person negatives, the passive stems, the English
+        # forms, three lead words, and a colon-less label line over a list
+        for text in ("**Yarım kalanlar:**\n- README", "Bakmadıklarım:\n- README",
+                     "Yapamadım:\n- e2e", "Test etmedim:\n- parser",
+                     "**Henüz kontrol edilmeyen iki iddia:**\n- a\n- b",
+                     "**V4 ölçülmedi.**", "Çözülemeyenler:\n- flaky test",
+                     "Bu turda henüz bakılmayanlar:\n- README",
+                     "Açık kalanlar\n- README", "Not looked at:\n- docs",
+                     "Still open:\n- docs", "Could not verify:\n- e2e",
+                     "Unresolved\n- live model call not run", "To do:\n- README"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+        # the controls: a done verb in the first person, a plain line over a
+        # list of done work, and the lowercase "todo" of a list count
+        for text in ("Tamamladım:\n- README", "Ekledim:\n- README",
+                     "Değişenler\n- next.config.js", "Sonuç\n- testler geçti",
+                     "todo listesi 19/19: açık madde yok."):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+
+    def test_s4_a_blocker_quotes_an_error_of_its_type(self):
+        # findings 5 and 6: a doable failure typed ORTAM is refused; with no
+        # failed command quoted, only a spawn the provider failed backs one
+        fail = {"kind": "verify_fail", "id": "c2", "exit": 1,
+                "detail": "pytest tests/test_a.py " + ti.FAILED_MARK}
+        self.assertEqual(self.verdict(
+            "Doğrulanmadı:\n- ORTAM: `pytest tests/test_a.py` AssertionError at test_a.py:41",
+            [self.EDIT, fail]), "residual work")
+        grep = {"kind": "run", "exit": 1,
+                "detail": "grep -rn playwright package.json " + ti.FAILED_MARK}
+        self.assertTrue(self.left(
+            "Engeller:\n- e2e — ORTAM — `grep -rn playwright package.json`: not found",
+            [self.EDIT, grep]))
+        edit = {"kind": "edit", "exit": 1, "detail": "app.py"}
+        self.assertTrue(self.left("Engeller:\n- ORTAM — `app.py` not found",
+                                  [self.EDIT, edit]))
+        quota = "Engeller:\n- review alt ajanı — YETKİ — `403 Key limit exceeded (total limit)`"
+        self.assertTrue(self.left(quota, [self.EDIT]))
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1,
+                 "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
+        self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+        # a spawn that failed for its brief, not its provider, backs nothing
+        self.assertTrue(self.left(quota, [self.EDIT, dict(spawn, fail_class="permanent")]))
+        # review N2: a failed spawn backs only an item about the spawn, and a
+        # bare "yok" is no error of the ORTAM type
+        timeout = dict(spawn, fail_class="transient")
+        for text in ("Engeller:\n- e2e testi — ORTAM — playwright yok",
+                     "Engeller:\n- README — YETKİ — izin yok"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text, [self.EDIT, timeout]))
+        self.assertTrue(self.left(
+            "Engeller:\n- termal yazıcı — ORTAM — `No such device: /dev/rfcomm0`",
+            [self.EDIT]))
+        note = {"kind": "run", "exit": 1,
+                "detail": "tezgah-task note 001 state 'x y' " + ti.FAILED_MARK}
+        self.assertEqual(self.left(
+            "Engeller:\n- plan notu — ORTAM — `tezgah-task note 001 state …`: command not found",
+            [self.EDIT, note]), [])
+
+    def test_a_quota_is_no_access_blocker_while_another_family_is_up(self):
+        # S2 F3b: "openrouter 403 Key limit exceeded" filed as YETKİ while zai
+        # was funded; the work could have moved there
+        import tezgah_models as tm
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1,
+                 "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
+        quota = ("Engeller:\n- review alt ajanı (openrouter) — YETKİ — "
+                 "`403 Key limit exceeded (total limit)`")
+        env = "Engeller:\n- review subagent — ORTAM — openrouter quota exhausted"
+        gh = {"kind": "run", "exit": 1, "detail": "gh api repos/x " + ti.FAILED_MARK}
+        github = "Engeller:\n- release notes — YETKİ — `gh api repos/x`: 403 rate limit exceeded"
+
+        def routing(policy, funded):
+            return (mock.patch.object(tm, "funded_families", return_value=funded),
+                    mock.patch.object(tm, "omp_mode", return_value="anthropic"),
+                    mock.patch.object(tm.tp, "fallback_policy", return_value=policy))
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            a, b, c = routing("any", ["any", "zai"])
+            with a, b, c:
+                self.assertTrue(self.left(quota, [self.EDIT, spawn]))
+                # ORTAM is held to the same move
+                self.assertTrue(self.left(env, [self.EDIT, spawn]))
+                # the refusal names where the work can move
+                reason = ti._residual_block(quota, [self.EDIT, spawn], True)[1]
+                self.assertIn("the work can move to zai - re-dispatch the slice there", reason)
+                # a GitHub rate limit is no model provider's: the YETKİ holds
+                self.assertEqual(self.left(github, [self.EDIT, gh]), [])
+                # a 403 that is no limit is a grant, whatever else is funded
+                denied = "Engeller:\n- deploy — YETKİ — `gh api repos/x`: 403 Forbidden"
+                self.assertEqual(self.left(denied, [self.EDIT, gh]), [])
+                # "agent" and "provider" tie nothing to a model provider
+                npm = {"kind": "run", "exit": 1, "detail": "npm publish " + ti.FAILED_MARK}
+                for text in ("Engeller:\n- release — YETKİ — `npm publish`: 429 Too Many "
+                             "Requests from the registry provider",
+                             "Engeller:\n- release — YETKİ — `npm publish`: 429 rate limit "
+                             "for this user-agent"):
+                    self.assertEqual(self.left(text, [self.EDIT, npm]), [], text)
+            # only the family the item names is funded: the YETKİ holds
+            a, b, c = routing("any", ["any"])
+            with a, b, c:
+                self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+            # `vendor` lets an Anthropic chain fall back to OpenRouter only, never
+            # to zai; `none` to nothing: the YETKİ holds under both
+            for policy in ("vendor", "none"):
+                a, b, c = routing(policy, ["any", "zai"])
+                with a, b, c:
+                    self.assertEqual(self.left(quota, [self.EDIT, spawn]), [], policy)
+
+    def test_the_move_is_picked_after_the_journal_settles(self):
+        # review of S2 F3b: an omp child's limit stop is held only once
+        # `pending` closes its record; picked before, the move named the
+        # limited family itself
+        import tezgah_models as tm
+        held = set()
+        journal = mock.Mock()
+        journal.pending.side_effect = lambda root: held.add("zai") or []
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1, "fail_class": "user"}
+        item = "Engeller:\n- review subagent — YETKİ — quota exhausted"
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}), \
+                mock.patch.object(tm, "funded_families", side_effect=lambda live=True: [
+                    f for f in ("zai", "any") if f not in held]), \
+                mock.patch.object(tm, "omp_mode", return_value="anthropic"), \
+                mock.patch.object(tm.tp, "fallback_policy", return_value="any"), \
+                mock.patch.object(ti, "_journal", return_value=journal), \
+                mock.patch.object(ti, "_toplevel", return_value="/repo"):
+            reason = ti._residual_block(item, [self.EDIT, spawn], True, cwd="/repo")[1]
+        self.assertIn("the work can move to any - re-dispatch", reason)
+        journal.pending.assert_called_with("/repo")
+
+    def test_s4_a_grep_after_another_command_is_a_failure(self):
+        # review F5: the line's exit is the last command's only when grep runs
+        # alone; behind `&&` the failure may be the first command's
+        build = {"kind": "run", "exit": 1,
+                 "detail": "make build && grep -q ok build.log " + ti.FAILED_MARK}
+        self.assertEqual(self.left(
+            "Engeller:\n- derleme — ORTAM — `make build`: cc: command not found",
+            [self.EDIT, build]), [])
+
+    def test_s4_a_turn_of_reads_owes_no_check(self):
+        # finding 3, review F1: a turn of known reads is judged like a turn that
+        # did no work; any command not on the read lists still owes the check
+        for cmd in ("git status --short", "tail -5 run.log",
+                    "sqlite3 'file:a.db?mode=ro' 'select 1'", "ssh host ls",
+                    "ssh -p 22 host 'cat /etc/hosts'",
+                    # review N3: the plain readers, with no writing option
+                    "find . -name x", "jq . a.json", "sort a | uniq", "sed -n 1,5p a",
+                    "awk 1 a", "diff a b", "ps aux", "gh pr view 3", "curl -s https://x",
+                    "codegraph callers x", "head -3 a && wc -l a && stat a"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(self.verdict(
+                    "Config okundu, sorgu 3 satır döndü.",
+                    [{"kind": "run", "exit": 0, "detail": cmd}]))
+        for cmd in ("sed -i s/a/b/ app.py", "cp a.py b.py", "python3 fix.py",
+                    "git checkout -- app.py", "git commit -am x", "./regen.sh",
+                    "timeout 60 python3 gen.py", "source x.sh",
+                    "curl -o page.html https://example.com",
+                    "find . -name '*.pyc' -delete", "git worktree add ../wt",
+                    "Set-Content -Path a.txt -Value x", "sqlite3 a.db 'select 1'",
+                    "sqlite3 'file:a.db?mode=ro' '.shell rm x'", "ssh host 'rm -rf x'",
+                    "ssh host",
+                    "find . -name x -exec rm {} ;", "sort -o out a", "sort -ro out a",
+                    "sed -n 'w out' a", "sed -f s.sed a", "awk '{print > \"f\"}' a",
+                    "awk 'BEGIN{system(\"rm x\")}'", "uniq a b", "gh pr merge 3",
+                    "curl -so out https://x", "curl -X POST https://x",
+                    "codegraph index",
+                    # review N5: read-only only from the database URI or option
+                    "sqlite3 a.db \"select 'mode=ro'; delete from t\"",
+                    "sqlite3 'file:a.db?mode=ro' '.read x.sql'",
+                    "sqlite3 -init x.sql 'file:a.db?mode=ro' 'select 1'"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.verdict(
+                    "Config okundu, sorgu 3 satır döndü.",
+                    [{"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
+
+    def test_s4_a_label_needs_its_residual_word_bounded(self):
+        # review F4: "Beklenmedik" is no first-person negative, and a line with
+        # no colon over a list is a label only when it is the residual word
+        for text in ("Beklenmedik bulgular:\n- cache iki kez okunuyor",
+                     "Kod değişikliği yapılmadı\n- yalnızca okuma yapıldı",
+                     "Pending changes\n- parser.py\n- README.md"):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+
+    def test_s4_an_empty_or_closed_item_is_no_item(self):
+        # S4 items 5 and 6 (findings 9 and 10)
+        for text in ("### Engeller: yok", "## Açık kalan: yok\n\nTestler geçti.",
+                     "Parser yazıldı.\n\n## Engeller",
+                     "2. **Engel 1 – codegraph sorgusu:** görev kapısı `xd://` "
+                     "yazımını reddediyordu. Artık izinli yollar listesinde, "
+                     "reddedilmiyor.",
+                     "3. **Engel 2 – CLI:** `tezgah-task note` yoktu. Artık var."):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+        # the controls: work still open beside a fix, a past report alone, and
+        # review N1's four open items, under a residual label or a blocker one
+        for text in ("Açık kalanlar:\n- README güncellenmedi, testler artık geçiyor",
+                     "Açık kalanlar:\n- E2E koşulmadı. Tarayıcı yoktu.",
+                     "### Doğrulanmadı: kanıt yok\n- E2E akışı"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+        for label in ("Açık kalanlar:", "Engeller:"):
+            for item in ("README güncellenmedi. Artık testler geçiyor.",
+                         "E2E koşulmadı. Artık tarayıcı var, sonraki turda koşulacak.",
+                         "Canlı çağrı yapılmadı. Artık anahtar mevcut ama çalıştırmadım.",
+                         "Şimdi bakılmalı. Artık sorun büyüyor."):
+                with self.subTest(label=label, item=item):
+                    self.assertTrue(self.left("%s\n- %s" % (label, item)))
+
+    def test_s4_a_spent_quota_is_a_user_failure(self):
+        # the spawn row's class backs a YETKİ item (review F2)
+        self.assertEqual(ti.fail_class("403 Key limit exceeded (total limit)"), "user")
 
 
 class PromptTurn(TempHome):

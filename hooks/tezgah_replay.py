@@ -102,7 +102,7 @@ RACE_BAR_UNMEASURABLE = ("not measurable on this corpus: no race item is on the 
 # disk-state when the command reads a message file.
 STRATA = {"ledger": ("loop", "retry", "order", "drift", "race", "piped",
                      "attribution", "secret", "shortcut"),
-          "disk": ("task", "plan", "workspace", "explorer"),
+          "disk": ("task", "plan", "workspace", "explorer", "lease"),
           "disk_on_write": ("shortcut",),
           "disk_on_file": ("lang",)}
 MESSAGE_FILE = re.compile(r"(?:^|\s)(?:-F|--file)(?:\s|=|$)")
@@ -114,8 +114,9 @@ SEED = 55
 CUT_PROMPT, CUT_INPUT, CUT_REPLY = 1500, 2000, 3000
 STOP_CONTEXT = ("run", "edit", "verify", "verify_ok", "verify_fail",
                 "interrupted", "external")
-# A final reply's last line asking the user (`?`, or a Turkish question particle)
-QUESTION_END = re.compile(r"(?:\?|\bm[ıiuü][.!]?)$")
+# A shell call that steps outward on the user's remote (`outward_without_grant`).
+OUTWARD_COMMAND = re.compile(r"\bgit\s+push\b|\b(?:npm|pnpm|yarn)\s+publish\b|\bgh\s+"
+                             r"(?:release\s+create|pr\s+(?:create|merge))\b|\btwine\s+upload\b")
 # How Claude writes a Stop hook's refusal back into the transcript: a user row,
 # but no user prompt, so no new turn.
 STOP_FEEDBACK = "Stop hook feedback:"
@@ -285,45 +286,79 @@ def residual_turns(cutoff, since=None):
     `unblocked_work_turns` reads each reply with no ledger rows, so an item
     whose evidence is a failed command counts as unblocked: an upper bound.
     `question_endings` watches doable work rephrased as a question.
+    The ask policy's four counters (plan 086, S3): `process_questions`, the
+    final replies the Stop rule's `needless ask` reads as a process question
+    (no grant row exists here, so a re-ask after a grant is not counted);
+    `cheap_answers`, the prompts that only approve ("devam", "evet", "go on")
+    right after a reply that ended on a question; `asks_without_default`, the
+    ask-tool questions (omp `ask`, Claude AskUserQuestion) with no recommended
+    option (`ti.undefaulted`); `outward_without_grant`, the turns that ran an
+    outward shell call (OUTWARD_COMMAND) when no prompt of the session so far
+    had granted or named an outward step, nor approved a question that named
+    one - the flip condition of the S3 V3 gate reads this one.
     Whole-corpus even under `--split`."""
+    import tezgah_context as tc  # the grant reader (`user_grants`)
     taste = _taste()
     out = Counter()
 
-    def close(reply, work):
-        if reply is None or reply[1] is None or reply[1] > cutoff \
-                or (since is not None and reply[1] <= since):
-            return
+    def counted(ts):
+        return ts is not None and ts <= cutoff and (since is None or ts > since)
+
+    def close(reply, work, outward):
+        """(ended on a question, the question named an outward step) for a
+        counted turn, else None."""
+        if reply is None or not counted(reply[1]):
+            return None
         text = reply[0]
         found = ti.residual_sections(text)
         lines = [ln.strip().rstrip("*_` ") for ln in text.splitlines() if ln.strip()]
+        asked = bool(lines and ti.QUESTION_END.search(lines[-1]))
         out["turns"] += 1
         out["work_turns"] += work
         out["residual_turns"] += bool(found)
         out["residual_work_turns"] += bool(found) and work
         out["sections"] += len(found)
         out["unblocked_work_turns"] += work and bool(ti.unblocked_items(text, []))
-        out["question_endings"] += bool(lines and QUESTION_END.search(lines[-1]))
+        out["question_endings"] += asked
+        out["process_questions"] += bool(ti.needless_ask(text))
+        out["outward_without_grant"] += outward
+        return asked, asked and bool(ti.outward_classes(lines[-1]))
 
     for host in ("omp", "claude"):
         walk = taste.HOSTS[host][2]
         for path, cwd in taste.sessions(host, "", nested=False):
             if ti.FIXTURE_WORKSPACE.search(cwd or "") or (cwd or "").startswith(tp.CACHE):
                 continue
-            reply, work, started = None, False, False
+            reply, work, started, outward, granted = None, False, False, False, False
             for event in walk(path, calls=True):
                 if event[0] == "user" and not taste.harness_prompt(event[1]) \
                         and not event[1].lstrip().startswith(STOP_FEEDBACK):
-                    if started:
-                        close(reply, work)
-                    reply, work, started = None, False, True
+                    prev = close(reply, work, outward) if started else None
+                    prompt = event[1]
+                    if prev and prev[0] and ti.CHEAP_ANSWER.fullmatch(prompt.strip()):
+                        out["cheap_answers"] += 1
+                        granted = granted or prev[1]
+                    grants = tc.user_grants(prompt)
+                    if grants:
+                        granted = not grants[-1][1].startswith("lift:")
+                    elif ti.outward_classes(prompt):
+                        granted = True
+                    reply, work, started, outward = None, False, True, False
                 elif event[0] == "reply":
                     reply = (event[1], event[2])
                 elif event[0] == "call":
-                    work = work or ti.classify(event[1], event[2]) is not None
+                    name, inp = str(event[1] or "").lower(), event[2] or {}
+                    work = work or ti.classify(event[1], inp) is not None
+                    outward = outward or (not granted and name in ti.BASH_TOOLS and bool(
+                        OUTWARD_COMMAND.search(str(inp.get("command") or ""))))
+                    if name in ti.ASK_TOOLS and counted(event[-1]):
+                        asked, defaulted = ti.undefaulted(inp)
+                        out["asks_without_default"] += asked - defaulted
             if started:
-                close(reply, work)
+                close(reply, work, outward)
     keys = ("turns", "work_turns", "residual_turns", "residual_work_turns", "sections",
-            "unblocked_work_turns", "question_endings")
+            "unblocked_work_turns", "question_endings", "process_questions",
+            "cheap_answers", "asks_without_default", "outward_without_grant")
     res = {k: int(out[k]) for k in keys}
     res["per_turn"] = round(res["sections"] / res["turns"], 3) if res["turns"] else None
     return res
@@ -1134,6 +1169,12 @@ def _print_summary(s):
                   res["residual_work_turns"], res["sections"],
                   "n/a" if res["per_turn"] is None else "%.3f" % res["per_turn"],
                   res["unblocked_work_turns"], res["question_endings"]))
+        # a summary written before plan 086 S3 carries no ask counters
+        print("ask policy: %d process questions, %d cheap answers after a question, "
+              "%d ask-tool questions without a default, %d outward turns without a "
+              "grant" % tuple(res.get(k, 0) for k in (
+                  "process_questions", "cheap_answers", "asks_without_default",
+                  "outward_without_grant")))
 
 
 def _pct(k, n):

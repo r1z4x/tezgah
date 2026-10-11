@@ -224,7 +224,7 @@ After a change to the contract text (`hooks/tezgah_policy.py`,
 - `--refresh` does that without a reinstall, for every armed host's static
   block and not only opencode's (`refresh_contract`). opencode has no
   session-start hook, so its plugin runs it once per session
-  (`hosts/opencode/plugins/tezgah.js:2666-2670`). Until 2026-10-02 it
+  (`hosts/opencode/plugins/tezgah.js:2689-2693`). Until 2026-10-02 it
   re-rendered opencode's files alone and reset the one shared hash, so a rule
   edit left the other static files stale while `--report` went green (audit
   M-5).
@@ -413,7 +413,7 @@ ledger row. A rollback therefore never reads it as a pre-state (`capture_after`,
 `hooks/tezgah_snapshot.py::capture_after`). A file outside the repository gets no
 after blob.
 opencode reaches the same call through a process (`noteTaste`,
-`hosts/opencode/plugins/tezgah.js:2413-2423`).
+`hosts/opencode/plugins/tezgah.js:2436-2446`).
 
 ```sh
 touch ~/.config/tezgah/taste-on               # arm; rm it to disarm
@@ -426,7 +426,8 @@ bin/tezgah-taste export                       # accepted learnings into AGENTS.m
 bin/tezgah-taste label; bin/tezgah-taste label ID preference   # the calibration sample
 bin/tezgah-taste calibrate                    # the bound a rule needs
 bin/tezgah-taste gate                         # the pooled before/after test
-bin/tezgah-taste mine --host omp --stats      # sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --host omp --stats      # this repository's sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --all-projects          # every session under ~/Projects, each repo pseudonymised
 bin/tezgah-taste measure --samples S --labels L [--typed]   # judge precision/recall
 ```
 
@@ -635,6 +636,27 @@ HEAD at open. Its `status` is `open`, `done`, `stopped`, `resumed` or `stale`.
 Its `failure` is one of `quota`, `rate_limit`, `aborted`, `timeout`, `cut_off`
 or `error`. `attempts` counts each re-open of the same id
 (`hooks/tezgah_task.py::open_slice`, `hooks/tezgah_task.py::close_slice`).
+Another session's record of the same name is not re-opened under another brief.
+The spawn gets this session's own record of that name, else `<name>-<sha1[:6]>` of its brief.
+`name` keeps the spawned name, and the same brief from another session still re-opens the record
+(`hooks/tezgah_task.py::_own_id`). The record stays in cwd's journal, the one its
+owner's Stop rule, resume block and review guard read. When every absolute path its
+brief names lies in one other repository, `repo` names that repository, and the
+slice line says `(in <name>)` (`hooks/tezgah_task.py::_brief_repo`). A repository's
+own `.tezgah` counts as that repository (`hooks/tezgah_task.py::main_repo`).
+
+The slice's own task text (without a batch's shared `context`) decides its
+worktree and its lease. The worktree is the one the task names last, else the
+brief (`hooks/tezgah_task.py::_worktree_in`). `declared` holds the checkout a
+`Worktree:`, `Checkout` or `Cwd:` line declares, which only the main-checkout
+refusal reads (`hooks/tezgah_task.py::_declared_in`). Its `Owns:` lines name
+repository-relative globs, and only that slice may write those paths while its
+record runs (`hooks/tezgah_task.py::owned_globs`, `hooks/tezgah_task.py::owner_of`). A
+Claude background child's record also keeps the launch's `agentId` as `child`,
+which its own calls carry (`hooks/tezgah_task.py::slice_of`). The
+gate holds siblings to the lease (`docs/gate.md`, the Lease rule), and the
+spawn-time warning names two writing slices that share one worktree
+(`hooks/tezgah_task.py::worktree_clash`).
 
 The hooks write it. A spawn call - omp `task`, Claude, dsh and Cursor
 `Agent`/`Task`, Codex `spawn_agent`, opencode `task` - opens one record per
@@ -642,7 +664,10 @@ slice (`hooks/tezgah_task.py::spawned`, `hooks/tezgah_task.py::note_spawn`).
 Claude, dsh, Cursor and opencode answer the call once the child ended. So the
 record closes at once (`hooks/tezgah_task.py::classify`). A failed call becomes
 `stopped` with its failure class, and a good one `done`. The omp `task` and Codex
-`spawn_agent` calls answer while the child runs, so the record stays `open`. An omp
+`spawn_agent` calls answer while the child runs, so the record stays `open`. So
+does a Claude launch sent with `run_in_background` or one whose result names a
+background child. That child's SubagentStop closes it as `done`
+(`hooks/tezgah_task.py::close_child`). An omp
 record settles from the newest child transcript in the parent's session dir.
 omp names a same-name re-dispatch `<name>-2.jsonl`. The last 64 KB of that file
 decide `stopped` or `done` (`hooks/tezgah_task.py::pending`). A record
@@ -657,18 +682,21 @@ sessions' records. `tezgah-task slice reconcile` lists them all.
 | Command | What it does |
 |---|---|
 | `tezgah-task slice open --id ID [--kind agent\|job] [--host H] [--agent A] [--brief TEXT\|--brief-file F] [--parent P] [--cwd PATH]` | records a slice by hand, for a host whose spawn the hooks do not see |
-| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class |
+| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class. An exact record id answers from any session. A spawned name answers too, and under `TEZGAH_SESSION` only for that session's records and unowned ones (`hooks/tezgah_task.py::find_slice`) |
 | `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
+| `tezgah-task slice board [--parent P]` | lists the open slices one parent spawned - the session's own, or for a subagent its parent's - newest first: the `Owns:` globs, worktree, branch and last commit of each, bounded to 12 lines (`hooks/tezgah_task.py::board`) |
+| `tezgah-task slice merge-plan [--base REF]` | forecasts every done slice branch that carries unmerged work against REF (HEAD) and against the others with `git merge-tree`, and leaves out a `merge=union` file such as CHANGELOG.md. A branch touching `MANIFEST` or the citation baseline comes last, the rest fewest conflicts first. A branch merge-tree cannot forecast is printed as `not judged` and the exit is 1 (`bin/tezgah-task::merge_plan`) |
 
 `tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
-stale record names that reviewer as its id or agent. A record keeps the plan
+stale record names that reviewer as its id, agent or spawned name. Under
+`TEZGAH_SESSION` only that session's records and unowned ones count. The refusal
+prints the exact id to resume or close. A record keeps the plan
 that was active when it opened, and only that plan's records count. A record
 with no plan counts when it changed after the plan's checkpoint commit. A
 `resumed` record hands the guard to its re-dispatch's own record
 (`bin/tezgah-task::unfinished_review`).
-
 The lever map is a closed set. `rate_limit` and `quota` point at the
 `hooks/tezgah_models.py` fallback chain. `cut_off` and `timeout` point at a
 per-slice deadline, `aborted` at the `wip:` commit cadence, a duplicate job at
@@ -677,8 +705,10 @@ journalling background jobs. Plain `error` has no lever: read the transcript.
 The orchestration text carries the session's rule
 (`hooks/tezgah_policy.py::ORCHESTRATE`, `hooks/tezgah_agents.py::_orch_body`). A
 slice commits `wip: <step>` after each step. The session resumes or re-dispatches
-a stopped slice and never absorbs it inline. `slice reconcile --prune` runs
-before the turn that merged slices ends. The `~/.config/tezgah/slices-off` switch
+a stopped slice and never absorbs it inline. `slice board` shows the sibling
+leases and `slice merge-plan` orders the landed branches. `slice reconcile
+--prune` runs before the turn that merged slices ends.
+The `~/.config/tezgah/slices-off` switch
 stops the hooks from writing records (`hooks/tezgah_paths.py::UNCLASSIFIED_SWITCHES`).
 A cwd outside a git repository writes nothing either.
 

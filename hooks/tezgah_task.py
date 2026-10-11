@@ -850,38 +850,254 @@ def _write_record(root, rec):
     return rec
 
 
-def _named_worktree(root, brief):
-    """(worktree, branch) for the linked worktree of this repository the brief
-    names, else ("", "")."""
-    if not brief:
-        return "", ""
+def _own_id(root, base, brief, parent):
+    """The record id a spawn of `base` opens: `base` itself, unless another
+    session holds that record under another brief. Then it is this session's
+    own record of that name, else `base-<digest6>` of the brief, so another
+    session's stopped slice stays its owner's (research orchestrator-flow-audit
+    S7). A same-brief re-dispatch from another session still re-opens `base`."""
+    held = _read_record(root, base)
+    if (held is None or not parent or not brief
+            or held.get("parent") in ("", None, parent)
+            or held.get("brief") == brief):
+        return base
+    own = next((r["id"] for r in slices(root) if r.get("parent") == parent
+                and (r.get("name") or r["id"]) == base), None)
+    return own or "%s-%s" % (base, _digest(brief)[:6])
+
+
+def find_slice(root, ref, session=None):
+    """The record `ref` names for `tezgah-task slice done|stop|resume`. An
+    exact id answers whatever session owns it: an id is unambiguous, and it is
+    what `slice reconcile` and the review guard print, so a crashed session's
+    slice stays reachable. A bare spawned `name` is a lookup: with `session`
+    (TEZGAH_SESSION), the newest record of that name the session spawned or no
+    session owns; without one, the one record of that name. None when nothing
+    answers."""
+    ref = slice_id(ref)
+    recs = slices(root)
+    exact = next((r for r in recs if r["id"] == ref), None)
+    if exact or session:
+        return exact or next((r for r in recs if r.get("name") == ref
+                              and r.get("parent") in (session, "", None)), None)
+    named = [r for r in recs if r.get("name") == ref]
+    return named[0] if len(named) == 1 else None
+
+
+def _worktree_in(root, *texts):
+    """The linked worktree of this repository the first of `texts` that names
+    one names, else "": a slice's own task before the batch's shared context
+    (which may list every slice's worktree), the one named last in a text, and
+    on a tie the longer path, since `.../a` is found inside `.../a-b` at the
+    same place. What reconcile, resume, the board and merge-plan read."""
     from tezgah_paths import worktrees
-    found = [p for p in worktrees(root)[1:] if p in brief]
-    if not found:
-        return "", ""
-    # the one named last: an omp brief is the shared context (which may list
-    # every slice's worktree) followed by this slice's own task; on a tie the
-    # longer path, since `.../a` is found inside `.../a-b` at the same place
-    top = max(found, key=lambda p: (brief.rfind(p), len(p)))
-    return top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or ""
+    trees = worktrees(root)[1:]
+    for text in texts:
+        found = [p for p in trees if text and p in text]
+        if found:
+            return max(found, key=lambda p: (text.rfind(p), len(p)))
+    return ""
+
+
+def _named_worktree(root, *texts):
+    """(worktree, branch) for the linked worktree `_worktree_in` reads off
+    `texts`, else ("", "")."""
+    top = _worktree_in(root, *texts)
+    return (top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or "") if top else ("", "")
+
+
+# Where a brief says its slice works: a `Worktree:`, `Checkout` or `Cwd:` line
+# opening with an absolute path. A path merely mentioned - a worktree to remove,
+# a sibling's tree, a file to read - is no declaration (review of S6, F2). Only
+# the main-checkout refusal reads it (`tezgah_gate.lease_reason`).
+_DECLARED = re.compile(r"(?im)^[ \t>#*_-]*(?:worktree|checkout|cwd)\b[*_]*[ \t]*:?"
+                       r"[*_]*[ \t]*`?(/[^\s`'\"()<>,;]+)")
+
+
+def _declared_in(root, *texts):
+    """The linked worktree of this repository the first of `texts` that
+    declares a checkout of it declares, else "": a slice's own task before the
+    batch's shared context, the last declaration in a text. A declared main
+    checkout is none - an integrator works there."""
+    from tezgah_paths import worktrees
+    trees = worktrees(root)
+    for text in texts:
+        found = [os.path.realpath(p.rstrip("/.:")) for p in _DECLARED.findall(text or "")]
+        found = [p for p in found if p in trees]
+        if found:
+            return found[-1] if found[-1] != trees[0] else ""
+    return ""
+
+
+# `Owns:` in a slice's own task: the repository-relative globs only that slice
+# writes while its record is open (research orchestrator-flow-audit S6, pick
+# V2). The gate refuses a sibling's write into them (`tezgah_gate.lease_reason`).
+# The globs follow on the line, split on commas and spaces, or - with nothing
+# after the colon - as the `- glob` list items under it. Markdown emphasis and
+# backticks are dropped; an absolute glob under the slice's checkout is cut to it.
+_OWNS = re.compile(r"(?i)^[ \t>#*_-]*owns[*_]*[ \t]*:[*_]*[ \t]*(.*)$")
+_LIST_ITEM = re.compile(r"^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+(.+)$")
+
+
+def owned_globs(text, tops=()):
+    """The `Owns:` globs `text` names, in order, each once."""
+    found, lines = [], (text or "").splitlines()
+    for i, line in enumerate(lines):
+        hit = _OWNS.match(line)
+        if not hit:
+            continue
+        if hit.group(1).strip():
+            found.append(hit.group(1))
+            continue
+        for item in lines[i + 1:]:
+            listed = _LIST_ITEM.match(item)
+            if not listed:
+                break
+            found.append(listed.group(1))
+    out = []
+    for line in found:
+        for glob in re.split(r"[\s,]+", line.replace("`", "")):
+            glob = glob.rstrip(".;")
+            top = next((t for t in tops if t and glob.startswith(t + "/")), "")
+            glob = glob[len(top) + 1:] if top else glob
+            if glob and glob not in out:
+                out.append(glob)
+    return out
+
+
+def slice_of(root, parent, name):
+    """The newest record `parent` spawned under `name` - a subagent's own
+    record, read from its `spawned` row (`tezgah_integrity.spawn_of`), or from
+    Claude's `agent_id`, which a background spawn stores as `child` - else
+    None. An exact name or child first; omp names a re-dispatch `<name>-2`, so
+    the bare name answers only after that."""
+    if not (parent and name):
+        return None
+    mine = [r for r in slices(root) if r.get("parent") == parent]
+    base = re.sub(r"-\d+$", "", name)
+    return (next((r for r in mine if (r.get("name") or r["id"]) == name
+                  or r.get("child") == name), None)
+            or next((r for r in mine if (r.get("name") or r["id"]) == base), None))
+
+
+def owner_of(root, path, parent, me):
+    """The open record of another writing slice `parent` spawned whose `owns`
+    matches the repository-relative `path`, else None; `me` is the writing
+    slice's id. A reader - an agent named for a read-only role - holds no
+    lease, whatever `Owns:` line its task quotes. A hit re-reads after
+    `pending`, which closes an omp sibling whose child transcript ended, so a
+    finished owner frees its files."""
+    def held():
+        return next((r for r in slices(root) if parent and r.get("parent") == parent
+                     and r.get("status") == "open" and r["id"] != me
+                     and not _READ_ONLY_AGENT.search(r.get("agent") or "")
+                     and any(match(path, g) for g in r.get("owns") or ())), None)
+    if held() is None:
+        return None
+    pending(root)
+    return held()
+
+
+def close_child(root, parent, child):
+    """Close as done the open record `parent` spawned whose `child` is the
+    host's id of a background child that just ended (Claude's SubagentStop),
+    and return it; None when no record holds it."""
+    rec = next((r for r in slices(root) if parent and child and r.get("parent") == parent
+                and r.get("child") == child and r.get("status") == "open"), None)
+    return close_slice(root, rec["id"], "done") if rec else None
+
+
+BOARD_LINES = 12
+
+
+def board(root, parent=None, limit=BOARD_LINES):
+    """One bounded line (SLICE_LINE) per open record `parent` spawned - every
+    open record without one - newest first, at most `limit` and a count of the
+    rest: what each slice owns, where it works and its last commit. A pull
+    read: siblings see each other's leases here instead of by message."""
+    recs = [r for r in pending(root) if r.get("status") == "open"
+            and r.get("kind") != "job" and (parent is None or r.get("parent") == parent)]
+    out = []
+    for rec in recs[:limit]:
+        tree = rec.get("worktree") or ""
+        head = _git(tree, "log", "-1", "--format=%h") if tree and os.path.isdir(tree) else None
+        out.append(_cut("- %s (%s/%s) owns %s; worktree %s on %s @ %s" % (
+            rec.get("name") or rec["id"], rec.get("host") or "?", rec.get("agent") or "?",
+            ", ".join(rec.get("owns") or ()) or "nothing declared", tree or "none",
+            rec.get("branch") or "?", head or "?")))
+    if len(recs) > limit:
+        out.append("- %d more open slice(s)" % (len(recs) - limit))
+    return out
+
+
+# An agent whose name reads as a read-only role shares a worktree freely: a
+# reviewer panel on one slice's checkout is the allowed case (research
+# orchestrator-flow-audit S6, finding 5). A brief with `Owns:` writes whatever
+# its agent is called.
+_READ_ONLY_AGENT = re.compile(r"review|explor|research|scout|audit|critic|judge", re.I)
+SHARED_WORKTREE = (
+    "tezgah: writing slices %s all name worktree %s. Every writing slice gets its own "
+    "branch and checkout (`orca worktree create` inside Orca, else `git worktree "
+    "add`): two slices in one checkout overwrite each other's edits.")
+
+
+def _writing(agent, owns):
+    return bool(owns) or not _READ_ONLY_AGENT.search(agent or "")
+
+
+def _writes(rec):
+    """A writing record: its own task's `Owns:`, else an agent not named for a
+    read-only role. A reviewer whose lease came from a shared brief is not one."""
+    return _writing(rec.get("agent"), owned_globs(rec.get("task") or ""))
+
+
+def worktree_clash(root, tool, inp, parent=""):
+    """SHARED_WORKTREE when two writing slices - of this spawn call, or this
+    call and an open record `parent` spawned - name one worktree, else None.
+    Each task's own text decides its worktree; one that names none takes the
+    shared context's, which is how ten slices landed in one checkout."""
+    main = _journal_root(root)
+    seen = {}
+    for rec in slices(root):
+        if parent and rec.get("parent") == parent and rec.get("status") == "open" \
+                and rec.get("worktree") and _writes(rec):
+            seen.setdefault(rec["worktree"], set()).add(rec.get("name") or rec["id"])
+    context = str(inp.get("context") or "").strip() if isinstance(inp, dict) else ""
+    for sid, agent, brief in spawned(tool, inp):
+        task = brief[len(context):] if context else brief
+        tree = _worktree_in(main, task, brief)
+        if tree and _writing(agent, owned_globs(task)):
+            seen.setdefault(tree, set()).add(sid)
+    clash = sorted((t, sorted(n)) for t, n in seen.items() if len(n) > 1)
+    return SHARED_WORKTREE % (", ".join(clash[0][1]), clash[0][0]) if clash else None
 
 
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
-               cwd=""):
+               cwd="", repo="", task="", child=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
-    are derived from the brief, the base is the main checkout's HEAD. A re-open
+    are the ones the slice's own task names (else the brief, `_worktree_in`);
+    `declared` is the worktree a `Worktree:`/`Checkout`/`Cwd:` line declares
+    (`_declared_in`); the base is the main checkout's HEAD, and `owns` holds the
+    `Owns:` globs of the task (else the brief, `owned_globs`). A re-open
     of an existing id counts one more attempt, sets the status back to open and
-    clears the failure; a field the new call leaves empty keeps its old value."""
-    sid = slice_id(sid, brief)
+    clears the failure; a field the new call leaves empty keeps its old value.
+    A record another session holds under another brief is not re-opened: the
+    spawn gets its own id (`_own_id`), and `name` keeps the spawned name.
+    `repo` names the repository the slice works in when that is not this
+    journal's (`_brief_repo`); `child` is the host's id for the running child
+    (Claude's background `agentId`), the key its own writes carry."""
+    base = slice_id(sid, brief)
     main = _journal_root(root)
+    own = task or brief or ""
     brief = (brief or "")[:SLICE_BRIEF]
     now = _now()
+    sid = _own_id(root, base, brief, parent)
     rec = _read_record(root, sid)
     if rec is None:
-        rec = {"id": sid, "kind": kind if kind in SLICE_KINDS else "agent",
+        rec = {"id": sid, "name": base, "kind": kind if kind in SLICE_KINDS else "agent",
                "host": host, "agent": agent, "brief": brief, "parent": parent,
-               "cwd": cwd, "worktree": "", "branch": "", "attempts": 1,
-               "opened": now}
+               "cwd": cwd, "repo": repo, "worktree": "", "branch": "", "attempts": 1,
+               "opened": now, "child": child}
     else:
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
         if parent and parent != rec.get("parent"):
@@ -890,11 +1106,17 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
             # one holds the first run, whose end must not close this record
             rec["transcript_dir"] = ""
         for key, value in (("host", host), ("agent", agent), ("brief", brief),
-                           ("parent", parent), ("cwd", cwd)):
+                           ("parent", parent), ("cwd", cwd), ("repo", repo),
+                           ("child", child)):
             if value:
                 rec[key] = value
+    if task:  # the slice's own task, without a batch's shared context
+        rec["task"] = task[:SLICE_BRIEF]
     if brief or not rec.get("worktree"):
-        rec["worktree"], rec["branch"] = _named_worktree(main, rec.get("brief"))
+        rec["worktree"], rec["branch"] = _named_worktree(main, task, rec.get("brief"))
+        rec["declared"] = _declared_in(main, task, rec.get("brief"))
+    if own:
+        rec["owns"] = owned_globs(own, (rec["worktree"], main))
     if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
         # one glob over every omp project at open, so `pending` - run on every
         # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
@@ -907,10 +1129,14 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
     return _write_record(root, rec)
 
 
-def close_slice(root, sid, status, failure=""):
+def close_slice(root, sid, status, failure="", stop=None):
     """Close the record `sid` as done, stopped or resumed; None when it has none.
     A stopped record takes `failure` (a FAILURES class or ""); done and resumed
-    keep the class the slice stopped with, so the stats still count the event."""
+    keep the class the slice stopped with, so the stats still count the event.
+    A quota or rate-limit stop whose message `stop` ({errorMessage, provider,
+    model, default}) names its family holds that family down
+    (`tezgah_models.note_limit`; a rate limit briefly);
+    that push fails open."""
     if status not in SLICE_CLOSED:
         raise ValueError("status %r is not one of %s" % (status, ", ".join(SLICE_CLOSED)))
     rec = _read_record(root, sid)
@@ -919,6 +1145,15 @@ def close_slice(root, sid, status, failure=""):
     if status == "stopped" or failure:
         rec["failure"] = failure if failure in FAILURES else ""
     rec.update(status=status, updated=_now())
+    if failure in ("quota", "rate_limit") and isinstance(stop, dict):
+        try:
+            import tezgah_models
+            tezgah_models.note_limit(
+                stop.get("errorMessage") or "", stop.get("provider") or "",
+                stop.get("model") or "", transient=failure == "rate_limit",
+                default=stop.get("default") or "")
+        except Exception:  # noqa: BLE001 - health is advice: the close still lands
+            pass
     return _write_record(root, rec)
 
 
@@ -982,29 +1217,73 @@ def spawned(tool, inp):
     return [row for row in out if row[2]]
 
 
-def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
+def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text="",
+               child=""):
     """Open one record per slice a spawn call started, and return them. A host
     that runs the subagent synchronously (Claude's PostToolUse on Agent/Task)
     passes `failed` as a bool and the record closes at once: stopped with the
     class of `result_text` (error when it names none), else done. No-op ([])
-    under `slices-off` or outside a git checkout."""
+    under `slices-off` or outside a git checkout. The record stays in cwd's
+    journal, the one the owner's Stop rule, resume block and review guard
+    read, and names the repository its brief works in as `repo`
+    (`_brief_repo`) when that is another one. `child` is the id the host
+    returned for a background child (Claude's `agentId`)."""
     from tezgah_paths import _toplevel, off
     if off("slices-off") or not cwd:
         return []
     root = _toplevel(os.path.realpath(cwd))
     if not root:
         return []
+    here = _journal_root(root)
     out = []
+    context = str(inp.get("context") or "").strip() if isinstance(inp, dict) else ""
     for sid, agent, brief in spawned(tool, inp):
+        repo = _brief_repo(brief, here)
         rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
-                         parent=session_id or "", cwd=cwd)
+                         parent=session_id or "", cwd=cwd,
+                         repo="" if repo == here else repo,
+                         task=brief[len(context):].strip() if context else brief,
+                         child=child)
         if failed is True:
+            # a Claude subagent runs on Anthropic unless its model names another
+            # vendor; another host's input may name a model
+            stop = {"errorMessage": result_text, "model": str(inp.get("model") or ""),
+                    "default": "anthropic" if host == "claude" else ""}
             rec = close_slice(root, rec["id"], "stopped",
-                              classify(result_text) or "error")
+                              classify(result_text) or "error", stop)
         elif failed is False:
             rec = close_slice(root, rec["id"], "done")
         out.append(rec)
     return out
+
+
+# An absolute path in a brief: a slash after a space, a quote or a bracket, up
+# to the next space, quote, bracket or separator.
+_ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`<>()\[\]{},;|*?]+")
+
+
+def main_repo(path):
+    """The main checkout of the repository holding `path`, else None. A path
+    under a repository's own `.tezgah` - a private git repository of its own -
+    belongs to the repository around it, and a worktree to its main checkout."""
+    from tezgah_paths import _toplevel
+    top = _toplevel(os.path.realpath(path))
+    while top and os.path.basename(top) == ".tezgah":
+        top = _toplevel(os.path.dirname(top))
+    return _journal_root(top) if top else None
+
+
+def _brief_repo(brief, root):
+    """The main checkout of the one armed repository every absolute path the
+    brief names lies in, else `root`. A brief naming two repositories, or none,
+    keeps `root` (research orchestrator-flow-audit S7, finding 2)."""
+    from tezgah_paths import root_for
+    found = set()
+    for path in _ABS_PATH.findall(brief or ""):
+        top = main_repo(path.rstrip(".:"))
+        if top and root_for(top):
+            found.add(top)
+    return found.pop() if len(found) == 1 else root
 
 
 def _omp_session_dir(parent):
@@ -1026,8 +1305,9 @@ def _omp_transcript(rec):
     the same agent name in one session `<name>-2.jsonl`, `<name>-3.jsonl`, so the
     highest suffix is the attempt the record now tracks - reading `<name>.jsonl`
     would close a re-opened record with the first run's end. None when the
-    record names no session directory or the directory holds no such file."""
-    folder, sid = rec.get("transcript_dir"), rec.get("id")
+    record names no session directory or the directory holds no such file. The
+    file is named by the spawned `name`, which a record's own id may extend."""
+    folder, sid = rec.get("transcript_dir"), rec.get("name") or rec.get("id")
     if not folder or not sid:
         return None
     try:
@@ -1047,7 +1327,8 @@ def _omp_transcript(rec):
 def _transcript_end(path):
     """How an omp child transcript ended, read from its last SLICE_TAIL bytes:
     ("stopped", class) for an error, abort or length stop on the last assistant
-    message; ("done", "") once it yielded, stopped normally or exited; None while
+    message, an error with that message third (`close_slice`'s `stop`);
+    ("done", "") once it yielded, stopped normally or exited; None while
     it may still be running or cannot be read."""
     import json
     try:
@@ -1080,7 +1361,7 @@ def _transcript_end(path):
             continue
         stop = msg.get("stopReason")
         if stop == "error":
-            return "stopped", classify(msg.get("errorMessage")) or "error"
+            return "stopped", classify(msg.get("errorMessage")) or "error", msg
         if stop == "aborted":
             return "stopped", "aborted"
         if stop == "length":
@@ -1175,6 +1456,8 @@ def slice_line(rec):
         sid, rec.get("host") or "?", rec.get("agent") or "?", status,
         (" " + rec["failure"]) if rec.get("failure") else "", rec.get("attempts") or 1)
     tree = rec.get("worktree") or ""
+    if rec.get("repo"):
+        head += " (in %s)" % os.path.basename(rec["repo"])
     if tree and os.path.isdir(tree):
         head += " worktree %s @ %s" % (tree, _git(tree, "rev-parse", "--short", "HEAD") or "?")
     return _cut(head, ": tezgah-task slice resume %s" % sid)

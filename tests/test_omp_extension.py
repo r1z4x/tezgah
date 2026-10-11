@@ -286,6 +286,19 @@ class OmpExtension(TempHome):
         out = self.drive([{"event": "before_agent_start", "arg": {"prompt": ""}}])
         self.assertIsNone(self.results(out)[0])
 
+    def test_the_session_file_reaches_the_hook_as_the_transcript(self):
+        # omp's session file is the transcript the router-context line reads
+        # (orchestrator-flow-audit S2 F1a): a heavy newest step yields the line
+        file = os.path.join(self.home, "sessions", "2026_abc.jsonl")
+        os.makedirs(os.path.dirname(file))
+        with open(file, "w") as fh:
+            fh.write(json.dumps({"type": "message", "message": {
+                "role": "assistant", "usage": {"input": 10, "cacheRead": 724370,
+                                               "cacheWrite": 0}}}) + "\n")
+        out = self.drive([{"event": "before_agent_start", "arg": {"prompt": "x"}}],
+                         sessionFile=file)
+        self.assertIn("Router context 724k tokens", self.results(out)[0]["message"]["content"])
+
     def test_tool_call_blocks_the_attribution_credit(self):
         out = self.drive([{"event": "tool_call", "arg": {
             "toolName": "bash",
@@ -341,6 +354,36 @@ class OmpExtension(TempHome):
         self.assertIsNone(out[2])  # handed over once
         self.assertEqual([p["tool"] for p in self.asked(log)
                           if p["event"] == "pre_tool_use"], ["find"])
+
+    def test_the_todo_list_and_the_wait_reach_the_hook(self):
+        # plan 086 (S1): omp's todo call holds one op, so the bridge sends the
+        # list from the result's `details.phases`; a `wait` reaches the gate and
+        # its warning rides back with the wait's result, never as a block
+        hook, log = self.fake_hook({"advice": "tezgah: idle wait"})
+        self.ext = self.make_ext(hook, name="todo-hook.ts")
+        phases = [{"name": "Build", "tasks": [
+            {"content": "Write the parser", "status": "pending"},
+            {"content": "Review", "status": "blocked", "blocker": "slice A"}]},
+            {"name": "Ship", "tasks": [{"content": "Merge", "status": "pending"}]}]
+        out = self.results(self.drive([
+            {"event": "tool_result", "arg": {"toolName": "todo", "toolCallId": "t1",
+                                             "input": {"op": "view"}, "content": "list",
+                                             "details": {"op": "view", "phases": phases}}},
+            {"event": "tool_call", "arg": {"toolName": "wait", "toolCallId": "w1",
+                                           "input": {}}},
+            {"event": "tool_result", "arg": {"toolName": "wait", "toolCallId": "w1",
+                                             "input": {}, "content": "settled"}}]))
+        self.assertIsNone(out[1])
+        self.assertEqual(out[2], {"additionalContext": "tezgah: idle wait"})
+        asked = self.asked(log)
+        todo = [p for p in asked if p["event"] == "post_tool_use"
+                and p["tool"] == "todo"]
+        self.assertEqual(todo[0]["todo"], [t for p in phases for t in p["tasks"]])
+        self.assertEqual([(p["event"], p["tool"]) for p in asked
+                          if p["tool"] == "wait"],
+                         [("pre_tool_use", "wait"), ("post_tool_use", "wait")])
+        # every other tool's result still sends no list
+        self.assertNotIn("todo", [k for p in asked if p["tool"] == "wait" for k in p])
 
     def test_a_broken_hook_is_visible_and_never_blocks(self):
         # the audit's reproduction: with the hook missing, every event was a
@@ -429,6 +472,41 @@ class OmpExtension(TempHome):
         self.assertEqual((asked["child"]["parent"], asked["child"]["agent"]),
                          ("main-id", "Scout"))
         self.assertNotIn("parent", asked["main"])
+
+    def test_a_subagent_s_end_sends_its_last_reply_for_the_parent(self):
+        # S4 review F3: omp fires no session_stop for a task session, so the
+        # child's terminal agent_end carries its report; a main session's does not
+        root = os.path.join(self.home, "sessions", "2026_abc")
+        env = dict(self.env(), TEZGAH_SESSION="main-id")
+        messages = [{"role": "user", "content": "go"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "Rapor"}]}]
+        # review N4: a grandchild's parent is the child, read from the child's
+        # own session header, not the main session's exported id
+        os.makedirs(root, exist_ok=True)
+        with open(root + "/Scout.jsonl", "w") as fh:
+            fh.write('{"type":"title","v":1,"title":""}\n'
+                     '{"type":"session","version":3,"id":"child-id"}\n')
+        sent = {}
+        for name, file, link, arg in (
+                ("child", root + "/Scout.jsonl", root + ".jsonl", {"messages": messages}),
+                ("grandchild", root + "/Scout/Deep.jsonl", root + "/Scout.jsonl",
+                 {"messages": messages}),
+                ("continuing", root + "/Scout.jsonl", root + ".jsonl",
+                 {"messages": messages, "willContinue": True}),
+                ("main", root + ".jsonl", None, {"messages": messages})):
+            hook, log = self.fake_hook({})
+            self.ext = self.make_ext(hook, name + "-end.ts")
+            self.results(self.drive([{"event": "agent_end", "arg": arg}], env=env,
+                                    sessionFile=file, parentSession=link))
+            sent[name] = ([p for p in self.asked(log) if p.get("event") == "subagent_stop"]
+                          if os.path.exists(log) else [])
+            if os.path.exists(log):
+                os.remove(log)
+        self.assertEqual([(p["parent"], p["agent"], p["last_assistant_message"])
+                          for p in sent["child"]], [("main-id", "Scout", "Rapor")])
+        self.assertEqual([(p["parent"], p["agent"]) for p in sent["grandchild"]],
+                         [("child-id", "Deep")])
+        self.assertEqual((sent["continuing"], sent["main"]), ([], []))
 
     def test_a_skill_url_read_reaches_the_hook(self):
         # omp's read takes `skill://<name>`: that read of the ponytail skill

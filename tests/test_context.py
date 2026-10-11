@@ -1749,6 +1749,14 @@ class GateLiveness(ChildCall):
             "type": "function_call", "name": "exec_command"}}] * 3)
         self.assertIn("tezgah gate inactive", self.prompt())
 
+    def test_an_omp_transcript_is_read_too(self):
+        # omp's bridge hands its session file over: assistant `toolCall` blocks
+        self.prompt()
+        self.transcript_rows([{"type": "message", "message": {
+            "role": "assistant", "content": [
+                {"type": "toolCall", "name": "bash", "arguments": {}}]}}] * 3)
+        self.assertIn("tezgah gate inactive on this host: 3", self.prompt())
+
     def test_a_healthy_session_shows_neither_and_clears_the_mark(self):
         self.prompt()
         self.claude_tools(3)
@@ -1892,6 +1900,93 @@ class GateLiveness(ChildCall):
                      + "\n")
         self.prompt()
         self.assertNotIn("tezgah gate inactive", self.prompt())
+
+
+class ContextNudge(ChildCall):
+    """orchestrator-flow-audit S2 F1a: the router's context has no budget. Above
+    CONTEXT_NUDGE_TOKENS on its newest main-thread step, the prompt hook adds
+    one line asking it to delegate heavy reading - once per session until a
+    compaction, never below it, never for a subagent's usage row, never for a
+    step from before a compaction, never without a transcript."""
+
+    LINE = "push heavy reads and check output through a slice"
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.transcript = os.path.join(self.home, "t.jsonl")
+
+    def prompt(self, rows=None, session="c1", budget=None):
+        payload = {"session_id": session, "prompt": "x"}
+        if rows is not None:
+            with open(self.transcript, "w") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in rows)
+            payload["transcript_path"] = self.transcript
+        squeeze = ("tc.CONTEXT_BUDGET['user_prompt'] = %d\n" % budget
+                   if budget is not None else "")
+        return self.child(
+            "import json, tezgah_context as tc\n" + squeeze +
+            "print(json.dumps(tc.context_for('user_prompt', %r, %r)))\n"
+            % (self.repo, payload))
+
+    def test_a_line_the_budget_dropped_is_not_latched(self):
+        heavy = [self.omp(724380)]
+        self.assertNotIn(self.LINE, self.prompt(heavy, budget=1))
+        self.assertIn(self.LINE, self.prompt(heavy))
+
+    def compact(self, session="c1"):
+        self.child("import tezgah_context as tc\n"
+                   "tc.context_for('post_compact', %r, {'session_id': %r})\n"
+                   "print('null')\n" % (self.repo, session))
+
+    @staticmethod
+    def omp(tokens):
+        return {"type": "message", "message": {"role": "assistant", "usage": {
+            "input": 10, "cacheRead": tokens - 10, "cacheWrite": 0, "output": 5}}}
+
+    def test_above_the_threshold_the_line_names_the_size(self):
+        out = self.prompt([self.omp(400000), self.omp(724380)])
+        self.assertIn("Router context 724k tokens: " + self.LINE, out)
+
+    def test_below_the_threshold_or_without_a_transcript_no_line(self):
+        # the newest step counts, not the heaviest one before it
+        self.assertNotIn(self.LINE, self.prompt([self.omp(800000), self.omp(396366)]))
+        self.assertNotIn(self.LINE, self.prompt())
+
+    def test_claude_and_codex_shapes_and_a_subagent_row_is_skipped(self):
+        claude = {"type": "assistant", "message": {"role": "assistant", "usage": {
+            "input_tokens": 5, "cache_read_input_tokens": 750000,
+            "cache_creation_input_tokens": 0, "output_tokens": 9}}}
+        side = dict(claude, isSidechain=True, message={"role": "assistant", "usage": {
+            "input_tokens": 1000}})
+        self.assertIn("Router context 750k", self.prompt([claude, side]))
+        codex = {"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "last_token_usage": {"input_tokens": 710000, "output_tokens": 3}}}}
+        self.assertIn("Router context 710k", self.prompt([codex], session="c2"))
+
+    def test_once_per_session_until_a_compaction(self):
+        heavy = [self.omp(724380)]
+        self.assertIn(self.LINE, self.prompt(heavy))
+        self.assertNotIn(self.LINE, self.prompt(heavy))
+        self.compact()
+        out = self.prompt(heavy)
+        self.assertIn(self.LINE, out)
+        self.assertIn("`/compact`", out)
+
+    def test_a_step_before_a_compaction_row_does_not_count(self):
+        # omp's compaction row, then Claude's boundary: no step since either
+        self.assertNotIn(self.LINE, self.prompt(
+            [self.omp(724380), {"type": "compaction", "summary": "s"}]))
+        self.assertNotIn(self.LINE, self.prompt(
+            [self.omp(724380), {"type": "system", "subtype": "compact_boundary"}],
+            session="c2"))
+        # a step after the compaction counts again
+        self.assertIn(self.LINE, self.prompt(
+            [{"type": "compaction"}, self.omp(724380)], session="c3"))
+
+    def test_orchestrate_off_silences_it(self):
+        self.touch(os.path.join(self.home, ".config", "tezgah", "orchestrate-off"))
+        self.assertNotIn(self.LINE, self.prompt([self.omp(724380)], session="c4"))
 
 
 class StateDelta(ChildCall):
