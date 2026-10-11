@@ -5793,7 +5793,8 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
     spawn call failed at the provider (`spawn_failed`). A failure of another
     kind - an assertion, a typo, a grep that matched nothing - is doable work,
-    whatever it is typed."""
+    whatever it is typed. So is a YETKİ or ACCESS item that quotes a quota or
+    rate limit while another funded family is up (`_limit_can_move`)."""
     kinds = {m.group(0)[0] for m in BLOCKER_TRIED.finditer(said)}
     rest = re.sub(BLOCKER_TRIED.pattern + r"(?:\s+yok\b)?", " ", item)
     rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
@@ -5801,8 +5802,25 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     if not any((ENV_ERROR if k in "OE" else ACCESS_ERROR).search(rest)
                for k in kinds):
         return False
+    if kinds & {"Y", "A"} and _limit_can_move(item):
+        return False
     return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
         _quotes_failure(item, failed)
+
+
+def _limit_can_move(item):
+    """True when `item` quotes a quota or rate limit (`tezgah_task.classify`)
+    and a funded family it does not name is up (`tezgah_models.other_family_up`):
+    the work can move there, so the limit is no YETKİ (research
+    orchestrator-flow-audit S2, F3b). Fails open: False on any error."""
+    try:
+        import tezgah_task
+        if tezgah_task.classify(item) not in ("quota", "rate_limit"):
+            return False
+        import tezgah_models
+        return bool(tezgah_models.other_family_up(item))
+    except Exception:  # noqa: BLE001 - a health read never refuses on its own failure
+        return False
 
 
 # An item under a blocker label that tells a blocker it already removed: an

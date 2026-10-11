@@ -90,6 +90,11 @@ an account, such as zai, comes before OpenRouter, which bills per token
 no tools, rules, skills or extensions.
 Measured 2026-10-11: zai answered `429 Weekly/Monthly Limit Exhausted. Your limit
 will reset at 2026-10-12 02:02:35`, so it stays out of the chain until then.
+A subagent slice that stops on a quota or rate limit pushes the same record at
+once (`hooks/tezgah_models.py::note_limit`). Its close calls it
+(`hooks/tezgah_task.py::close_slice`). omp's transcript names the provider, and
+a Claude subagent runs on Anthropic. The family is held until the answer's reset,
+and omp's chain is re-applied, so the session's next spawn leaves it.
 
 ## What is not routed yet
 

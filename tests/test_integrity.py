@@ -3939,6 +3939,27 @@ class ResidualWork(unittest.TestCase):
             "Engeller:\n- plan notu — ORTAM — `tezgah-task note 001 state …`: command not found",
             [self.EDIT, note]), [])
 
+    def test_a_quota_is_no_access_blocker_while_another_family_is_up(self):
+        # S2 F3b: "openrouter 403 Key limit exceeded" filed as YETKİ while zai
+        # was funded; the work could have moved there
+        import tezgah_models as tm
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1,
+                 "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
+        quota = ("Engeller:\n- review alt ajanı (openrouter) — YETKİ — "
+                 "`403 Key limit exceeded (total limit)`")
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            with mock.patch.object(tm, "funded_families", return_value=["any", "zai"]):
+                self.assertTrue(self.left(quota, [self.EDIT, spawn]))
+            # only the family the item names is funded: the YETKİ holds
+            with mock.patch.object(tm, "funded_families", return_value=["any"]):
+                self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+            # a 403 that is no limit is a grant, whatever else is funded
+            denied = "Engeller:\n- deploy — YETKİ — `gh release create`: 403 Forbidden"
+            gh = {"kind": "run", "exit": 1,
+                  "detail": "gh release create " + ti.FAILED_MARK}
+            with mock.patch.object(tm, "funded_families", return_value=["any", "zai"]):
+                self.assertEqual(self.left(denied, [self.EDIT, gh]), [])
+
     def test_s4_a_grep_after_another_command_is_a_failure(self):
         # review F5: the line's exit is the last command's only when grep runs
         # alone; behind `&&` the failure may be the first command's

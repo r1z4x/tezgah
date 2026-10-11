@@ -425,6 +425,8 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    provider or a model, a failed spawn call can stand in for the quote. Its row names a provider
    failure (`hooks/tezgah_integrity.py::_spawn_failed`). omp sends a spawn's outcome as a
    flag with no text. So its row carries no class, and the rule refuses such an item there.
+   A YETKİ item that quotes a quota or rate limit is refused while a funded family it does
+   not name is up, since the work can move there (`hooks/tezgah_integrity.py::_limit_can_move`).
    Neither the type nor the quote counts alone. "Doğrulanmadı: `pytest` ..." with no type is still
    refused, and so is "ORTAM" with no quote. The rule refuses "ORTAM: `pytest` AssertionError" too,
    because an assertion is work, not a missing tool. "YETKİ yok" is the type, not its negation. Only

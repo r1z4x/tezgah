@@ -2091,7 +2091,8 @@ class TaskGate(TempHome):
         self.plan(phase="implementation", allowed=("hooks/**",))
         scope_reason = self.write_path("src/y.py")
         self.assertIn("tezgah-task phase implementation", phase_reason)
-        self.assertIn("tezgah-task allow", scope_reason)
+        # S2 F4b: the ready line keeps the current globs (allow replaces the list)
+        self.assertIn("`tezgah-task allow 'hooks/**' src/y.py --why", scope_reason)
         for reason in (phase_reason, scope_reason):
             self.assertNotIn("the user", reason, reason)
             self.assertNotIn("task-off", reason, reason)

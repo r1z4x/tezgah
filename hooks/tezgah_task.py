@@ -1129,10 +1129,13 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
     return _write_record(root, rec)
 
 
-def close_slice(root, sid, status, failure=""):
+def close_slice(root, sid, status, failure="", stop=None):
     """Close the record `sid` as done, stopped or resumed; None when it has none.
     A stopped record takes `failure` (a FAILURES class or ""); done and resumed
-    keep the class the slice stopped with, so the stats still count the event."""
+    keep the class the slice stopped with, so the stats still count the event.
+    A quota or rate-limit stop whose message `stop` ({errorMessage, provider,
+    model}) names its family holds that family down (`tezgah_models.note_limit`);
+    that push fails open."""
     if status not in SLICE_CLOSED:
         raise ValueError("status %r is not one of %s" % (status, ", ".join(SLICE_CLOSED)))
     rec = _read_record(root, sid)
@@ -1141,6 +1144,13 @@ def close_slice(root, sid, status, failure=""):
     if status == "stopped" or failure:
         rec["failure"] = failure if failure in FAILURES else ""
     rec.update(status=status, updated=_now())
+    if failure in ("quota", "rate_limit") and isinstance(stop, dict):
+        try:
+            import tezgah_models
+            tezgah_models.note_limit(stop.get("errorMessage") or "",
+                                     stop.get("provider") or "", stop.get("model") or "")
+        except Exception:  # noqa: BLE001 - health is advice: the close still lands
+            pass
     return _write_record(root, rec)
 
 
@@ -1232,8 +1242,11 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text="",
                          task=brief[len(context):].strip() if context else brief,
                          child=child)
         if failed is True:
+            # Claude's subagents run on Anthropic; another host's input may name a model
+            stop = {"errorMessage": result_text, "model": str(inp.get("model") or ""),
+                    "provider": "anthropic" if host == "claude" else ""}
             rec = close_slice(root, rec["id"], "stopped",
-                              classify(result_text) or "error")
+                              classify(result_text) or "error", stop)
         elif failed is False:
             rec = close_slice(root, rec["id"], "done")
         out.append(rec)
@@ -1310,7 +1323,8 @@ def _omp_transcript(rec):
 def _transcript_end(path):
     """How an omp child transcript ended, read from its last SLICE_TAIL bytes:
     ("stopped", class) for an error, abort or length stop on the last assistant
-    message; ("done", "") once it yielded, stopped normally or exited; None while
+    message, an error with that message third (`close_slice`'s `stop`);
+    ("done", "") once it yielded, stopped normally or exited; None while
     it may still be running or cannot be read."""
     import json
     try:
@@ -1343,7 +1357,7 @@ def _transcript_end(path):
             continue
         stop = msg.get("stopReason")
         if stop == "error":
-            return "stopped", classify(msg.get("errorMessage")) or "error"
+            return "stopped", classify(msg.get("errorMessage")) or "error", msg
         if stop == "aborted":
             return "stopped", "aborted"
         if stop == "length":

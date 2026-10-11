@@ -222,6 +222,30 @@ class NoteSpawn(Journal):
                          ("open", "sess", "claude"))
         self.assertEqual(len(tt.slices(self.repo)), 3)
 
+    def test_a_limit_stop_holds_its_family_down_and_reapplies_the_chain(self):
+        # S2 F3a: a quota stop moved the routing only at the next session start
+        import tezgah_models as tm
+        applied = []
+        with unittest.mock.patch.object(tm.tp, "cache_dir", return_value=self.home), \
+                unittest.mock.patch.object(tm, "apply_omp",
+                                           side_effect=lambda: applied.append(1)), \
+                unittest.mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            self.call(True, "boom")  # no limit: nothing held
+            self.assertEqual((tm.down_families(), applied), (set(), []))
+            self.call(True, "API Error: 429 rate_limit_error")
+            self.assertEqual((tm.down_families(), applied), ({"anthropic"}, [1]))
+            self.call(True, "API Error: 429 rate_limit_error")  # already held
+            self.assertEqual(applied, [1])
+            # omp: the transcript's provider names the family, not the model
+            tt.close_slice(self.repo, self.call(None)[0]["id"], "stopped", "quota",
+                           {"errorMessage": "403 Key limit exceeded", "provider": "openrouter",
+                            "model": "anthropic/claude-opus-5.5"})
+            self.assertEqual(tm.down_families(), {"anthropic", "any"})
+            # the push fails open: the close still lands
+            with unittest.mock.patch.object(tm, "note_limit", side_effect=RuntimeError):
+                (rec,) = self.call(True, "quota exceeded")
+            self.assertEqual((rec["status"], rec["failure"]), ("stopped", "quota"))
+
     def test_slices_off_and_a_tree_outside_git_write_nothing(self):
         switch = os.path.join(tp.OFF_DIRS[0], "slices-off")
         os.makedirs(os.path.dirname(switch), exist_ok=True)
@@ -280,6 +304,22 @@ class Pending(Journal):
         self.assertEqual(dead, "- slice Dead (omp/task) stopped quota attempts 1: "
                                "tezgah-task slice resume Dead")
         self.assertTrue(all(len(line) <= tt.SLICE_LINE for line in lines), lines)
+
+    def test_an_omp_limit_stop_holds_the_transcripts_provider_down(self):
+        import tezgah_models as tm
+        tt.open_slice(self.repo, "Zai", host="omp", agent="task", parent="P1", brief="z")
+        self.transcript("P1", "Zai", [_row(
+            "assistant", stopReason="error", provider="zai", model="glm-5.3-flash",
+            errorMessage="429 Weekly/Monthly Limit Exhausted. Your limit will reset at "
+                         "2030-01-01 00:00:00")])
+        with unittest.mock.patch.dict(os.environ, {"HOME": self.home,
+                                                   "TEZGAH_HEALTH_CHECK": "1"}), \
+                unittest.mock.patch.object(tm.tp, "cache_dir", return_value=self.home), \
+                unittest.mock.patch.object(tm, "apply_omp") as apply:
+            tt.pending(self.repo)
+            self.assertEqual(tm.down_families(), {"zai"})
+        self.assertEqual(apply.call_count, 1)
+        self.assertEqual(self.record("Zai")["failure"], "rate_limit")
 
     def test_a_session_sees_only_the_slices_it_spawned(self):
         # owner, 2026-10-11: another session's stopped slices rode this

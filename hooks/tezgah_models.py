@@ -342,6 +342,53 @@ def limit_until(text, now=None):
     return min(max(until, now + 60), now + HEALTH_DOWN_MAX)
 
 
+def _family(provider="", model=""):
+    """The OMP_FAMILIES entry a provider id (omp's auth-store id) or, failing
+    that, a model id (`_vendor`) runs under, else None."""
+    by_provider = {auth[0]: family for family, auth in OMP_AUTH.items()}
+    family = by_provider.get(str(provider or "").lower()) or (
+        _vendor(str(model)) if model else None)
+    return family if family in OMP_FAMILIES else None
+
+
+def note_limit(text, provider="", model="", now=None):
+    """Hold down the family a slice stopped on with a limit answer (`text`), and
+    re-apply omp's chain, so the next spawn of this session leaves that family
+    instead of the next session start's probe moving it (research
+    orchestrator-flow-audit S2, F3a). Returns the family newly held, else None:
+    no family resolves (`_family`), `text` is no limit answer (`limit_until`),
+    the family is already held, or TEZGAH_HEALTH_CHECK=0 (the suite's switch)."""
+    import time
+    family = _family(provider, model)
+    if not family or os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
+        return None
+    now = time.time() if now is None else now
+    until = limit_until(text, now)
+    data = read_health()
+    if until is None or family in down_families(now, data):
+        return None
+    data["down"][family] = {"until": until, "reason": " ".join(str(text).split())[:200]}
+    if not write_health(data):
+        return None
+    apply_omp()
+    return family
+
+
+def other_family_up(text):
+    """The first funded family not down (`funded_families`) that `text` does not
+    name - by its auth-store provider id or a model stem (`VENDOR_STEMS`) - else
+    None: where work a limit stopped on one family can move. None under
+    TEZGAH_HEALTH_CHECK=0, so the suite never reads this machine's credentials."""
+    if os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
+        return None
+    low = str(text or "").lower()
+    names = {family: {OMP_AUTH[family][0]} | {s for s, v in VENDOR_STEMS if v == family}
+             for family in OMP_FAMILIES}
+    return next((family for family in funded_families(live=True)
+                 if not any(re.search(r"\b%s" % re.escape(n), low) for n in names[family])),
+                None)
+
+
 def _openrouter_key():
     env, home = tp.PROVIDER_KEYS["openrouter"]
     key = os.environ.get(env, "").strip()
