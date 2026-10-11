@@ -315,7 +315,7 @@ The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_int
 1. **placating opener** — the reply opens by agreeing or apologising (`hooks/tezgah_integrity.py::SYCOPHANT`).
 2. **forbidden closer** — the reply's last prose line is one of the sign-offs the output contract bans (`CLOSER`, `hooks/tezgah_integrity.py`): the same rule read at the other end, with its own class so the ledger says which end fired.
 3. **list cap** — a contiguous list runs past `LIST_CAP` = 5 items (rule 8 of the `i-have-adhd` skill). `longest_list` (`hooks/tezgah_integrity.py::longest_list`) counts per run of column-0 items of one kind: a heading, a prose line, a table row, a fence, a marker switch or a numbered list restarting at 1 ends the run, and blank or indented continuation lines keep it. Two headed groups of four pass; a 5+ enumeration that must stay whole goes under headings or into a table, which the block text says.
-4. **reply language** — the reply's prose is not Turkish: at least `LANG_MIN_WORDS` = 25 prose words and under `LANG_MIN_SHARE` = 6% of them Turkish. `prose_words` drops fences, table rows, inline code, URLs, paths and identifiers first; `turkish_share` counts a word with a Turkish letter or one of `TR_WORDS` (`hooks/tezgah_integrity.py::TR_WORDS`).
+4. **reply language** — the reply's prose is not in the configured language. That means at least `LANG_MIN_WORDS` = 25 prose words, under `LANG_MIN_SHARE` = 6% of them marked as that language. `prose_words` drops fences, table rows, inline code, URLs, paths and identifiers first; `turkish_share` counted a word with a Turkish letter or one of `TR_WORDS`. `reply_share` counts the language pack's marker letters and words now (`hooks/tezgah_integrity.py::reply_share`). Only `tr` ships markers. They no longer hold de, da, en, ne, ya, her or mi, the words Spanish, French and Dutch share with Turkish.
 
 The four shape classes share their switches with the text they enforce: `adhd-off` or a repo's `.no-adhd` lifts 1–3 (`_adhd_armed`, `hooks/tezgah_integrity.py::_adhd_armed`), `exec-mode.off` lifts 4, and a session whose environment carries `TEZGAH_NESTED` (an agent CLI consult started, whose English answer is read by code) is not judged for shape at all. A subagent's reply is never refused: omp's `session_stop` does not fire for task sessions, and a Claude SubagentStop or Cursor subagentStop leaves a record-only `subagent_end` row judged on the evidence half alone (ADR 011). The thresholds were set on the owner's omp transcripts (2026-09-27: 1,495 assistant replies with at least 25 prose words): English prose scored 0.000–0.026, the most English-heavy Turkish reply 0.077 and the bulk 0.3–0.7, and 24 of the 1,495 fall under the cut, all English or Chinese prose. The trade-off is on the Turkish side: a Turkish reply that is mostly quoted English outside backticks can fall under 6%, and the block text tells the model to put the English in backticks or a fence. `tests/test_integrity.py` `ReplyShapeCorpus` pins which realistic replies pass and which block. A lead that announces what follows (`preamble-open`) stays report-only: "Sonuç:" over a list is an answer label and reads like a preamble to any regex.
 
@@ -433,9 +433,10 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    blocker label that reports the blocker gone holds none either. It has a sentence in the past,
    then a last sentence that opens on "Artık" with a present verb ("… yoktu. Artık var."). A
    negative past ("güncellenmedi") or a last sentence with a residual word or a future keeps it
-   open (`hooks/tezgah_integrity.py::_now_closed`). The refusal opens with "Bu maddeleri şimdi yap
-   veya engel türü ve kanıtla yaz." It also says that a step that cannot be undone never clears the
-   list.
+   open (`hooks/tezgah_integrity.py::_now_closed`). The refusal names the blocker tokens of the
+   configured language. Under `tr` it opens with "Bu maddeleri şimdi yap veya engel türü ve
+   kanıtla yaz.", and under `en` it opens on the English instruction. It also says that a step
+   that cannot be undone never clears the list.
    `_stop_block` asks this class at every exit that would end the turn
    (`hooks/tezgah_integrity.py::_residual_block`). So it never takes a turn that another class
    refused. A turn with no step, a ledger with no turn marker and a nested session skip it. A
@@ -473,8 +474,9 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    On omp, `todo start` puts every other started item
    back to pending, so a running slice's item would read as ready without this. A ready item
    passes when one line of the reply names its first 24 characters, inline code kept, beside a
-   KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token outside code. The refusal opens with "Hazır adımlar
-   bekliyor." It names up to three heads and tells the turn to dispatch them or mark them blocked.
+   blocker token (any pack's spelling: DECISION, ACCESS, IRREVERSIBLE, ENV, or KARAR, YETKİ, GERİ
+   ALINAMAZ, ORTAM) outside code. Under `tr` the refusal opens with "Hazır adımlar bekliyor." It
+   names up to three heads and tells the turn to dispatch them or mark them blocked.
    `_residual_block` asks it after `residual work` and before
    `stopped slice`. The scope matches `residual work`. A turn with no step skips it. So do a
    ledger with no turn marker, a subagent's end, a nested session and `orchestrate-off`. The rule

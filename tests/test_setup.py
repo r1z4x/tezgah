@@ -1973,7 +1973,7 @@ class ContractParity(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             skill = fh.read()
         # the blocks are a template; the skill writes the placeholders out, and
-        # names the reply_lang setting where a render names one of its values
+        # names the `language` setting where a render names one of its values
         text = contract_blocks().replace("{ROOT}", "the configured tezgah roots")
         for key, words in policy.REPLY_LANG_HOOKLESS.items():
             text = text.replace(key, words)
@@ -1981,7 +1981,7 @@ class ContractParity(unittest.TestCase):
         self.assertEqual([], missing,
                          "these rules exist in the policy blocks but not in the "
                          "skill: %s" % missing)
-        self.assertIn("`reply_lang`", skill)
+        self.assertIn("`language`", skill)
 
     def test_the_cost_report_measures_the_shipped_skill(self):
         # the joined constant drifted from the skill and still drove the

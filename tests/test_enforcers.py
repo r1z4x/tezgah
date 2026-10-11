@@ -105,10 +105,11 @@ class Matrix(unittest.TestCase):
         # loop: both denies sit under `verify-off`, which drops the integrity
         # paragraph and leaves the loop paragraph in force. fidelity: the
         # placating opener returns only while the output-shape switches are
-        # on. exec: the reply-language block runs only under `reply_lang` tr.
+        # on. exec: the reply-language block runs only for a language whose
+        # pack ships reply markers (tr).
         guards = {"loop": ("gate:loop", "verify-off"),
                   "fidelity": ("stop:placating opener", "adhd-off"),
-                  "exec": ("stop:reply language", "reply_lang() == 'tr'")}
+                  "exec": ("stop:reply language", "_markers(language())")}
         for rule, (enforcer, guard) in guards.items():
             row = self.row(rule)
             self.assertEqual(row["status"], "partial", rule)

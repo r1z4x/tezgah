@@ -106,7 +106,7 @@ RUN = re.compile(r"((?:`[A-Za-z_][A-Za-z0-9_]*(?:\(\))?`\s*[/,]?\s*){1,5})$")
 CITE = re.compile(r"`([\w.-]+(?:/[\w.-]+)+|[\w-]+\.\w+):(\d+)(?:-(\d+))?`"
                   r"|`(:(\d+)(?:-(\d+))?)`")
 # The symbol written after the citation instead of before it, the way a table
-# cell reads: `hooks/tezgah_policy.py:727-1026` (`CORE`).
+# cell reads: `hooks/tezgah_policy.py:724-1022` (`CORE`).
 AFTER = re.compile(r"\s*\(`([A-Za-z_][A-Za-z0-9_]*)(?:\(\))?`\)")
 # Any `path:line`, backticked or not: what CITE does not match of these (a
 # bare token, a comma list `x.py:12,40`) is counted as unjudged, so a citation
@@ -837,8 +837,8 @@ def _guarded_returns(func, funcs, pick):
     names, with what its enclosing `if` tests guard it by. A conjunct of a test
     that reads a switch (`_switch_words`, or a call to a function in `funcs`
     that reads one: `_adhd_armed`) is a switch guard; a conjunct that names no
-    argument or local of `func` is a condition on the environment (`reply_lang()
-    == "tr"`); a conjunct reading the call's own data is the trigger itself and
+    argument or local of `func` is a condition on the environment
+    (`_markers(language())`); a conjunct reading the call's own data is the trigger itself and
     is not a guard. The switch a whole hook checks first (`pretooluse-off`, the
     Stop hook's `verify-off`) is outside these functions and is not counted."""
     own = {a.arg for a in func.args.args + func.args.kwonlyargs} | {

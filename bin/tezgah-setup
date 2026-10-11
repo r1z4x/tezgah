@@ -315,9 +315,11 @@ CURSOR_HOOK_EVENTS = {
 # makes a config written before this existed behave exactly as it used to.
 # --enable/--disable/--devtools and the wizard set it before anything is written.
 FEATURES = None
-# The `reply_lang` this run stores (--reply-lang); None keeps what config.json
-# says, and a config without the key reads as `tr` (tezgah_paths.reply_lang).
-REPLY_LANG = None
+# The `language` this run stores (--language, or its older spelling
+# --reply-lang); None keeps what config.json says. A first install with no flag
+# takes the environment's (`tp.env_language`); a config made before the key
+# existed is pinned to `tr`, the default it ran under (tezgah_paths.language).
+LANGUAGE = None
 OK, NO = "  ok  ", " MISS "
 
 
@@ -1026,6 +1028,7 @@ def detected():
 def install_common(new_roots, hosts):
     # tezgah's own config is refused like a host's: tp.config() reads a malformed
     # file as {}, and writing that back would drop the user's roots and settings
+    first = not os.path.exists(tp.CONFIG)
     cfg = read_config(tp.CONFIG, {})
     own = cfg is not None
     cfg = cfg if own else {}
@@ -1045,8 +1048,13 @@ def install_common(new_roots, hosts):
     # anywhere, so it moves the tree the install actually used instead of the
     # XDG default. An explicit --prefix or TEZGAH_PREFIX still wins over it.
     cfg["prefix"] = INSTALL_PREFIX
-    if REPLY_LANG:
-        cfg["reply_lang"] = REPLY_LANG
+    if LANGUAGE:
+        cfg["language"] = LANGUAGE
+    elif not any(key in cfg for key in ("language", "reply_lang")):
+        # an existing `reply_lang` is never rewritten; only a config with
+        # neither key gets one: the locale's on a first install, `tr` on an
+        # older one, so an upgrade changes no one's reply language
+        cfg["language"] = tp.env_language() if first else "tr"
     if own:
         write_json(tp.CONFIG, cfg)
         print("%s %s  roots=%s" % (OK, tp.CONFIG, cfg["roots"]))
@@ -5714,10 +5722,11 @@ def main(argv):
                     version=tezgah_context.version() or "unknown")
     ap.add_argument("--roots")
     ap.add_argument("--hosts")
-    ap.add_argument("--reply-lang", choices=tp.REPLY_LANGS,
+    ap.add_argument("--language", "--reply-lang", choices=tp.languages(),
                     help="with --install: the language replies are asked for and "
-                         "the Stop rule checks (config.json `reply_lang`; `tr` "
-                         "when unset, `any` checks none)")
+                         "the Stop rule checks (config.json `language`; a first "
+                         "install takes LANGUAGE/LC_ALL/LC_MESSAGES/LANG, `en` "
+                         "when none names a pack; `any` checks none)")
     ap.add_argument("--jev", type=tp.jev_name, choices=tp.JEV_CHOICES,
                     help="the carrier the judgement seam reaches the Jev model "
                          "through (config.json `jev`; `auto` tries every one "
@@ -5737,9 +5746,9 @@ def main(argv):
     # so it is taken off before the flags are parsed (`--dry-run` still reads)
     command = argv[1:2] == ["update"]
     args = ap.parse_args(argv[2:] if command else argv[1:])
-    global FEATURES, INSTALL_PREFIX, HOST_DEPS, REPLY_LANG
+    global FEATURES, INSTALL_PREFIX, HOST_DEPS, LANGUAGE
     HOST_DEPS = args.host_deps
-    REPLY_LANG = args.reply_lang
+    LANGUAGE = args.language
     select_code = 0
     # --devtools is --enable <id> and nothing else: one code path, so the flag
     # cannot reach the selection in a way the explicit command does not.
