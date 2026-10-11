@@ -1042,6 +1042,35 @@ class WritersElsewhere(unittest.TestCase):
         self.write("mine", [self.edit("/repo/x.py")])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])
 
+    def test_lineage_names_each_writers_relation(self):
+        # research orchestrator-flow-audit S7, findings 3 and 4: the race rule
+        # had only an opaque ledger id to name a writer by
+        now = int(time.time())
+        self.write("mine", [{"kind": "spawned", "ts": now, "parent": "boss"}])
+        self.write("kid", [{"kind": "spawned", "ts": now, "parent": "mine", "agent": "W1"},
+                           self.edit("/repo/x.py")])
+        self.write("fork", [{"kind": "forked", "ts": now, "parent": "mine"},
+                            self.edit("/repo/x.py", age=10)])
+        self.write("boss", [self.edit("/repo/x.py", age=20)])
+        self.write("peer", [{"kind": "spawned", "ts": now, "parent": "boss", "agent": "W2"},
+                            self.edit("/repo/x.py", age=30)])
+        self.write("stray", [self.edit("/repo/x.py", age=40)])
+        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine", lineage=True), [
+            (ti._slug("kid"), "child", "W1"), (ti._slug("fork"), "fork", ""),
+            (ti._slug("boss"), "parent", ""), (ti._slug("peer"), "sibling", "W2"),
+            (ti._slug("stray"), "unrelated", "")])
+        self.write("forked", [{"kind": "forked", "ts": now, "parent": "stray"}])
+        self.assertIn((ti._slug("stray"), "forked-from", ""),
+                      ti.writers_elsewhere("/repo/x.py", "forked", lineage=True))
+
+    def test_last_check_skips_a_check_of_another_repository(self):
+        # finding 8: the resume block named another project's check as this one's
+        now = int(time.time())
+        self.write("s", [{"kind": "verify_ok", "ts": now, "detail": "pytest", "repo": "/a"},
+                         {"kind": "verify_fail", "ts": now, "detail": "make", "repo": "/b"}])
+        self.assertEqual(ti.last_check("s")["detail"], "make")
+        self.assertEqual(ti.last_check("s", "/a")["detail"], "pytest")
+
     def test_a_write_outside_the_window_is_not_reported(self):
         self.write("old", [self.edit("/repo/x.py", age=20 * 60)])
         self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine"), [])

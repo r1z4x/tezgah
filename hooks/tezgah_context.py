@@ -937,7 +937,7 @@ def resume_state(root, session_id):
     # lessons, pointer - for a session whose ledger holds one bad line. So a
     # damaged ledger costs these two bullets and nothing else.
     try:
-        row = last_check(session_id) if session_id else None
+        row = last_check(session_id, root) if session_id else None
         files = sorted(changed_files(session_id)) if session_id else []
     except ValueError:
         row, files = None, []
@@ -1719,7 +1719,8 @@ def _transcript_calls(path, since):
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
 # refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
-# compaction, the subagent mark (SubagentStart writes it too), the guard's crash
+# compaction, the subagent mark (SubagentStart writes it too), the omp fork's
+# `forked` row, the guard's crash
 # row (any hook), the damage row any reader writes and the session start's
 # attest row. Every other kind - deny, nudge, began, snapshot, ... - can only
 # come from a tool hook.
@@ -1729,7 +1730,7 @@ def _transcript_calls(path, since):
 NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end", b"stop_spec",
                            b"shape", b"compact", b"orch", b"crash", b"route",
-                           b"spawned", b"lesson", b"disarm", b"ledger_damage",
+                           b"spawned", b"forked", b"lesson", b"disarm", b"ledger_damage",
                            b"attest"))
 # The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
 # not that the gate saw it - a PostToolUse hook keeps writing them while a

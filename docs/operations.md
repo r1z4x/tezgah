@@ -426,7 +426,8 @@ bin/tezgah-taste export                       # accepted learnings into AGENTS.m
 bin/tezgah-taste label; bin/tezgah-taste label ID preference   # the calibration sample
 bin/tezgah-taste calibrate                    # the bound a rule needs
 bin/tezgah-taste gate                         # the pooled before/after test
-bin/tezgah-taste mine --host omp --stats      # sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --host omp --stats      # this repository's sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --all-projects          # every session under ~/Projects, each repo pseudonymised
 bin/tezgah-taste measure --samples S --labels L [--typed]   # judge precision/recall
 ```
 
@@ -635,6 +636,12 @@ HEAD at open. Its `status` is `open`, `done`, `stopped`, `resumed` or `stale`.
 Its `failure` is one of `quota`, `rate_limit`, `aborted`, `timeout`, `cut_off`
 or `error`. `attempts` counts each re-open of the same id
 (`hooks/tezgah_task.py::open_slice`, `hooks/tezgah_task.py::close_slice`).
+Another session's record of the same name is not re-opened under another brief.
+The spawn gets this session's own record of that name, else `<name>-<sha1[:6]>` of its brief.
+`name` keeps the spawned name, and the same brief from another session still re-opens the record
+(`hooks/tezgah_task.py::_own_id`). A slice journals in the one repository every
+absolute path its brief names lies in. A brief naming none, or two, journals in
+cwd's repository (`hooks/tezgah_task.py::_brief_repo`).
 
 The hooks write it. A spawn call - omp `task`, Claude, dsh and Cursor
 `Agent`/`Task`, Codex `spawn_agent`, opencode `task` - opens one record per

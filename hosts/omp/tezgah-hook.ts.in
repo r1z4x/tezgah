@@ -409,6 +409,20 @@ function isSubagent(ctx: any): boolean {
   }
 }
 
+// The session an omp fork was forked from: a main session whose header still
+// names a `parentSession` (an id, or a `<stamp>_<id>.jsonl` path). The hook
+// writes it as a `forked` row, so the race rule names a fork as one instead of
+// an opaque ledger id. "" for a session that is no fork.
+function forkParent(ctx: any): string {
+  try {
+    const parent = String(ctx?.sessionManager?.getHeader?.()?.parentSession ?? "");
+    const stem = basename(parent.replace(/\\/g, "/"), ".jsonl");
+    return stem.slice(stem.lastIndexOf("_") + 1);
+  } catch {
+    return "";
+  }
+}
+
 export default function tezgahOmp(pi: any): void {
   // The idx glyph the last probed answer carried. omp redraws the line after
   // every watched tool and the stamp probe behind that mark is the line's only
@@ -559,8 +573,10 @@ export default function tezgahOmp(pi: any): void {
       ? { parent: process.env.TEZGAH_SESSION,
           agent: basename(String(ctx?.sessionManager?.getSessionFile?.() ?? ""), ".jsonl") }
       : {};
+    const fork = subagent ? "" : forkParent(ctx);
     const res = ask({ event: "session_start", cwd: cwdOf(ctx),
-                      session_id: session, subagent, ...link });
+                      session_id: session, subagent, ...link,
+                      ...(fork ? { fork_of: fork } : {}) });
     if (hookError) {
       const notice = failureNotice(ctx, session);
       if (notice) {

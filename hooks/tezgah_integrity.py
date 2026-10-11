@@ -1187,9 +1187,10 @@ def scratch_target(path, cwd=None):
     return False
 
 
-def writers_elsewhere(path, session_id, minutes=10, cwd=None):
+def writers_elsewhere(path, session_id, minutes=10, cwd=None, lineage=False):
     """The other sessions that recorded a write of `path` in the last `minutes`,
-    newest first, as ledger ids.
+    newest first, as ledger ids. With `lineage`, each one is a (ledger id,
+    relation, agent) triple instead (`_relation`).
 
     `path` is resolved against `cwd` (`_abs_target`) and matched against the
     `target` the writing session's PostToolUse hook stored, which is that
@@ -1234,7 +1235,59 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
             continue
         if isinstance(row, dict) and row.get("target") == want:
             found[stem] = max(found.get(stem, stamp), stamp)
-    return sorted(found, key=lambda stem: -found[stem])
+    stems = sorted(found, key=lambda stem: -found[stem])
+    return [(stem,) + _relation(stem, session_id) for stem in stems] if lineage else stems
+
+
+# The rows that name a session's lineage at its start: `spawned` (a subagent's
+# parent, written by the hosts' subagent start) and `forked` (an omp fork's
+# parent, written by the omp hook from the session header's `parentSession`).
+LINEAGE_KINDS = ("spawned", "forked")
+
+
+def _lineage(stem):
+    """{kind: (parent ledger id, raw parent id, agent)} of the first row of each
+    LINEAGE_KINDS in ledger `stem`; {} when it has none or cannot be read."""
+    out = {}
+    for kind in LINEAGE_KINDS:
+        try:
+            texts = ts.evidence_rows(os.path.join(cache_dir(), "evidence",
+                                                  stem + ".jsonl"), kind=kind)
+        except ts.ERRORS:
+            continue
+        for text in texts:
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("parent"):
+                raw = str(row["parent"])
+                out[kind] = (_slug(raw), raw, str(row.get("agent") or ""))
+                break
+    return out
+
+
+def _relation(stem, session_id):
+    """(relation, agent) of writer ledger `stem` to session `session_id`: `child`
+    (its `spawned` row names this session; agent is the child's name),
+    `parent`, `sibling` (both spawned by one parent), `fork` (an omp fork of
+    this session), `forked-from` (the session this one was forked from), else
+    `unrelated`. The race rule names it and exempts a child that has ended
+    (research orchestrator-flow-audit S7, findings 3 and 4)."""
+    theirs, mine = _lineage(stem), _lineage(_slug(session_id))
+    spawn, fork = theirs.get("spawned"), theirs.get("forked")
+    if spawn and spawn[1] == session_id:
+        return "child", spawn[2]
+    if fork and fork[1] == session_id:
+        return "fork", ""
+    own_spawn, own_fork = mine.get("spawned"), mine.get("forked")
+    if own_spawn and own_spawn[0] == stem:
+        return "parent", ""
+    if own_fork and own_fork[0] == stem:
+        return "forked-from", ""
+    if spawn and own_spawn and spawn[1] == own_spawn[1]:
+        return "sibling", spawn[2]
+    return "unrelated", ""
 
 
 def _prompt_key(text):
@@ -3869,9 +3922,11 @@ def last_verify(session_id):
     return _last_verify(events(session_id))
 
 
-def last_check(session_id):
+def last_check(session_id, repo=None):
     """The newest verification row the ledger holds - a `verify_ok` or a
     `verify_fail`, with its command in `detail` - or None when no check ran.
+    With `repo`, a check whose own `repo` names another repository is skipped
+    (`_same_repo`): a check run in another project says nothing about this one.
 
     `last_verify` answers the same question as a state; this hands the row back
     for a reader that has to name the command the state came from, the way the
@@ -3881,7 +3936,8 @@ def last_check(session_id):
     buys out of."""
     newest = None
     for row in events(session_id, tail=SCRATCH_TAIL):
-        if row.get("kind") in ("verify_ok", "verify_fail"):
+        if row.get("kind") in ("verify_ok", "verify_fail") \
+                and _same_repo(row.get("repo"), repo):
             newest = row
     return newest
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tezgah-taste - mine, measure, learn and apply the coding-taste signals.
 
-  tezgah-taste mine [--host omp|claude|all] [--root DIR] [--stats] [--out FILE]
+  tezgah-taste mine [--host omp|claude|all] [--root DIR | --all-projects] [--stats]
+                    [--out FILE]
   tezgah-taste measure --samples FILE --labels FILE [--model M] [--json]
   tezgah-taste rate --in MINED [--limit N] [--json]
   tezgah-taste learn [--repo DIR] [--from-transcripts] [--host omp|claude|all]
@@ -16,7 +17,11 @@
 `mine` reads the session transcripts on this machine - omp's top-level session
 files under `~/.omp/agent/sessions/*/` (a nested file is a subagent session) and
 Claude's top-level transcripts under `~/.claude/projects/*/` - whose cwd is under
-`--root` (default `~/Projects`, a `.runs` directory excluded). A writing turn is
+`--root` (default the current repository, a `.runs` directory excluded).
+`--all-projects` reads every session under `~/Projects` instead. A row from any
+repository but the current one, and every row under `--all-projects`, carries a
+pseudonym (`project-<sha1[:8]>`) for its `repo` and `cwd` and in its prompt, so
+another project's name never lands in this repository's research data. A writing turn is
 one in which the agent wrote a file without an error (omp `edit`/`write`, Claude
 `Edit`/`Write`/`MultiEdit`/`NotebookEdit`); the prompt the user sent directly
 after one, unless it is a harness injection, is a row. The definitions are the
@@ -64,6 +69,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 
@@ -236,7 +242,7 @@ def sessions(host, root, nested=False):
     pattern = ("**", "*.jsonl") if nested else ("*", "*.jsonl")
     for path in sorted(glob.glob(os.path.join(base(), *pattern), recursive=nested)):
         cwd = cwd_of(path)
-        if cwd.startswith(root + os.sep) and ".runs" not in cwd.split(os.sep):
+        if (cwd == root or cwd.startswith(root + os.sep)) and ".runs" not in cwd.split(os.sep):
             yield path, cwd
 
 
@@ -258,11 +264,17 @@ def repo_of(cwd, root):
     """The nearest directory holding `.git` below the root, else the first path
     component under it - without git, since a session's cwd may be gone."""
     here = cwd
-    while here.startswith(root + os.sep):
+    while here == root or here.startswith(root + os.sep):
         if os.path.exists(os.path.join(here, ".git")):
             return here
         here = os.path.dirname(here)
-    return os.path.join(root, os.path.relpath(cwd, root).split(os.sep)[0])
+    return os.path.normpath(os.path.join(root, os.path.relpath(cwd, root).split(os.sep)[0]))
+
+
+def pseudonym(repo):
+    """`project-<sha1[:8]>` for a repository path: the same name for every row of
+    one repository, and no trace of its own name."""
+    return "project-" + hashlib.sha1(repo.encode("utf-8", "replace")).hexdigest()[:8]
 
 
 def mine_session(events):
@@ -280,7 +292,10 @@ def mine_session(events):
 
 
 def cmd_mine(args):
-    root = os.path.abspath(os.path.expanduser(args.root or "~/Projects"))
+    here = (tezgah_paths.linked_main(os.getcwd()) or repo_root(os.getcwd())
+            or os.getcwd())
+    root = os.path.abspath(os.path.expanduser(
+        args.root or ("~/Projects" if args.all_projects else here)))
     out = open(args.out, "w", encoding="utf-8") if args.out and not args.stats else sys.stdout
     try:
         for host in (("omp", "claude") if args.host == "all" else (args.host,)):
@@ -293,11 +308,18 @@ def cmd_mine(args):
                 if args.stats:
                     continue
                 for text, turn in rows:
+                    repo, cwd_out, prompt = repo_of(cwd, root), cwd, ti.redact(text)
+                    if args.all_projects or repo != here:
+                        alias = pseudonym(repo)
+                        cwd_out = alias + cwd[len(repo):] if cwd.startswith(repo) else alias
+                        prompt = re.sub(r"\b%s\b" % re.escape(os.path.basename(repo)),
+                                        alias, prompt.replace(repo, alias))
+                        repo = alias
                     out.write(json.dumps({
                         "host": host,
                         "session": os.path.splitext(os.path.basename(path))[0],
-                        "cwd": cwd, "repo": repo_of(cwd, root),
-                        "prompt": ti.redact(text)[:CUT], "writes_in_turn": turn},
+                        "cwd": cwd_out, "repo": repo,
+                        "prompt": prompt[:CUT], "writes_in_turn": turn},
                         ensure_ascii=False) + "\n")
             if args.stats:
                 print("%s: sessions=%d writes=%d prompts_after_write=%d"
@@ -883,6 +905,8 @@ def main(argv):
     mine = sub.add_parser("mine")
     mine.add_argument("--host", choices=("omp", "claude", "all"), default="all")
     mine.add_argument("--root")
+    mine.add_argument("--all-projects", action="store_true",
+                      help="every session under ~/Projects, each repo and cwd pseudonymised")
     mine.add_argument("--stats", action="store_true")
     mine.add_argument("--out")
     measure = sub.add_parser("measure")

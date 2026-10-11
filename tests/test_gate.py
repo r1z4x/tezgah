@@ -1113,6 +1113,66 @@ class Gate(TempHome):
         self.assertIsNone(self.decide("Bash", {"command": "printf y > src/b.py"},
                                       session_id="mine"))
 
+    def lineage(self, session, kind, parent, agent=None):
+        """The `spawned` or `forked` row a session's start writes."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note", "session": session, "kind": kind,
+                              "parent": parent, "agent": agent}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_an_own_child_that_ended_is_no_race_and_a_live_one_is(self):
+        # research orchestrator-flow-audit S7, finding 3: a child stopped on a
+        # 403 and the parent's takeover of its file was refused for 10 minutes
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        self.lineage("kid", "spawned", "mine", agent="Worker")
+        self.seed_write("kid", target)
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        # no slice record: nothing says the child ended
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.open_slice(self.repo, "Worker", host="claude", parent="mine", brief="b")
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.close_slice(self.repo, "Worker", "stopped", "quota")
+        self.assertIsNone(self.decide("Edit", edit, session_id="mine"))
+        # another session is still refused on the same child's write
+        self.assertIn("unrelated session", self.decide("Edit", edit,
+                                                       session_id="else") or "")
+
+    def test_a_fork_is_named_as_one_in_the_refusal(self):
+        # finding 4: the bare ledger id read as "a second window of this session"
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("forkee", "forked", "mine")
+        self.seed_write("forkee", target)
+        reason = self.decide("Edit", edit, session_id="mine") or ""
+        self.assertIn("an omp fork of this session (ledger %s)" % ti._slug("forkee"),
+                      reason)
+        # and seen from the fork, the writer is the session it was forked from
+        self.seed_write("mine", target)
+        self.assertIn("the session this one was forked from (ledger %s)" % ti._slug("mine"),
+                      self.decide("Edit", edit, session_id="forkee") or "")
+
+    def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
+        # finding 7: cwd decides which project's rules apply, so a write into
+        # another repository runs under none of its plans; a notice, no refusal
+        other = self.make_repo("other")
+        for repo in (self.repo, other):
+            os.makedirs(os.path.join(repo, ".git"), exist_ok=True)
+        there = os.path.join(other, "x.py")
+        note = tg.cross_project_note("xp", "Edit", {"file_path": there}, self.repo)
+        self.assertIn("this write is in %s, not in this session's repository (%s)"
+                      % (other, self.repo), note or "")
+        self.assertIsNone(tg.cross_project_note("xp", "Write", {"file_path": there},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Bash", {"command": "ls > a.py"},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Read", {"path": there}, self.repo))
+        self.assertIsNotNone(tg.cross_project_note(
+            "xp", "Bash", {"command": "echo x > %s" % os.path.join(self.repo, "y")}, other))
+
     def test_a_scratch_file_is_no_shared_work(self):
         # review of plan 057: shell rows carried scratch targets, so two
         # sessions writing a common temp name (`/tmp/x`) refused each other

@@ -216,7 +216,7 @@ done` exits 0 whatever pytest found. `pytest && echo ok` and `cd x && pytest` ke
 trimmed form before it runs ([gate.md](gate.md), the `piped` rule). The `out_bytes` half
 bites only where the host reported a result size — Codex (`hosts/codex/hook.py::main`), Cursor
 (`hosts/cursor/hook.py::remember_answer,275`) and omp, whose bridge measures it and sends `result_len`
-(`hosts/omp/tezgah-hook.ts.in:670-676`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
+(`hosts/omp/tezgah-hook.ts.in:686-692`), now do — and 6 of 1423 `verify_ok` rows across 1454 local ledgers carry the field
 (measured 2026-09-19), so an absent field still passes: the guard narrows a check whose
 result was measured empty, it does not require the measurement. `last_verify`
 (`hooks/tezgah_integrity.py::last_verify`) folds the ordered rows to `ok`/`fail`/`ran`/`None`, because a set cannot tell a failure

@@ -370,6 +370,62 @@ class Pending(Journal):
             tt.pending(self.repo)
             self.assertEqual(self.record("Rev")["status"], "open")
 
+    def test_another_sessions_same_name_never_takes_a_stopped_slice(self):
+        # research orchestrator-flow-audit S7, finding 1 (data/scripts/s7/
+        # repro.py): session Y's unrelated `Fixer` re-opened X's stopped record,
+        # which then left X's resume line and X's Stop rule
+        with unittest.mock.patch.dict(os.environ, {"HOME": self.home}):
+            task = {"tasks": [{"name": "Fixer", "agent": "task", "task": "edit app.py"}]}
+            tt.note_spawn(self.repo, "sessX", "omp", "task", dict(task, context="x work"))
+            tt.close_slice(self.repo, "Fixer", "stopped", "rate_limit")
+            (theirs,) = tt.note_spawn(self.repo, "sessY", "omp", "task", {
+                "context": "other work",
+                "tasks": [{"name": "Fixer", "agent": "task", "task": "unrelated"}]})
+            mine = self.record("Fixer")
+            self.assertEqual((mine["parent"], mine["status"], mine["attempts"]),
+                             ("sessX", "stopped", 1))
+            self.assertEqual([ln.split()[2] for ln in tt.slice_lines(self.repo, session="sessX")],
+                             ["Fixer"])
+            self.assertTrue(theirs["id"].startswith("Fixer-"), theirs["id"])
+            self.assertEqual((theirs["name"], theirs["parent"]), ("Fixer", "sessY"))
+            # Y's next dispatch of that name, under another brief, is its own record
+            (again,) = tt.note_spawn(self.repo, "sessY", "omp", "task", {
+                "tasks": [{"name": "Fixer", "agent": "task", "task": "third brief"}]})
+            self.assertEqual((again["id"], again["attempts"]), (theirs["id"], 2))
+            # the child file omp writes is still `Fixer.jsonl` in Y's directory
+            self.transcript("sessY", "Fixer", [_row("toolResult", toolName="yield")])
+            rec = tt.open_slice(self.repo, "Fixer", host="omp", parent="sessY",
+                                brief="third brief")
+            self.assertEqual(rec["id"], theirs["id"])
+            tt.pending(self.repo)
+            self.assertEqual(self.record(theirs["id"])["status"], "done")
+            # the same brief from another session is a re-dispatch and re-opens it
+            (resent,) = tt.note_spawn(self.repo, "sessZ", "omp", "task",
+                                      dict(task, context="x work"))
+            self.assertEqual((resent["id"], resent["parent"]), ("Fixer", "sessZ"))
+
+
+class BriefRepo(Journal):
+    """note_spawn journals in the repository the brief names (finding 2)."""
+
+    def test_a_brief_naming_only_another_repository_journals_there(self):
+        other = self.make_repo("other")
+        self.git("init", "-q", other, cwd=self.home)
+        tree = self.worktree("w1")
+        with unittest.mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.home}):
+            (rec,) = tt.note_spawn(self.repo, "s", "omp", "task", {
+                "context": "Work in %s only." % other,
+                "tasks": [{"name": "Away", "task": "edit %s/app.py." % other}]})
+            # a worktree of this repository is this repository's journal
+            tt.note_spawn(self.repo, "s", "omp", "task", {
+                "tasks": [{"name": "Here", "task": "edit %s/app.py" % tree}]})
+            # two repositories named: cwd's journal
+            tt.note_spawn(self.repo, "s", "omp", "task", {
+                "tasks": [{"name": "Both", "task": "%s and %s" % (other, self.repo)}]})
+        self.assertEqual(rec["cwd"], self.repo)
+        self.assertEqual([r["id"] for r in tt.slices(other)], ["Away"])
+        self.assertEqual(sorted(r["id"] for r in tt.slices(self.repo)), ["Both", "Here"])
+
 
 class Cli(Journal):
 

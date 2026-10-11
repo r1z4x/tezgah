@@ -23,6 +23,7 @@ from tezgah_guard import import_failed, safe  # noqa: E402
 try:
     from tezgah_context import (GRAPH_TOOL_MARK, record, shell_kind,  # noqa: E402
                                 skill_read_kind)
+    from tezgah_gate import cross_project_note  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, note_tool, ran_nothing, report_bytes, untrusted_source)
     from tezgah_paths import root_for  # noqa: E402
@@ -141,11 +142,13 @@ def main():
          empty_run=ran_nothing(result),
          agent=agent)
     # the opt-in taste note: the learnings in scope for the first write to this
-    # file type in the session (hooks/tezgah_taste.write_note), beside the
-    # provenance line rather than instead of it
+    # file type in the session (hooks/tezgah_taste.write_note), and the
+    # cross-project write notice (hooks/tezgah_gate.py::cross_project_note),
+    # beside the provenance line rather than instead of it
     if event == "PostToolUse" and not failed:
-        notice = "\n".join(t for t in (notice, safe(session_id, write_note, session_id,
-                                                     inp, cwd, tool)) if t)
+        notice = "\n".join(t for t in (
+            notice, safe(session_id, write_note, session_id, inp, cwd, tool),
+            safe(session_id, cross_project_note, session_id, tool, inp, cwd)) if t)
     if notice:
         json.dump({"hookSpecificOutput": {
             "hookEventName": event,
