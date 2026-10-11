@@ -429,6 +429,13 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    provider or a model, a failed spawn call can stand in for the quote. Its row names a provider
    failure (`hooks/tezgah_integrity.py::_spawn_failed`). omp sends a spawn's outcome as a
    flag with no text. So its row carries no class, and the rule refuses such an item there.
+   A YETKİ or ORTAM item that quotes a model provider's quota or rate limit is refused while
+   another family is up that the routing lets a chain fall back to. The item names a family by
+   its provider id or model stem, or the turn's spawn failed at the provider. The words "agent"
+   and "provider" alone tie nothing, so a `user-agent` or a registry's rate limit stays a blocker.
+   The journal first closes ended omp children, so a child's limit already holds its family
+   (`hooks/tezgah_integrity.py::_settle_slices`). The refusal names the family to re-dispatch to
+   (`hooks/tezgah_integrity.py::_limit_move`), never one the item names.
    Neither the type nor the quote counts alone. "Doğrulanmadı: `pytest` ..." with no type is still
    refused, and so is "ORTAM" with no quote. The rule refuses "ORTAM: `pytest` AssertionError" too,
    because an assertion is work, not a missing tool. "YETKİ yok" is the type, not its negation. Only

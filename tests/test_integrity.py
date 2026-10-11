@@ -4033,6 +4033,75 @@ class ResidualWork(unittest.TestCase):
             "Engeller:\n- plan notu — ORTAM — `tezgah-task note 001 state …`: command not found",
             [self.EDIT, note]), [])
 
+    def test_a_quota_is_no_access_blocker_while_another_family_is_up(self):
+        # S2 F3b: "openrouter 403 Key limit exceeded" filed as YETKİ while zai
+        # was funded; the work could have moved there
+        import tezgah_models as tm
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1,
+                 "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
+        quota = ("Engeller:\n- review alt ajanı (openrouter) — YETKİ — "
+                 "`403 Key limit exceeded (total limit)`")
+        env = "Engeller:\n- review subagent — ORTAM — openrouter quota exhausted"
+        gh = {"kind": "run", "exit": 1, "detail": "gh api repos/x " + ti.FAILED_MARK}
+        github = "Engeller:\n- release notes — YETKİ — `gh api repos/x`: 403 rate limit exceeded"
+
+        def routing(policy, funded):
+            return (mock.patch.object(tm, "funded_families", return_value=funded),
+                    mock.patch.object(tm, "omp_mode", return_value="anthropic"),
+                    mock.patch.object(tm.tp, "fallback_policy", return_value=policy))
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            a, b, c = routing("any", ["any", "zai"])
+            with a, b, c:
+                self.assertTrue(self.left(quota, [self.EDIT, spawn]))
+                # ORTAM is held to the same move
+                self.assertTrue(self.left(env, [self.EDIT, spawn]))
+                # the refusal names where the work can move
+                reason = ti._residual_block(quota, [self.EDIT, spawn], True)[1]
+                self.assertIn("the work can move to zai - re-dispatch the slice there", reason)
+                # a GitHub rate limit is no model provider's: the YETKİ holds
+                self.assertEqual(self.left(github, [self.EDIT, gh]), [])
+                # a 403 that is no limit is a grant, whatever else is funded
+                denied = "Engeller:\n- deploy — YETKİ — `gh api repos/x`: 403 Forbidden"
+                self.assertEqual(self.left(denied, [self.EDIT, gh]), [])
+                # "agent" and "provider" tie nothing to a model provider
+                npm = {"kind": "run", "exit": 1, "detail": "npm publish " + ti.FAILED_MARK}
+                for text in ("Engeller:\n- release — YETKİ — `npm publish`: 429 Too Many "
+                             "Requests from the registry provider",
+                             "Engeller:\n- release — YETKİ — `npm publish`: 429 rate limit "
+                             "for this user-agent"):
+                    self.assertEqual(self.left(text, [self.EDIT, npm]), [], text)
+            # only the family the item names is funded: the YETKİ holds
+            a, b, c = routing("any", ["any"])
+            with a, b, c:
+                self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+            # `vendor` lets an Anthropic chain fall back to OpenRouter only, never
+            # to zai; `none` to nothing: the YETKİ holds under both
+            for policy in ("vendor", "none"):
+                a, b, c = routing(policy, ["any", "zai"])
+                with a, b, c:
+                    self.assertEqual(self.left(quota, [self.EDIT, spawn]), [], policy)
+
+    def test_the_move_is_picked_after_the_journal_settles(self):
+        # review of S2 F3b: an omp child's limit stop is held only once
+        # `pending` closes its record; picked before, the move named the
+        # limited family itself
+        import tezgah_models as tm
+        held = set()
+        journal = mock.Mock()
+        journal.pending.side_effect = lambda root: held.add("zai") or []
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1, "fail_class": "user"}
+        item = "Engeller:\n- review subagent — YETKİ — quota exhausted"
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}), \
+                mock.patch.object(tm, "funded_families", side_effect=lambda live=True: [
+                    f for f in ("zai", "any") if f not in held]), \
+                mock.patch.object(tm, "omp_mode", return_value="anthropic"), \
+                mock.patch.object(tm.tp, "fallback_policy", return_value="any"), \
+                mock.patch.object(ti, "_journal", return_value=journal), \
+                mock.patch.object(ti, "_toplevel", return_value="/repo"):
+            reason = ti._residual_block(item, [self.EDIT, spawn], True, cwd="/repo")[1]
+        self.assertIn("the work can move to any - re-dispatch", reason)
+        journal.pending.assert_called_with("/repo")
+
     def test_s4_a_grep_after_another_command_is_a_failure(self):
         # review F5: the line's exit is the last command's only when grep runs
         # alone; behind `&&` the failure may be the first command's

@@ -5781,7 +5781,8 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
     spawn call failed at the provider (`spawn_failed`). A failure of another
     kind - an assertion, a typo, a grep that matched nothing - is doable work,
-    whatever it is typed."""
+    whatever it is typed. So is a quota or rate limit on a model provider
+    while another family the routing allows is up (`_limit_move`)."""
     kinds = {m.lastgroup for m in BLOCKER_TRIED.finditer(said)}
     rest = re.sub(BLOCKER_TRIED.pattern + BLOCKER_ABSENT, " ", item)
     rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
@@ -5789,8 +5790,39 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     if not any((ENV_ERROR if k == "env" else ACCESS_ERROR).search(rest)
                for k in kinds):
         return False
+    if _limit_move(item, failed, spawn_failed):
+        return False
     return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
         _quotes_failure(item, failed)
+
+
+# The move a refused limit item can make (`_limit_move`), added to the
+# residual-work refusal so the reply knows what satisfies it.
+LIMIT_MOVE = (" A quota or rate limit on one model family is no {ACCESS} or {ENV} "
+              "while another is up: the work can move to %s - re-dispatch the "
+              "slice there.")
+
+
+def _limit_move(item, failed=(), spawn_failed=False):
+    """The family the work of `item` can move to, else None (research
+    orchestrator-flow-audit S2, F3b): the item quotes a quota or rate limit
+    (`tezgah_task.classify`) of a model provider - it names a family
+    (`tezgah_models.named_families`), or the turn's spawn failed at the provider
+    and the item quotes no failed command - and a family the routing allows is
+    up (`tezgah_models.other_family_up`), never one the item names. A GitHub
+    or npm rate limit stays a blocker: words such as "agent" or "provider" tie
+    nothing ("user-agent", "registry provider"). Fails open: None on any error."""
+    try:
+        import tezgah_task
+        if tezgah_task.classify(item) not in ("quota", "rate_limit"):
+            return None
+        import tezgah_models
+        if not (tezgah_models.named_families(item)
+                or (spawn_failed and not _quotes_failure(item, failed))):
+            return None
+        return tezgah_models.other_family_up(item)
+    except Exception:  # noqa: BLE001 - a health read never refuses on its own failure
+        return None
 
 
 # An item under a blocker label that tells a blocker it already removed: an
@@ -5997,6 +6029,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     handed = sum({r.get("agent") or id(r): int(r.get("residual") or 0)
                   for r in rows if r.get("kind") == "subagent_end"}.values())
     if handed or any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        _settle_slices(cwd)
         left = unblocked_items(text, rows)
         if handed and not left and not any(
                 item.strip() and not EMPTY_ITEM.fullmatch(item.strip())
@@ -6007,7 +6040,10 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     if left:
         named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
                           for label, item in left[:3])
-        return ("residual work", RESIDUAL_WORK % named)
+        failed, spawn_failed = _failed_commands(rows), _spawn_failed(rows)
+        move = next(filter(None, (_limit_move(item, failed, spawn_failed)
+                                  for _label, item in left)), None)
+        return ("residual work", RESIDUAL_WORK % named + (LIMIT_MOVE % move if move else ""))
     asked = needless_ask(text, lambda: grants_in_force(session_id))
     if asked:
         return ("needless ask", NEEDLESS_ASK % cut(asked, 80))
@@ -6088,6 +6124,22 @@ def ready_left(text, rows, session_id, cwd=None):
              if BLOCKER_SAID.search(_prose(line)) or BLOCKER_TRIED.search(_prose(line))]
     return [h for h in ready_heads(row, session_id, cwd)
             if not any(_tr_lower(h)[:24] in line for line in typed)]
+
+
+def _settle_slices(cwd):
+    """Close the journal's ended omp records (`tezgah_task.pending`) before the
+    residual rule picks a move, so a child's limit stop already holds its
+    family (`close_slice`) and the move never names it. Off under
+    `slices-off`; fails open."""
+    if not cwd or off("slices-off"):
+        return
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        if pending and root:
+            pending(root)
+    except Exception:  # noqa: BLE001 - a broken journal costs the hold, never the Stop
+        pass
 
 
 def _stopped_slice(session_id, cwd):
