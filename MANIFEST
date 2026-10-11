@@ -752,6 +752,7 @@ tests/test_shapes.py
 tests/test_skill_pick.py
 tests/test_skill_search.py
 tests/test_skills.py
+tests/test_slices.py
 tests/test_snapshot.py
 tests/test_stack.py
 tests/test_statusline.py
