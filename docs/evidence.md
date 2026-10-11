@@ -399,9 +399,11 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    tooling.
 11. **residual work** — a turn that did work ends on a list of what is left. Any step row counts as
    work, a prose edit included. The list starts at a line that opens with a residual label. That
-   is a markdown heading, a bold or italic lead, or a few words before a colon. Up to two words, a quote
-   marker or an emoji may lead it. Examples are "Açık kalanlar", "Doğrulanmadı:", "Sıradaki
-   adım", "Bekleyen tek iş", "Kapsam dışı", "TODO" and "Next steps".
+   is a markdown heading, a bold or italic lead, or a few words before a colon. A line of up to four
+   words right over a list needs no colon. Up to three words, a quote marker or an emoji may lead it.
+   Examples are "Açık kalanlar", "Doğrulanmadı:", "Sıradaki adım", "Bekleyen tek iş", "Kapsam
+   dışı", "TODO" and "Next steps". First-person negatives ("Yapamadım", "Test etmedim"), "Yarım
+   kalanlar", "Henüz kontrol edilmeyen", "Unresolved" and "Still open" count too (plan 086, S4).
    `hooks/tezgah_integrity.py::RESIDUAL_LABEL` holds the words, and
    `hooks/tezgah_integrity.py::residual_sections` reads them. "Kalan" is also an adjective, as in
    "Kalan riskler". It opens a list only as the first word, on the work it names: "Kalan:", "Kalan
@@ -411,18 +413,30 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    nothing is left ("Eksik yok"). "Doğrulanmadı, kanıt yok" still starts one. The class refuses an item that nothing accounts
    for (`hooks/tezgah_integrity.py::unblocked_items`). Two things do. One is a capitalised KARAR or
    GERİ ALINAMAZ token outside code, a Turkish suffix allowed and a negation not: a choice or a
-   consent leaves no row to check. The other is a capitalised YETKİ or ORTAM token together with a
-   quote of a command that failed in the turn, in backticks or a fenced line. The quote is the
-   attempt and the error the request asks for, and the token is its type. Neither counts alone:
-   "Doğrulanmadı: `pytest` ..." with no type is still refused, and so is "ORTAM" with no quote.
-   "YETKİ yok" is the type, not its negation; only "değil" negates it. A
-   fragment of a command does not count. A type in the heading covers the items under it, and
-   "Engeller: yok" holds no item. The refusal opens with "Bu maddeleri şimdi yap veya engel türü ve
-   kanıtla yaz." It also says that a step that cannot be undone never clears the list.
+   consent leaves no row to check. The other is a capitalised YETKİ or ORTAM token with its
+   evidence (`hooks/tezgah_integrity.py::_tried_holds`). The item names an error of the type's
+   kind. For ORTAM that is a missing tool, file, module, setting or quota. For YETKİ it is a denied
+   permission, a failed login or a 401/403. The item also quotes, in backticks or a fenced line, a
+   command that failed in the turn. A quote cut with "…" counts when its words open that command.
+   A grep that matched nothing and a failed write tool call are no failed command
+   (`hooks/tezgah_integrity.py::_failed_commands`). An error no shell row records needs no command:
+   a provider's 403 or quota, or a missing device, quoted in backticks, is its own evidence.
+   Neither the type nor the quote counts alone. "Doğrulanmadı: `pytest` ..." with no type is still
+   refused, and so is "ORTAM" with no quote. The rule refuses "ORTAM: `pytest` AssertionError" too,
+   because an assertion is work, not a missing tool. "YETKİ yok" is the type, not its negation. Only
+   "değil" negates it. A fragment of a command does not count. A type in the heading covers the
+   items under it, and "Engeller: yok" holds no item. The refusal opens with "Bu maddeleri şimdi yap
+   veya engel türü ve kanıtla yaz." It also says that a step that cannot be undone never clears the
+   list.
    `_stop_block` asks this class at every exit that would end the turn
    (`hooks/tezgah_integrity.py::_residual_block`). So it never takes a turn that another class
-   refused. A turn with no step, a ledger with no turn marker, a subagent's end and a nested
-   session skip it. On Cursor, whose store keeps a long reply's head and tail, the sections of the
+   refused. A turn with no step, a ledger with no turn marker and a nested session skip it. A
+   subagent's end is never refused (ADR 011). Its `subagent_end` row carries the count of its
+   untyped items as `residual`. The parent's Stop then refuses a reply that types no item of its
+   own. On omp the reply after a refusal sits in a turn of its own.
+   `hooks/tezgah_integrity.py::_turn_refusals` hands the class the rows of every turn in that
+   re-ask chain, so a failure quoted from the refused turn
+   counts. On Cursor, whose store keeps a long reply's head and tail, the sections of the
    cut middle are kept between them (`hooks/tezgah_integrity.py::residual_text`). The words leave
    out the labels other rules ask for: a spec's assumptions and alternatives, a measurement's
    limits, risks and a bare recommendation. Suggested improvements are work left and stay in.
@@ -459,6 +473,11 @@ whole session instead of the turn:
   A session that did no work at all still ends, and a turn that ran its own passing check is
   judged by the turn fold alone. Before this, the claim could be moved to the turn
   after the work, where the turn fold saw nothing to judge (audit M-2, INT-01).
+- **A turn of reads.** The rule treats a turn of shell commands that changed nothing as a turn with
+  no work (plan 086, S4). A `git status`, a `tail` or a read-only query owes no
+  check. A change row keeps the turn worked. So does a program that writes a file the gate keeps
+  no state for (`hooks/tezgah_integrity.py::_writes_unseen`). That covers `cp`, `sed -i`, a script
+  run, a program named by a path, and a git subcommand that rewrites or records the tree.
 - **A bookkeeping turn after a pass.** A turn whose only rows are read-only or VCS-bookkeeping
   commands ends without a fresh check, as long as nothing but bookkeeping ran after the session's
   newest pass, the session fold above allows it, and the reply makes no external-state claim

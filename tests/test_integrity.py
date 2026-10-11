@@ -3543,10 +3543,10 @@ class ResidualWork(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
         for text in ("Doğrulanmadı.\n\nEngeller:\n- YETKİ yok: `pytest tests/test_a.py` HTTP 403",
-                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` no yaml",
+                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` No module named yaml",
                      "Not verified.\n\nBlockers:\n- ENV not set: `pytest tests/test_a.py` no DB_URL",
                      "Not verified.\n\nBlockers:\n- ACCESS not granted: `pytest tests/test_a.py` 401",
-                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` no yaml"):
+                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` No module named yaml"):
             with self.subTest(text=text):
                 self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
         # an English word that merely opens on a stem is no type
@@ -3679,6 +3679,74 @@ class ResidualWork(unittest.TestCase):
                      "Açık kalanlar:\n- README güncellenmedi (KARAR gerekmez)"):
             with self.subTest(text=text):
                 self.assertTrue(self.left(text))
+
+    # ---- S4 (plan 086): the residual rule re-audited, failing first ---------
+    def test_s4_the_label_stems_the_corpus_missed(self):
+        # finding 4: first-person negatives, the passive stems, the English
+        # forms, three lead words, and a colon-less label line over a list
+        for text in ("**Yarım kalanlar:**\n- README", "Bakmadıklarım:\n- README",
+                     "Yapamadım:\n- e2e", "Test etmedim:\n- parser",
+                     "**Henüz kontrol edilmeyen iki iddia:**\n- a\n- b",
+                     "**V4 ölçülmedi.**", "Çözülemeyenler:\n- flaky test",
+                     "Bu turda henüz bakılmayanlar:\n- README",
+                     "Açık kalanlar\n- README", "Not looked at:\n- docs",
+                     "Still open:\n- docs", "Could not verify:\n- e2e",
+                     "Unresolved\n- live model call not run", "To do:\n- README"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+        # the controls: a done verb in the first person, a plain line over a
+        # list of done work, and the lowercase "todo" of a list count
+        for text in ("Tamamladım:\n- README", "Ekledim:\n- README",
+                     "Değişenler\n- next.config.js", "Sonuç\n- testler geçti",
+                     "todo listesi 19/19: açık madde yok."):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+
+    def test_s4_a_blocker_quotes_an_error_of_its_type(self):
+        # findings 5 and 6: a doable failure typed ORTAM is refused, a failure
+        # no shell row records passes with its error quoted
+        fail = {"kind": "verify_fail", "id": "c2", "exit": 1,
+                "detail": "pytest tests/test_a.py " + ti.FAILED_MARK}
+        self.assertEqual(self.verdict(
+            "Doğrulanmadı:\n- ORTAM: `pytest tests/test_a.py` AssertionError at test_a.py:41",
+            [self.EDIT, fail]), "residual work")
+        grep = {"kind": "run", "exit": 1,
+                "detail": "grep -rn playwright package.json " + ti.FAILED_MARK}
+        self.assertTrue(self.left(
+            "Engeller:\n- e2e — ORTAM — `grep -rn playwright package.json`: not found",
+            [self.EDIT, grep]))
+        edit = {"kind": "edit", "exit": 1, "detail": "app.py"}
+        self.assertTrue(self.left("Engeller:\n- ORTAM — `app.py` not found",
+                                  [self.EDIT, edit]))
+        self.assertEqual(self.left(
+            "Engeller:\n- review alt ajanı — YETKİ — `403 Key limit exceeded (total limit)`",
+            [self.EDIT]), [])
+        self.assertEqual(self.left(
+            "Engeller:\n- termal yazıcı — ORTAM — `No such device: /dev/rfcomm0`",
+            [self.EDIT]), [])
+        note = {"kind": "run", "exit": 1,
+                "detail": "tezgah-task note 001 state 'x y' " + ti.FAILED_MARK}
+        self.assertEqual(self.left(
+            "Engeller:\n- plan notu — ORTAM — `tezgah-task note 001 state …`: command not found",
+            [self.EDIT, note]), [])
+
+    def test_s4_a_turn_of_reads_owes_no_check(self):
+        # finding 3: a turn whose commands wrote nothing is judged like a turn
+        # that did no work; a shell write the gate captures no state for, a
+        # script run or a commit keeps the turn worked
+        for cmd in ("git status --short", "tail -5 run.log",
+                    "sqlite3 'file:a.db?mode=ro' 'select 1'", "ssh host ls"):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(self.verdict(
+                    "Config okundu, sorgu 3 satır döndü.",
+                    [{"kind": "run", "exit": 0, "detail": cmd}]))
+        for cmd in ("sed -i s/a/b/ app.py", "cp a.py b.py", "python3 fix.py",
+                    "git checkout -- app.py", "git commit -am x", "./regen.sh"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.verdict(
+                    "Config okundu, sorgu 3 satır döndü.",
+                    [{"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
+
 
 
 
