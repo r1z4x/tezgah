@@ -1540,26 +1540,30 @@ class ResumeBlock(ChildCall):
         line = "- slice W1 (omp/task) stopped quota attempts 1: tezgah-task slice resume W1"
         stub = ("import json, tezgah_context as tc\n"
                 "seen = []\n"
-                "def lines(root, limit=3, session=None):\n"
-                "    seen.append(session)\n"
-                "    return [%r] * 5\n"
+                "def lines(root, limit=3, session=None, others=False):\n"
+                "    seen.append((session, others))\n"
+                "    return [%r] * limit + (['- 2 pending slice(s) of other sessions:"
+                " tezgah-task slice reconcile'] if others else [])\n"
                 "tc.tezgah_task.slice_lines = lines\n" % line)
         out = self.child(stub + "print(json.dumps([tc.resume_state(%r, 's1'), seen]))\n"
                          % repo)
         self.assertEqual(out[0].count("slice W1"), 3, out)
-        # the journal is asked for this session's slices only
-        self.assertEqual(out[1], ["s1"])
+        # this session's slices, plus a count of the others in the resume block
+        self.assertEqual(out[1], [["s1", True]])
+        self.assertIn("2 pending slice(s) of other sessions", out[0])
         prompt = self.child(stub + "print(json.dumps(tc.context_for('user_prompt', %r,"
                             " {'session_id': 's1', 'prompt': 'devam'})))\n" % repo)
         self.assertIn("Slices left stopped or open", prompt)
         self.assertIn("tezgah-task slice resume W1", prompt)
+        # the per-prompt part names no other session's work, not even a count
+        self.assertNotIn("other sessions", prompt)
         off = self.child(stub + "tc.off = lambda name: name == 'slices-off'\n"
                          "print(json.dumps(tc.slice_lines(%r, 's1')))\n" % repo)
         self.assertEqual(off, [])
         nobody = self.child(stub + "print(json.dumps(tc.slice_lines(%r, None)))\n" % repo)
         self.assertEqual(nobody, [])
         broken = self.child("import json, tezgah_context as tc\n"
-                            "def boom(root, limit=3, session=None): raise OSError('x')\n"
+                            "def boom(root, **kw): raise OSError('x')\n"
                             "tc.tezgah_task.slice_lines = boom\n"
                             "print(json.dumps(tc.slice_lines(%r, 's1')))\n" % repo)
         self.assertEqual(broken, [])

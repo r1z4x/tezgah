@@ -255,6 +255,13 @@ class Pending(Journal):
                          ["Mine"])
         self.assertEqual(sorted(ln.split()[2] for ln in tt.slice_lines(self.repo)),
                          ["Mine", "Theirs"])
+        # a record opened by hand has no owner and is everyone's; the resume
+        # block's count names how many belong to other sessions
+        tt.open_slice(self.repo, "Hand", host="claude", brief="c")
+        lines = tt.slice_lines(self.repo, session="S1", others=True)
+        self.assertEqual(sorted(ln.split()[2] for ln in lines[:-1]), ["Hand", "Mine"])
+        self.assertEqual(lines[-1], "- 1 pending slice(s) of other sessions: "
+                                    "tezgah-task slice reconcile")
 
     def test_a_line_stays_bounded_and_keeps_its_command(self):
         tree = self.worktree("b" * 60)
