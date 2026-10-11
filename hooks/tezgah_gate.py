@@ -1811,7 +1811,7 @@ def ready_advice(tool, session_id, cwd=None):
             return None
     else:
         return None
-    todo = newest_todo(rows)
+    todo = newest_todo(reversed(rows))
     heads = ready_heads(todo, session_id, cwd) if todo else []
     if not heads:
         return None

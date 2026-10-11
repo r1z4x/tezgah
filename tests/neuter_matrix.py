@@ -191,12 +191,20 @@ MUTANTS = (
      "orchestrate-off turns the ready-steps class off"),
     ("ready-slices", INTEGRITY,
      anchored("    return [h for h in heads\n"
-              "            if not any(taken(h.lower(), sid, brief) for sid, brief in running)]\n",
+              "            if not any(word(sid, h.lower()) or word(h.lower(), task)\n"
+              "                       for sid, task in running)]\n",
               "    return heads\n"),
      "a step an open slice of this session works on is not ready"),
+    ("ready-task", INTEGRITY,
+     anchored("r.get(\"task\") or str(r.get(\"brief\") or \"\").rsplit(\"\\n\\n\", 1)[-1]",
+              "r.get(\"brief\")"),
+     "a slice's own task, not the batch's shared context, takes a step"),
+    ("ready-word", INTEGRITY,
+     anchored("or word(h.lower(), task)\n", "or h.lower() in task\n"),
+     "a step is taken only by a word-bounded match of the whole head"),
     ("ready-agent", INTEGRITY,
-     anchored("                 if r.get(\"kind\") == \"todo\" and not r.get(\"agent\")), None)\n",
-              "                 if r.get(\"kind\") == \"todo\"), None)\n"),
+     anchored("    return next((r for r in rows if r.get(\"kind\") == \"todo\" and not r.get(\"agent\")), None)\n",
+              "    return next((r for r in rows if r.get(\"kind\") == \"todo\"), None)\n"),
      "a subagent's todo list is not the parent's queue"),
     ("ready-wait-idle", GATE,
      anchored("        if name and name != \"wait\" and name not in TODO_TOOLS:\n"

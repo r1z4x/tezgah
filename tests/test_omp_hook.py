@@ -623,8 +623,8 @@ class OmpHook(TempHome):
     def test_a_step_a_running_slice_works_on_is_not_ready(self):
         # review F1: omp's `todo start` sets every other started item back to
         # pending, so two items whose slices still run read as ready. An open
-        # slice of this session takes its item off the queue: the head in the
-        # slice's brief, or the slice id in the head.
+        # slice of this session takes its item off the queue: the whole head in
+        # the slice's own task, or the slice id in the head.
         repo = self.make_repo()
         subprocess.run(["git", "init", "-q", repo], check=True)
         base = {"cwd": repo, "session_id": "s-run"}
@@ -650,6 +650,36 @@ class OmpHook(TempHome):
                                     last_assistant_message="Parser yazıldı."))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIsNone(out)
+
+    def test_a_shared_context_or_a_substring_takes_no_step(self):
+        # review N1: omp's batch brief holds the shared context, and a plain
+        # substring hid "Merge" behind "Do not merge". Only the slice's own
+        # task counts, with a word-bounded match of the whole head.
+        repo = self.make_repo()
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        base = {"cwd": repo, "session_id": "s-ctx"}
+        post = dict(base, event="post_tool_use", failed=False)
+        self.event(dict(base, event="user_prompt", prompt="build it"))
+        self.event(dict(post, tool="task", input={
+            "context": "Update the CHANGELOG at the end. Do not merge.",
+            "tasks": [{"name": "parser-slice",
+                       "task": "Write the parser for the config file."}]}))
+        ready = ["Update the CHANGELOG", "Merge", "Parse"]
+        self.event(dict(post, tool="todo", input={"op": "view"},
+                        todo=[{"content": "Write the parser", "status": "pending"}]
+                        + [{"content": c, "status": "pending"} for c in ready]))
+        advice = (self.event(dict(base, event="pre_tool_use", tool="wait",
+                                  input={}))[0] or {}).get("advice", "")
+        self.assertIn("3 ready todo step(s)", advice)
+        self.assertIn("; ".join(ready), advice)
+        self.assertNotIn("Write the parser", advice)
+        call = dict(base, tool="bash", input={"command": "pytest -q"})
+        self.event(dict(call, event="pre_tool_use"))
+        self.event(dict(call, event="post_tool_use", failed=False))
+        out, _ = self.event(dict(base, event="stop",
+                                 last_assistant_message="Parser yazıldı."))
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("; ".join(ready), out["reason"])
 
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",

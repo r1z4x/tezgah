@@ -5569,37 +5569,41 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
 
 def ready_heads(row, session_id, cwd):
     """A `todo` row's ready heads (`note_todo`), less each one an open slice of
-    this session is working on: the slice id appears in the head as a whole
-    token of two characters or more, or the head appears in the slice's brief,
+    this session is working on: the slice id appears in the head, or the whole
+    head in the slice's own task (`task`, without an omp batch's shared
+    context), each as a word-bounded match of two characters or more,
     case-insensitive. omp's `todo start` sets every other `in_progress` item
     back to `pending`, so a dispatched item reads as ready in the list while
-    its slice runs. Read from `tezgah_task.pending`, off under `slices-off`,
-    and fail open to the row's own heads."""
+    its slice runs. ponytail: a record written before `task` existed falls
+    back to its brief's last paragraph. Read from `tezgah_task.pending`, off
+    under `slices-off`, and fail open to the row's own heads."""
     heads = [str(h) for h in row.get("heads") or () if str(h).strip()]
     if not (heads and session_id and cwd) or off("slices-off"):
         return heads
     try:
         pending = getattr(_journal(), "pending", None)
         root = _toplevel(os.path.realpath(cwd))
-        running = [(str(r.get("id") or "").lower(),
-                    " ".join(str(r.get("brief") or "").split()).lower())
+        running = [(str(r.get("id") or "").lower(), " ".join(str(
+                    r.get("task") or str(r.get("brief") or "").rsplit("\n\n", 1)[-1]
+                    ).split()).lower())
                    for r in (pending(root) if pending and root else [])
                    if r.get("status") == "open" and r.get("parent") == session_id]
     except Exception:
         return heads
 
-    def taken(head, sid, brief):
-        return head in brief or (len(sid) > 1 and re.search(
-            r"(?<![\w-])%s(?![\w-])" % re.escape(sid), head))
+    def word(needle, hay):
+        return len(needle) > 1 and re.search(
+            r"(?<![\w-])%s(?![\w-])" % re.escape(needle), hay)
     return [h for h in heads
-            if not any(taken(h.lower(), sid, brief) for sid, brief in running)]
+            if not any(word(sid, h.lower()) or word(h.lower(), task)
+                       for sid, task in running)]
 
 
 def newest_todo(rows):
-    """The newest `todo` row of the session's own list in `rows`, else None: a
-    subagent's row (`agent`) is its own queue, never the parent's."""
-    return next((r for r in reversed(rows)
-                 if r.get("kind") == "todo" and not r.get("agent")), None)
+    """The first `todo` row of the session's own list in `rows`, which run
+    newest first, else None: a subagent's row (`agent`) is its own queue,
+    never the parent's. Lazy, so a generator stops at the row it needs."""
+    return next((r for r in rows if r.get("kind") == "todo" and not r.get("agent")), None)
 
 
 def ready_left(text, rows, session_id, cwd=None):
@@ -5609,9 +5613,10 @@ def ready_left(text, rows, session_id, cwd=None):
     or ORTAM token outside code. Asked like `residual work`: in a turn that
     did work, of a ledger with a turn marker, off under `orchestrate-off`. The
     row may come from an earlier turn: an unfinished step carries over. It is
-    found by its serialized shape and only those lines are parsed, so the Stop
-    path still parses the turn and not the session (StopReadBound). A done
-    item is gone from the list, so it never needs the reply."""
+    found by its serialized shape and only the lines back to the newest
+    parent `todo` row are parsed, so the Stop path still parses the turn and
+    not the session (StopReadBound). A done item is gone from the list, so it
+    never needs the reply."""
     if not session_id or off("orchestrate-off"):
         return []
     if not any(str(r.get("kind")) in STEP_KINDS for r in rows):
@@ -5619,7 +5624,8 @@ def ready_left(text, rows, session_id, cwd=None):
     lines = _ledger_lines(_path(session_id))
     if not _turn_count(lines):
         return []
-    row = newest_todo(_parse([line for line in lines if TODO_ROW.search(line)]))
+    row = newest_todo(r for line in reversed(lines) if TODO_ROW.search(line)
+                      for r in _parse([line]))
     if not row or not row.get("ready"):
         return []
     typed = [_tr_lower(" ".join(line.split())) for line in str(text or "").splitlines()

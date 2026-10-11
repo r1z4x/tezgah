@@ -867,7 +867,7 @@ def _named_worktree(root, brief):
 
 
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
-               cwd=""):
+               cwd="", task=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
     are derived from the brief, the base is the main checkout's HEAD. A re-open
     of an existing id counts one more attempt, sets the status back to open and
@@ -893,6 +893,8 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
                            ("parent", parent), ("cwd", cwd)):
             if value:
                 rec[key] = value
+    if task:  # the slice's own task, without a batch's shared context
+        rec["task"] = task[:SLICE_BRIEF]
     if brief or not rec.get("worktree"):
         rec["worktree"], rec["branch"] = _named_worktree(main, rec.get("brief"))
     if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
@@ -995,9 +997,11 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
     if not root:
         return []
     out = []
+    context = str(inp.get("context") or "").strip() if isinstance(inp, dict) else ""
     for sid, agent, brief in spawned(tool, inp):
         rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
-                         parent=session_id or "", cwd=cwd)
+                         parent=session_id or "", cwd=cwd,
+                         task=brief[len(context):].strip() if context else brief)
         if failed is True:
             rec = close_slice(root, rec["id"], "stopped",
                               classify(result_text) or "error")

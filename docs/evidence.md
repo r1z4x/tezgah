@@ -442,10 +442,11 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    class reads the newest `todo` row of the session's own list. A subagent's row carries its
    `agent`, and the class skips it (`hooks/tezgah_integrity.py::newest_todo`). The row may come from an
    earlier turn on purpose: the owner asked that unfinished steps carry over to the next turn
-   (`hooks/tezgah_integrity.py::ready_left`). It finds the rows by their serialized shape and
-   parses only those lines. An open slice of this session takes its step off the ready list
-   (`hooks/tezgah_integrity.py::ready_heads`). The slice's id names the head, or its brief holds
-   the head. On omp, `todo start` puts every other started item
+   (`hooks/tezgah_integrity.py::ready_left`). It scans the rows back by their serialized shape and
+   parses them until the newest parent row. An open slice of this session takes its step off the
+   ready list (`hooks/tezgah_integrity.py::ready_heads`). The slice's id names the head, or the
+   slice's own `task` holds the whole head as words. An omp batch's shared context does not count.
+   On omp, `todo start` puts every other started item
    back to pending, so a running slice's item would read as ready without this. A ready item
    passes when one line of the reply names its first 24 characters, inline code kept, beside a
    KARAR, YETKİ, GERİ ALINAMAZ or ORTAM token outside code. The refusal opens with "Hazır adımlar
