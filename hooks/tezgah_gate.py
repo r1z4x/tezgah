@@ -1017,9 +1017,9 @@ TASK_SCOPE_DENY = (
     "allow <glob> ... --why \"<reason>\"` (listing the current globs too); "
     "otherwise leave the file alone.")
 TASK_RECORD_DENY = (
-    "Task gate: %s is the active task's own record. The phase and the allowlist "
-    "live in that file and only `tezgah-task` writes them, because it checks the "
-    "plan's Acceptance, spike and review on the way; change the task through it.")
+    "Task gate: %s is the active task's own record; only `tezgah-task` writes it, checking the plan's "
+    "Acceptance, spike and review on the way. The phase and allowlist: `tezgah-task phase|allow`; an "
+    "Acceptance box: `tezgah-task tick NNN <n>`; State/Next: `tezgah-task note NNN state|next \"...\"`.")
 # The shapes that make a shell command a write, for the phase rule below. The
 # tools are not the only way to change a file, and E7b measured the other one:
 # with `edit` and `write` refused twelve and six times, the armed arm wrote the
