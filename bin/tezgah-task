@@ -331,6 +331,18 @@ def changed_lines(root, base):
     return sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", stat))
 
 
+# The checks deferred out of the turn to the merge step (AGENTS.md "Checks, by
+# tier"): (the file that marks the repo has it, the command), in run order.
+MERGE_CHECKS = (
+    ("tests/impacted.py", "python3 tests/impacted.py --all"),
+    ("tests/neuter_matrix.py", "TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py"),
+    ("bin/tezgah-docs", "python3 bin/tezgah-docs --citations"),
+    ("bin/tezgah-docs", "python3 bin/tezgah-docs --clarity"),
+    ("skills/plan-add/render_table.py",
+     "python3 skills/plan-add/render_table.py --acceptance --strict"),
+)
+
+
 def verification_steps(text, path):
     """What the verification phase requires before the plan is done: the plan's
     own acceptance commands run once on the final tree, unpiped, and ONE review
@@ -358,8 +370,12 @@ def verification_steps(text, path):
           "no state go out as tool calls in ONE message, one suite run at a time:")
     for item in items or ["(the plan has no Acceptance items)"]:
         print("     - %s" % item)
-    if os.path.isfile(os.path.join(root, "tests", "impacted.py")):
-        print("     the one full run here is `python3 tests/impacted.py --all`")
+    # the deferred tier: never inside a turn, run once here at the merge step
+    deferred = [cmd for rel, cmd in MERGE_CHECKS
+                if os.path.isfile(os.path.join(root, rel))]
+    if deferred:
+        print("     the merge step's one run of the deferred checks: %s"
+              % ", ".join("`%s`" % c for c in deferred))
     if rounds and review_verdict(text) == "approve":
         print("  2. the review approved in round %d at %s: no further round"
               % (rounds, reviewed))

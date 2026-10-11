@@ -4706,9 +4706,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
         return ("stale evidence",
                 "Stale evidence: the newest check that passed ran before %s %s "
                 "written, so it verified an earlier revision of the tree than the "
-                "one this reply is about. Re-run the smallest check that covers "
-                "the files written since (their own tests, not the whole suite) "
-                "and report its output; %s. "
+                "one this reply is about. Run the tests of the files written since "
+                "(`python3 tests/impacted.py --run <paths>` where the repo has "
+                "it; not the whole suite) and report its output; %s. "
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
                    "was" if len(names) <= 1 else "were", ADMISSION))
@@ -4728,9 +4728,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "%s did work (edits or commands) and no check ran "
                 "successfully in it (nothing recorded as verify_ok with a "
                 "real result and an unmasked command), so nothing here supports "
-                "calling it done, complete or verified. Run the smallest check "
-                "that proves the change (the tests of what changed, not the "
-                "whole suite) and report its output; %s. Do not "
+                "calling it done, complete or verified. Run the tests of the "
+                "files written (`python3 tests/impacted.py --run <paths>` where "
+                "the repo has it; not the whole suite) and report its output; "
+                "%s. Do not "
                 "describe a check you did not run as if it ran."
                 % (where.capitalize(), ADMISSION))
     # Last, so none of the classes above loses its turn to it: every shape this

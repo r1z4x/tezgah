@@ -3124,8 +3124,12 @@ class VersionPrefixIsNotContract(SetupBase):
         # residual rule (leftover work is done now or named as one of four
         # blockers under "Engeller"), and the BLUF, ponytail, output-shape and
         # deliver paragraphs stop asking for skipped-item notes and next steps
-        # the session can take itself (+1473 B).
-        self.assertEqual(11972, band, "the always-on band moved")
+        # the session can take itself (+1473 B). Re-pinned 2026-10-11: the
+        # loop-discipline check cadence keeps compileall, ruff and the impacted
+        # tests in the turn, moves the full suite, neuter, the docs audits and
+        # e2e to the merge step and CI, and lets a subagent's pass on the same
+        # tree stand for the parent (+149 B).
+        self.assertEqual(12121, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 
