@@ -3105,6 +3105,30 @@ class StopHook(TempHome):
             "Parser yazıldı.\n\n**Engeller:**\n- main'e push — GERİ ALINAMAZ — "
             "`git push origin main` bekliyor — onayın"))
 
+    def test_a_process_question_at_the_end_is_refused_once(self):
+        # plan 086 (S3) through the real Claude Stop hook: a plan proposal that
+        # ends "Başlayayım mı?" - no work in the turn - is refused once as
+        # `needless ask`, a refusal and not a claim, and the reply after it is
+        # record-only. Before the class it ended the turn.
+        self.turn("planla")
+        asked = "Plan hazır: üç adım.\n\nBaşlayayım mı?"
+        out = self.stop(asked)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu soruyu sorma", out["reason"])
+        self.assertIn("Onay için sorular", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: needless ask"])
+        self.assertIsNone(self.stop(asked, stop_hook_active=True))
+        self.assertEqual([r.get("detail") for r in self.rows("after_block")],
+                         ["would block: needless ask"])
+        # the same question in an approval batch with its default is the policy
+        self.turn("planla")
+        self.assertIsNone(self.stop(
+            "## Onay için sorular\nÖneri: evet - cevap gelmezse açıyorum.\n"
+            "1. **Plan açayım mı?**"))
+        # a never-default step waits on the user: asking it is no needless ask
+        self.turn("temizle")
+        self.assertIsNone(self.stop("Prod veritabanındaki eski tabloları sileyim mi?"))
+
     def todos(self, *items):
         """One Claude `TodoWrite` call holding these (content, status) items."""
         self.seed("TodoWrite", {"todos": [{"content": c, "status": s}
@@ -3524,6 +3548,76 @@ class ReplyShapeCorpus(unittest.TestCase):
         self.assertIn("preamble-open",
                       ti.shape_flags("Değişenler şunlar:\n- a\n- b"))
         self.assertEqual(ti.shape_flags("Üç dosya değişti.\n- a\n- b"), [])
+
+
+class AskPolicy(unittest.TestCase):
+    """Plan 086 (S3): the ask policy's readers. A reply ending on a process
+    question with no default is a needless ask, a question about a granted
+    outward step is one too, a class-F step is never one; a KARAR item owes
+    its options or a default; an ask-tool payload is counted for its
+    recommended options; grants fold oldest first with their lifts."""
+
+    NONE = staticmethod(lambda: frozenset())
+
+    def test_process_questions_are_needless_and_the_others_are_not(self):
+        for text in ("Plan hazır.\n\nBaşlayayım mı?", "hangisinden başlayayım?",
+                     "Commit atmamı ister misin?", "Shall I proceed?", "Which first?"):
+            self.assertTrue(ti.needless_ask(text, self.NONE), text)
+        for text in ("Bu doğru mu?", "Testler geçti mi?", "Tamamlandı.",
+                     "Prod veritabanını sileyim mi?", "Shall I force-push main?",
+                     "Öneri: evet.\n1. Başlayayım mı?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+
+    def test_a_granted_outward_step_is_not_asked_again(self):
+        asked = "`main`'i push edeyim mi?"
+        self.assertIsNone(ti.needless_ask(asked, self.NONE))
+        self.assertTrue(ti.needless_ask(asked, lambda: {"push"}))
+        self.assertIsNone(ti.needless_ask(asked, lambda: {"release"}))
+
+    def test_a_spend_is_never_default_only_over_the_cap(self):
+        from unittest import mock
+        line = "$5 harcayarak koşayım mı?"
+        with mock.patch.object(ti, "spend_cap", return_value=0.0):
+            self.assertTrue(ti.never_default(line))
+            self.assertIsNone(ti.needless_ask(line, self.NONE))
+        with mock.patch.object(ti, "spend_cap", return_value=10.0):
+            self.assertFalse(ti.never_default(line))
+            self.assertTrue(ti.needless_ask(line, self.NONE))
+
+    def test_a_decision_item_owes_its_options_or_a_default(self):
+        edit = [{"kind": "edit", "detail": "app.py", "changed": True}]
+        bare = "**Engeller:**\n- şema seçimi — KARAR — seçimin"
+        self.assertEqual(len(ti.unblocked_items(bare, edit)), 1)
+        for item in ("şema seçimi — KARAR — A veya B — seçimin",
+                     "şema seçimi — KARAR — Öneri: A",
+                     "schema — DECISION — fast or safe",
+                     "main'e push — GERİ ALINAMAZ — `git push` bekliyor"):
+            self.assertEqual(ti.unblocked_items("**Engeller:**\n- " + item, edit), [],
+                             item)
+
+    def test_an_ask_payload_counts_its_recommended_options(self):
+        omp = {"questions": [{"question": "a?", "recommended": 0},
+                             {"question": "b?", "options": [{"label": "x"}]}]}
+        claude = {"questions": [{"question": "c?", "options": [
+            {"label": "Kademeli (önerilen)"}, {"label": "Tam"}]},
+            {"question": "d?", "options": [{"label": "A (Recommended)"}]}]}
+        self.assertEqual(ti.undefaulted(omp), (2, 1))
+        self.assertEqual(ti.undefaulted(claude), (2, 2))
+        self.assertEqual(ti.undefaulted({"questions": "x"}), (0, 0))
+
+    def test_grants_fold_oldest_first_with_their_lifts(self):
+        from unittest import mock
+
+        def rows(*targets):
+            return [json.dumps({"kind": "grant", "detail": "x", "target": t,
+                                "ts": 1}) + "\n" for t in targets]
+        for targets, want in ((("push",), {"push"}),
+                              (("all", "lift:push"), set(ti.OUTWARD) - {"push"}),
+                              (("push", "release", "lift:all"), set()),
+                              (("lift:all", "release"), {"release"})):
+            with mock.patch.object(ti, "_ledger_lines", return_value=rows(*targets)):
+                self.assertEqual(ti.grants_in_force("s"), want, targets)
+        self.assertEqual(ti.grants_in_force(None), set())
 
 
 class ResidualWork(unittest.TestCase):

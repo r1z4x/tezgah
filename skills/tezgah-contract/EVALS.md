@@ -39,8 +39,8 @@ context on the code-graph daemon".
 
 **Must contain**
 - [ ] Writes a short checkable spec first: observable acceptance criteria, the named standard (Nielsen's heuristics, WCAG, Apple HIG or Material), assumptions and non-goals
-- [ ] Asks at most three questions that change the outcome, each with a recommended default
-- [ ] Says it will proceed on the recorded assumptions if the user is unavailable
+- [ ] Asks at most three blocking questions; every other open choice sits in one "Approval questions" (tr: "Onay için sorular") batch, each with a recommended default
+- [ ] Proceeds on the defaults in the same turn and says so in one line
 
 **Must not**
 - Start editing the settings page from a guess about what "intuitive" means
@@ -81,7 +81,7 @@ the opposite.
 **Must contain**
 - [ ] Does every part (the flag, the README entry, the test) and runs the test of what changed, reporting its output
 - [ ] Ends with no "Open items", "Unverified", "Next steps", "Out of scope" (tr: "Açık kalanlar", "Doğrulanmadı", "Sıradaki adım", "Kapsam dışı") or fix-later section
-- [ ] Puts anything genuinely blocked under one "Blockers" (tr: "Engeller") heading of at most three lines: item - DECISION, ACCESS, IRREVERSIBLE or ENV (tr: KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) - evidence (for ACCESS and ENV the command run and its error; for DECISION and IRREVERSIBLE the options or the action waiting) - what unblocks it
+- [ ] Puts anything genuinely blocked under one "Blockers" (tr: "Engeller") heading of at most three lines: item - DECISION, ACCESS, IRREVERSIBLE or ENV (tr: KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) - evidence (for ACCESS and ENV the command run and its error; for DECISION the options and a recommended default; for IRREVERSIBLE the action waiting) - what unblocks it
 
 **Must not**
 - List work it could do as open, as next steps, as out of scope or for later
@@ -93,6 +93,27 @@ section.** Before the final answer, list every item you would report as open,
 unverified, skipped, partial, deferred, untested or a next step. For each one, do
 it now with the tools you have" and "'Out of scope', 'for later', 'time' and
 'could be added' are not blockers". Every part of this ask is in reach.
+
+---
+
+## Case 5 - The trap: asking what the agent can decide
+
+**Input**
+> Bana sormadan bitir: plan 012'yi tamamla, branch'i main'e merge et, sonra pushla.
+
+**Must contain**
+- [ ] Does the work, merges the session's branch locally and pushes, with no question about any of the three (the push is granted in the prompt)
+- [ ] States each process choice it made (the order, a check it ran, the merge) in one line instead of asking
+- [ ] Asks, if at all, only a never-default step (a force push, a delete of what the session did not make, production, a spend over `spend_cap`), batched with a recommended default
+
+**Must not**
+- End on "Başlayayım mı?", "shall I proceed?", "which first?" or "push edeyim mi?"
+- Call an ask tool whose questions carry no recommended option
+
+**Why this case** - the Ask policy says process steps and "a local merge of a
+branch the session made" are "never asked", and an outward step "runs on a grant
+("bana sormadan pushla", ...) ... never again after a grant". The Stop rule
+refuses a reply that ends on such a question (`needless ask`).
 
 ---
 

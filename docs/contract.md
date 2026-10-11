@@ -144,6 +144,21 @@ looks for each clause's object phrase, the words a paraphrasing summary keeps
 precise rather than complete. `tests/constraint-fixtures.md` lists the real
 prompts the shapes ran on, the misses and the known false positives.
 
+A grant is the positive half of the same reader (plan 086, S3). "bana sormadan
+pushla", "without asking" and "onay veriyorum" let the session take an outward
+step without asking again. The shapes live in each language pack's
+`constraint.grant` list. `user_grants` (`hooks/tezgah_context.py::user_grants`)
+reads the whole sentence for the class it names: `push`, `release`, `publish`,
+`pr`, or `all` when it names none. Each prompt's grants land as `grant` rows in
+the session's ledger. They come before the reminder switch, so `reminder-off`
+keeps them. A `constraint.lift` shape ("artık bana sor", "ask me again") lifts
+them. So does a later constraint that names the class, such as "don't push".
+`grants_in_force` (`hooks/tezgah_integrity.py::grants_in_force`) folds the rows
+oldest first. The Stop rule's `needless ask` class and the ask-tool warning read
+that fold. A grant never covers a never-default step: a force push, a delete, a
+credential, or a spend over `spend_cap` in `~/.config/tezgah/config.json`. That
+cap is a number of USD, and 0 when unset (`hooks/tezgah_paths.py::spend_cap`).
+
 One per-turn line is not a rule but a check on the turn's own evidence. When the
 ledger says every check that passed in this session ran in a scratch or stand-in
 path - `/tmp/`, `/var/folders/`, `$TMPDIR`, or a path segment naming a
@@ -215,7 +230,7 @@ applied, and it also returns the names of the switches that fired.
 - **Ponytail (minimal code).** Take the laziest rung that holds (YAGNI → reuse → stdlib → platform → installed dependency → one line), never simplify away validation, error handling or security. A non-default level rides the reminder (`hooks/tezgah_context.py::_pony_level_line`).
 - **Output shape: ADHD-friendly.** The action or answer is the first line, multi-step work is a numbered list whose position is restated, an estimate is in concrete units. Two upstream rules were rewritten rather than imported verbatim because they collided with rules already in force: the state restatement points at the todo list instead of duplicating it, and a time estimate can no longer be read as a measurement.
 - **Deliver the whole ask; never the shortcut.** The request is a floor: no cheaper stand-in, no silent scope cut, no token gesture reported as done.
-- **Integrity: evidence, or a named blocker.** A done/tested claim holds only if the check ran in this session and its output was seen; "unverified" (tr: "doğrulanmadı") follows a check that ran and failed; leftover work is done, or stays as one of four blockers (DECISION, ACCESS, IRREVERSIBLE, ENV; tr: KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its evidence. The mechanical half is enforced by [gate.md](gate.md), the residual half by the Stop rule's `residual work` class ([evidence.md](evidence.md)).
+- **Integrity: evidence, or a named blocker.** A done/tested claim holds only if the check ran in this session and its output was seen; "unverified" (tr: "doğrulanmadı") follows a check that ran and failed; leftover work is done, or stays as one of four blockers (DECISION, ACCESS, IRREVERSIBLE, ENV; tr: KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its evidence. The mechanical half is enforced by [gate.md](gate.md), the residual half by the Stop rule's `residual work` class ([evidence.md](evidence.md)). Its **Ask policy** says what is asked at all. Work and process are never asked. An outward step runs on a grant. A never-default step waits for an answer. Every other question goes in one batch with a recommended default. The Stop rule's `needless ask` class refuses a reply that ends on a question the agent can decide, and the gate warns on an ask-tool question with no default ([gate.md](gate.md#ask-an-ask-tool-question-with-no-recommended-option)).
 - **Loop discipline.** Never repeat an identical failing command; three attempts is the ceiling, then report what is still unknown.
 - **Lessons ledger: stop repeating mistakes.** `.tezgah/lessons.md` lines are standing constraints; the recent ones are injected at session start, and up to three older ones a prompt shares words with ride that turn, each once per session when the host sends a session id (a compaction resets that, because the compacted context no longer holds them; without an id every matching turn carries them). Write a line rule first, `<rule> - <incident>` (`LESSON_SEPARATOR`, `hooks/tezgah_context.py::LESSON_SEPARATOR`). The session block counts the shown lines that do not open with their rule. A line ending `|| enforced_by: <rule|test>` leaves both blocks while that gate rule or test is on (`hooks/tezgah_lessons.py::lines`). That one reader serves the context, the gate and the CLI. It cuts that clause, a `|| check: ...` clause and an `@<sha> <path>` stamp off each line (`hooks/tezgah_lessons.py::parse`). None of them changes the key, the per-turn digest, the cut or the ranking. The gate records a line written after untrusted text in the same turn as a `lesson_tainted` row ([evidence.md](evidence.md)). That line still rides both blocks, behind a per-line data label (`hooks/tezgah_context.py::LESSON_TAINTED`). ADR 010 makes it a row, never a refusal. `bin/tezgah-lessons` proposes rewrites, merges and retirements, and never writes the file.
 - **No AI attribution, ever, on any host.** Nothing persisted or published may name a model, vendor or "AI" as author, co-author, generator or helper; one already in pushed history is reported.
@@ -483,7 +498,7 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 
 ## When the injected text grows too large
 
-Each event has a byte budget: `session_start` and `post_compact` 14500,
+Each event has a byte budget: `session_start` and `post_compact` 15500,
 `user_prompt` 6500, `subagent_start` 5500, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
@@ -496,6 +511,8 @@ rules, so the budget moved to 13000 B. The residual rule (plan 080) added
 11972 B (`tests/test_setup.py`). At 13000 B the healthy fixture gave up its
 lessons, plans and steer blocks. At 6000 B the busiest prompt turn gave up its
 active-task line. The session budgets moved to 14500 B, the prompt budget to 6500 B.
+The Ask policy (plan 086, S3) added 913 B to the core. At 14500 B the healthy
+fixture then gave up a lessons, plans or knowledge block. The session budgets moved to 15500 B.
 The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A

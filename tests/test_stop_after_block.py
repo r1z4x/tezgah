@@ -437,8 +437,9 @@ class AfterBlock(TempHome):
         report = ("Parser yazıldı.\n\n**Unresolved**\n"
                   "- canlı model çağrısı çalıştırılmadı")
         done = "Parser değişikliği yerinde, modülün testleri geçiyor."
+        # a KARAR item carries its options or a default (plan 086, S3)
         typed = done + ("\n\n**Engeller**\n- canlı model çağrısı — KARAR — "
-                        "ücretli çağrı, onayın")
+                        "ücretli çağrı, Öneri: koşmamak — onayın")
         for parent, decision in ((done, "block"), (typed, None)):
             with self.subTest(parent=parent):
                 self.session = "s-s4-sub-" + str(decision)

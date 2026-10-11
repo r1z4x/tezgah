@@ -188,7 +188,39 @@
   ],
   "ask": [
    "ask\\s+(?:me\\s+)?(?:first\\s+)?before\\s+(?P<ask>\\w+)"
+  ],
+  "grant": [
+   "without asking(?: me)?|no need to ask|(?:you have|you've got) my (?:approval|permission|go-ahead)|\\bi approve\\b|(?:you are|you're) (?:approved|cleared|authori[sz]ed) to|go ahead and (?:push|release|publish|tag|open)\\w*|don'?t ask (?:me )?(?:again|for (?:approval|permission))"
+  ],
+  "lift": [
+   "ask (?:me )?(?:again|first from now on)|from now on,? ask (?:me )?(?:first|before)|(?:revoke|withdraw)\\w* (?:my |the )?(?:approval|permission|grant)"
   ]
+ },
+ "ask": {
+  "process": [
+   "\\b(?:shall|should|can|may) i (?:now |just |also )?(?:proceed|continue|go on|go ahead|start|begin|keep going|move on|carry on|open (?:a|the) plan|commit|merge|run (?:the )?(?:tests?|checks?|suite))\\b|\\b(?:do you want|would you like|want) me to (?:now |also |just )?(?:proceed|continue|go on|go ahead|start|begin|keep going|move on|carry on|commit|merge|open (?:a|the) plan|run (?:the )?(?:tests?|checks?|suite))\\b|\\bwhich (?:one |step |item |part |task )?(?:first|next)\\b|\\bwhere (?:should i|do i|to) start\\b|\\b(?:ok|okay|ready) to (?:proceed|continue|go ahead|start)\\b"
+  ],
+  "never_default": [
+   "force[- ]?push\\w*|--force\\b|rewrit\\w* (?:the )?history|reset --hard|\\bdelet\\w*|\\bdrop (?:the )?(?:table|database|volume)s?|unpublish\\w*|deprecat\\w*|production|\\bprod\\b|migrat\\w*|credential\\w*|password\\w*|secret\\w*|api key|\\baccount\\w*|e-?mail|send (?:it |this |them )?to\\b"
+  ],
+  "spend": [
+   "spend\\w*|\\bpaid\\b|billing|\\bcost\\w*|\\bbudget\\w*|\\busd\\b|\\$\\s?\\d"
+  ],
+  "default_mark": [
+   "recommend\\w*|\\bdefault\\b|i(?:'d| would) (?:pick|go with|choose)|\\bmy pick\\b"
+  ],
+  "options": [
+   "\\bor\\b|\\boptions?\\b|\\balternatives?\\b|\\bvs\\.?(?=\\s)|\\s/\\s|\\b(?:a|1)\\)?\\s.+?,\\s*(?:b|2)\\)?\\s"
+  ],
+  "cheap_answer": [
+   "yes|yep|yeah|ok(?:ay)?|sure|go(?: on| ahead)?|continue|proceed|do it|carry on|keep going|approved"
+  ],
+  "outward": {
+   "push": "\\bpush\\w*",
+   "release": "\\brelease\\w*|\\btag(?:s|ged|ging)?\\b|version bump|bump the version",
+   "publish": "\\bpublish\\w*|\\bnpm\\b|homebrew|pypi",
+   "pr": "pull request|\\bprs?\\b"
+  }
  },
  "needle_stop": [
   "while",
@@ -274,6 +306,9 @@
   "opener_ban": "never \"you're right\" / \"I didn't look closely\" / an apology",
   "residual_lead": "",
   "slice_lead": "",
-  "ready_lead": ""
+  "ready_lead": "",
+  "ask_lead": "",
+  "approval_heading": "Approval questions",
+  "recommended": "Recommended"
  }
 }

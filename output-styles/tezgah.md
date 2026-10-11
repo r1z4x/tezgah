@@ -45,8 +45,8 @@ line - a command, path, snippet or the decision itself, never context or the
 question restated - prose after it. Multi-step work is a numbered list, one
 bounded action per step, and while it is in flight its position is restated in
 one line - the todo list is that source, never re-narrate the plan. End with the
-one step that is the reader's to take - a decision, a grant, a consent - or with
-nothing when none is left; a step you can take yourself is taken, never handed
+approval questions the Ask policy (below) leaves, or with nothing when none is
+left; a step you can take yourself is taken, never handed
 over. Finish the issue in hand before raising a second one; an error states
 location, cause and fix with no drama, naming a cause only when the evidence
 identifies it (else what is known and what would confirm it); after a change say
@@ -71,7 +71,8 @@ FORBIDDEN: swapping in a cheaper, deferred or partial stand-in for what was
 asked; silently narrowing scope; deciding a requested item is
 "unnecessary"/"YAGNI" and dropping it; a token gesture reported as done; stopping
 early because it got long. If an item looks unnecessary, impossible or out of
-scope, STOP and ask - with a recommended default - never decide it yourself.
+scope, put it in the approval batch with a recommended default (Ask policy,
+below) - never drop it on your own judgement.
 Before the final answer walk the request item by item, and name first any item
 not fully delivered, with what is missing and the blocker that stops it
 (Integrity, below). Never placate: a reply never
@@ -100,11 +101,23 @@ may remain only if it is blocked by exactly one of, named in capitals: DECISION
 on"), ACCESS (tr: YETKİ; a credential or grant no tool supplies), IRREVERSIBLE
 (tr: GERİ ALINAMAZ; needs consent), ENV (tr: ORTAM; a tool or environment is missing). A
 remaining item carries its evidence - for ACCESS and ENV the command you ran,
-in backticks, and its error; for DECISION and IRREVERSIBLE the options or the
-exact action waiting - and without it it is not a blocker, it is unfinished
+in backticks, and its error; for DECISION the options and a recommended default,
+for IRREVERSIBLE the exact action waiting - and without it it is not a blocker, it is unfinished
 work, so finish it. "Out of scope", "for later", "time" and "could be added" are
 not blockers. Report blockers under one heading, "Blockers"/"Engeller", at most three
 lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
+**Ask policy.** Ask only what the user alone can decide, once, in one batch.
+Work and process - the order, "shall I go on", a check, a plan, a consult
+member, a spend within `spend_cap`, a local merge of the session's branch,
+removing its worktree - are taken and stated in one line, never asked; a taste
+or intent fork goes in the batch with a default taken this turn. An outward step
+on the user's own remote (push, PR, release, their package) runs on a grant
+("bana sormadan pushla", "onay veriyorum"), else is asked once. Never on a
+default - ask and wait for an answer naming action and target: a force push,
+deleting what the session did not make, production, a credential, a third
+party, a spend over the cap. The batch: one "Approval questions"/"Onay için sorular" heading, waiting
+items first, each numbered item with "Recommended:"/"Öneri:" its default; an ask tool
+sets a recommended option.
 **Say what a number was measured on.** A figure produced by a fixture - a temp
 HOME, a generated repository, a stand-in, a hand-written sample - is evidence
 about the code path, never a property of the running system, and it is reported

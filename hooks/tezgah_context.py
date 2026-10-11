@@ -19,11 +19,11 @@ import tezgah_orca
 import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
-from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
+from tezgah_integrity import (GRANT_KIND, STEP_KINDS, _heredocs, _path as _ledger_path,
                               _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
-                              note_compaction, note_turn, redact, scratch_evidence,
-                              UNTRUSTED_CHANNEL)
+                              note_compaction, note_turn, outward_classes, redact,
+                              scratch_evidence, UNTRUSTED_CHANNEL)
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
@@ -1243,10 +1243,14 @@ def session_of(payload):
 # healthy fixture (13588 B) gave up its lessons, plans and steer blocks (950 B;
 # 1002 B where a subagents note rides along), and at 6000 B the busiest prompt
 # turn its active-task line (255 B), so
-# the session budgets move to 14500 B and the prompt budget to 6500 B. A
+# the session budgets move to 14500 B and the prompt budget to 6500 B.
+# Moved again on 2026-10-12 (plan 086, S3): the integrity paragraph carries
+# the Ask policy (+913 B of core), and at 14500 B the healthy fixture gave up
+# its lessons, plans or knowledge block (235-338 B), so the session budgets
+# move to 15500 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 14500, "post_compact": 14500,
+CONTEXT_BUDGET = {"session_start": 15500, "post_compact": 15500,
                   "subagent_start": 5500, "user_prompt": 6500}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
@@ -1756,6 +1760,47 @@ def user_constraints(prompt):
             out.append(clause)
     return out
 
+# A grant is the positive half of the same reader (plan 086, S3): "bana sormadan
+# pushla", "without asking", "onay veriyorum" lets the session take an outward
+# step without asking again; "artık bana sor", "ask me again" or a later
+# prohibition that names the step ("bana sormadan push etme", "don't push")
+# lifts it. Each is one `grant` row in the session's ledger, scoped to the
+# OUTWARD class the sentence names, `all` when it names none; the Stop rule's
+# `needless ask` and the ask-tool warning read them back
+# (`tezgah_integrity.grants_in_force`). Never a class-F step: a grant lowers
+# asks, it never licenses a force push, a delete or a spend over the cap.
+GRANT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "grant"))
+LIFT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift"))
+
+
+def user_grants(prompt):
+    """[(clause, target)] for every grant and lift a prompt issues, in order:
+    `target` is an OUTWARD class or `all`, `lift:` before it for a lift. A
+    sentence is read whole for the class it names, since a Turkish grant often
+    names the step before "sormadan". Pasted material and an over-long prompt
+    are skipped as `user_constraints` skips them."""
+    text = prompt or ""
+    if len(text) > CONSTRAINT_PROMPT_MAX:
+        return []
+    quoted = [q.span() for q in QUOTED.finditer(text)]
+    found = []
+    for lift, shapes in ((False, GRANT_SHAPES), (True, LIFT_SHAPES)):
+        for m in shapes.finditer(text):
+            if not any(a <= m.start() < b for a, b in quoted):
+                found.append((m.start(), lift))
+    out = []
+    for at, lift in sorted(found):
+        start = max((e.end() for e in SENTENCE_END.finditer(text, 0, at)), default=0)
+        end = SENTENCE_END.search(text, at)
+        sentence = " ".join(text[start:end.start() if end else len(text)].split())
+        clause = cut(redact(sentence.strip("-*• ")), CONSTRAINT_CHARS)
+        for cls in sorted(outward_classes(sentence)) or ["all"]:
+            out.append((clause, ("lift:" if lift else "") + cls))
+    for clause in user_constraints(text):
+        out += [(clause, "lift:" + cls) for cls in sorted(outward_classes(clause))]
+    return list(dict.fromkeys(out))
+
+
 
 def constraint_needle(clause):
     """The fragment of a constraint a summary keeps when it kept the constraint:
@@ -1903,6 +1948,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         # even when the per-turn text is off. Never in DROP_ORDER, so no budget
         # gives it up - it says the rules below are not being enforced.
         gate = gate_inactive(session_id, payload)
+        # The user's grants and lifts (`user_grants`), before the reminder
+        # switch too: the Stop rule reads them whether or not this turn's text
+        # is shown.
+        for clause, target in user_grants(prompt):
+            note(session_id, GRANT_KIND, clause, target=target)
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries
         # the same rules on every response. The conditional rules ride along
@@ -2095,10 +2145,10 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "research to a host subagent and say the tooling is "
                       "unavailable; do not improvise its protocol."))
     if event == "session_start":
-        note = sync_agents(root)
-        if note:
+        synced = sync_agents(root)
+        if synced:
             parts.append(("subagents",
-                          "Subagents (this repo, generated): %s" % note))
+                          "Subagents (this repo, generated): %s" % synced))
         # the provider health behind omp's subagent chains: re-probed in the
         # background at most every few hours or once a recorded reset passes, so
         # a family at its limit leaves the chain and rejoins it after the reset

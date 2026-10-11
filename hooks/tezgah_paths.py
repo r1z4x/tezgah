@@ -764,6 +764,17 @@ def language():
     return "tr"
 
 
+def spend_cap():
+    """The standing spend cap in USD, `spend_cap` in config.json: a paid run at
+    or under it is a process parameter the agent picks, one over it is asked
+    and waits (the ask policy's never-default class). 0 when unset, negative
+    or not a number, so every spend is asked."""
+    cfg = config()
+    value = cfg.get("spend_cap") if isinstance(cfg, dict) else None
+    ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+    return float(value) if ok and value > 0 else 0.0
+
+
 def env_language(environ=None):
     """The language a first install asks for: the first of LANGUAGE (its own
     first `:` entry), LC_ALL, LC_MESSAGES and LANG that is set and not empty -

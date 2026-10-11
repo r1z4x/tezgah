@@ -19,9 +19,9 @@ the same code every other host runs.
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
-        -> {"deny": reason} | {"advice": line} (the graph line, or the idle-wait
-           warning on a `wait`, the bridge hands the model with this call's
-           result; never a block)
+        -> {"deny": reason} | {"advice": line} (the graph line, the idle-wait
+           warning on a `wait`, or the ask-policy warning on an `ask`, the
+           bridge hands the model with this call's result; never a block)
     {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
      "failed": bool, "idx": glyph, "todo": [...]}
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
@@ -61,7 +61,8 @@ try:
         color_default, command_text, context_for, health_segments, record,
         render_tiers, shell_kind, skill_read_kind)
     from tezgah_gate import (  # noqa: E402
-        cross_project_note, decision, graph_advice, ready_advice, spawn_advice)
+        ask_advice, cross_project_note, decision, graph_advice, ready_advice,
+        spawn_advice)
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
@@ -152,7 +153,8 @@ def handle(payload):
             return {"deny": reason}
         advice = (graph_advice(tool, inp, cwd, "omp")
                   or ready_advice(tool, session_id, cwd)
-                  or spawn_advice(tool, inp, session_id, cwd))
+                  or spawn_advice(tool, inp, session_id, cwd)
+                  or ask_advice(tool, inp, session_id, cwd))
         return {"advice": advice} if advice else {}
     if not root_for(cwd):
         return {}
