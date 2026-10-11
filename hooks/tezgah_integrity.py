@@ -292,7 +292,8 @@ ADMITTED_CLASSES = frozenset(("check failed", "partial failure", "stale evidence
                               "no verify_ok"))
 # What the evidence classes tell the model the admission takes, in one place.
 ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and failed '
-             'since the newest change; quote its error line')
+             'since the newest change; quote its error line, and if you list it, '
+             'type it YETKİ or ORTAM')
 # Rule 10 of skills/i-have-adhd/SKILL.md - "No preamble, no recap, no closer" -
 # names the forms a reply may neither open nor close on. Each alternative below
 # is quoted from that rule's own lines; none is invented:
@@ -5049,13 +5050,16 @@ PARENTHESIS = re.compile(r"\([^)]*\)")
 # yok") is content and is judged like the rest.
 EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
                         r"(?:\s*[.,;:!—–-][^\n]*)?|0)\W*", re.I)
-# The blocker tokens that need no ledger row, as the capitalised token the
-# contract names them by, a Turkish suffix allowed ("KARARI senin"); a token
-# negated by the next word ("KARAR gerekmiyor") is none, and code is blanked
-# first (`_prose`).
+# The blocker tokens, as the capitalised token the contract names them by, a
+# Turkish suffix allowed ("KARARI senin"); a token negated by the next word
+# ("KARAR gerekmiyor") is none, and code is blanked first (`_prose`).
+# BLOCKER_SAID needs no ledger row: a choice or a consent leaves none to check.
+# BLOCKER_TRIED is the attempt that failed - it counts only beside a quote of
+# a command that failed in the turn (`_quotes_failure`).
+BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))"
 BLOCKER_SAID = re.compile(
-    r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b"
-    r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))")
+    r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
+BLOCKER_TRIED = re.compile(r"\b(?:YETK[İI]|ACCESS|ORTAM|ENV)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
@@ -5071,8 +5075,9 @@ RESIDUAL_WORK = (
     "blockers, named in capitals: KARAR (a choice only the user can make - "
     "never \"which first\" or \"shall I go on\"), YETKİ (a credential or grant "
     "no tool supplies), GERİ ALINAMAZ (needs consent), ORTAM (a tool or "
-    "environment is missing); an item that cannot be done quotes, in "
-    "backticks, the command that failed in this turn and its error. \"Out of "
+    "environment is missing); a YETKİ or ORTAM item quotes, in backticks, the "
+    "command that failed in this turn and its error - a quote with no type, "
+    "or a type with no quote, is not one. \"Out of "
     "scope\", \"later\", \"time\" and \"could be added\" are not blockers. Report "
     "what is left under one heading, \"Engeller\", at most three lines: item - "
     "blocker - evidence - what unblocks it.")
@@ -5245,10 +5250,12 @@ def _quotes_failure(item, failed):
 
 
 def unblocked_items(text, rows):
-    """[(label, item)] for every residual item nothing accounts for: no KARAR or
-    GERİ ALINAMAZ token in the label, the intro or the item (`BLOCKER_SAID`, on
-    the prose), and no quote of a command that failed in `rows` (a row with
-    exit 1, or a `verify_fail`). An item that says nothing is left is none."""
+    """[(label, item)] for every residual item nothing accounts for. A KARAR or
+    GERİ ALINAMAZ token in the label, the intro or the item accounts for it
+    (`BLOCKER_SAID`, on the prose); a YETKİ or ORTAM token does only beside a
+    quote of a command that failed in `rows` (a row with exit 1, or a
+    `verify_fail`) - the type and its evidence, never one of the two. An item
+    that says nothing is left is none."""
     failed = [str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
               for r in rows if r.get("exit") == 1 or r.get("kind") == "verify_fail"]
     out = []
@@ -5256,9 +5263,10 @@ def unblocked_items(text, rows):
         for item in items:
             if EMPTY_ITEM.fullmatch(item.strip()):
                 continue
-            if BLOCKER_SAID.search(_prose(" ".join((label, intro, item)))):
+            said = _prose(" ".join((label, intro, item)))
+            if BLOCKER_SAID.search(said):
                 continue
-            if _quotes_failure(item, failed):
+            if BLOCKER_TRIED.search(said) and _quotes_failure(item, failed):
                 continue
             out.append((label, item))
     return out
