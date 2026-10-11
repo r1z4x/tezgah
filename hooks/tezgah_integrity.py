@@ -389,10 +389,11 @@ PREAMBLE = re.compile(
 # false completions: counters folds them into `shape_blocked` instead.
 SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
                           "reply language"))
-# The Stop classes that refuse the list a reply left, not its claim: a backed
-# "testler geçti" beside "Açık kalanlar" is no false completion. Counted in
-# `blocked_claims` under their own class, kept out of `false_completion`.
-LIST_BLOCKS = frozenset(("residual work",))
+# The Stop classes that refuse the work a reply left, not its claim: a backed
+# "testler geçti" beside "Açık kalanlar" or a stopped slice is no false
+# completion. Counted in `blocked_claims` under their own class, kept out of
+# `false_completion`.
+LIST_BLOCKS = frozenset(("residual work", "stopped slice"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
@@ -3199,7 +3200,7 @@ def unanswered(rows, delivered=()):
 
 def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
               out_bytes=None, error=None, cwd=None, source=None, empty_run=False,
-              agent=None):
+              agent=None, host=None):
     """Record the evidence kind for one tool call (host PostToolUse hooks).
 
     `failed=None` is the default because a host that passes no argument reported
@@ -3243,7 +3244,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
     check exited 0 over nothing, so it records as one that RAN (`verify`), the
     piped check's kind, and the turn still owes a pass.
     `agent` is the host's subagent id (Claude's `agent_id`), written into the
-    row's `agent` field so the turn readers can key on (session, agent)."""
+    row's `agent` field so the turn readers can key on (session, agent).
+    `host` names the calling host for the slice journal (`_note_slice`); None
+    reads it off the hook process (`_hook_host`)."""
     inp = inp or {}
     cmd = str(inp.get("command") or inp.get("cmd") or "")
     kind = classify(tool, inp)
@@ -3333,6 +3336,7 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         fields["repo"] = _check_repo(cmd, cwd, inp)
         fields["empty_run"] = True if empty_run else None
     note(session_id, kind, detail, **fields)
+    _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host)
     if kind == "edit" and not failed:
         # the taste capture (tezgah_taste, opt-in): the edit's text under this
         # row's id, and the bytes it left - read here because only PostToolUse
@@ -3342,6 +3346,80 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
         except ImportError:
             return
         tezgah_taste.note_write(session_id, fields["id"], inp, cwd)
+
+
+# The hosts whose post event for a spawn call arrives once the child finished,
+# so the call's outcome is the slice's: Claude/dsh/Cursor `Agent`/`Task` and
+# Codex `spawn_agent` (mapped onto `Task` by its hook). omp's `task` returns
+# while its children may still run, so its records stay open for
+# `tezgah_task.pending` to reconcile from the child transcripts.
+SYNC_SPAWN_HOSTS = frozenset(("claude", "dsh", "cursor", "codex"))
+
+
+def _journal():
+    """The slice journal module (tezgah_task), or None when it is missing or
+    broken: the journal is a record, and the post-tool path must never pay for
+    it. Imported here, not at the top: tezgah_task is newer than some checkouts."""
+    try:
+        import tezgah_task
+    except Exception:
+        return None
+    return tezgah_task
+
+
+def _hook_host():
+    """The host this hook process runs for (`tezgah_guard._host`): `hosts/<name>/`
+    by its directory, and the shared Claude/dsh script told apart by the dsh
+    manifest's `TEZGAH_CALL_OUTCOME=none`."""
+    try:
+        from tezgah_guard import _host
+        name = _host()
+    except Exception:
+        return ""
+    if name == "claude/dsh":
+        return "dsh" if os.environ.get("TEZGAH_CALL_OUTCOME") == "none" else "claude"
+    return name
+
+
+def _note_slice(session_id, tool, inp, failed, interrupted, error, cwd, host):
+    """Hand a spawn call to the slice journal (`tezgah_task.note_spawn`), and
+    open a `job` record for an omp `bash` call sent to the background, so a
+    `/clear` keeps the pointer to the run. Swallows every exception.
+
+    On a synchronous host the slice is closed here: the event arriving means
+    the child is no longer running, so a call with no failure signal (dsh's
+    bridge sends none) closes as done rather than staying open forever - a
+    journal entry, never a pass on the ledger. A Claude call sent with
+    `run_in_background` returns before its child ends and stays open."""
+    name = str(tool or "").strip().lower()
+    if not cwd:
+        return
+    try:
+        tt = _journal()
+        host = host or _hook_host()
+        if name in SUBAGENT_TOOLS:
+            spawn = getattr(tt, "note_spawn", None)
+            if spawn is None:
+                return
+            sync = host in SYNC_SPAWN_HOSTS and inp.get("run_in_background") is not True
+            text = str(error or "") or ("aborted" if interrupted else "")
+            # Codex's hook maps `spawn_agent` onto `Task` before this row; the
+            # journal parses the call by the host's own name and fields
+            spawn(cwd, session_id, host,
+                  "spawn_agent" if host == "codex" else tool, inp,
+                  failed=bool(failed or interrupted or error) if sync else None,
+                  result_text=text)
+        elif host == "omp" and name == "bash" and inp.get("async") is True:
+            opener = getattr(tt, "open_slice", None)
+            root = _toplevel(os.path.realpath(cwd))
+            cmd = str(inp.get("command") or "")
+            if opener is None or not root or not cmd or off("slices-off"):
+                return
+            opener(root, "job-" + hashlib.sha1(cmd.encode()).hexdigest()[:10],
+                   kind="job", host="omp", brief=cmd, parent=str(session_id or ""),
+                   cwd=cwd)
+    except Exception:
+        pass
 
 
 # One leading step a check's command opens with: a subshell paren, an
@@ -4450,7 +4528,9 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     `residual work` (plan 080) is asked after all of them, at every exit that
     would end the turn (`_residual_block`): a turn that did work and ends on a
     list of what is left, with an item no blocker accounts for. It never takes
-    a turn another class refused.
+    a turn another class refused. `stopped slice` (plan 081) is asked at the
+    same exits after it: a slice this session spawned that the journal holds as
+    stopped, worked turn or not.
 
     "Evidence tampered" is the first evidence class: a `ledger_damage` row in
     the turn (`_parse`) means a line of the ledger is not a row, and no fold
@@ -4532,10 +4612,11 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # shape that used to leave such a claim unjudged.
     external = _external_claim(t)
     if not worked and not (done or verified) and not external:
-        return _residual_block(t, rows, shape, session_id=session_id)
+        return _residual_block(t, rows, shape, session_id=session_id, cwd=cwd)
     if lost:
         return _residual_block(t, rows, shape,
-                               fold(rows, worked | {BEGAN_KIND}, external), session_id)
+                               fold(rows, worked | {BEGAN_KIND}, external),
+                               session_id, cwd)
     # Two shapes the turn's own rows cannot judge, so they are judged against
     # the session's (the contract says "no successful check recorded in the
     # session"). Read only for these two, so every other turn still pays for
@@ -4559,7 +4640,8 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
             srows = events(session_id)
             if not external and _settled(srows):
                 return _residual_block(t, rows, shape, fold(
-                    _before_turn(srows), True, None, "this session"), session_id)
+                    _before_turn(srows), True, None, "this session"),
+                    session_id, cwd)
         elif not worked and (done or verified):
             # A claim in a turn that did nothing: "Tamamlandı, tüm testler
             # geçti" after a turn that edited and ended "doğrulanmadı" was
@@ -4570,7 +4652,8 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 "this session")
             if refused[0]:
                 return refused
-    return _residual_block(t, rows, shape, fold(rows, worked, external), session_id)
+    return _residual_block(t, rows, shape, fold(rows, worked, external),
+                           session_id, cwd)
 
 
 def _before_turn(rows):
@@ -5092,6 +5175,16 @@ RESIDUAL_WORK = (
     "scope\", \"later\", \"time\" and \"could be added\" are not blockers. Report "
     "what is left under one heading, \"Engeller\", at most three lines: item - "
     "blocker - evidence - what unblocks it.")
+# The `stopped slice` class (plan 081): a subagent slice this session spawned
+# ended stopped - a quota, a 429, an abort, a cut-off - and the turn would end
+# with its work unresumed. Filled with the slice id, its failure class and the id
+# twice more.
+STOPPED_SLICE = (
+    "Durmuş bir dilim var. Slice %s, spawned by this session, stopped (%s) and "
+    "its work is not resumed. Resume it with `tezgah-task slice resume %s` - "
+    "the native path first, else the re-dispatch brief it prints - or, if the "
+    "work was finished another way, record that with `tezgah-task slice done "
+    "%s`.")
 
 
 def _tr_lower(text):
@@ -5283,25 +5376,54 @@ def unblocked_items(text, rows):
     return out
 
 
-def _residual_block(text, rows, shape, verdict=(None, None), session_id=None):
+def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
+                    cwd=None):
     """`verdict` when it refuses; else, in a turn that did work (a STEP_KINDS
-    row), the `residual work` class when `unblocked_items` names one; else
-    `verdict`. Not asked for a subagent's end (`shape` false) or a nested
-    session: both replies are read by code, not by the user (`_shape_block`).
-    Nor for a session whose ledger holds no turn marker: `turn_rows` hands it
-    the whole ledger as the turn, so the steps it sees are not this turn's."""
+    row), the `residual work` class when `unblocked_items` names one; else the
+    `stopped slice` class when `_stopped_slice` finds one; else `verdict`. Not
+    asked for a subagent's end (`shape` false) or a nested session: both
+    replies are read by code, not by the user (`_shape_block`). Residual work
+    is not asked of a session whose ledger holds no turn marker either:
+    `turn_rows` hands it the whole ledger as the turn, so the steps it sees are
+    not this turn's."""
     if verdict[0] or not shape or os.environ.get("TEZGAH_NESTED"):
         return verdict
-    if not any(str(r.get("kind")) in STEP_KINDS for r in rows):
+    left = []
+    if any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        left = unblocked_items(text, rows)
+        if left and session_id and not _turn_count(_ledger_lines(_path(session_id))):
+            left = []
+    if left:
+        named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
+                          for label, item in left[:3])
+        return ("residual work", RESIDUAL_WORK % named)
+    stopped = _stopped_slice(session_id, cwd)
+    if not stopped:
         return verdict
-    left = unblocked_items(text, rows)
-    if not left:
-        return verdict
-    if session_id and not _turn_count(_ledger_lines(_path(session_id))):
-        return verdict
-    named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
-                      for label, item in left[:3])
-    return ("residual work", RESIDUAL_WORK % named)
+    sid = str(stopped.get("id") or "")
+    return ("stopped slice", STOPPED_SLICE % (
+        sid, stopped.get("failure") or "error", sid, sid))
+
+
+def _stopped_slice(session_id, cwd):
+    """The newest slice record this session spawned that the journal holds as
+    stopped (`tezgah_task.pending`), else None. A turn that did no work is
+    asked too: the turn after an omp `/clear` is exactly the one that has
+    forgotten the slice. Its own record only (`parent`), so a sibling
+    session's stopped slice never refuses this one. Off under `slices-off`,
+    and fail open: a broken journal costs the class, never the Stop. Refused
+    once per turn like every class (the hosts' STOP_REASKS)."""
+    if not (session_id and cwd) or off("slices-off"):
+        return None
+    try:
+        pending = getattr(_journal(), "pending", None)
+        root = _toplevel(os.path.realpath(cwd))
+        for rec in (pending(root) if pending and root else []):
+            if rec.get("status") == "stopped" and rec.get("parent") == session_id:
+                return rec
+    except Exception:
+        return None
+    return None
 
 
 # The workspaces a probe or a benchmark runs in rather than a user: the temp

@@ -823,6 +823,13 @@ RESUME_PLAN_CHARS = 40
 RESUME_COMMIT_CHARS = 38
 RESUME_CHECK_CHARS = 40
 RESUME_FILES = 3
+# The slice journal's lines (plan 081): the newest three stopped or open slices
+# and background jobs, each already bounded by the journal and cut again here.
+# They ride the resume block and, because an omp `/clear` fires no
+# session_start, every prompt's `slices` part while any is pending.
+SLICE_LINES = 3
+SLICE_CHARS = 160
+SLICES_HEAD = "Slices left stopped or open (the journal, `tezgah-task slice reconcile`):"
 
 
 def _plan_facts(path):
@@ -877,13 +884,29 @@ def _active_plan(root):
     return paths[0], False
 
 
+def slice_lines(root):
+    """The slice journal's pending slices and jobs (`tezgah_task.slice_lines`):
+    at most SLICE_LINES lines of at most SLICE_CHARS each, newest first, or []
+    under `slices-off`, without the journal, or when it raises - a broken
+    journal costs the lines, never the injection."""
+    reader = getattr(tezgah_task, "slice_lines", None)
+    if not reader or off("slices-off"):
+        return []
+    try:
+        lines = reader(root, limit=SLICE_LINES) or []
+    except Exception:
+        return []
+    return [cut(str(ln), SLICE_CHARS) for ln in lines[:SLICE_LINES]]
+
+
 def resume_state(root, session_id):
     """The live turn state as a context block, or "" when every part is empty.
 
-    The four parts, in order: the active plan's State and Next, the branch's last
+    The five parts, in order: the active plan's State and Next, the branch's last
     RESUME_LOG commits, the newest `verify_ok`/`verify_fail` the ledger holds,
-    and the files this turn's writes changed. Read by session_start and the
-    post-compaction path; see the note above for why both."""
+    the files this turn's writes changed, and the journal's stopped or open
+    slices (`slice_lines`). Read by session_start and the post-compaction path;
+    see the note above for why both."""
     lines = []
     plan, mine = _active_plan(root)
     if plan:
@@ -920,6 +943,7 @@ def resume_state(root, session_id):
                                              RESUME_CHECK_CHARS)))
     if files:
         lines.append("- changed this turn: %s" % ", ".join(files[:RESUME_FILES]))
+    lines += slice_lines(root)
     if not lines:
         return ""
     return "## Session so far\n" + "\n".join(lines)
@@ -1485,8 +1509,10 @@ DEFAULT_BUDGET = 13000
 # block, which outlives every status and availability line because it is the only
 # one that says what THIS session was doing (a `git log` and a ledger read are
 # turns the session would otherwise spend) but still yields to a rule - then the
-# scratch-path warning, which is about evidence the turn may already have claimed
-# - then the active task's phase, which outlives both because a phase is what
+# journal's stopped or open slices, which outlive the resume block because after
+# an omp `/clear` they are the one pointer left to delegated work in flight - then
+# the scratch-path warning, which is about evidence the turn may already have
+# claimed - then the active task's phase, which outlives both because a phase is what
 # stops a refused write before it happens - then the delta, and the skill pointer
 # last. A key absent from this tuple is never dropped: the always-on core, the
 # per-turn reminder and an armed paragraph ARE the rules, and a budget that could
@@ -1495,7 +1521,7 @@ DEFAULT_BUDGET = 13000
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate",
-              "index", "resume", "scratch", "task", "delta", "pointer")
+              "index", "resume", "slices", "scratch", "task", "delta", "pointer")
 
 
 def _first_item(text):
@@ -2126,6 +2152,12 @@ def context_for(event, cwd, payload=None, with_core=True):
         if scratch:
             command = str(scratch.get("detail") or "").strip()
             parts.append(("scratch", SCRATCH_REMINDER % command[:SCRATCH_CHARS]))
+        # The journal's stopped or open slices and background jobs: an omp
+        # `/clear` fires no session_start, so the resume block never reaches the
+        # next turn and this part is the one that names the work left in flight.
+        pending = slice_lines(root)
+        if pending:
+            parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
         stale = index_notice(cwd)
         if stale:
             parts.append(("index", stale))

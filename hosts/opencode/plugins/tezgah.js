@@ -40,7 +40,8 @@
 //     second and third halves - the channel on the call's own ledger row (with
 //     the `external` row an MCP answer or a fetched page earns), the provenance
 //     label in front of the result itself, and the taint notice on the first
-//     effect a turn makes after such a read (hooks/tezgah_untrusted.marks).
+//     effect a turn makes after such a read (hooks/tezgah_untrusted.marks); a
+//     `task` call also writes its slice record (noteSlice, bin/tezgah-task).
 //
 // Known gap: every rule of hooks/tezgah_gate.py is enforced here, but the ledger
 // the counters read is complete only for the rules ported last - secret, loop,
@@ -1257,6 +1258,60 @@ async function recordEvidence(sessionID, tool, args, result, workspace, cwd,
   if (kind === "edit" && row.exit !== 1 && await off("taste-on")) {
     return await noteTaste(sessionID, row.id, args, cwd)
   }
+}
+
+// The slice journal (hooks/tezgah_task.py, plan 081). opencode's `task` call
+// runs its child to the end before this hook sees it, so one call opens the
+// record and closes it - done, or stopped with the error's class - through
+// bin/tezgah-task, the records' one writer. The id is the child session opencode
+// reports (`metadata.sessionId`), else the first 12 hex digits of the brief's
+// sha1 (tezgah_task.slice_id). Awaited under the core deadline and never thrown:
+// a journal that cannot be written costs the record, not the call.
+const TASK_BIN = join(CONFIG, "bin", "tezgah-task")
+const SLICE_ID = /^[A-Za-z0-9._-]{1,80}$/
+const SLICE_BRIEF = 4000
+// tezgah_task._CLASSES, in its order: the class a stopped record carries, and
+// `error` for any other failure text.
+const SLICE_CLASSES = [
+  ["rate_limit", /\b429\b|rate[ _-]?limit/i],
+  ["quota", /quota|key limit exceeded|usage limit|\b40[23]\b.*\blimit|\blimit\b.*\b40[23]\b/i],
+  ["aborted", /abort|cancell?ed/i],
+  ["timeout", /timed out|timeout/i],
+  ["cut_off", /max[ _]turns|max_tokens|cut off|context[ _]length/i],
+]
+
+function sliceClass(text) {
+  const hit = SLICE_CLASSES.find(([, re]) => re.test(text))
+  return hit ? hit[0] : "error"
+}
+
+// The error a `task` result reports, as text, or "" for none.
+function sliceError(result) {
+  for (const e of [result?.error, result?.metadata?.error]) {
+    const text = typeof e === "string" ? e : String(e?.message || e?.name || "")
+    if (e && text.trim()) return text.trim()
+  }
+  return ""
+}
+
+async function noteSlice(sessionID, args, result, cwd) {
+  if (!existsSync(TASK_BIN) || await off("slices-off", sessionID)) return
+  const brief = [args?.description, args?.prompt].map((p) => String(p || "").trim())
+    .filter(Boolean).join("\n\n").slice(0, SLICE_BRIEF)
+  if (!brief) return
+  const child = String(result?.metadata?.sessionId || result?.metadata?.session_id || "")
+  const id = SLICE_ID.test(child) ? child
+    : createHash("sha1").update(brief).digest("hex").slice(0, 12)
+  const run = (argv) => collect([TASK_BIN, "slice", ...argv],
+                                { cwd, stdio: ["ignore", "pipe", "ignore"] }, null,
+                                (code) => code === 0)
+  const opened = await run(["open", "--id", id, "--kind", "agent", "--host", "opencode",
+                            "--agent", String(args?.subagent_type || ""),
+                            "--brief", brief, "--parent", String(sessionID || ""),
+                            "--cwd", cwd])
+  if (!opened) return
+  const error = sliceError(result)
+  await run(error ? ["stop", id, "--class", sliceClass(error)] : ["done", id])
 }
 
 // How far back the pre-state search reads: the gate writes its snapshot row in
@@ -2923,6 +2978,7 @@ export const Tezgah = async ({ directory }) => {
         const taste = await recordEvidence(sessionID, tool, args, output, workspace,
                                            dir, own || inherited)
         if (taste) labelResult(output, taste)
+        if (tool === "task") await noteSlice(sessionID, args, output, dir)
       } catch {}
     },
 
