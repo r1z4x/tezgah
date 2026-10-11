@@ -311,6 +311,22 @@ function emptyRun(content: any): boolean {
   return EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL));
 }
 
+// The text of the newest assistant message in an agent_end `messages` list:
+// the subagent's final report, which the hook reads like a Stop reply.
+function lastReply(messages: any): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "assistant") continue;
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content.map((p: any) => (p?.type === "text" && typeof p.text === "string"
+                                        ? p.text : "")).join("\n");
+    }
+  }
+  return undefined;
+}
+
 // The hook's failure is the one state the bridge can see and the hook cannot
 // report: no interpreter to start it with, the checkout moved, the hook crashed
 // or ran past the timeout. It is remembered here so the next event can say so.
@@ -538,6 +554,15 @@ export default function tezgahOmp(pi: any): void {
     tool = "";
     stopMotion();
     paint(ctx);
+    // omp fires no session_stop for a task subagent, so its end is recorded
+    // here: the child's last reply, judged record-only, lands in the parent's
+    // ledger with its untyped residual count (ADR 011, S4 finding 2).
+    if (isSubagent(ctx) && process.env.TEZGAH_SESSION && event?.willContinue !== true) {
+      ask({ event: "subagent_stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+            parent: process.env.TEZGAH_SESSION,
+            agent: basename(String(ctx?.sessionManager?.getSessionFile?.() ?? ""), ".jsonl"),
+            last_assistant_message: lastReply(event?.messages) });
+    }
   });
   pi.on("session_shutdown", async () => {
     busy = false;

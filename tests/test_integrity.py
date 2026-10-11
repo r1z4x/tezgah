@@ -3703,8 +3703,8 @@ class ResidualWork(unittest.TestCase):
                 self.assertEqual(self.left(text), [])
 
     def test_s4_a_blocker_quotes_an_error_of_its_type(self):
-        # findings 5 and 6: a doable failure typed ORTAM is refused, a failure
-        # no shell row records passes with its error quoted
+        # findings 5 and 6: a doable failure typed ORTAM is refused; with no
+        # failed command quoted, only a spawn the provider failed backs one
         fail = {"kind": "verify_fail", "id": "c2", "exit": 1,
                 "detail": "pytest tests/test_a.py " + ti.FAILED_MARK}
         self.assertEqual(self.verdict(
@@ -3718,36 +3718,83 @@ class ResidualWork(unittest.TestCase):
         edit = {"kind": "edit", "exit": 1, "detail": "app.py"}
         self.assertTrue(self.left("Engeller:\n- ORTAM — `app.py` not found",
                                   [self.EDIT, edit]))
-        self.assertEqual(self.left(
-            "Engeller:\n- review alt ajanı — YETKİ — `403 Key limit exceeded (total limit)`",
-            [self.EDIT]), [])
-        self.assertEqual(self.left(
+        quota = "Engeller:\n- review alt ajanı — YETKİ — `403 Key limit exceeded (total limit)`"
+        self.assertTrue(self.left(quota, [self.EDIT]))
+        spawn = {"kind": "unknown", "tool": "Task", "exit": 1,
+                 "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
+        self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+        # a spawn that failed for its brief, not its provider, backs nothing
+        self.assertTrue(self.left(quota, [self.EDIT, dict(spawn, fail_class="permanent")]))
+        self.assertTrue(self.left(
             "Engeller:\n- termal yazıcı — ORTAM — `No such device: /dev/rfcomm0`",
-            [self.EDIT]), [])
+            [self.EDIT]))
         note = {"kind": "run", "exit": 1,
                 "detail": "tezgah-task note 001 state 'x y' " + ti.FAILED_MARK}
         self.assertEqual(self.left(
             "Engeller:\n- plan notu — ORTAM — `tezgah-task note 001 state …`: command not found",
             [self.EDIT, note]), [])
 
+    def test_s4_a_grep_after_another_command_is_a_failure(self):
+        # review F5: the line's exit is the last command's only when grep runs
+        # alone; behind `&&` the failure may be the first command's
+        build = {"kind": "run", "exit": 1,
+                 "detail": "make build && grep -q ok build.log " + ti.FAILED_MARK}
+        self.assertEqual(self.left(
+            "Engeller:\n- derleme — ORTAM — `make build`: cc: command not found",
+            [self.EDIT, build]), [])
+
     def test_s4_a_turn_of_reads_owes_no_check(self):
-        # finding 3: a turn whose commands wrote nothing is judged like a turn
-        # that did no work; a shell write the gate captures no state for, a
-        # script run or a commit keeps the turn worked
+        # finding 3, review F1: a turn of known reads is judged like a turn that
+        # did no work; any command not on the read lists still owes the check
         for cmd in ("git status --short", "tail -5 run.log",
-                    "sqlite3 'file:a.db?mode=ro' 'select 1'", "ssh host ls"):
+                    "sqlite3 'file:a.db?mode=ro' 'select 1'", "ssh host ls",
+                    "ssh -p 22 host 'cat /etc/hosts'"):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(self.verdict(
                     "Config okundu, sorgu 3 satır döndü.",
                     [{"kind": "run", "exit": 0, "detail": cmd}]))
         for cmd in ("sed -i s/a/b/ app.py", "cp a.py b.py", "python3 fix.py",
-                    "git checkout -- app.py", "git commit -am x", "./regen.sh"):
+                    "git checkout -- app.py", "git commit -am x", "./regen.sh",
+                    "timeout 60 python3 gen.py", "source x.sh",
+                    "curl -o page.html https://example.com",
+                    "find . -name '*.pyc' -delete", "git worktree add ../wt",
+                    "Set-Content -Path a.txt -Value x", "sqlite3 a.db 'select 1'",
+                    "sqlite3 'file:a.db?mode=ro' '.shell rm x'", "ssh host 'rm -rf x'",
+                    "ssh host"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.verdict(
                     "Config okundu, sorgu 3 satır döndü.",
                     [{"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
 
+    def test_s4_a_label_needs_its_residual_word_bounded(self):
+        # review F4: "Beklenmedik" is no first-person negative, and a line with
+        # no colon over a list is a label only when it is the residual word
+        for text in ("Beklenmedik bulgular:\n- cache iki kez okunuyor",
+                     "Kod değişikliği yapılmadı\n- yalnızca okuma yapıldı",
+                     "Pending changes\n- parser.py\n- README.md"):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
 
+    def test_s4_an_empty_or_closed_item_is_no_item(self):
+        # S4 items 5 and 6 (findings 9 and 10)
+        for text in ("### Engeller: yok", "## Açık kalan: yok\n\nTestler geçti.",
+                     "Parser yazıldı.\n\n## Engeller",
+                     "2. **Engel 1 – codegraph sorgusu:** görev kapısı `xd://` "
+                     "yazımını reddediyordu. Artık izinli yollar listesinde, "
+                     "reddedilmiyor.",
+                     "3. **Engel 2 – CLI:** `tezgah-task note` yoktu. Artık var."):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+        # the controls: work still open beside a fix, and a past report alone
+        for text in ("Açık kalanlar:\n- README güncellenmedi, testler artık geçiyor",
+                     "Açık kalanlar:\n- E2E koşulmadı. Tarayıcı yoktu.",
+                     "### Doğrulanmadı: kanıt yok\n- E2E akışı"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
+    def test_s4_a_spent_quota_is_a_user_failure(self):
+        # the spawn row's class backs a YETKİ item (review F2)
+        self.assertEqual(ti.fail_class("403 Key limit exceeded (total limit)"), "user")
 
 
 class PromptTurn(TempHome):

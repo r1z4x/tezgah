@@ -453,6 +453,29 @@ class AfterBlock(TempHome):
                 if decision:
                     self.assertIn("handed up", out["reason"])
 
+    def test_an_omp_subagent_s_untyped_items_reach_the_parent(self):
+        # review F3: omp fires no session_stop for a task session; the bridge's
+        # `subagent_stop` judges the child's reply on the child's own ledger
+        # and writes the row into the parent's
+        report = ("Parser yazıldı.\n\n**Unresolved**\n"
+                  "- canlı model çağrısı çalıştırılmadı")
+        self.session = "s-s4-omp-parent"
+        self.turn("ship the parser")
+        self.work()
+        self.checked()
+        out, proc = run_json([support.OMP_HOOK], {
+            "event": "subagent_stop", "cwd": self.repo, "session_id": "s-s4-omp-child",
+            "parent": self.session, "agent": "Scout",
+            "last_assistant_message": report}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(out or {}, {})
+        self.assertEqual([(r.get("residual"), r.get("agent"))
+                          for r in self.rows("subagent_end")], [(1, "Scout")])
+        out = self.stop("omp", text="Parser değişikliği yerinde, modülün testleri geçiyor.",
+                        active=False)
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("handed up", out["reason"])
+
     def test_a_raising_core_still_yields_an_empty_answer(self):
         for host in ("claude", "codex", "omp"):
             with self.subTest(host=host):
