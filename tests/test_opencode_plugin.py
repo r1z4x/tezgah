@@ -1278,6 +1278,26 @@ class OpenCodePlugin(TempHome):
         self.after("bash", {"command": "pytest -q"}, exit=0)
         self.assertIn("verify_ok", self.kinds())
 
+    def test_todowrite_records_the_todo_row_python_reads(self):
+        # plan 086 (S1): the same row hooks/tezgah_integrity.note_todo writes,
+        # so the Python Stop rule reads opencode's queue like any other
+        # a token counts only on a word boundary, as BLOCKER_TRIED reads it: the
+        # ACCESS in ACCESSIBILITY types nothing (review F5d)
+        self.after("todowrite", {"todos": [
+            {"content": "Write  the parser", "status": "pending"},
+            {"content": "Run the ACCESSIBILITY audit", "status": "pending"},
+            {"content": "Push the tag - GERİ ALINAMAZ", "status": "pending"},
+            {"content": "Ask for the key (YETKİ)", "status": "pending"},
+            {"content": "Run the suite", "status": "in_progress"},
+            {"content": "Old step", "status": "cancelled"}]})
+        rows = [r for r in self.ledger() if r["kind"] == "todo"]
+        heads = ["Write the parser", "Run the ACCESSIBILITY audit"]
+        self.assertEqual([(r["open"], r["ready"], r["blocked"], r["detail"], r["tool"],
+                           r["heads"]) for r in rows],
+                         [(5, 2, 2, "\n".join(heads), "todowrite", heads)])
+        self.assertNotIn("unknown", self.kinds())
+        self.assertIsNone(ti.BLOCKER_TRIED.search("Run the ACCESSIBILITY audit"))
+
     def test_a_child_session_s_ledger_opens_with_its_parent(self):
         # opencode names a subagent session's parent on session.created; the
         # route report joins the parent's route row to the child's checks by it

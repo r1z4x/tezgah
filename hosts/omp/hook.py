@@ -19,10 +19,11 @@ the same code every other host runs.
     {"event": "user_prompt", "cwd": ..., "prompt": ...}
         -> {"context": <reminder + the rules this prompt arms>}
     {"event": "pre_tool_use", "cwd": ..., "tool": ..., "input": {...}}
-        -> {"deny": reason} | {"advice": line} (the graph line the bridge hands
-           the model with this call's result; never a block)
+        -> {"deny": reason} | {"advice": line} (the graph line, or the idle-wait
+           warning on a `wait`, the bridge hands the model with this call's
+           result; never a block)
     {"event": "post_tool_use", "cwd": ..., "tool": ..., "input": {...},
-     "failed": bool, "idx": glyph}
+     "failed": bool, "idx": glyph, "todo": [...]}
         -> {"status": "pony✓ ...", "idx": glyph, "label": one line}
            (records the evidence the Stop rule reads; `idx` echoed from the
            payload skips the git probe; `label` is the untrusted-content notice
@@ -59,7 +60,8 @@ try:
     from tezgah_context import (  # noqa: E402
         color_default, command_text, context_for, health_segments, record,
         render_tiers, shell_kind, skill_read_kind)
-    from tezgah_gate import cross_project_note, decision, graph_advice  # noqa: E402
+    from tezgah_gate import (  # noqa: E402
+        cross_project_note, decision, graph_advice, ready_advice)
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
@@ -147,7 +149,8 @@ def handle(payload):
         reason = decision(tool, inp, cwd, session_id)
         if reason:
             return {"deny": reason}
-        advice = graph_advice(tool, inp, cwd, "omp")
+        advice = (graph_advice(tool, inp, cwd, "omp")
+                  or ready_advice(tool, session_id, cwd))
         return {"advice": advice} if advice else {}
     if not root_for(cwd):
         return {}
@@ -233,7 +236,8 @@ def handle(payload):
                   failed=failed if isinstance(failed, bool) else None,
                   out_bytes=size if isinstance(size, int) and size >= 0 else None,
                   source=source, cwd=cwd,
-                  empty_run=payload.get("empty_run") is True)
+                  empty_run=payload.get("empty_run") is True,
+                  todo=payload.get("todo") if isinstance(payload.get("todo"), list) else None)
         if str(tool).lower() == "task" and isinstance(inp.get("tasks"), list):
             # omp names a child's ledger by its task name (`<parent>/<name>.jsonl`)
             # and only this call knows which agent that name runs - `task` when

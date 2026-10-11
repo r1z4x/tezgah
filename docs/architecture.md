@@ -206,7 +206,7 @@ fork and skips an entry whose checkout is gone, as git's own `prunable` does
   `context_for` returns `None` (`hooks/tezgah_context.py::context_for`), the gate only acts
   inside one (`hooks/tezgah_gate.py::decision`), and the status line is the single
   deliberate exception, because a globally loaded rules file must still show that
-  it is armed (`hosts/omp/hook.py:40-43`).
+  it is armed (`hosts/omp/hook.py:41-44`).
 - **No cross-host drift.** A host shares the core, never a copy of it. Adding a
   rule means editing the policy; adding behaviour means editing `hooks/` and
   letting every adapter inherit it.

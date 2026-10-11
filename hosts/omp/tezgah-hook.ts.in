@@ -206,10 +206,12 @@ function draw(ctx: any, line: string,
 // the Stop rule reads, or arrive from outside the user and the workspace.
 // read/grep/glob are absent on purpose: a read-heavy turn would otherwise spawn
 // python per call for nothing. The three web tools are here because their result
-// is exactly the one the untrusted-content label exists for.
+// is exactly the one the untrusted-content label exists for. `todo` and `wait`
+// are the orchestrator's queue and its idle call (tezgah_integrity.note_todo).
 const WATCHED = ["bash", "shell", "command", "edit", "write", "multiedit",
   "notebookedit", "apply_patch", "edit_file", "write_file", "search_replace",
-  "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser"];
+  "task", "agent", "spawn_agent", "web_search", "web_fetch", "browser", "todo",
+  "wait"];
 
 // A read of a tezgah skill file is the one read whose result moves a status
 // mark, and matching it here keeps the rule that made reads unwatched: ordinary
@@ -266,9 +268,10 @@ function skillRead(tool: string, args: any): boolean {
 // checks (bash), the test-skip check (the edit/write names), and the code-graph
 // nudge on omp's search tools (grep, find, search, ast_grep). An MCP tool is
 // consulted when its name carries an effect verb (MCP_EFFECT, see `tool_call`).
+// `wait` gets the idle-wait warning (tezgah_gate.ready_advice), never a block.
 const GATED = ["grep", "find", "search", "ast_grep", "bash", "shell", "command",
   "task", "agent", "edit", "write", "multiedit", "notebookedit", "apply_patch",
-  "edit_file", "write_file", "search_replace", "powershell", "pwsh"];
+  "edit_file", "write_file", "search_replace", "powershell", "pwsh", "wait"];
 
 // The gate's non-blocking graph line (tezgah_gate.graph_advice), held from the
 // call to its result: `tool_call` can only block, `tool_result` can hand the
@@ -708,10 +711,17 @@ export default function tezgahOmp(pi: any): void {
     const content = event?.content;
     const resultLen = typeof content === "string" ? content.length
       : Array.isArray(content) ? content.length : undefined;
+    // omp's todo call holds one op and its result's `details.phases` the whole
+    // list, so that list crosses for this one tool: the queue the Stop rule and
+    // the idle-wait warning read (tezgah_integrity.note_todo).
+    const phases = tool.toLowerCase() === "todo" ? event?.details?.phases : undefined;
+    const todo = Array.isArray(phases)
+      ? phases.flatMap((p: any) => (Array.isArray(p?.tasks) ? p.tasks : []))
+      : undefined;
     const res = ask({ event: "post_tool_use", cwd: cwdOf(ctx), tool,
                       input: event?.input ?? {}, failed, idx: idxGlyph,
                       session_id: sessionOf(ctx), result_len: resultLen,
-                      empty_run: emptyRun(content) || undefined });
+                      empty_run: emptyRun(content) || undefined, todo });
     if (hookError) return markBroken(ctx);
     show(ctx, res);
     // A result that came from outside the user and the workspace is labelled in

@@ -8,6 +8,7 @@ that omp's session context, gate, evidence ledger and Stop rule behave.
 import json
 import os
 import shutil
+import subprocess
 import unittest
 
 import support
@@ -577,6 +578,108 @@ class OmpHook(TempHome):
         row = [r for r in self.evidence() if r.get("tool") == "bash"][-1]
         self.assertEqual((row.get("source"), row.get("out_bytes")),
                          ("subagent", 7))
+
+    def test_an_idle_wait_with_ready_steps_gets_a_warning_never_a_deny(self):
+        # plan 086 (S1), the owner's default: a `wait` right after a spawn while
+        # the todo list holds a ready step is warned about, never refused
+        repo = self.make_repo()
+        post = {"event": "post_tool_use", "cwd": repo, "session_id": "s-wait",
+                "failed": False}
+        wait = {"event": "pre_tool_use", "cwd": repo, "session_id": "s-wait",
+                "tool": "wait", "input": {"i": "Waiting"}}
+
+        def asked():
+            out, proc = self.event(wait)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = out or {}  # an empty answer prints nothing
+            self.assertNotIn("deny", out)
+            return out.get("advice", "")
+
+        # the bridge's list from the todo result (`details.phases`) becomes the row
+        self.event(dict(post, tool="todo", input={"op": "start", "task": "A"},
+                        todo=[{"content": "Slice A", "status": "in_progress"},
+                              {"content": "Write the docs page", "status": "pending"},
+                              {"content": "Merge", "status": "blocked",
+                               "blocker": "slice A"}]))
+        self.assertEqual(asked(), "")  # no spawn yet
+        self.event(dict(post, tool="task", input={"tasks": [{"name": "A"}]}))
+        advice = asked()
+        self.assertIn("idle wait", advice)
+        self.assertIn("Write the docs page", advice)
+        self.assertNotIn("Merge", advice)
+        # a wait after a wait is still idle
+        self.event(dict(post, tool="wait", input={"i": "Waiting"}))
+        self.assertIn("idle wait", asked())
+        # any other call since the spawn ends it
+        self.event(dict(post, tool="bash", input={"command": "ls"}))
+        self.assertEqual(asked(), "")
+        # so does a list with no ready step, after a new spawn
+        self.event(dict(post, tool="task", input={"tasks": [{"name": "B"}]}))
+        self.event(dict(post, tool="todo", input={"op": "start"},
+                        todo=[{"content": "Write the docs page",
+                               "status": "in_progress"}]))
+        self.assertEqual(asked(), "")
+
+    def test_a_step_a_running_slice_works_on_is_not_ready(self):
+        # review F1: omp's `todo start` sets every other started item back to
+        # pending, so two items whose slices still run read as ready. An open
+        # slice of this session takes its item off the queue: the whole head in
+        # the slice's own task, or the slice id in the head.
+        repo = self.make_repo()
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        base = {"cwd": repo, "session_id": "s-run"}
+        post = dict(base, event="post_tool_use", failed=False)
+        self.event(dict(base, event="user_prompt", prompt="build it"))
+        self.event(dict(post, tool="task", input={"tasks": [
+            {"name": "parser-slice", "task": "Write the parser for the config file."},
+            {"name": "docs-slice", "task": "Rewrite the page."}]}))
+        self.event(dict(post, tool="todo", input={"op": "start", "task": "Review"},
+                        todo=[{"content": "Write the parser", "status": "pending"},
+                              {"content": "docs-slice: update the docs",
+                               "status": "pending"},
+                              {"content": "Review the merge", "status": "in_progress"}]))
+        todo = [r for r in self.evidence() if r["kind"] == "todo"][-1]
+        self.assertEqual(todo["ready"], 2)  # the list itself says ready
+        advice, _ = self.event(dict(base, event="pre_tool_use", tool="wait",
+                                    input={}))
+        self.assertNotIn("advice", advice or {})
+        call = dict(base, tool="bash", input={"command": "pytest -q"})
+        self.event(dict(call, event="pre_tool_use"))
+        self.event(dict(call, event="post_tool_use", failed=False))
+        out, proc = self.event(dict(base, event="stop",
+                                    last_assistant_message="Parser yazıldı."))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIsNone(out)
+
+    def test_a_shared_context_or_a_substring_takes_no_step(self):
+        # review N1: omp's batch brief holds the shared context, and a plain
+        # substring hid "Merge" behind "Do not merge". Only the slice's own
+        # task counts, with a word-bounded match of the whole head.
+        repo = self.make_repo()
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        base = {"cwd": repo, "session_id": "s-ctx"}
+        post = dict(base, event="post_tool_use", failed=False)
+        self.event(dict(base, event="user_prompt", prompt="build it"))
+        self.event(dict(post, tool="task", input={
+            "context": "Update the CHANGELOG at the end. Do not merge.",
+            "tasks": [{"name": "parser-slice",
+                       "task": "Write the parser for the config file."}]}))
+        ready = ["Update the CHANGELOG", "Merge", "Parse"]
+        self.event(dict(post, tool="todo", input={"op": "view"},
+                        todo=[{"content": "Write the parser", "status": "pending"}]
+                        + [{"content": c, "status": "pending"} for c in ready]))
+        advice = (self.event(dict(base, event="pre_tool_use", tool="wait",
+                                  input={}))[0] or {}).get("advice", "")
+        self.assertIn("3 ready todo step(s)", advice)
+        self.assertIn("; ".join(ready), advice)
+        self.assertNotIn("Write the parser", advice)
+        call = dict(base, tool="bash", input={"command": "pytest -q"})
+        self.event(dict(call, event="pre_tool_use"))
+        self.event(dict(call, event="post_tool_use", failed=False))
+        out, _ = self.event(dict(base, event="stop",
+                                 last_assistant_message="Parser yazıldı."))
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("; ".join(ready), out["reason"])
 
     def test_unknown_event_and_broken_stdin_are_silent(self):
         proc = run([support.OMP_HOOK], {"event": "who-knows",

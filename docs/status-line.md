@@ -160,8 +160,8 @@ the command really ran it (34-38,84) and is the one writer that can earn `judge`
 (a run of `bin/tezgah-triage` or `bin/tezgah-docs`, `shell_kind`, `hooks/tezgah_context.py::shell_kind`)
 — plus `hooks/projects-auto-init.py::main`
 (`orch` on subagent start), `hosts/codex/hook.py::main`,
-`hosts/cursor/hook.py::dispatch`, hosts/opencode/plugins/tezgah.js:2144-2151,
-hosts/opencode/plugins/tezgah.js:2702, `hosts/omp/hook.py::handle`. Both Claude (hooks/hooks.json) and dsh
+`hosts/cursor/hook.py::dispatch`, hosts/opencode/plugins/tezgah.js:2167-2174,
+hosts/opencode/plugins/tezgah.js:2725, `hosts/omp/hook.py::handle`. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
 its line has (hooks/projects-posttooluse.py:45-49).
@@ -185,7 +185,7 @@ Every other surface reads the store.
   `setWidget`, and it is plain because omp strips ANSI (12-29). `status_line()`
   builds the line and carries `idx_override`, so a per-tool redraw forks no git
   (`hosts/omp/hook.py::status_line`); it redraws on session start, session switch, turn end
-  and each watched tool result (hosts/omp/tezgah-hook.ts.in:555-585,623-628,669-694).
+  and each watched tool result (hosts/omp/tezgah-hook.ts.in:558-588,626-631,672-697).
   **Motion:** while the agent runs (`agent_start` until an `agent_end` whose
   `isTerminal` is not `false`) the widget leads with a braille spinner, the tool
   in flight (`tool_execution_start`/`_end`, "thinking" between tools) and the
