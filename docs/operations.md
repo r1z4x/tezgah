@@ -659,10 +659,12 @@ records, newest first, each with the command that resumes it
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 
-`tezgah-task review NNN <reviewer> approve` refuses while an open or stopped
-record names that reviewer as its id or agent and changed after the plan's
-checkpoint commit. A `resumed` record hands the guard to its re-dispatch's own
-record (`bin/tezgah-task::unfinished_review`).
+`tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
+stale record names that reviewer as its id or agent. A record keeps the plan
+that was active when it opened, and only that plan's records count. A record
+with no plan counts when it changed after the plan's checkpoint commit. A
+`resumed` record hands the guard to its re-dispatch's own record
+(`bin/tezgah-task::unfinished_review`).
 
 The lever map is a closed set. `rate_limit` and `quota` point at the
 `hooks/tezgah_models.py` fallback chain. `cut_off` and `timeout` point at a

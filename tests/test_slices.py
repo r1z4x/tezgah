@@ -290,6 +290,22 @@ class Pending(Journal):
             self.assertEqual((self.record("Rev")["status"], self.record("Rev")["attempts"]),
                              ("done", 2))
 
+    def test_a_redispatch_from_another_session_reads_that_sessions_transcript(self):
+        # P1's run stopped on quota; the same name re-sent from P2 must not be
+        # closed by P1's finished file
+        with unittest.mock.patch.dict(os.environ, {"HOME": self.home}):
+            self.transcript("P1", "Rev", [
+                _row("assistant", stopReason="error", errorMessage="403 Key limit exceeded")])
+            tt.open_slice(self.repo, "Rev", host="omp", parent="P1", brief="b")
+            tt.pending(self.repo)
+            self.assertEqual(self.record("Rev")["status"], "stopped")
+            self.transcript("P2", "Rev", [
+                _row("assistant", stopReason="toolUse"), _row("toolResult", toolName="bash")])
+            tt.open_slice(self.repo, "Rev", host="omp", parent="P2", brief="b")
+            self.assertIn("_P2", self.record("Rev")["transcript_dir"])
+            tt.pending(self.repo)
+            self.assertEqual(self.record("Rev")["status"], "open")
+
 
 class Cli(Journal):
 
@@ -423,6 +439,27 @@ class Cli(Journal):
         old["updated"] = "2026-01-01T00:00:00Z"
         tt._write_record(self.repo, old)
         self.plan_at_head()
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                   "approve").returncode, 0)
+
+    def test_the_guard_reads_its_own_plans_records_and_a_stale_review(self):
+        self.plan_at_head()
+        # another plan's dead reviewer, however recent, is not this plan's
+        other = tt.open_slice(self.repo, "revX", agent="tezgah-reviewer",
+                              host="claude", brief="x")
+        self.assertEqual(other["plan"], "001")
+        other["plan"] = "000"
+        other["status"], other["failure"] = "stopped", "quota"
+        tt._write_record(self.repo, other)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                   "approve").returncode, 0)
+        # this plan's review whose end nobody saw blocks like a stopped one
+        tt.open_slice(self.repo, "revS", agent="tezgah-reviewer", host="codex",
+                      brief="s")
+        tt.close_slice(self.repo, "revS", "stale")
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertIn("review slice revS is stale", refused.stdout)
+        self.task("slice", "done", "revS")
         self.assertEqual(self.task("review", "001", "tezgah-reviewer",
                                    "approve").returncode, 0)
 

@@ -622,19 +622,27 @@ def budget_spent(path, ident):
             % (path, REVIEW_ROUNDS, ident, ident))
 
 
-def unfinished_review(root, reviewer, since=0):
+def unfinished_review(root, reviewer, plan="", since=0):
     """The refusal of an `approve` while a slice journal record whose id or agent
-    is `reviewer` is still open or stopped: a review slice that died on a provider
-    limit had its approve recorded anyway, and a NameError it would have caught
-    reached main (plan 078). The omp records are reconciled with their
-    transcripts first (`tt.pending`), so a review that has finished reads as done.
-    Only records updated at or after `since` (epoch seconds; the plan's
-    checkpoint commit) count, so an older plan's dead reviewer blocks nothing; a
-    `resumed` record has handed its work to the re-dispatch, whose own record
-    is the one read."""
+    is `reviewer` is open, stopped or stale: a review slice that died on a
+    provider limit had its approve recorded anyway, and a NameError it would have
+    caught reached main (plan 078). A stale review is one whose end nobody saw,
+    which reads no more than a stopped one. The omp records are reconciled with
+    their transcripts first (`tt.pending`), so a review that finished reads as
+    done. A record that names the plan active when it opened counts only for
+    that `plan`; one that names none counts when it changed at or after `since`
+    (epoch seconds; the plan's checkpoint commit). A `resumed` record has handed
+    its work to the re-dispatch, whose own record is the one read."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
+    tt.pending(root)
+
+    def ours(rec):
+        if rec.get("plan"):
+            return rec["plan"] == plan
+        return (_stamp(rec.get("updated")) or 0) >= since
+
     return ["review slice %s is %s%s: let it finish, or resume it with `tezgah-task "
             "slice resume %s` and wait for that run; if the review was finished "
             "another way, record it with `tezgah-task slice done %s` - an approve "
@@ -642,9 +650,9 @@ def unfinished_review(root, reviewer, since=0):
             % (rec["id"], rec.get("status"),
                (" (%s)" % rec["failure"]) if rec.get("failure") else "",
                rec["id"], rec["id"])
-            for rec in tt.pending(root)
-            if reviewer in (rec.get("id"), rec.get("agent"))
-            and (_stamp(rec.get("updated")) or 0) >= since]
+            for rec in tt.slices(root)
+            if rec.get("status") in ("open", "stopped", "stale")
+            and reviewer in (rec.get("id"), rec.get("agent")) and ours(rec)]
 
 
 def cmd_review(args):
@@ -666,7 +674,9 @@ def cmd_review(args):
         mark = (fields.get("checkpoint") or "").split()
         since = (git_out(root, "log", "-1", "--format=%ct", mark[-1])
                  if mark and mark[-1] != tt.CHECKPOINT_PENDING else None)
-        bad = unfinished_review(root, args[1], int(since) if (since or "").isdigit() else 0)
+        ident = fields.get("id") or os.path.basename(path).split("-")[0]
+        bad = unfinished_review(root, args[1], ident,
+                                int(since) if (since or "").isdigit() else 0)
         if bad:
             return problems(bad)
     sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]

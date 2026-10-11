@@ -763,6 +763,11 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
                "opened": now}
     else:
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
+        if parent and parent != rec.get("parent"):
+            # a re-dispatch from another session (after a /clear, a crash, a
+            # resume) writes its child under that session's directory: the old
+            # one holds the first run, whose end must not close this record
+            rec["transcript_dir"] = ""
         for key, value in (("host", host), ("agent", agent), ("brief", brief),
                            ("parent", parent), ("cwd", cwd)):
             if value:
@@ -773,6 +778,9 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
         # one glob over every omp project at open, so `pending` - run on every
         # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
         rec["transcript_dir"] = _omp_session_dir(rec["parent"]) or ""
+    # the plan whose task was active when the slice opened: the review guard
+    # reads its own plan's records only
+    rec["plan"] = (active(main, main) or {}).get("id") or rec.get("plan") or ""
     rec.update(base=_git(main, "rev-parse", "HEAD") or "", status="open",
                failure="", updated=now)
     return _write_record(root, rec)
