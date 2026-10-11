@@ -703,8 +703,10 @@ def unfinished_review(root, reviewer, plan="", since=0):
     (epoch seconds; the plan's checkpoint commit). A `resumed` record has handed
     its work to the re-dispatch, whose own record is the one read. A record
     spawned as `reviewer` under its own id (`Reviewer-<digest6>`,
-    `tt.open_slice`) counts too when this session (TEZGAH_SESSION) or no session
-    owns it."""
+    `tt.open_slice`) counts too. Under TEZGAH_SESSION only this session's
+    records and unowned ones count, by id, agent or name alike: another
+    session's review is not this approve's. The refusal names the exact id,
+    which `slice resume` and `slice done` take from any session."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
@@ -712,9 +714,7 @@ def unfinished_review(root, reviewer, plan="", since=0):
     session = os.environ.get("TEZGAH_SESSION")
 
     def named(rec):
-        if reviewer in (rec.get("id"), rec.get("agent")):
-            return True
-        return rec.get("name") == reviewer and (
+        return reviewer in (rec.get("id"), rec.get("agent"), rec.get("name")) and (
             not session or rec.get("parent") in (session, "", None))
 
     def ours(rec):

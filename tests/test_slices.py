@@ -590,14 +590,13 @@ class Cli(Journal):
                            env=self.env(extra={"TEZGAH_SESSION": session}))
 
     def test_a_suffixed_review_record_is_this_sessions_and_only_its_own(self):
-        # review of S7 (F1): a reviewer spawned as `Reviewer` under another
-        # session's record got `Reviewer-<d6>`, and neither the review guard nor
-        # `slice done Reviewer` found it - `done` closed the other session's
+        # review of S7 (F1, N1): a reviewer spawned as `Reviewer` under another
+        # session's record got `Reviewer-<d6>`, which the guard did not find; an
+        # exact id stays reachable from any session, a bare name only from its own
         self.plan_at_head()
         theirs = tt.open_slice(self.repo, "Reviewer", host="omp", agent="task",
-                               parent="X", brief="review plan 000")
-        theirs.update(plan="000", status="stopped", failure="quota")
-        tt._write_record(self.repo, theirs)
+                               parent="X", brief="review plan 001, first run")
+        tt.close_slice(self.repo, theirs["id"], "stopped", "quota")
         mine = tt.open_slice(self.repo, "Reviewer", host="claude", agent="task",
                              parent="Y", brief="review plan 001")
         self.assertNotEqual(mine["id"], "Reviewer")
@@ -605,13 +604,28 @@ class Cli(Journal):
         refused = self.task_as("Y", "review", "001", "Reviewer", "approve")
         self.assertEqual(refused.returncode, 1, refused.stdout)
         self.assertIn("review slice %s is stopped" % mine["id"], refused.stdout)
-        # another session can neither close Y's record nor reach it by its name
-        self.assertEqual(self.task_as("Z", "slice", "done", mine["id"]).returncode, 1)
-        done = self.task_as("Y", "slice", "done", "Reviewer")
+        self.assertNotIn("review slice Reviewer is", refused.stdout)  # X's review
+        # a bare name answers only for its own session (no record has it as id)
+        tt._write_record(self.repo, {"id": "Rev-0a1b2c", "name": "Rev", "parent": "Y",
+                                     "kind": "agent", "status": "stopped",
+                                     "updated": tt._now()})
+        self.assertEqual(self.task_as("Z", "slice", "done", "Rev").returncode, 1)
+        self.assertEqual(self.task_as("Y", "slice", "done", "Rev").stdout.strip(),
+                         "slice Rev-0a1b2c done")
+        # the exact id the refusal printed closes Y's record from any session
+        done = self.task_as("Z", "slice", "done", mine["id"])
         self.assertEqual(done.stdout.strip(), "slice %s done (quota)" % mine["id"])
         self.assertEqual(self.record("Reviewer")["status"], "stopped")
         allowed = self.task_as("Y", "review", "001", "Reviewer", "approve")
         self.assertEqual(allowed.returncode, 0, allowed.stdout)
+
+    def test_a_crashed_sessions_slice_is_resumed_by_its_id_from_another(self):
+        # N1: `slice reconcile` lists X's stopped Fixer; Y resumes it by that id
+        tt.open_slice(self.repo, "Fixer", host="claude", parent="X", brief="fix it")
+        tt.close_slice(self.repo, "Fixer", "stopped", "quota")
+        proc = self.task_as("Y", "slice", "resume", "Fixer")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.record("Fixer")["status"], "resumed")
 
     def test_the_guard_reads_its_own_plans_records_and_a_stale_review(self):
         self.plan_at_head()

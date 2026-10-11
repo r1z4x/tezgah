@@ -666,14 +666,15 @@ sessions' records. `tezgah-task slice reconcile` lists them all.
 | Command | What it does |
 |---|---|
 | `tezgah-task slice open --id ID [--kind agent\|job] [--host H] [--agent A] [--brief TEXT\|--brief-file F] [--parent P] [--cwd PATH]` | records a slice by hand, for a host whose spawn the hooks do not see |
-| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class. ID is a record id or the spawned name. Under `TEZGAH_SESSION`, only that session's records and unowned ones answer (`hooks/tezgah_task.py::find_slice`) |
+| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class. An exact record id answers from any session. A spawned name answers too, and under `TEZGAH_SESSION` only for that session's records and unowned ones (`hooks/tezgah_task.py::find_slice`) |
 | `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 
 `tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
-stale record names that reviewer as its id or agent. A record spawned under that
-name counts too, when this session or no session owns it. A record keeps the plan
+stale record names that reviewer as its id, agent or spawned name. Under
+`TEZGAH_SESSION` only that session's records and unowned ones count. The refusal
+prints the exact id to resume or close. A record keeps the plan
 that was active when it opened, and only that plan's records count. A record
 with no plan counts when it changed after the plan's checkpoint commit. A
 `resumed` record hands the guard to its re-dispatch's own record

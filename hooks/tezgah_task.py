@@ -867,18 +867,20 @@ def _own_id(root, base, brief, parent):
 
 
 def find_slice(root, ref, session=None):
-    """The record `ref` names for `tezgah-task slice done|stop|resume`. With
-    `session` (TEZGAH_SESSION), the newest record that session spawned, or no
-    session owns, whose id or spawned `name` is `ref`: another session's record
-    never answers, so `slice done Reviewer` cannot close it. Without one, the
-    record whose id is `ref`, else the one record spawned as `ref`. None when
-    nothing answers."""
+    """The record `ref` names for `tezgah-task slice done|stop|resume`. An
+    exact id answers whatever session owns it: an id is unambiguous, and it is
+    what `slice reconcile` and the review guard print, so a crashed session's
+    slice stays reachable. A bare spawned `name` is a lookup: with `session`
+    (TEZGAH_SESSION), the newest record of that name the session spawned or no
+    session owns; without one, the one record of that name. None when nothing
+    answers."""
     ref = slice_id(ref)
     recs = slices(root)
-    if session:
-        return next((r for r in recs if r.get("parent") in (session, "", None)
-                     and ref in (r["id"], r.get("name"))), None)
-    named = [r for r in recs if r["id"] == ref] or [r for r in recs if r.get("name") == ref]
+    exact = next((r for r in recs if r["id"] == ref), None)
+    if exact or session:
+        return exact or next((r for r in recs if r.get("name") == ref
+                              and r.get("parent") in (session, "", None)), None)
+    named = [r for r in recs if r.get("name") == ref]
     return named[0] if len(named) == 1 else None
 
 
