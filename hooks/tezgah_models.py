@@ -37,6 +37,7 @@ tier from the static table, and with no phase the middle tier is used.
 
 Stdlib only; every network or subprocess failure is a fallback, never a raise.
 """
+import contextlib
 import datetime
 import json
 import os
@@ -263,6 +264,7 @@ def funded_families(live=True):
 HEALTH_FILE = "model-health.json"
 HEALTH_EVERY = 6 * 3600       # re-probe at most this often, unless a reset passed
 HEALTH_DOWN = 6 * 3600        # how long a limit with no reset time keeps a family out
+HEALTH_RATE = 600             # the same for a rate limit (429): it lifts in minutes
 HEALTH_DOWN_MAX = 7 * 86400   # the longest a named reset is believed
 OPENROUTER_KEY = "https://openrouter.ai/api/v1/key"
 _RESET_AT = re.compile(r"reset[s]? (?:at|on) (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")
@@ -314,10 +316,10 @@ def down_families(now=None, data=None):
             and row["until"] > now}
 
 
-def limit_until(text, now=None):
+def limit_until(text, now=None, default=HEALTH_DOWN):
     """When a provider's limit answer says it lifts, as an epoch, or None when the
     text is no limit answer at all. A named reset (`reset at 2026-10-12 02:02:35`,
-    read as local time) or a `retry-after-ms` wins; else HEALTH_DOWN from now. A
+    read as local time) or a `retry-after-ms` wins; else `default` from now. A
     reset further than HEALTH_DOWN_MAX away is capped: a wrong year must not lock a
     family out for good."""
     import time
@@ -335,58 +337,100 @@ def limit_until(text, now=None):
         if until is not None and until <= now:
             # a named reset already past is a clock we misread (the provider's
             # zone is not stated): a minute's hold would re-probe every prompt
-            until = now + HEALTH_DOWN
+            until = now + default
     if until is None:
         ms = _RETRY_MS.search(text)
-        until = now + int(ms.group(1)) / 1000.0 if ms else now + HEALTH_DOWN
+        until = now + int(ms.group(1)) / 1000.0 if ms else now + default
     return min(max(until, now + 60), now + HEALTH_DOWN_MAX)
 
 
-def _family(provider="", model=""):
-    """The OMP_FAMILIES entry a provider id (omp's auth-store id) or, failing
-    that, a model id (`_vendor`) runs under, else None."""
+@contextlib.contextmanager
+def _health_locked():
+    """An exclusive flock on the record's lock file around one re-read, change
+    and write, so two writers (a slice's stop, the probe) do not drop each
+    other's hold. Unlocked where fcntl is missing or the file cannot be opened."""
+    fh = None
+    try:
+        import fcntl
+        os.makedirs(os.path.dirname(_health_path()), exist_ok=True)
+        fh = open(_health_path() + ".lock", "a", encoding="utf-8")
+        fcntl.flock(fh, fcntl.LOCK_EX)
+    except (ImportError, OSError):
+        pass
+    try:
+        yield
+    finally:
+        if fh is not None:
+            fh.close()
+
+
+def _family(provider="", model="", default=""):
+    """The OMP_FAMILIES entry a provider id (omp's auth-store id), else a model id
+    (`_vendor`), else `default` runs under; None when none is one."""
     by_provider = {auth[0]: family for family, auth in OMP_AUTH.items()}
-    family = by_provider.get(str(provider or "").lower()) or (
-        _vendor(str(model)) if model else None)
-    return family if family in OMP_FAMILIES else None
+    for family in (by_provider.get(str(provider or "").lower()),
+                   _vendor(str(model)) if model else None, default):
+        if family in OMP_FAMILIES:
+            return family
+    return None
 
 
-def note_limit(text, provider="", model="", now=None):
+def note_limit(text, provider="", model="", transient=False, default="", now=None):
     """Hold down the family a slice stopped on with a limit answer (`text`), and
     re-apply omp's chain, so the next spawn of this session leaves that family
     instead of the next session start's probe moving it (research
-    orchestrator-flow-audit S2, F3a). Returns the family newly held, else None:
-    no family resolves (`_family`), `text` is no limit answer (`limit_until`),
-    the family is already held, or TEZGAH_HEALTH_CHECK=0 (the suite's switch)."""
+    orchestrator-flow-audit S2, F3a). A rate limit (`transient`) with no reset
+    named holds HEALTH_RATE, a quota HEALTH_DOWN. Returns the family newly held,
+    else None: no family resolves (`_family`), `text` is no limit answer
+    (`limit_until`), the family is already held, or TEZGAH_HEALTH_CHECK=0 (the
+    suite's switch)."""
     import time
-    family = _family(provider, model)
+    family = _family(provider, model, default)
     if not family or os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
         return None
     now = time.time() if now is None else now
-    until = limit_until(text, now)
-    data = read_health()
-    if until is None or family in down_families(now, data):
+    until = limit_until(text, now, HEALTH_RATE if transient else HEALTH_DOWN)
+    if until is None:
         return None
-    data["down"][family] = {"until": until, "reason": " ".join(str(text).split())[:200]}
-    if not write_health(data):
-        return None
+    with _health_locked():
+        data = read_health()
+        if family in down_families(now, data):
+            return None
+        data["down"][family] = {"until": until,
+                                "reason": " ".join(str(text).split())[:200]}
+        if not write_health(data):
+            return None
     apply_omp()
     return family
 
 
 def other_family_up(text):
-    """The first funded family not down (`funded_families`) that `text` does not
-    name - by its auth-store provider id or a model stem (`VENDOR_STEMS`) - else
-    None: where work a limit stopped on one family can move. None under
+    """Where work a limit stopped on can move: the first family the routing lets
+    a chain fall back to (`_chain` under `tp.fallback_policy()`, every slot) that
+    is funded and not down (`funded_families`) and that `text` does not name
+    (`named_families`), else None. None with routing off or under
     TEZGAH_HEALTH_CHECK=0, so the suite never reads this machine's credentials."""
     if os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
         return None
+    mode = omp_mode()
+    if mode not in OMP_FAMILIES:
+        return None
+    funded = funded_families(live=True)
+    chained = {sel for slot in SLOTS for sel in _chain(mode, slot, funded)}
+    named = named_families(text)
+    return next((family for family in funded if family not in named and any(
+        sel.startswith(OMP_AUTH[family][0] + "/") for sel in chained)), None)
+
+
+def named_families(text):
+    """The OMP_FAMILIES `text` names by an auth-store provider id (a whole word)
+    or a model stem (`VENDOR_STEMS`, a word start): `openrouter 403` names `any`,
+    `glm-5.3` names `zai`."""
     low = str(text or "").lower()
-    names = {family: {OMP_AUTH[family][0]} | {s for s, v in VENDOR_STEMS if v == family}
-             for family in OMP_FAMILIES}
-    return next((family for family in funded_families(live=True)
-                 if not any(re.search(r"\b%s" % re.escape(n), low) for n in names[family])),
-                None)
+    return {family for family in OMP_FAMILIES
+            if re.search(r"\b%s\b" % re.escape(OMP_AUTH[family][0]), low)
+            or any(re.search(r"\b%s" % re.escape(s), low)
+                   for s, v in VENDOR_STEMS if v == family)}
 
 
 def _openrouter_key():
@@ -452,24 +496,25 @@ def refresh_health(mode=None, probe=probe_family, now=None):
     """Probe every family with a credential except the mode's own (it leads the
     chain whatever its state, and the session is running on it), record the
     downs with their resets, and return the record. A family the probe cannot
-    judge keeps the state it had."""
+    judge keeps the state it had. The probes run unlocked; their results land on
+    the record re-read under the lock (`_health_locked`), so a hold a slice's
+    stop wrote meanwhile stays."""
     import time
     now = time.time() if now is None else now
     mode = mode or omp_mode()
-    data = read_health()
-    down = dict(data["down"])
-    for family in funded_families(live=False):
-        if family == mode:
-            continue
-        up, reason = probe(family)
-        if up is True:
-            down.pop(family, None)
-        elif up is False:
-            down[family] = {"until": limit_until(reason, now) or now + HEALTH_DOWN,
-                            "reason": reason[:200]}
-    data = {"checked": now, "down": {f: r for f, r in down.items()
-                                     if isinstance(r, dict) and r.get("until", 0) > now}}
-    write_health(data)
+    seen = {family: probe(family) for family in funded_families(live=False)
+            if family != mode}
+    with _health_locked():
+        down = dict(read_health()["down"])
+        for family, (up, reason) in seen.items():
+            if up is True:
+                down.pop(family, None)
+            elif up is False:
+                down[family] = {"until": limit_until(reason, now) or now + HEALTH_DOWN,
+                                "reason": reason[:200]}
+        data = {"checked": now, "down": {f: r for f, r in down.items()
+                                         if isinstance(r, dict) and r.get("until", 0) > now}}
+        write_health(data)
     return data
 
 
@@ -495,10 +540,11 @@ def start_health():
     nothing started."""
     import sys
     import time
-    data = read_health()
-    data["checked"] = time.time()
-    if not write_health(data):
-        return False
+    with _health_locked():
+        data = read_health()
+        data["checked"] = time.time()
+        if not write_health(data):
+            return False
     route = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
                          "bin", "tezgah-route")
     kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,

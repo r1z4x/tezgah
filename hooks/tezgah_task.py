@@ -1134,7 +1134,8 @@ def close_slice(root, sid, status, failure="", stop=None):
     A stopped record takes `failure` (a FAILURES class or ""); done and resumed
     keep the class the slice stopped with, so the stats still count the event.
     A quota or rate-limit stop whose message `stop` ({errorMessage, provider,
-    model}) names its family holds that family down (`tezgah_models.note_limit`);
+    model, default}) names its family holds that family down
+    (`tezgah_models.note_limit`; a rate limit briefly);
     that push fails open."""
     if status not in SLICE_CLOSED:
         raise ValueError("status %r is not one of %s" % (status, ", ".join(SLICE_CLOSED)))
@@ -1147,8 +1148,10 @@ def close_slice(root, sid, status, failure="", stop=None):
     if failure in ("quota", "rate_limit") and isinstance(stop, dict):
         try:
             import tezgah_models
-            tezgah_models.note_limit(stop.get("errorMessage") or "",
-                                     stop.get("provider") or "", stop.get("model") or "")
+            tezgah_models.note_limit(
+                stop.get("errorMessage") or "", stop.get("provider") or "",
+                stop.get("model") or "", transient=failure == "rate_limit",
+                default=stop.get("default") or "")
         except Exception:  # noqa: BLE001 - health is advice: the close still lands
             pass
     return _write_record(root, rec)
@@ -1242,9 +1245,10 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text="",
                          task=brief[len(context):].strip() if context else brief,
                          child=child)
         if failed is True:
-            # Claude's subagents run on Anthropic; another host's input may name a model
+            # a Claude subagent runs on Anthropic unless its model names another
+            # vendor; another host's input may name a model
             stop = {"errorMessage": result_text, "model": str(inp.get("model") or ""),
-                    "provider": "anthropic" if host == "claude" else ""}
+                    "default": "anthropic" if host == "claude" else ""}
             rec = close_slice(root, rec["id"], "stopped",
                               classify(result_text) or "error", stop)
         elif failed is False:

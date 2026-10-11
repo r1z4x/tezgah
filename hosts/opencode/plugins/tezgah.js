@@ -1161,15 +1161,36 @@ const DETAIL_MAX = 200
 
 // The `todo` row for `todowrite` (hooks/tezgah_integrity.note_todo): the list's
 // open, ready and blocked counts, the ready heads in `heads` and `detail`. Typed
-// blockers: BLOCKER_SAID/BLOCKER_TRIED's tokens on Unicode word boundaries (JS
-// `\b` is ASCII-only). ponytail: without the Python reader's negation rule.
+// blockers: BLOCKER_SAID/BLOCKER_TRIED's tokens - every hooks/lang/<code>.json
+// pack's `blockers.<kind>.pattern`, DECISION and KARAR alike - on Unicode word
+// boundaries (JS `\b` is ASCII-only); no pack found matches none, as `alts`
+// does. Read once, on the first todo call. ponytail: without the Python
+// reader's negation rule.
 const TODO_CLOSED = new Set(["completed", "done", "cancelled", "abandoned"])
-const TODO_TYPED = /(?<![\p{L}\p{N}_])(?:(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE|YETK[İI]|ORTAM)[A-ZÇĞİIÖŞÜ]*|ACCESS|ENV(?:IRONMENTS?)?)(?![\p{L}\p{N}_])/u
+let todoTyped = null
+function todoTypedPattern() {
+  if (todoTyped) return todoTyped
+  const kinds = { decision: [], irreversible: [], access: [], env: [] }
+  const dir = hookScript("lang")
+  try {
+    for (const name of dir ? readdirSync(dir).sort() : []) {
+      if (!name.endsWith(".json")) continue
+      const blockers = JSON.parse(readFileSync(join(dir, name), "utf8")).blockers || {}
+      for (const kind of Object.keys(kinds)) {
+        if (blockers[kind]?.pattern) kinds[kind].push(blockers[kind].pattern)
+      }
+    }
+  } catch {}
+  const alt = (...names) => names.flatMap((k) => kinds[k]).join("|") || "(?!)"
+  todoTyped = new RegExp("(?<![\\p{L}\\p{N}_])(?:(?:" + alt("decision", "irreversible")
+    + ")[A-ZÇĞİIÖŞÜ]*|" + alt("access", "env") + ")(?![\\p{L}\\p{N}_])", "u")
+  return todoTyped
+}
 async function recordTodo(sessionID, tool, args, workspace) {
   if (!Array.isArray(args?.todos)) return
   const open = args.todos.filter((i) => i && String(i.content || "").trim()
     && !TODO_CLOSED.has(String(i.status || "pending").toLowerCase()))
-  const typed = (i) => TODO_TYPED.test(i.content) || /\bblocked\b/i.test(i.content)
+  const typed = (i) => todoTypedPattern().test(i.content) || /\bblocked\b/i.test(i.content)
   const heads = open.filter((i) => String(i.status || "pending").toLowerCase() === "pending"
     && !typed(i)).map((i) => redact(String(i.content).split(/\s+/).join(" ").trim())
     .slice(0, 60))

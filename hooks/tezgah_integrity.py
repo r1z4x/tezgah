@@ -37,8 +37,8 @@ try:
 except ImportError:  # not POSIX: a legacy JSONL ledger was appended unlocked
     fcntl = None
 
-from tezgah_paths import (SWITCHES, _toplevel, cache_dir, latch, off, reply_lang,
-                          root_for)
+from tezgah_paths import (SWITCHES, _toplevel, alts, cache_dir, language, latch,
+                          off, pack_values, packs, root_for, say)
 import tezgah_store as ts
 
 # A command that actually checks the change, as opposed to one that merely runs.
@@ -254,8 +254,10 @@ LITERALS = re.compile(
     r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|"
     r"/\*(?:.|\n)*?\*/|//[^\n]*|#[^\n]*")
 HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
-# a completion / verification claim, English and Turkish. The forms are the ones
-# the machine's own transcripts were measured to use (161 final replies in
+# a completion / verification claim, in every shipped language: the fragments
+# live in hooks/lang/<code>.json (`done`, `verified`), and `alts` joins every
+# pack's into one alternation (S5). The forms are the ones the machine's own
+# transcripts were measured to use (161 final replies in
 # ~/.omp/agent/sessions/-Projects-tezgah, 2026-09-19): the completed-state
 # spelling is the common one and the list this replaces missed 13 of 15
 # hand-drawn completions - "güncellendi", "Push tamam", "kuruldu", "eklendi",
@@ -264,19 +266,8 @@ HEREDOC = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
 # is refused on its evidence whatever the vocabulary says (the trigger below),
 # so this list is read for the claim row's detail - and therefore for the
 # false-completion denominator - not for the verdict.
-DONE = re.compile(
-    r"\b(done|complete[d]?|finished|implemented|fixed|shipped|landed|merged|"
-    r"wired up|wired into|all tests? pass|all checks? pass|"
-    r"(?:tests?|checks?|suite) (?:is |are )?(?:green|passing)|"
-    r"build (?:passes|is green)|"
-    r"yaptım|tamamladım|tamamlandı|bitirdim|bitirildi|ekledim|eklendi|"
-    r"düzelttim|düzeltildi|hallettim|güncellendi|kuruldu|uygulandı|"
-    r"yayına girdi|kapatıldı|yüklendi|"
-    r"tüm testler geçti|testler geçti|testler yeşil|çalışıyor)\b", re.I)
-VERIFIED = re.compile(
-    r"\b(tested|verified|i ran|ran the (?:tests?|suite|build|lint|checks?)|"
-    r"doğruladım|test ettim|kontrol ettim|denetledim|doğrulandı|test edildi)\b",
-    re.I)
+DONE = re.compile(r"\b(%s)\b" % alts("done"), re.I)
+VERIFIED = re.compile(r"\b(%s)\b" % alts("verified"), re.I)
 # The DONE forms that say a check passed ("all tests pass", "testler yeşil"):
 # such a claim rests on a pass even when the turn only edited prose.
 TESTED_WORD = re.compile(r"test|check|suite", re.I)
@@ -285,16 +276,16 @@ TESTED_WORD = re.compile(r"test|check|suite", re.I)
 # it now clears only a class whose repair is a check (ADMITTED_CLASSES), and
 # only when a check ran and failed after the turn's newest change
 # (`_failed_since_change`, applied by `_admitted`).
-NEGATED = re.compile(
-    r"doğrulanmadı|doğrulamadım|unverified|not verified|could ?n[o']t verify|"
-    r"verification (?:was )?skipped|kontrol edilmedi|test edilmedi", re.I)
+NEGATED = re.compile(alts("negated"), re.I)
 ADMITTED_CLASSES = frozenset(("check failed", "partial failure", "stale evidence",
                               "no verify_ok"))
 # What the evidence classes tell the model the admission takes, in one place.
-ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and failed '
+# The admission word and the blocker tokens are the contract's own, filled from
+# the configured language's pack when the refusal is written (`_said`).
+ADMISSION = ('"{UNVERIFIED}" ends the turn only after a check that ran and failed '
              'since the newest change; quote its error line. A failing check of '
              'your own code is work to fix, not a blocker: list it under '
-             '"Engeller" only when it truly is YETKİ or ORTAM, typed so')
+             '"{BLOCKERS_HEADING}" only when it truly is {ACCESS} or {ENV}, typed so')
 # Rule 10 of skills/i-have-adhd/SKILL.md - "No preamble, no recap, no closer" -
 # names the forms a reply may neither open nor close on. Each alternative below
 # is quoted from that rule's own lines; none is invented:
@@ -315,13 +306,9 @@ ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and fai
 # carve-out does not reopen the end: "The user asks to explain or walk through:
 # explain fully. No preamble, no closer, but the body runs as long as the topic
 # needs" - only the body's length is freed.
-SYCOPHANT = re.compile(
-    r"^\s*(?:(?:evet|yes|ah|oh|hmm)[,!\s]+)?"
-    r"(?:haklısın|haklısınız|you'?re (?:absolutely )?right|you are right|"
-    r"absolutely right|good catch|great catch|iyi yakaladın|"
-    r"detaylı bakmadım|i didn'?t look closely|i should have checked|"
-    r"my mistake|my bad|sorry, i|"
-    r"great question|let me\b|i['’]ll\b|sure[!,.]|looking at your\b)", re.I)
+SYCOPHANT = re.compile(r"^\s*(?:(?:%s)[,!\s]+)?(?:%s)"
+                       % (alts("sycophant", "interjection"), alts("sycophant", "opener")),
+                       re.I)
 # The closer half of the same rule. Read on the reply's last PROSE line only
 # (`_closing_prose`), so a reply that ends on a code block, a heading or a table
 # ends on structure and is not judged here at all. Accepted false positive: a
@@ -329,9 +316,7 @@ SYCOPHANT = re.compile(
 # reads the same as making the sign-off. The skill's carve-out does not reopen
 # this end either: an explain/walkthrough run keeps "No preamble, no closer", and
 # the question rule 5 surfaces at the end is the user's question, not a sign-off.
-CLOSER = re.compile(
-    r"let me know if you need anything else|hope (?:this|that) helps|"
-    r"happy to clarify", re.I)
+CLOSER = re.compile(alts("closer"), re.I)
 # The reply shapes the contract bans and nothing counted: a reply that opens on a
 # table, and one that closes on a recap instead of a next action. Read by
 # `shape_flags` for a report-only row - a table is sometimes the right answer and
@@ -342,9 +327,7 @@ HEADING = re.compile(r"^\s*#{1,6}\s")
 FENCE = re.compile(r"^\s*(?:```|~~~)")
 # A closing line that names what comes next is the shape the contract asks for,
 # so its absence on a long reply's last line is what `recap-close` records.
-NEXT_ACTION = re.compile(
-    r"(?i)(?:next (?:step|action|up)|sıradaki adım|sonraki adım|next:)"
-    r"|^\s*(?:→|->)\s")
+NEXT_ACTION = re.compile(r"(?i)(?:%s)|^\s*(?:→|->)\s" % alts("next_action"))
 # A reply longer than this that closes on a recap is `recap-close`.
 SHAPE_LINES = 15
 # A top-level list item: a marker in column 0, the shape rules 2 and 8 count (a
@@ -356,22 +339,19 @@ ITEM = re.compile(r"^(?:\d+[.)]|[-*+])\s")
 # escape for a list whose completeness is the point is "headers so it can be
 # skimmed", and a heading ends the run below, as does any prose line.
 LIST_CAP = 5
-# The reply-language half of the exec rule ("Every user-facing reply in
-# Turkish"). A word list and six letters are not a language detector; they only
-# have to separate Turkish prose from English prose, which differ sharply on
-# both. Calibrated on the owner's omp transcripts (2026-09-27: 16,511 assistant
-# messages, 1,495 with at least LANG_MIN_WORDS prose words): English prose
-# scored 0.000-0.026, the most English-heavy Turkish reply 0.077 and the bulk
-# 0.3-0.7, so the cut sits between the two; 24 of the 1,495 fall under it, all
-# English or Chinese prose. Prose shorter than LANG_MIN_WORDS is not judged - a
-# one-line answer, a path or a command list is too short to call.
-TR_LETTERS = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
-TR_WORDS = frozenset((
-    "ve", "bir", "bu", "şu", "için", "ile", "da", "de", "ama", "fakat", "ya",
-    "veya", "ne", "mi", "mı", "mu", "mü", "çok", "daha", "en", "gibi", "kadar",
-    "sonra", "önce", "var", "yok", "değil", "olarak", "olan", "her", "hem",
-    "ise", "ki", "artık", "hâlâ", "hala", "şimdi", "yani", "diye", "tüm",
-    "bütün", "kalan", "neden", "nasıl", "yeni", "eski", "evet", "hayır"))
+# The reply-language half of the exec rule. A word list and a letter set are
+# not a language detector; they only have to separate the configured
+# language's prose from English, which differ sharply on both: a pack's
+# `markers` (`reply_share`), and a language whose pack ships none is not
+# judged. The tr markers are calibrated on the owner's omp transcripts
+# (2026-09-27: 16,511 assistant messages, 1,495 with at least LANG_MIN_WORDS
+# prose words): English prose scored 0.000-0.026, the most English-heavy
+# Turkish reply 0.077 and the bulk 0.3-0.7, so the cut sits between the two;
+# 24 of the 1,495 fall under it, all English or Chinese prose. The short words
+# Spanish, French and Dutch share with Turkish (de, da, en, ne, ya, her, mi)
+# left the list (S5 F8: they passed those replies as Turkish at 0.07-0.31).
+# Prose shorter than LANG_MIN_WORDS is not judged - a one-line answer, a path
+# or a command list is too short to call.
 PROSE_WORD = re.compile(r"[^\W\d_]+", re.U)
 # Text inside a reply that is not prose in any language: inline code, a URL,
 # a path, a dotted or snake_case identifier, a `path:line` citation.
@@ -381,9 +361,7 @@ LANG_MIN_SHARE = 0.06
 # A lead that announces what follows instead of being it (rule 1 "Lead with the
 # answer", rule 10 "No preamble"). Report-only: "Sonuç:" over a list is an
 # answer label, not a preamble, and the two read the same to a regex.
-PREAMBLE = re.compile(
-    r"(?i)^\s*(?:here(?:'s| is| are)\b|below\b|the following\b|"
-    r"aşağıda|şöyle\b|öncelikle\b|şimdi\b)")
+PREAMBLE = re.compile(r"(?i)^\s*(?:%s)" % alts("preamble"))
 # The Stop classes that judge how a reply is written, not whether its claim has
 # evidence. They stay `claim` rows (the verdict is one row per reply) but are not
 # false completions: counters folds them into `shape_blocked` instead.
@@ -3638,9 +3616,7 @@ def ran_nothing(result):
 # `claims` is the false-done reader the benchmarks count with; the Stop verdict
 # and its claim row read the vocabulary (`asserted_claims`), where an admitted
 # claim is a claim NEGATED lets through.
-ADMITTED = re.compile(
-    r"contradict|çeliş|unsatisfiable|(?:can ?not|can't|can ?never|never) pass|"
-    r"geçemez|impossible|imk[aâ]nsız", re.I)
+ADMITTED = re.compile(alts("admitted"), re.I)
 
 
 def claims(text):
@@ -3659,10 +3635,10 @@ def claims(text):
 # the clause after it. So "Don't worry, it's done.", "All tests pass so should
 # I open the PR?", "Done (no regressions?)" and "Tamamlandı, push edeyim mi?"
 # all still assert.
-NEGATION_BEFORE = re.compile(r"(?:\bnot|n't|\bnever|\bdeğil)(?:\s+\S+){0,2}\s+\Z",
+NEGATION_BEFORE = re.compile(r"(?:%s)(?:\s+\S+){0,2}\s+\Z" % alts("negation_before"),
                              re.I)
-QUESTION_PARTICLE = re.compile(r"\s*(?:m[ıiuü]|değil)\b", re.I)
-CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:so|and|but|ama|ve)\b",
+QUESTION_PARTICLE = re.compile(r"\s*(?:%s)\b" % alts("question_particle"), re.I)
+CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:%s)\b" % alts("clause_join"),
                         re.I)
 
 
@@ -4177,13 +4153,32 @@ def prose_words(text):
     return words
 
 
-def turkish_share(words):
-    """The share of `words` that mark Turkish: a Turkish letter in the word, or
-    a word from TR_WORDS. None for an empty list."""
-    if not words:
+def _markers(code):
+    """Pack `code`'s reply markers as (words, letters), or None when it ships
+    none: only such a language's replies are held to it."""
+    marks = packs().get(code, {}).get("markers") or {}
+    words, letters = frozenset(marks.get("words", ())), "".join(marks.get("letters", ()))
+    return (words, letters) if words or letters else None
+
+
+def reply_share(words, code="tr"):
+    """The share of `words` that mark language `code` (`_markers`): a marker
+    letter in the word, or a marker word. None for an empty list or a language
+    with no markers."""
+    marks = _markers(code)
+    if not words or not marks:
         return None
-    hits = sum(1 for w in words if w in TR_WORDS or TR_LETTERS.search(w))
+    hits = sum(1 for w in words if w in marks[0] or any(c in marks[1] for c in w))
     return round(hits / len(words), 3)
+
+
+def _said(text):
+    """`text` with each `{WORD}` placeholder filled with the configured
+    language's contract word (`tezgah_paths.say`): the refusal names the
+    tokens the contract the model was given names."""
+    for key, word in say().items():
+        text = text.replace("{%s}" % key.upper(), word)
+    return text
 
 
 def reply_shape(text):
@@ -4213,7 +4208,7 @@ def reply_shape(text):
     return {"lines": len(lines), "chars": len(text),
             "items": sum(1 for line in lines if ITEM.match(line)),
             "longest_list": longest_list(text),
-            "tr_share": turkish_share(prose_words(text)),
+            "tr_share": reply_share(prose_words(text)),
             "answer_first": answer_first}
 
 
@@ -4287,8 +4282,7 @@ def _shape_block(text, cwd):
                     "Start with the answer: \"Great question\" / \"Let me...\" / "
                     "\"I'll...\" / \"Sure!\" / \"Looking at your...\" are never "
                     "the first line. If the user is right, state the fact and the "
-                    "fix in one plain sentence - never \"haklısın\" / \"you're "
-                    "right\" / \"detaylı bakmadım\" / an apology.")
+                    "fix in one plain sentence - {OPENER_BAN}.")
         # only the last prose line is read, so a reply that ends on a code
         # block, a heading or a table is not judged here at all
         last = _closing_prose(lines)
@@ -4298,7 +4292,7 @@ def _shape_block(text, cwd):
                     "(rule 10: no preamble, no recap, no closer): \"Let me know "
                     "if you need anything else\" / \"Hope this helps\" / \"Happy "
                     "to clarify\". End when the answer is done; what is left is "
-                    "done now, or named under \"Engeller\" as a blocker.")
+                    "done now, or named under \"{BLOCKERS_HEADING}\" as a blocker.")
         longest = longest_list(text)
         if longest > LIST_CAP:
             return ("list cap",
@@ -4309,20 +4303,22 @@ def _shape_block(text, cwd):
                     "whole enumeration is the point, split it under headings of "
                     "at most five items each, or give it as a table."
                     % (longest, LIST_CAP))
-    # `reply_lang` is the switch, and only `tr` is judged: this is a Turkish
-    # detector, and an English reply carries the contract's own hedge word or
-    # quotes the user's Turkish, so it cannot hold a reply to English (`en`).
-    if reply_lang() == "tr" and not off("exec-mode.off"):
+    # `language` is the switch, and only a pack that ships reply markers (tr)
+    # is judged: the markers tell that language from English, and an English
+    # reply quotes the user's other language, so English is not held to.
+    if _markers(language()) and not off("exec-mode.off"):
         words = prose_words(text)
-        share = turkish_share(words)
+        share = reply_share(words, language())
+        name = packs()[language()]["name"]
         if len(words) >= LANG_MIN_WORDS and share < LANG_MIN_SHARE:
             return ("reply language",
-                    "Reply prose is not in Turkish (%d prose words, %.0f%% of "
-                    "them Turkish). The contract's first rule: every user-facing "
-                    "reply is in Turkish, even when the user writes English. "
-                    "Rewrite the prose in Turkish; code, commands, paths, "
+                    "Reply prose is not in %s (%d prose words, %.0f%% of "
+                    "them %s). The contract's first rule: every user-facing "
+                    "reply is in %s, even when the user writes English. "
+                    "Rewrite the prose in %s; code, commands, paths, "
                     "identifiers and quoted output stay as they are (put them in "
-                    "backticks or a code block)." % (len(words), share * 100))
+                    "backticks or a code block)."
+                    % (name, len(words), share * 100, name, name, name))
     return (None, None)
 
 
@@ -4877,7 +4873,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
             import tezgah_stopspec
             tezgah_stopspec.check(verdict[0], text, session_id, rows, cwd, shape)
-        return verdict
+        return (verdict[0], verdict[1] and _said(verdict[1]))
     t = str(text or "")
     shaped = _shape_block(t, cwd) if shape else (None, None)
     if shaped[0]:
@@ -5071,10 +5067,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "its output, or read the rendered screen (`analyze-app`: the "
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
-                "what a person sees, and \"doğrulanmadı\" does not stand in for "
+                "what a person sees, and \"{UNVERIFIED}\" does not stand in for "
                 "the screen; if nothing can render it here, write "
-                "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM with "
-                "the command that failed."
+                "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
+                "with the command that failed."
                 % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
@@ -5098,7 +5094,7 @@ def _evidence_block(rows, worked, external, where="this turn"):
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
                     "violation it prints; if the check cannot run here, write "
-                    "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM "
+                    "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
                     "with the command that failed."
                     % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,
@@ -5208,18 +5204,13 @@ EXTERNAL_SYSTEM = re.compile(
     r"\b(?:npm|yarn|pnpm|pip|pypi|py ?pi|crates(?:\.io)?|rubygems|gem|"
     r"brew|homebrew|formula|tap|dist-tag|tarball|registry|releases?|tags?|"
     r"workflow|pipeline|ci|github)\b", re.I)
-EXTERNAL_STATE = re.compile(
-    r"\b(?:missing|absent|unpublished|exists?|not (?:published|released|found|"
-    r"there|listed|present)|published|released|deprecated|outdated|stale|"
-    r"yok|eksik|yayımlan|yayınlan)\b", re.I)
+EXTERNAL_STATE = re.compile(r"\b(?:%s)\b" % alts("external_state"), re.I)
 # The status of a run, which pairs with a CI subject alone: "the workflow is red"
 # and "CI passed" are claims about a system tezgah does not own, while the same
 # words beside `release` are prose ("Suite green, release ready"), which is what
 # the split is for.
 EXTERNAL_CI = re.compile(r"\b(?:workflow|pipeline|ci|github)\b", re.I)
-EXTERNAL_CI_STATE = re.compile(
-    r"\b(?:green|red|passing|passes|passed|failing|fails|failed|behind|flaky|"
-    r"geçti|başarısız)\b", re.I)
+EXTERNAL_CI_STATE = re.compile(r"\b(?:%s)\b" % alts("external_ci_state"), re.I)
 # How far apart, on one line, the two halves of a claim may sit. 45 characters
 # holds every form the incident took ("npm 0.22.0 yayımlanmadı" is 12 apart,
 # "the registry has no such version published" is 30) and drops the long report
@@ -5231,10 +5222,8 @@ EXTERNAL_GAP = 45
 # numbers in prose. A two-part number was the single largest source of false
 # positives in the measurement above.
 EXTERNAL_VERSION = re.compile(
-    r"\bv\d+\.\d+\.\d+[^\n]{0,40}?\b(?:missing|absent|unpublished|exists?|"
-    r"published|released|yok|eksik|yayımlan|yayınlan)\b"
-    r"|\b(?:missing|absent|unpublished|exists?|published|released|yok|eksik|"
-    r"yayımlan|yayınlan)\b[^\n]{0,40}?v\d+\.\d+\.\d+", re.I)
+    r"\bv\d+\.\d+\.\d+[^\n]{{0,40}}?\b(?:{0})\b|\b(?:{0})\b[^\n]{{0,40}}?v\d+\.\d+\.\d+"
+    .format(alts("publish_state")), re.I)
 # The read that answers it, at a command position on the masked text - the
 # convention `UI_CHECK` and `NETWORK_READ` follow - so a reply that merely names
 # `npm view`, and the search whose pattern is that name, are not reads of
@@ -5432,31 +5421,11 @@ def _admitted(fold, text):
 # The first-person negatives ("Yapamadım", "Bakmadıklarım", "Test etmedim"),
 # the passive stems "kontrol edil-", "incelen-", "ölçül-", "çözül-", "denen-" and
 # the English forms after them were added from the S4 corpus (finding 4).
-RESIDUAL_LABEL = re.compile(
-    r"(?:açık (?:kalan|iş|madde|nokta|soru)|eksik(?!siz)|"
-    r"yapılama|yapılma(?:yan|dı)|yapılacak|bekleyen|bakıla?ma|bitme(?:yen|di)|"
-    r"tamamlanma|kısmen|doğrulan(?:a)?ma|test edile?me|çalıştırıla?ma|koşula?ma|"
-    r"dokunula?ma|sonraki adım|sıradaki|sırada\b|kapsam dışı|atlan(?:an|dı)|"
-    r"ertelen|bilinen (?:hata|sınırlama|sorun)|teknik borç|ileride|"
-    r"gelecek (?:iş|çalışma)|önerilen (?:iyileştirme|adım)|manuel doğrulama|"
-    r"elle doğrula|engel(?:ler)?\b|engelleyenler\b|erişilemeyen|fix-?later|"
-    r"\w+m[ae]d[ıiuü](?:m|kl[ae]r(?:[ıi]m)?)\b|kontrol edil(?:e)?me|incelen(?:e)?me|ölçül(?:e)?me|"
-    r"çözül(?:e)?me|denen(?:e)?me|ulaşılama|(?:yarım|askıda|sonraya) kalan|"
-    r"sonra bakılacak|"
-    r"open (?:items?|issues?|questions?|points?|work)|remaining\b|"
-    r"what(?:'s| is) left|left to do|pending\b|outstanding\b|"
-    r"not (?:done|verified|tested|run|checked|covered|looked at)|unverified|untested|"
-    r"unresolved|still open|could(?:n't| not) (?:verify|check|run)|unable to|"
-    r"unchecked|to[ -]?do(?=\s*(?:\(|$))|"
-    r"next\s+(?:steps?|up|actions?)\b|next(?=\s*(?:\(|$))|out of scope|"
-    r"follow[- ]?ups?\b|deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|"
-    r"future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|"
-    r"manual (?:verification|checks?|testing)|blockers?\b|partially)")
+RESIDUAL_LABEL = re.compile(r"(?:%s)" % alts("residual_label"))
 # "Kalan" is also an adjective ("Kalan riskler", "Kalan süre", "Ayakta kalan
 # tek şey"): it opens a list only as the label's first word and on the work it
 # names - "Kalan:", "Kalanlar", "Kalan iş", "Kalan adımlar", "Kalan tek şey".
-RESIDUAL_FIRST = (r"kalan(?:lar)?(?=\s*(?:\(|$))|kalan\s+(?:tek\s+)?"
-                  r"(?:iş|işler|adım|adımlar|madde|maddeler|görev|görevler|şey)\b")
+RESIDUAL_FIRST = alts("residual_first")
 # At most three words may lead any other stem: "Bu turda açık kalanlar", "Henüz
 # yapılmayanlar", "Bu turda henüz bakılmayanlar".
 RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,3}(?:%s)"
@@ -5465,57 +5434,59 @@ RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,3}(?:%s)"
 # a completion verb or participle the claim vocabulary does not carry ("Eksik
 # kapandı", "Düzeltilen eksik", "Doğrulanmayan kalmadı", "Eksik olan kanıt artık
 # var"). "Kısmen ..." stays open.
-LABEL_DONE = re.compile(r"\b(?:giderildi|çözüldü|yazıldı|bitti|ölçüldü|yapıldı|"
-                        r"halledildi|kapandı|kalmadı|tamamlanan|düzeltilen|"
-                        r"giderilen|kapatılan|çözülen|artık (?:var|mevcut)|"
-                        r"resolved|addressed|closed)\b")
-PARTIAL = re.compile(r"(?:kısmen|partially)\b")
+LABEL_DONE = re.compile(r"\b(?:%s)\b" % alts("label_done"))
+PARTIAL = re.compile(r"(?:%s)\b" % alts("partial"))
 # A short label that says nothing is left - it ends on "yok"/"none" or opens on
 # "no"/"none" - is no list ("Eksik yok"); in a longer one, or after a comma, the
 # "yok" is about something else ("Doğrulanmadı, kanıt yok"). A word in a
 # parenthesis is a comment on the label.
-NOTHING_LEFT = re.compile(r"(?:\byok|\bnone|\bnothing)\W*$|^(?:no|none|nothing)\b")
+NOTHING_LEFT = re.compile(r"(?:%s)\W*$|^(?:%s)\b"
+                          % (alts("nothing_left"), alts("nothing_lead")))
 NOTHING_SHORT = 4
 PARENTHESIS = re.compile(r"\([^)]*\)")
 # An item that is only that word, or opens on it before a stop ("yok, iş
 # bitti."), or is a bare zero, is no item; a "yok" inside an item ("playwright
 # yok") is content and is judged like the rest.
-EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
-                        r"(?:\s*[.,;:!—–-][^\n]*)?|0)\W*", re.I)
-# The blocker tokens, as the capitalised token the contract names them by, a
-# Turkish suffix allowed ("KARARI senin"); a token negated by the next word
-# ("KARAR gerekmiyor") is none, and code is blanked first (`_prose`).
+EMPTY_ITEM = re.compile(r"\W*(?:(?:%s)(?:\s*[.,;:!—–-][^\n]*)?|0)\W*"
+                        % alts("empty_item"), re.I)
+# The blocker tokens, as the capitalised token the contract names them by, in
+# every pack's spelling (`blockers.<kind>.pattern`: DECISION and KARAR alike), a
+# suffix allowed ("KARARI senin"); a token negated by the next word ("KARAR
+# gerekmiyor") is none, and code is blanked first (`_prose`).
 # BLOCKER_SAID needs no ledger row: a choice or a consent leaves none to check.
 # BLOCKER_TRIED is the attempt that failed - it counts only beside the error
-# its type names (ENV_ERROR for ORTAM, ACCESS_ERROR for YETKİ) and its ledger
-# evidence: a quote of a command that failed in the turn (`_quotes_failure`), or
-# a spawn call of the turn the host answered with a provider failure
-# (`_spawn_failed`: a 429, a quota, a credential).
-BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))"
-BLOCKER_SAID = re.compile(
-    r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
-# After YETKİ/ORTAM, "yok" and "not" describe the blocker ("YETKİ yok", "ENV not
-# set"), so only "değil", "gerekmiyor" and "istemiyor" negate them; the Turkish
-# suffix is read on the Turkish stems only, so ACCESSIBILITY or ENVELOPE is no
-# type, while the plural ENVIRONMENTS is.
-BLOCKER_TRIED = re.compile(
-    r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|\bACCESS|\bENV(?:IRONMENTS?)?)\b"
-    r"(?!\s+(?:değil\b|gerek(?:mi|mez|tirm)|istem))")
-ENV_ERROR = re.compile(
-    r"not found|no such|cannot find|can'?t find|could not find|does(?:n'?t| not) "
-    r"exist|no module named|ModuleNotFound|not installed|not available|unavailable|missing|"
-    r"not set|ENOENT|\b12[67]\b|bulunamad|kurulu değil|yüklü değil|mevcut değil|"
-    r"quota|limit exceeded|rate.?limit|\b429\b", re.I)
-ACCESS_ERROR = re.compile(
-    USER_ERROR.pattern + r"|permission denied|access denied|not permitted|"
-    r"EACCES|\b40[13]\b|quota|limit exceeded|rate.?limit|\b429\b|izin|reddedil|"
-    r"erişim", re.I)
+# its type names (ENV_ERROR for the env token, ACCESS_ERROR for the access one,
+# read off the match's group name) and its ledger evidence: a quote of a
+# command that failed in the turn (`_quotes_failure`), or a spawn call of the
+# turn the host answered with a provider failure (`_spawn_failed`: a 429, a
+# quota, a credential).
+
+
+def _tokens(kind):
+    """Every pack's spelling of blocker `kind`, as one alternation."""
+    return "|".join(pack_values("blockers", kind, "pattern")) or "(?!)"
+
+
+BLOCKER_NOT = r"(?!\s+(?:%s))" % alts("blockers", "said_not")
+BLOCKER_SAID = re.compile(r"\b(?:%s|%s)[A-ZÇĞİIÖŞÜ]*\b"
+                          % (_tokens("decision"), _tokens("irreversible")) + BLOCKER_NOT)
+# After the access or env token, "yok" and "not" describe the blocker ("YETKİ
+# yok", "ENV not set"), so only a pack's `tried_not` words negate them; the
+# suffix is read on the stems a pack spells with one, so ACCESSIBILITY or
+# ENVELOPE is no type, while the plural ENVIRONMENTS is.
+BLOCKER_TRIED = re.compile(r"(?:\b(?P<access>%s)|\b(?P<env>%s))\b(?!\s+(?:%s))"
+                           % (_tokens("access"), _tokens("env"),
+                              alts("blockers", "tried_not")))
+# The word after the token that says the grant or tool is absent ("YETKİ yok").
+BLOCKER_ABSENT = r"(?:\s+(?:%s)\b)?" % alts("blockers", "absent")
+ENV_ERROR = re.compile(alts("env_error"), re.I)
+ACCESS_ERROR = re.compile(USER_ERROR.pattern + "|" + alts("access_error"), re.I)
 # A spawn call's failure classes that are the provider's, not the brief's: a
 # rate limit or a timeout (`transient`) and a quota or a credential (`user`).
 SPAWN_FAIL_CLASSES = frozenset(("transient", "user"))
 # The words that tie an item to a spawn call: only such an item borrows a
 # failed spawn's row as its evidence (`_tried_holds`).
-SPAWN_WORDS = re.compile(r"sub-?agent|\bagent|ajan|provider|sağlayıcı|\bmodel|spawn")
+SPAWN_WORDS = re.compile(alts("spawn_words"))
 # A search that matched nothing exits 1 and failed nothing (`_failed_commands`).
 NO_MATCH_PROGRAMS = frozenset(("grep", "egrep", "fgrep", "rg", "ag"))
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
@@ -5524,27 +5495,31 @@ LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 FENCED_BODY = re.compile(r"^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)", re.M | re.S)
 COMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
+# The refusal leads and blocker tokens are the configured language's
+# (`{RESIDUAL_LEAD}`, `{DECISION}`..., filled by `_said`): the owner's tr pack
+# opens in Turkish because Claude Code shows the refusal's first line to the
+# user; the canonical English pack adds no lead.
 RESIDUAL_WORK = (
-    "Bu maddeleri şimdi yap veya engel türü ve kanıtla yaz. The reply lists "
+    "{RESIDUAL_LEAD}The reply lists "
     "work that is left (%s) at the end of a turn that did work. Do each item "
     "now with the tools you have; a step that cannot be undone (a push, a "
     "merge, a delete, a release) is never taken to clear this list - it is "
-    "GERİ ALINAMAZ, and you ask. An item may stay only as one of four "
-    "blockers, named in capitals: KARAR (a choice only the user can make - "
-    "never \"which first\" or \"shall I go on\"), YETKİ (a credential or grant "
-    "no tool supplies), GERİ ALINAMAZ (needs consent), ORTAM (a tool or "
-    "environment is missing); a YETKİ or ORTAM item quotes, in backticks, the "
+    "{IRREVERSIBLE}, and you ask. An item may stay only as one of four "
+    "blockers, named in capitals: {DECISION} (a choice only the user can make - "
+    "never \"which first\" or \"shall I go on\"), {ACCESS} (a credential or grant "
+    "no tool supplies), {IRREVERSIBLE} (needs consent), {ENV} (a tool or "
+    "environment is missing); a {ACCESS} or {ENV} item quotes, in backticks, the "
     "command that failed in this turn and its error - a quote with no type, "
     "or a type with no quote, is not one. \"Out of "
     "scope\", \"later\", \"time\" and \"could be added\" are not blockers. Report "
-    "what is left under one heading, \"Engeller\", at most three lines: item - "
+    "what is left under one heading, \"{BLOCKERS_HEADING}\", at most three lines: item - "
     "blocker - evidence - what unblocks it.")
 # The `stopped slice` class (plan 081): a subagent slice this session spawned
 # ended stopped - a quota, a 429, an abort, a cut-off - and the turn would end
 # with its work unresumed. Filled with the slice id, its failure class and the id
 # twice more.
 STOPPED_SLICE = (
-    "Durmuş bir dilim var. Slice %s, spawned by this session, stopped (%s) and "
+    "{SLICE_LEAD}Slice %s, spawned by this session, stopped (%s) and "
     "its work is not resumed. Resume it with `tezgah-task slice resume %s` - "
     "the native path first, else the re-dispatch brief it prints - or, if the "
     "work was finished another way, record that with `tezgah-task slice done "
@@ -5554,13 +5529,13 @@ STOPPED_SLICE = (
 # holds a pending item, not taken and not blocked, and the reply ends the turn
 # without it. Filled with the count and up to three heads.
 READY_STEPS = (
-    "Hazır adımlar bekliyor. The newest todo list holds %d ready step(s) this "
+    "{READY_LEAD}The newest todo list holds %d ready step(s) this "
     "turn neither did nor typed as a blocker: %s. Dispatch every ready step "
     "now - independent ones as subagents in one message - and tick each one "
     "you finish. A step that waits on a running slice or on the user is marked "
     "blocked in the todo list (omp `block`, naming the slice or the blocker), "
-    "or named in the reply on one line with its KARAR, YETKİ, GERİ ALINAMAZ "
-    "or ORTAM. End the turn only when no step is ready.")
+    "or named in the reply on one line with its {DECISION}, {ACCESS}, {IRREVERSIBLE} "
+    "or {ENV}. End the turn only when no step is ready.")
 
 
 def _tr_lower(text):
@@ -5793,34 +5768,48 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
     spawn call failed at the provider (`spawn_failed`). A failure of another
     kind - an assertion, a typo, a grep that matched nothing - is doable work,
-    whatever it is typed. So is a YETKİ or ACCESS item that quotes a quota or
-    rate limit while another funded family is up (`_limit_can_move`)."""
-    kinds = {m.group(0)[0] for m in BLOCKER_TRIED.finditer(said)}
-    rest = re.sub(BLOCKER_TRIED.pattern + r"(?:\s+yok\b)?", " ", item)
+    whatever it is typed. So is a quota or rate limit on a model provider
+    while another family the routing allows is up (`_limit_move`)."""
+    kinds = {m.lastgroup for m in BLOCKER_TRIED.finditer(said)}
+    rest = re.sub(BLOCKER_TRIED.pattern + BLOCKER_ABSENT, " ", item)
     rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
                          else m.group(0), rest)
-    if not any((ENV_ERROR if k in "OE" else ACCESS_ERROR).search(rest)
+    if not any((ENV_ERROR if k == "env" else ACCESS_ERROR).search(rest)
                for k in kinds):
         return False
-    if kinds & {"Y", "A"} and _limit_can_move(item):
+    if _limit_move(item, failed, spawn_failed):
         return False
     return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
         _quotes_failure(item, failed)
 
 
-def _limit_can_move(item):
-    """True when `item` quotes a quota or rate limit (`tezgah_task.classify`)
-    and a funded family it does not name is up (`tezgah_models.other_family_up`):
-    the work can move there, so the limit is no YETKİ (research
-    orchestrator-flow-audit S2, F3b). Fails open: False on any error."""
+# The move a refused limit item can make (`_limit_move`), added to the
+# residual-work refusal so the reply knows what satisfies it.
+LIMIT_MOVE = (" A quota or rate limit on one model family is no {ACCESS} or {ENV} "
+              "while another is up: the work can move to %s - re-dispatch the "
+              "slice there.")
+
+
+def _limit_move(item, failed=(), spawn_failed=False):
+    """The family the work of `item` can move to, else None (research
+    orchestrator-flow-audit S2, F3b): the item quotes a quota or rate limit
+    (`tezgah_task.classify`) of a model provider - it names a subagent, agent,
+    provider or model (SPAWN_WORDS) or a family (`tezgah_models.named_families`),
+    or the turn's spawn failed at the provider and the item quotes no failed
+    command - and a family the routing allows is up
+    (`tezgah_models.other_family_up`). A GitHub or npm rate limit stays a
+    blocker. Fails open: None on any error."""
     try:
         import tezgah_task
         if tezgah_task.classify(item) not in ("quota", "rate_limit"):
-            return False
+            return None
         import tezgah_models
-        return bool(tezgah_models.other_family_up(item))
+        if not (SPAWN_WORDS.search(_tr_lower(item)) or tezgah_models.named_families(item)
+                or (spawn_failed and not _quotes_failure(item, failed))):
+            return None
+        return tezgah_models.other_family_up(item)
     except Exception:  # noqa: BLE001 - a health read never refuses on its own failure
-        return False
+        return None
 
 
 # An item under a blocker label that tells a blocker it already removed: an
@@ -5831,10 +5820,10 @@ def _limit_can_move(item):
 # A last sentence that still names work left (a RESIDUAL_LABEL stem) or a
 # future ("koşulacak") keeps the item open. ponytail: one adverb rule, not a
 # tense reader.
-BLOCKER_LABEL = re.compile(r"\W*(?:engel|blocker)")
-WAS = re.compile(r"\b(?!(?:şimdi|kendi|ileri|geri)\b)\w+(?<!m[ae])(?:yordu|[dt][ıiuü])\b")
-NOW = re.compile(r"^artık\b.*(?:\bvar\b|\bmevcut\b|\w+yor\b)", re.S)
-FUTURE = re.compile(r"\w+(?:acak|ecek)")
+BLOCKER_LABEL = re.compile(r"\W*(?:%s)" % alts("blocker_labels"))
+WAS = re.compile(r"\b(?!(?:%s)\b)(?:%s)\b" % (alts("was_exclude"), alts("was")))
+NOW = re.compile(alts("now"), re.S)
+FUTURE = re.compile(alts("future"))
 
 
 def _now_closed(item, label):
@@ -5850,7 +5839,7 @@ def _now_closed(item, label):
 
 
 # A blocker heading with nothing under it lists no blocker ("## Engeller" last).
-BLOCKERS_ONLY = re.compile(r"\s*(?:engel(?:ler)?|blockers?)\s*")
+BLOCKERS_ONLY = re.compile(r"\s*(?:%s)\s*" % alts("blockers_only"))
 
 
 def unblocked_items(text, rows):
@@ -5912,7 +5901,10 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     if left:
         named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
                           for label, item in left[:3])
-        return ("residual work", RESIDUAL_WORK % named)
+        failed, spawn_failed = _failed_commands(rows), _spawn_failed(rows)
+        move = next(filter(None, (_limit_move(item, failed, spawn_failed)
+                                  for _label, item in left)), None)
+        return ("residual work", RESIDUAL_WORK % named + (LIMIT_MOVE % move if move else ""))
     ready = ready_left(text, rows, session_id, cwd)
     if ready:
         return ("ready steps", READY_STEPS % (

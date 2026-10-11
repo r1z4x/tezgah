@@ -2096,6 +2096,10 @@ class TaskGate(TempHome):
         for reason in (phase_reason, scope_reason):
             self.assertNotIn("the user", reason, reason)
             self.assertNotIn("task-off", reason, reason)
+        # a target outside the repository gets no allow line: no glob reaches it
+        outside = self.write_path(os.path.join(self.home, "elsewhere.py"))
+        self.assertIn("outside this repository", outside)
+        self.assertNotIn("`tezgah-task allow '", outside)
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):

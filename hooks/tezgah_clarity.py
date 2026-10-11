@@ -4,7 +4,8 @@ Four rules are counted per file over docs/*.md and CHANGELOG.md: sentences over
 25 words, semicolons, a short list of words with a plainer replacement, and
 passive voice. Only English prose written for people is read: fenced code,
 code spans (including one broken across lines), link targets, HTML comments,
-tables, headings and any line holding a Turkish letter are blanked first, with
+tables, headings and any line holding another language's marker letter (a
+language pack's `markers.letters`, hooks/lang/) are blanked first, with
 their newlines kept so a hit still names its line.
 
 The counts are a ratchet, not a style gate: `docs/clarity-baseline.json` holds
@@ -18,6 +19,8 @@ import glob
 import json
 import os
 import re
+
+from tezgah_paths import packs
 
 RULES = ("long_sentences", "semicolons", "replace_words", "passive")
 LONG = 25
@@ -33,7 +36,8 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 LINK_TARGET = re.compile(r"\]\([^)]*\)|\]\[[^\]]*\]|<https?://[^>]*>|https?://\S+")
-TURKISH = re.compile(r"[ğĞışŞçÇöÖüÜİ]")
+OTHER_LANGUAGE = re.compile("[%s]" % "".join(
+    c for p in packs().values() for c in p["markers"]["letters"]))
 SKIP_LINE = re.compile(r"^\s*(?:#|\||\[[^\]]+\]:\s)")
 ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
 BASELINE = os.path.join("docs", "clarity-baseline.json")
@@ -58,7 +62,7 @@ def prose(text):
         out.append(SPAN.sub(lambda m: _blank(m, " CODE "), para))
     text = LINK_TARGET.sub(lambda m: "]" if m.group(0)[0] == "]" else "",
                            COMMENT.sub(_blank, "".join(out)))
-    return "\n".join("" if SKIP_LINE.match(line) or TURKISH.search(line) else line
+    return "\n".join("" if SKIP_LINE.match(line) or OTHER_LANGUAGE.search(line) else line
                      for line in text.split("\n"))
 
 

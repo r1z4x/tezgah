@@ -114,8 +114,8 @@ SEED = 55
 CUT_PROMPT, CUT_INPUT, CUT_REPLY = 1500, 2000, 3000
 STOP_CONTEXT = ("run", "edit", "verify", "verify_ok", "verify_fail",
                 "interrupted", "external")
-# A final reply's last line asking the user (`?`, or a Turkish question particle)
-QUESTION_END = re.compile(r"(?:\?|\bm[ıiuü][.!]?)$")
+# A final reply's last line asking the user (`?`, or a pack's question particle)
+QUESTION_END = re.compile(r"(?:\?|\b(?:%s)[.!]?)$" % tp.alts("question_end"))
 # How Claude writes a Stop hook's refusal back into the transcript: a user row,
 # but no user prompt, so no new turn.
 STOP_FEEDBACK = "Stop hook feedback:"

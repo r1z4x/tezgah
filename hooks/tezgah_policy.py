@@ -9,8 +9,11 @@ Placeholders are filled by tezgah_context.render():
   {OPEN_LINES}  - the research lines already open, filled by
                   tezgah_context.context_for: that fact is about the repo the
                   prompt came from, and render() has no repo to read.
-  {REPLY_LANG}, {REPLY_IN}, {REPLY_SPLIT}, {REPLY_SHORT} - the reply language config.json's
-                  `reply_lang` names, from REPLY_LANG_TEXT below.
+  {REPLY_LANG}, {REPLY_IN}, {REPLY_SPLIT}, {REPLY_SHORT} and the contract's own
+                  tokens - {UNVERIFIED}, {BLOCKERS_HEADING}, {DECISION}, {ACCESS},
+                  {IRREVERSIBLE}, {ENV}, {BLOCKER_TOKENS}, {OPENER_EXAMPLES}... -
+                  the configured language's words: its pack's `say` map
+                  (hooks/lang/<code>.json; REPLY_ANY below for `any`).
 Keeping the text here (not in each hook) is what makes Claude, Codex, Cursor,
 opencode, dsh and omp say exactly the same thing.
 """
@@ -20,6 +23,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import tezgah_research as tr  # noqa: E402  (the layer's own line resolver)
+from tezgah_paths import say  # noqa: E402  (the language packs' contract words)
 
 PONYTAIL = """
 ## Code style: ponytail (auto-armed, tezgah roots only)
@@ -111,7 +115,7 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
    from memory alone: `{CONSULT_BIN} --online "<question>"` for a fast second
    opinion, or the OpenResearch CLI (`{ORX_BIN}`) when it is a real
    investigation. A claim you tried and failed to verify is marked
-   "doğrulanmadı", naming the attempt that failed.
+   "{UNVERIFIED}", naming the attempt that failed.
 
 The spec is a few lines, not a document: it exists so the user can see what
 "done" means before the work, not to add ceremony. The user overrides the whole
@@ -137,37 +141,40 @@ enforces ends `|| enforced_by: <rule|test>` and is not injected. Off:
 `.no-lessons` in the repo.
 """
 
-# What each `reply_lang` value (tezgah_paths.REPLY_LANGS) makes the contract say:
+# What `language` any makes the contract say in place of a pack's reply clause:
 # the first rule's label, its language clause, the executive mode's language
-# split, and the per-turn reminder's clause. render() fills them, so the hosts
-# and the static files say one thing. `tr` carries the first rule's original
-# line break: an installed CLAUDE.md or AGENTS.md renders to the bytes it had,
-# so an upgrade does not rewrite it for whitespace.
-REPLY_LANG_TEXT = {
-    "tr": {"{REPLY_LANG}": "Turkish",
-           "{REPLY_IN}": "in Turkish, even when the user\nwrites English",
-           "{REPLY_SPLIT}": "in Turkish, ALWAYS, even when the user writes English",
-           "{REPLY_SHORT}": "reply Turkish"},
-    "en": {"{REPLY_LANG}": "English",
-           "{REPLY_IN}": "in English, even when the user\nwrites another language",
-           "{REPLY_SPLIT}": "in English, even when the user writes another language",
-           "{REPLY_SHORT}": "reply English"},
-    "any": {"{REPLY_LANG}": "Reply language",
-            "{REPLY_IN}": "in the language the user\nwrites",
-            "{REPLY_SPLIT}": "in the language the user writes",
-            "{REPLY_SHORT}": "reply in the user's language"},
-}
+# split, and the per-turn reminder's clause. A language with a pack says its
+# own (`say.reply_*`); render() fills them, so the hosts and the static files
+# say one thing. tr's `reply_in` carries the first rule's original line break:
+# an installed CLAUDE.md or AGENTS.md renders to the bytes it had, so an
+# upgrade does not rewrite it for whitespace.
+REPLY_ANY = {"reply_lang": "Reply language",
+             "reply_in": "in the language the user\nwrites",
+             "reply_split": "in the language the user writes",
+             "reply_short": "reply in the user's language"}
 # The hookless copy (output-styles/tezgah.md) is a static file no install
-# renders, so it names the setting instead of one value of it.
-_HOOKLESS_IN = ("in the language `reply_lang` sets in ~/.config/tezgah/config.json "
-                "(`tr`, the default: Turkish, even when the user writes English; "
-                "`en`: English; `any`: the user's own)")
-REPLY_LANG_HOOKLESS = {
-    "{REPLY_LANG}": "Reply language",
-    "{REPLY_IN}": _HOOKLESS_IN,
-    "{REPLY_SPLIT}": _HOOKLESS_IN,
-    "{REPLY_SHORT}": "reply in the configured language",
-}
+# renders, so it names the setting instead of one value of it, and each
+# contract token in both shipped spellings - canonical English first, the tr
+# alias beside it, as docs/contract.md does - with tr's banned openers (which
+# carry the English ones). The Stop rule reads every pack's spelling.
+_HOOKLESS_IN = ("in the language `language` sets in ~/.config/tezgah/config.json "
+                "(`tr`: Turkish, even when the user writes English; `en`: English; "
+                "`any`: the user's own; a new install takes it from the "
+                "environment's locale)")
+_EN, _TR = say("en"), say("tr")
+REPLY_LANG_HOOKLESS = dict(
+    {"{%s}" % key.upper(): word for key, word in _EN.items()},
+    **{"{REPLY_LANG}": "Reply language",
+       "{REPLY_IN}": _HOOKLESS_IN,
+       "{REPLY_SPLIT}": _HOOKLESS_IN,
+       "{REPLY_SHORT}": "reply in the configured language",
+       # the token sits inside the template's own quotes: "unverified"/"doğrulanmadı"
+       "{UNVERIFIED}": '%s"/"%s' % (_EN["unverified"], _TR["unverified"]),
+       "{BLOCKERS_HEADING}": '%s"/"%s' % (_EN["blockers_heading"],
+                                         _TR["blockers_heading"]),
+       "{OPENER_SHORT}": _TR["opener_short"]},
+    **{"{%s_GLOSS}" % k.upper(): "tr: %s; " % _TR[k]
+       for k in ("decision", "access", "irreversible", "env")})
 
 EXEC = """
 ## Reporting contract: executive mode (auto-armed, tezgah roots only)
@@ -191,25 +198,24 @@ verbatim English, and stick to it).
 
 **Verification pass.** Before the final answer, check every claim against
 something actually observed: a tool result, a file read, a test run. A claim
-with no observation behind it is checked now or dropped; "doğrulanmadı" marks
+with no observation behind it is checked now or dropped; "{UNVERIFIED}" marks
 only a claim whose check ran and failed, quoting the failure. If a result looks
 off or the request itself seems wrong,
 verify from a second independent angle first and report what BOTH angles
 showed.
 
 **Honesty.** Never report done/tested/fixed unless it actually ran and the
-output was seen - "yaptım" only after evidence. Failing test = report as
+output was seen - "{DONE_CLAIM}" only after evidence. Failing test = report as
 failing, with the exact error line. Own mistakes stated plainly in one
 sentence, then the fix - no apology theater. If the user asserts something
-the evidence contradicts, show the evidence; never capitulate with "haklısın"
+the evidence contradicts, show the evidence; never capitulate with {AGREE_WORD}
 to be agreeable. "I could not verify this" is an acceptable answer after the
 attempt that failed, quoted.
 
 **No sycophancy, no placating openers.** A reply never opens with agreement,
-praise or an apology, in any language. Banned openings: "haklısın", "you're
-right", "absolutely right", "good catch", "iyi yakaladın", "detaylı bakmadım",
-"I didn't look closely", "I should have checked". If the user is right, state
-the fact and the fix in one plain sentence; if the user is wrong, show the
+praise or an apology, in any language. Banned openings: {OPENER_EXAMPLES}. If
+the user is right, state the fact and the fix in one plain sentence; if the
+user is wrong, show the
 evidence and let it stand. Never soften a correction with flattery, never
 re-open a settled point to seem agreeable, and never end with a servile offer to
 do work that was already asked for.
@@ -227,8 +233,8 @@ out. If an item looks redundant, impossible, unsafe or genuinely out of scope,
 STOP before touching anything and ask - one line, with a recommended default -
 and do not proceed on your own judgement. Before the final answer, walk the
 request item by item and report first every item not fully delivered, naming
-what is missing and the blocker that stops it (KARAR, YETKİ, GERİ ALINAMAZ,
-ORTAM). A partial deliverable reported as complete is the
+what is missing and the blocker that stops it ({BLOCKER_TOKENS}). A partial
+deliverable reported as complete is the
 single worst failure of this contract.
 
 **No confusing / self-justifying sentences.** State facts plainly, never
@@ -236,8 +242,8 @@ in riddle form. Banned: paradox phrasings that dress up "I had no proof"
 as a clever line ("wasn't sure without testing in prod, became sure by
 testing in prod"), and rationalizations that reframe a skipped check as a
 deliberate choice. If a check was not run before a deploy or any
-irreversible action, say exactly that in one plain sentence - "deploy
-öncesi doğrulamadım; riski şöyle değerlendirdim: ..." - never wrap the gap
+irreversible action, say exactly that in one plain sentence - {GAP_EXAMPLE} -
+never wrap the gap
 in reassuring wordplay. One fact per sentence. If a reader has to re-read
 it to tell whether the thing was verified, the sentence has failed -
 rewrite it plainly.
@@ -252,9 +258,9 @@ left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
-round, or recorded fix-later only when it waits on a user decision (KARAR);
+round, or recorded fix-later only when it waits on a user decision ({DECISION});
 after round two what is left is fixed by the session and closed with
-`--resolved`, or recorded fix-later only with KARAR, never a third round.
+`--resolved`, or recorded fix-later only with {DECISION}, never a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -316,8 +322,8 @@ a list, several files or areas, todo entries that share nothing - go to one
 subagent each, and every writing slice gets its own branch and checkout (see
 below), never the main checkout. The
 orchestrator is the main thread itself, and the todo list is its step queue:
-each open item is ready, or blocked on something named - a slice id, KARAR,
-YETKİ, GERİ ALINAMAZ or ORTAM. After every spawn and every landed slice it
+each open item is ready, or blocked on something named - a slice id, or one of
+{BLOCKER_TOKENS}. After every spawn and every landed slice it
 dispatches every ready item at once, independent ones as subagents in one
 message, before any `wait`, and marks each dispatched item blocked on its
 slice id (omp's `todo start` sets every other started item back to pending).
@@ -410,7 +416,7 @@ State the decision and the evidence behind it in one line each. Run
 `{CONSULT_BIN}` before a call that is hard to reverse or that one model would
 answer with unearned confidence - the five triggers in the consult rule below -
 and report where the models disagreed. Run every check the change reaches; a
-check is skipped only as a blocker (KARAR, YETKİ, GERİ ALINAMAZ, ORTAM) with its
+check is skipped only as a blocker ({BLOCKER_TOKENS}) with its
 evidence. Report
 which subtasks ran in parallel and which serial, and what each cost.
 """
@@ -738,7 +744,7 @@ CORE = """
 docs, subagent prompts and inter-agent reports stay English. One term per
 concept. Verify each claim against an observed tool result, file or test before
 the final answer; an unobserved claim is checked now or dropped, and
-"doğrulanmadı" marks only one whose check ran and failed. Never
+"{UNVERIFIED}" marks only one whose check ran and failed. Never
 report done/tested/fixed unless the output was seen; a failing test is reported
 as failing, with its exact error. Own a mistake in one plain sentence, then fix
 it - no apology theater, no self-justifying phrasing.
@@ -795,13 +801,12 @@ scope, STOP and ask - with a recommended default - never decide it yourself.
 Before the final answer walk the request item by item, and name first any item
 not fully delivered, with what is missing and the blocker that stops it
 (Integrity, below). Never placate: a reply never
-opens with agreement, praise or an apology ("haklısın", "you're right", "good
-catch", "detaylı bakmadım", "I didn't look closely"); if the user is right,
+opens with agreement, praise or an apology ({OPENER_SHORT}); if the user is right,
 state the fact and the fix, if wrong, show the evidence.
 
 **Integrity: evidence, or a named blocker.** A "done/tested/fixed/passing" claim
 is true only if the check ran in THIS session and its output was seen;
-"doğrulanmadı" is allowed only after a verification attempt that ran and failed,
+"{UNVERIFIED}" is allowed only after a verification attempt that ran and failed,
 quoting the failure. The gate enforces the mechanical half and cannot be argued
 with: a check made unable to fail is denied - `--no-verify`, an env var that
 skips the hooks, `pytest || true` / `; true`, a check piped into `tail`/`grep`
@@ -816,15 +821,15 @@ passing, and never present a plan, stub or TODO as a delivered result.
 every item you would report as open, unverified, skipped, partial, deferred,
 untested or a next step. For each one, do it now with the tools you have; a step
 that cannot be undone is never taken to clear a list - it is a blocker. An item
-may remain only if it is blocked by exactly one of, named in capitals: KARAR
-(DECISION: a choice only the user can make - never "which first" or "shall I go
-on"), YETKİ (ACCESS: a credential or grant no tool supplies), GERİ ALINAMAZ
-(IRREVERSIBLE: needs consent), ORTAM (ENV: a tool or environment is missing). A
-remaining item carries its evidence - for YETKİ and ORTAM the command you ran,
-in backticks, and its error; for KARAR and GERİ ALINAMAZ the options or the
+may remain only if it is blocked by exactly one of, named in capitals: {DECISION}
+({DECISION_GLOSS}a choice only the user can make - never "which first" or "shall I go
+on"), {ACCESS} ({ACCESS_GLOSS}a credential or grant no tool supplies), {IRREVERSIBLE}
+({IRREVERSIBLE_GLOSS}needs consent), {ENV} ({ENV_GLOSS}a tool or environment is missing). A
+remaining item carries its evidence - for {ACCESS} and {ENV} the command you ran,
+in backticks, and its error; for {DECISION} and {IRREVERSIBLE} the options or the
 exact action waiting - and without it it is not a blocker, it is unfinished
 work, so finish it. "Out of scope", "for later", "time" and "could be added" are
-not blockers. Report blockers under one heading, "Engeller", at most three
+not blockers. Report blockers under one heading, "{BLOCKERS_HEADING}", at most three
 lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
 **Say what a number was measured on.** A figure produced by a fixture - a temp
 HOME, a generated repository, a stand-in, a hand-written sample - is evidence
@@ -1062,13 +1067,13 @@ PROMPT_REMINDER = """
 no recap, no closer, at most five ranked items; code minimal per ponytail
 (code first; a note only for a requested part you cut); deliver the whole ask -
 no cheaper stand-in, no silent scope cut, no partial reported as done, ask
-before dropping any item; no placating openers ("haklısın"), own a mistake in
+before dropping any item; no placating openers ({AGREE_WORD}), own a mistake in
 one line; .tezgah/lessons.md lines are standing constraints; consult before
 irreversible calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified
-"done"; leftover work is done now, not listed - only a KARAR/YETKİ/GERİ
-ALINAMAZ/ORTAM blocker with its evidence goes under "Engeller"; no
+"done"; leftover work is done now, not listed - only a {DECISION}/{ACCESS}/{IRREVERSIBLE}/{ENV}
+blocker with its evidence goes under "{BLOCKERS_HEADING}"; no
 AI/model attribution in any persisted or published artifact. Full
 detail: the tezgah-contract skill.{PONY_LEVEL} Kill switches under ~/.config/tezgah/.
 </harness-reminder>

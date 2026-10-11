@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import unittest
 import unittest.mock
 
@@ -234,6 +235,9 @@ class NoteSpawn(Journal):
             self.assertEqual((tm.down_families(), applied), (set(), []))
             self.call(True, "API Error: 429 rate_limit_error")
             self.assertEqual((tm.down_families(), applied), ({"anthropic"}, [1]))
+            # a 429 naming no reset is held minutes, not hours
+            held = tm.read_health()["down"]
+            self.assertLessEqual(held["anthropic"]["until"] - time.time(), tm.HEALTH_RATE)
             self.call(True, "API Error: 429 rate_limit_error")  # already held
             self.assertEqual(applied, [1])
             # omp: the transcript's provider names the family, not the model
@@ -241,6 +245,14 @@ class NoteSpawn(Journal):
                            {"errorMessage": "403 Key limit exceeded", "provider": "openrouter",
                             "model": "anthropic/claude-opus-5.5"})
             self.assertEqual(tm.down_families(), {"anthropic", "any"})
+            # a quota holds HEALTH_DOWN
+            self.assertGreater(tm.read_health()["down"]["any"]["until"] - time.time(),
+                               tm.HEALTH_DOWN - 60)
+            # a Claude subagent whose model names another vendor holds that one
+            tt.note_spawn(self.repo, "sess", "claude", "Agent",
+                          {"prompt": "glm work", "model": "glm-5.3-flash"}, failed=True,
+                          result_text="usage limit reached")
+            self.assertEqual(tm.down_families(), {"anthropic", "any", "zai"})
             # the push fails open: the close still lands
             with unittest.mock.patch.object(tm, "note_limit", side_effect=RuntimeError):
                 (rec,) = self.call(True, "quota exceeded")

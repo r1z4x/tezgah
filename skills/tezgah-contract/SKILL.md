@@ -229,8 +229,8 @@ a list, several files or areas, todo entries that share nothing - go to one
 subagent each, and every writing slice gets its own branch and checkout (see
 below), never the main checkout. The
 orchestrator is the main thread itself, and the todo list is its step queue:
-each open item is ready, or blocked on something named - a slice id, KARAR,
-YETKİ, GERİ ALINAMAZ or ORTAM. After every spawn and every landed slice it
+each open item is ready, or blocked on something named - a slice id, DECISION,
+ACCESS, IRREVERSIBLE or ENV. After every spawn and every landed slice it
 dispatches every ready item at once, independent ones as subagents in one
 message, before any `wait`, and marks each dispatched item blocked on its
 slice id (omp's `todo start` sets every other started item back to pending).
@@ -325,8 +325,8 @@ State the decision and the evidence behind it in one line each. Run
 `~/.config/tezgah/bin/consult` before a call that is hard to reverse or that
 one model would answer with unearned confidence - the five triggers in the
 consult rule below - and report where the models disagreed. Run every check the
-change reaches; a check is skipped only as a blocker (KARAR, YETKİ, GERİ
-ALINAMAZ, ORTAM) with its evidence. Report
+change reaches; a check is skipped only as a blocker (DECISION, ACCESS,
+IRREVERSIBLE, ENV) with its evidence. Report
 which subtasks ran in parallel and which serial, and what each cost.
 
 
@@ -423,7 +423,7 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
    from memory alone: `~/.config/tezgah/bin/consult --online "<question>"` for a
    fast second opinion, or the OpenResearch CLI (`orx` on PATH, else
    `~/.cargo/bin/orx`) when it is a real investigation. A claim you tried and
-   failed to verify is marked "doğrulanmadı", naming the attempt that failed.
+   failed to verify is marked "unverified", naming the attempt that failed.
 
 The spec is a few lines, not a document: it exists so the user can see what
 "done" means before the work, not to add ceremony. The user overrides the whole
@@ -458,11 +458,16 @@ win; a project's own rule file (a nested AGENTS.md or CLAUDE.md) still binds
 the subtree it sits in.
 
 **Language split.** Every user-facing reply - answers, findings, summaries,
-status lines, warnings - in the language `reply_lang` sets in
-`~/.config/tezgah/config.json`: `tr` (the default) is Turkish, even when the
-user writes English; `en` is English, even when the user writes another
-language; `any` is the language the user writes. The Stop rule judges the
-language only under `tr`.
+status lines, warnings - in the language `language` sets in
+`~/.config/tezgah/config.json` (an older config's `reply_lang` still reads):
+`tr` is Turkish, even when the user writes English; `en` is English, even when
+the user writes another language; `any` is the language the user writes. A
+first install takes it from the environment's locale (LANGUAGE, LC_ALL,
+LC_MESSAGES, LANG; `en` when that names no pack). The Stop rule judges the
+language only for a pack that ships reply markers (`tr`). The tokens below are
+named in their canonical English spelling; the injected contract names them in
+the configured language's spelling (tr: `doğrulanmadı`, "Engeller", KARAR,
+YETKİ, GERİ ALINAMAZ, ORTAM), and the Stop rule reads every shipped spelling.
 Everything operational or persisted stays English: code, comments, commit
 messages, branch names, file contents, docs, PR/issue text, subagent prompts,
 inter-agent reports. Technical terms, API names, CLI commands, error strings
@@ -477,7 +482,7 @@ verbatim English, and stick to it).
 
 **Verification pass.** Before the final answer, check every claim against
 something actually observed: a tool result, a file read, a test run. A claim
-with no observation behind it is checked now or dropped; "doğrulanmadı" marks
+with no observation behind it is checked now or dropped; "unverified" marks
 only a claim whose check ran and failed, quoting the failure. If a result looks
 off or the request itself seems wrong,
 verify from a second independent angle first and report what BOTH angles
@@ -487,14 +492,14 @@ showed.
 output was seen - "yaptım" only after evidence. Failing test = report as
 failing, with the exact error line. Own mistakes stated plainly in one
 sentence, then the fix - no apology theater. If the user asserts something
-the evidence contradicts, show the evidence; never capitulate with "haklısın"
+the evidence contradicts, show the evidence; never capitulate with "you're right"
 to be agreeable. "I could not verify this" is an acceptable answer after the
 attempt that failed, quoted.
 
 **No sycophancy, no placating openers.** A reply never opens with agreement,
-praise or an apology, in any language. Banned openings: "haklısın", "you're
-right", "absolutely right", "good catch", "iyi yakaladın", "detaylı bakmadım",
-"I didn't look closely", "I should have checked". If the user is right, state
+praise or an apology, in any language. Banned openings: "you're right",
+"absolutely right", "good catch", "I didn't look closely", "I should have
+checked", and their equivalents in the reply language. If the user is right, state
 the fact and the fix in one plain sentence; if the user is wrong, show the
 evidence and let it stand. Never soften a correction with flattery, never
 re-open a settled point to seem agreeable, and never end with a servile offer to
@@ -513,13 +518,13 @@ out. If an item looks redundant, impossible, unsafe or genuinely out of scope,
 STOP before touching anything and ask - one line, with a recommended default -
 and do not proceed on your own judgement. Before the final answer, walk the
 request item by item and report first every item not fully delivered, naming
-what is missing and the blocker that stops it (KARAR, YETKİ, GERİ ALINAMAZ,
-ORTAM). A partial deliverable reported as complete is the
+what is missing and the blocker that stops it (DECISION, ACCESS, IRREVERSIBLE,
+ENV). A partial deliverable reported as complete is the
 single worst failure of this contract.
 
 **Integrity: evidence, or a named blocker.** A "done/tested/fixed/passing" claim
 is true only if the check ran in THIS session and its output was seen;
-"doğrulanmadı" is allowed only after a verification attempt that ran and failed,
+"unverified" is allowed only after a verification attempt that ran and failed,
 quoting the failure. The gate enforces the mechanical half and cannot be argued
 with: a check made unable to fail is denied - `--no-verify`, an env var that
 skips the hooks, `pytest || true` / `; true`, a check piped into `tail`/`grep`
@@ -537,15 +542,15 @@ report section.** Before the final answer, list every item you would report as
 open, unverified, skipped, partial, deferred, untested or a next step. For each
 one, do it now with the tools you have; a step that cannot be undone is never
 taken to clear a list - it is a blocker. An item may remain only if it is
-blocked by exactly one of, named in capitals: KARAR (DECISION: a choice only the
-user can make - never "which first" or "shall I go on"), YETKİ (ACCESS: a
-credential or grant no tool supplies), GERİ ALINAMAZ (IRREVERSIBLE: needs
-consent), ORTAM (ENV: a tool or environment is missing). A remaining item
-carries its evidence - for YETKİ and ORTAM the command you ran, in backticks,
-and its error; for KARAR and GERİ ALINAMAZ the options or the exact action
+blocked by exactly one of, named in capitals: DECISION (a choice only the
+user can make - never "which first" or "shall I go on"), ACCESS (a
+credential or grant no tool supplies), IRREVERSIBLE (needs
+consent), ENV (a tool or environment is missing). A remaining item
+carries its evidence - for ACCESS and ENV the command you ran, in backticks,
+and its error; for DECISION and IRREVERSIBLE the options or the exact action
 waiting - and without it it is not a blocker, it is unfinished work, so finish
 it. "Out of scope", "for later", "time" and "could be added" are not blockers.
-Report blockers under one heading, "Engeller", at most three lines: item -
+Report blockers under one heading, "Blockers", at most three lines: item -
 blocker - evidence - what unblocks it. No blockers: no heading. Off:
 `verify-off`.
 
@@ -580,9 +585,10 @@ left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
-round, or recorded fix-later only when it waits on a user decision (KARAR);
-after round two what is left is fixed by the session and closed with
-`--resolved`, or recorded fix-later only with KARAR, never a third round.
+round, or recorded fix-later only when it waits on a user decision (DECISION,
+tr: KARAR); after round two what is left is fixed by the session and closed
+with `--resolved`, or recorded fix-later only with DECISION (tr: KARAR), never
+a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -618,8 +624,8 @@ a fixture. There round one becomes a population:
    for a confirmed critical or major claim carries its failing-first test, and
    round two reads that fix's delta, the round-one hunks and the direct callers
    of what it touches. After round two what is left is fixed by the session and
-   closed with `--resolved`, or recorded fix-later only with KARAR, never a
-   third round.
+   closed with `--resolved`, or recorded fix-later only with DECISION (tr:
+   KARAR), never a third round.
 
 Status: a tentative default, measured on two changes. E1
 (an internal prove-verify experiment): directed reviewers found 3 of 3 ground-truth defects,

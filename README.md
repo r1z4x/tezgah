@@ -120,9 +120,12 @@ it set out to arm is not armed.
   turns it off.
 - **orx.** The install fetches the OpenResearch CLI that research tasks route
   through; `TEZGAH_NO_DEPS=1` skips it.
-- **Reply language.** Replies are Turkish by default and the Stop rule holds
-  them to it. `--reply-lang en` asks for English, and `any` for your own
-  language; neither is checked: `curl -fsSL … | sh -s -- --reply-lang en`.
+- **Reply language.** A first install asks for replies in your locale's
+  language (`LANG` and friends) when tezgah ships a pack for it (`tr`, `en`),
+  else English; an existing install keeps its language. `--language en` asks
+  for English and `any` for your own language: `curl -fsSL … | sh -s --
+  --reply-lang en` (the installer's older spelling of `--language`). Only
+  Turkish replies are checked by the Stop rule.
 
 Rather let your coding assistant do it? Paste this into omp, Claude Code,
 Codex, Cursor or opencode:

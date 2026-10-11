@@ -1422,7 +1422,8 @@ class CodexGlobalRules(SetupBase):
         text = self.read_text(rules)
         self.assertIn("keep this line", text)
         self.assertIn("<!-- tezgah:start", text)
-        self.assertIn("**Turkish, BLUF.**", text)
+        # the first label names the language the install took from LANG (C: en)
+        self.assertIn("**English, BLUF.**", text)
         # a second install replaces the block rather than stacking another
         self.setup("--install", "--hosts", "codex")
         self.assertEqual(self.read_text(rules).count("<!-- tezgah:start"), 1)
@@ -1463,7 +1464,7 @@ class ClaudeGlobalRules(SetupBase):
         first = self.read_text(self.rules())
         self.assertIn("keep this line", first)
         self.assertIn("<!-- tezgah:start", first)
-        self.assertIn("**Turkish, BLUF.**", first)
+        self.assertIn("**English, BLUF.**", first)
         # a second install replaces the block rather than stacking another, and
         # leaves the file byte-identical
         self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
@@ -1973,7 +1974,7 @@ class ContractParity(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             skill = fh.read()
         # the blocks are a template; the skill writes the placeholders out, and
-        # names the reply_lang setting where a render names one of its values
+        # names the `language` setting where a render names one of its values
         text = contract_blocks().replace("{ROOT}", "the configured tezgah roots")
         for key, words in policy.REPLY_LANG_HOOKLESS.items():
             text = text.replace(key, words)
@@ -1981,7 +1982,7 @@ class ContractParity(unittest.TestCase):
         self.assertEqual([], missing,
                          "these rules exist in the policy blocks but not in the "
                          "skill: %s" % missing)
-        self.assertIn("`reply_lang`", skill)
+        self.assertIn("`language`", skill)
 
     def test_the_cost_report_measures_the_shipped_skill(self):
         # the joined constant drifted from the skill and still drove the

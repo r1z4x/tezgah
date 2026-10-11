@@ -1,0 +1,279 @@
+{
+ "name": "English",
+ "done": [
+  "done|complete[d]?|finished|implemented|fixed|shipped|landed|merged|wired up|wired into|all tests? pass|all checks? pass|(?:tests?|checks?|suite) (?:is |are )?(?:green|passing)|build (?:passes|is green)"
+ ],
+ "verified": [
+  "tested|verified|i ran|ran the (?:tests?|suite|build|lint|checks?)"
+ ],
+ "negated": [
+  "unverified|not verified|could ?n[o']t verify|verification (?:was )?skipped"
+ ],
+ "admitted": [
+  "contradict|unsatisfiable|(?:can ?not|can't|can ?never|never) pass|impossible"
+ ],
+ "sycophant": {
+  "interjection": [
+   "yes|ah|oh|hmm"
+  ],
+  "opener": [
+   "you'?re (?:absolutely )?right|you are right|absolutely right|good catch|great catch|i didn'?t look closely|i should have checked|my mistake|my bad|sorry, i|great question|let me\\b|i['’]ll\\b|sure[!,.]|looking at your\\b"
+  ]
+ },
+ "closer": [
+  "let me know if you need anything else|hope (?:this|that) helps|happy to clarify"
+ ],
+ "next_action": [
+  "next (?:step|action|up)|next:"
+ ],
+ "preamble": [
+  "here(?:'s| is| are)\\b|below\\b|the following\\b"
+ ],
+ "markers": {
+  "letters": [],
+  "words": []
+ },
+ "negation_before": [
+  "\\bnot|n't|\\bnever"
+ ],
+ "question_particle": [],
+ "question_end": [],
+ "clause_join": [
+  "so|and|but"
+ ],
+ "external_state": [
+  "missing|absent|unpublished|exists?|not (?:published|released|found|there|listed|present)|published|released|deprecated|outdated|stale"
+ ],
+ "external_ci_state": [
+  "green|red|passing|passes|passed|failing|fails|failed|behind|flaky"
+ ],
+ "publish_state": [
+  "missing|absent|unpublished|exists?|published|released"
+ ],
+ "residual_label": [
+  "open (?:items?|issues?|questions?|points?|work)|remaining\\b|what(?:'s| is) left|left to do|pending\\b|outstanding\\b|not (?:done|verified|tested|run|checked|covered|looked at)|unverified|untested|unresolved|still open|could(?:n't| not) (?:verify|check|run)|unable to|unchecked|to[ -]?do(?=\\s*(?:\\(|$))|next\\s+(?:steps?|up|actions?)\\b|next(?=\\s*(?:\\(|$))|out of scope|follow[- ]?ups?\\b|deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|manual (?:verification|checks?|testing)|blockers?\\b|partially"
+ ],
+ "residual_first": [],
+ "label_done": [
+  "resolved|addressed|closed"
+ ],
+ "partial": [
+  "partially"
+ ],
+ "nothing_left": [
+  "\\bnone|\\bnothing"
+ ],
+ "nothing_lead": [
+  "no|none|nothing"
+ ],
+ "empty_item": [
+  "none|nothing|n/a"
+ ],
+ "blockers": {
+  "decision": {
+   "pattern": "DECISION"
+  },
+  "irreversible": {
+   "pattern": "IRREVERSIBLE"
+  },
+  "access": {
+   "pattern": "ACCESS"
+  },
+  "env": {
+   "pattern": "ENV(?:IRONMENTS?)?"
+  },
+  "said_not": [
+   "not\\b|none\\b|isn"
+  ],
+  "tried_not": [],
+  "absent": []
+ },
+ "blocker_labels": [
+  "blocker"
+ ],
+ "blockers_only": [
+  "blockers?"
+ ],
+ "env_error": [
+  "not found|no such|cannot find|can'?t find|could not find|does(?:n'?t| not) exist|no module named|ModuleNotFound|not installed|not available|unavailable|missing|not set|ENOENT|\\b12[67]\\b|quota|limit exceeded|rate.?limit|\\b429\\b"
+ ],
+ "access_error": [
+  "permission denied|access denied|not permitted|EACCES|\\b40[13]\\b|quota|limit exceeded|rate.?limit|\\b429\\b"
+ ],
+ "spawn_words": [
+  "sub-?agent|\\bagent|provider|\\bmodel|spawn"
+ ],
+ "was_exclude": [],
+ "was": [],
+ "now": [],
+ "future": [],
+ "word_order": "verb_first",
+ "ui_objects": [
+  "components?|ui|ux|css|layout|styles?|tokens?|themes?|buttons?|cards?|icons?|labels?|elements?|widgets?|containers?|headers?|footers?|sidebars?|toolbars?|navbars?|nav|menu|modals?|dialogs?|dropdowns?|popovers?|tooltips?|badges?|avatars?|spinners?|skeletons?|inputs?|fields?|forms?|headings?|images?|logos?|grids?|panels?|columns?|screens?|pages?|views?|dashboards?|viewport|tables?|app"
+ ],
+ "ui_quality": [
+  "look\\w*|feels?\\w*|seems?\\w*|renders?\\w*"
+ ],
+ "hints": {
+  "spec": [
+   "normal (user )?behaviou?r|clean ui|nicer|more intuitive|un?professional|polish(ed)?|improve the (ui|ux)|make it (better|usable|look)|look(s)? better",
+   "refactor\\w* (the |this |our )?(\\w+ ){0,2}(components?|ui|ux|css|layout|screens?|pages?|styles?|theme|forms?|fields?|inputs?|views?|widgets?|buttons?|modals?|dialogs?)|ui|ux|css|tailwind|layout|responsive|hover|focus[- ](?:state|ring|outline|visible|indicator|style)|spacing|typography|component\\w*|dark mode|dark theme|light theme",
+   {
+    "ui_ask": "theme\\w*"
+   },
+   "animations?|accessib\\w*|wireframe|mockup|align[- ]?(?:items|self|content)|text-align|alignment\\w*|misalign\\w*|padding",
+   {
+    "ui_ask": "cent(er|re)\\w*"
+   },
+   {
+    "ui_ask": "margins?"
+   },
+   "gutter\\w*|line-?height|letter-?spacing|drop-?shadow|box-?shadow|border-?radius|corner radius|fonts?[- ](?:size|family|weight|face|stack|scale)\\w*|type ?scale|colou?r[- ](?:role|scheme|palette|token|contrast)|palette|cards?[- ](?:component\\w*|layout|grid|list|view|title|body|footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|popovers?|accordions?|tooltips?|toasts?|avatars?",
+   {
+    "ui_ask": "badges?"
+   },
+   "breadcrumbs?",
+   {
+    "ui_ask": "pagination"
+   },
+   "tab ?bar|steppers?|spinners?",
+   {
+    "ui_ask": "skeletons?"
+   },
+   "disabled\\w*|pressed|active state|selected state|empty state|breakpoints?\\w*|viewport|media quer\\w*|design (system|token|guide|library|language)\\w*|style guides?|wcag\\w*|a11y|aria-?\\w*|screen readers?|tab order|keyboard naviga\\w*|contrast (ratio|level|check|issue)|screenshots?|visual (review|regression|diff|check)|redesign\\w*|revamp\\w*|restyle\\w*|makeover",
+   {
+    "ui_ask": "cluttered"
+   },
+   "outdated|cohesive"
+  ],
+  "consult": [
+   "architect(ure|ural)|root cause|migrat(e|ion)|deploy|security|trade-?off|which approach|design decision|irreversible|rollback|schema change|re-?architect\\w*|restructur\\w*|rewrite\\w*|(refactor\\w*|rewrite\\w*) (the |this |our )?(\\w+ ){0,2}(module|subsystem|service|system|layer|engine|architecture|data ?model|code ?base|ingest\\w*)|breaking change\\w*|backwards?[- ]incompatib\\w*|api version\\w*|version(ing)? the api|backfill\\w*|revert\\w*|rollback|performance budget|perf budget|latency budget|hot ?path|threat model\\w*|security review\\w*|cve\\b|concurren\\w*|race condition\\w*|deadlock\\w*|capacit\\w* (plan|budget|test|limit)\\w*|scal(e|ing) (plan|strategy|limit|test)\\w*|load test\\w*|adrs?\\b|architecture decision record\\w*|design doc\\w*|rollout"
+  ],
+  "research": [
+   "research|literature|hypothes(is|es)|experiment(al)?|ablation|hyperparameter|benchmark|survey|paper|dataset|compar\\w*|(a/?b|ab) tests?|user interview\\w*|root[ -]?cause (analys|investigat)\\w*|reference review|lit(erature)?[ -]review|evaluat(e|ing) (whether|the (librar|technique|approach|tool|option|alternative))|measure(?! how (?:long|fast|much time)| the (?:time|duration|latency|speed|runtime))\\w*|post[ -]?mortem|error budget|incident (review|report)|is (this|that|it) (actually )?(true|right)|does (this|that) (claim )?hold"
+  ],
+  "product": [
+   "product(?!ion|ivity|ive)\\w*|feature(?!s?[ -](?:flags?|toggles?|gates?|branch\\w*))\\w*|roadmap|backlog|prd|north star|jtbd|retention|churn|onboarding|cohort|funnel|conversion rate|pricing|prioriti[sz]\\w*|user research|user interview\\w*|ab test|a/b test|activations?\\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|roadmaps?|priorit(y|ies)|adoption|conversion (rate|funnel|drop\\w*)|packaging|monetiz\\w*|price\\w*|tier(?!s?[ -]lists?)\\w*|positioning|value proposition|\\bicp\\b|ideal customer profile|persona\\w*|segment(?!(?:ation)?[ -]faults?)\\w*|(customer|user|product|problem) discovery|opportunity (tree|solution|space|score)|\\bnps\\b|net promoter|\\bcsat\\b|satisfaction|(customer|user)[ -]?feedback\\w*|support ticket\\w*|competitor\\w*|competitive (analysis|landscape|teardown|benchmark)\\w*|wizard|crud|form (validation|field|error|label)|data table|step flow|search (dropdown|box)|form validation|user management|(admin|users?) (panel|screen|page|list)",
+   {
+    "ui_ask": "(?:admin|users?) table"
+   }
+  ],
+  "graph": [
+   "who calls|callers?|call sites?|who uses|what breaks|blast radius|where is|where's|definition of|who invokes|impact (analysis|assessment|of (changing|renaming|removing|deleting|editing))|change impact|ripple effect|(who|what|anything)( else)? (depends on|uses)|dependents? of|dependenc(y|ies) (graph|direction|inversion|cycle)|layer (violation|boundar\\w*|direction)|layering|who imports|which (files|modules) import|call (graph|chain|path|tree|hierarchy)|transitive callers?|callers? of|usages? of|find usages|references? to|is \\w+ (still )?(used|referenced|called)|never called|dead code|unused (code|function|method|module|export|class|variable|import|param\\w*)|unreachable code|orphan(ed)? (module|file|code)|circular (import|dependenc\\w*)|(import|dependenc\\w*) cycle|cycle (between|detection)|(code|app|program|service|main|server|cli|boot) entry ?points?|boot (path|sequence|order)|startup (path|sequence|order)|how is (this|it|\\w+) wired|wired up|rename\\w*"
+  ]
+ },
+ "fan_verbs": [
+  "fix|add|update|write|remove|delete|rename|move|refactor|document|bump|create|implement|migrate|replace"
+ ],
+ "fan_join": [
+  "and"
+ ],
+ "fan_ordinals": [
+  "first(?:ly)?",
+  "second(?:ly)?"
+ ],
+ "fan_directives": [
+  "in parallel|sub-?agent\\w*|worktrees?|fan[- ]?out|orchestrat\\w*"
+ ],
+ "data_ask": [
+  "(?:design|create|make|build|sketch|propose|need|want)\\w* (?:\\w+ ){0,4}(?:dashboard|charts?|visuali[sz]ation)|(?:metri[ck]s?|kpis?|data|sales|revenue) (?:\\w+ ){0,2}dashboard|(?:what|which) (?:\\w+ ){0,3}(?:metri[ck]s|kpis|charts?) (?:\\w+ ){0,3}(?:should|to|do|matter|would)|what should (?:\\w+ ){0,3}dashboard show|(?:choose|pick|define|track|design)(?:s|ing)? (?:\\w+ ){0,3}(?:metri[ck]s|kpis)|(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\\w+ ){0,2}(?:track|measure|use|watch)|success metrics?|(?:suggest|recommend)\\w* (?:\\w+ ){0,3}charts?|visuali[sz]\\w* (?:\\w+ ){0,3}(?:data|numbers)|data visuali[sz]ation"
+ ],
+ "code_sense": [
+  "\\w\\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\\b|\\b\\w+_\\w+\\b|/metrics\\b|\\bselect\\b.{0,200}?\\bfrom\\b",
+  "\\b(?:tables?|columns?|schema|sql|queries|query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|handlers?|structs?|endpoints?|exporters?|export\\w*|servers?|librar\\w*|packages?|modules?|database|index\\w*|middleware|debugger|data (?:structure|flow)s?|clipboard|spinner|threads?|commit|git|functions?|class|component|prop|hooks?|prometheus|grafana|kibana|statsd|opentelemetry|config\\w*|provision\\w*|api|routes?|snake_case)\\b"
+ ],
+ "constraint": {
+  "dont": [
+   "(?:do not|don'?t|never)\\s+(?:touch|modify|edit|change|delete|remove|rename|push|commit|merge|deploy|publish|release)\\s+(?:(?:the|any|my|this|that|to|a|an)\\s+)?[`\\\"“]?(?P<obj>[\\w~@/-](?:[\\w./@~-]*[\\w@~/-])?)"
+  ],
+  "ask": [
+   "ask\\s+(?:me\\s+)?(?:first\\s+)?before\\s+(?P<ask>\\w+)"
+  ]
+ },
+ "needle_stop": [
+  "while",
+  "in",
+  "on",
+  "at",
+  "without",
+  "until",
+  "unless",
+  "and",
+  "or",
+  "for",
+  "to",
+  "with",
+  "before",
+  "after",
+  "from",
+  "into",
+  "of",
+  "but"
+ ],
+ "rank_stopwords": [
+  "the",
+  "and",
+  "that",
+  "this",
+  "with",
+  "for",
+  "from",
+  "are",
+  "was",
+  "were",
+  "not",
+  "but",
+  "its",
+  "into",
+  "than",
+  "then",
+  "they",
+  "them",
+  "their",
+  "have",
+  "has",
+  "had",
+  "will",
+  "would",
+  "can",
+  "could",
+  "should",
+  "you",
+  "your",
+  "what",
+  "when",
+  "which",
+  "who",
+  "how",
+  "all",
+  "any",
+  "out"
+ ],
+ "fold": [],
+ "say": {
+  "unverified": "unverified",
+  "reply_lang": "English",
+  "reply_in": "in English, even when the user\nwrites another language",
+  "reply_split": "in English, even when the user writes another language",
+  "reply_short": "reply English",
+  "gap_example": "\"I did not verify this before the deploy; this is how I weighed the risk: ...\"",
+  "blocker_tokens": "DECISION, ACCESS, IRREVERSIBLE, ENV",
+  "agree_word": "\"you're right\"",
+  "opener_short": "\"you're right\", \"good catch\", \"I didn't look closely\"",
+  "decision_gloss": "",
+  "access_gloss": "",
+  "irreversible_gloss": "",
+  "env_gloss": "",
+  "blockers_heading": "Blockers",
+  "decision": "DECISION",
+  "access": "ACCESS",
+  "irreversible": "IRREVERSIBLE",
+  "env": "ENV",
+  "done_claim": "done",
+  "opener_examples": "\"you're right\", \"absolutely right\", \"good catch\", \"I didn't look closely\", \"I should have checked\"",
+  "opener_ban": "never \"you're right\" / \"I didn't look closely\" / an apology",
+  "residual_lead": "",
+  "slice_lead": "",
+  "ready_lead": ""
+ }
+}

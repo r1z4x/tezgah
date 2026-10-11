@@ -3947,18 +3947,38 @@ class ResidualWork(unittest.TestCase):
                  "fail_class": ti.fail_class("403 Key limit exceeded (total limit)")}
         quota = ("Engeller:\n- review alt ajanı (openrouter) — YETKİ — "
                  "`403 Key limit exceeded (total limit)`")
+        env = "Engeller:\n- review subagent — ORTAM — openrouter quota exhausted"
+        gh = {"kind": "run", "exit": 1, "detail": "gh api repos/x " + ti.FAILED_MARK}
+        github = "Engeller:\n- release notes — YETKİ — `gh api repos/x`: 403 rate limit exceeded"
+
+        def routing(policy, funded):
+            return (mock.patch.object(tm, "funded_families", return_value=funded),
+                    mock.patch.object(tm, "omp_mode", return_value="anthropic"),
+                    mock.patch.object(tm.tp, "fallback_policy", return_value=policy))
         with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
-            with mock.patch.object(tm, "funded_families", return_value=["any", "zai"]):
+            a, b, c = routing("any", ["any", "zai"])
+            with a, b, c:
                 self.assertTrue(self.left(quota, [self.EDIT, spawn]))
-            # only the family the item names is funded: the YETKİ holds
-            with mock.patch.object(tm, "funded_families", return_value=["any"]):
-                self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
-            # a 403 that is no limit is a grant, whatever else is funded
-            denied = "Engeller:\n- deploy — YETKİ — `gh release create`: 403 Forbidden"
-            gh = {"kind": "run", "exit": 1,
-                  "detail": "gh release create " + ti.FAILED_MARK}
-            with mock.patch.object(tm, "funded_families", return_value=["any", "zai"]):
+                # ORTAM is held to the same move
+                self.assertTrue(self.left(env, [self.EDIT, spawn]))
+                # the refusal names where the work can move
+                reason = ti._residual_block(quota, [self.EDIT, spawn], True)[1]
+                self.assertIn("the work can move to zai - re-dispatch the slice there", reason)
+                # a GitHub rate limit is no model provider's: the YETKİ holds
+                self.assertEqual(self.left(github, [self.EDIT, gh]), [])
+                # a 403 that is no limit is a grant, whatever else is funded
+                denied = "Engeller:\n- deploy — YETKİ — `gh api repos/x`: 403 Forbidden"
                 self.assertEqual(self.left(denied, [self.EDIT, gh]), [])
+            # only the family the item names is funded: the YETKİ holds
+            a, b, c = routing("any", ["any"])
+            with a, b, c:
+                self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
+            # `vendor` lets an Anthropic chain fall back to OpenRouter only, never
+            # to zai; `none` to nothing: the YETKİ holds under both
+            for policy in ("vendor", "none"):
+                a, b, c = routing(policy, ["any", "zai"])
+                with a, b, c:
+                    self.assertEqual(self.left(quota, [self.EDIT, spawn]), [], policy)
 
     def test_s4_a_grep_after_another_command_is_a_failure(self):
         # review F5: the line's exit is the last command's only when grep runs

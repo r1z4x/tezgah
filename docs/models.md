@@ -92,9 +92,14 @@ Measured 2026-10-11: zai answered `429 Weekly/Monthly Limit Exhausted. Your limi
 will reset at 2026-10-12 02:02:35`, so it stays out of the chain until then.
 A subagent slice that stops on a quota or rate limit pushes the same record at
 once (`hooks/tezgah_models.py::note_limit`). Its close calls it
-(`hooks/tezgah_task.py::close_slice`). omp's transcript names the provider, and
-a Claude subagent runs on Anthropic. The family is held until the answer's reset,
-and omp's chain is re-applied, so the session's next spawn leaves it.
+(`hooks/tezgah_task.py::close_slice`). omp's transcript names the provider. A
+Claude subagent runs on Anthropic unless its model names another vendor. A
+quota is held until the answer's reset, else six hours. A rate limit is held
+until its reset or retry-after, else ten minutes. Then the push re-applies omp's
+chain. The mode's own family stays first in every chain, so a hold moves
+only the fallbacks after it. Both writers re-read the record under a lock
+before they write (`hooks/tezgah_models.py::_health_locked`), so neither drops
+the other's hold.
 
 ## What is not routed yet
 
