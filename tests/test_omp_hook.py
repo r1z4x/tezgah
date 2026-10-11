@@ -438,12 +438,18 @@ class OmpHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Evidence tampered", out["reason"])
 
-    def test_stop_clears_on_an_honest_unverified_claim(self):
+    def test_stop_clears_on_an_admission_after_a_failed_check(self):
+        # plan 080: a check whose outcome omp never reported is no failed one,
+        # so the admission alone is refused; a check that ran and failed carries it
         repo = self.make_repo()
-        self.event({"event": "post_tool_use", "cwd": repo, "session_id": "s",
-                    "tool": "bash", "input": {"command": "pytest -q"}})
-        out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "s",
-                             "last_assistant_message": "Fixed; doğrulanmadı."})
+        call = {"event": "post_tool_use", "cwd": repo, "session_id": "s",
+                "tool": "bash", "input": {"command": "pytest -q"}}
+        stop = {"event": "stop", "cwd": repo, "session_id": "s",
+                "last_assistant_message": "Fixed; doğrulanmadı."}
+        self.event(call)
+        self.assertEqual(self.event(stop)[0].get("decision"), "block")
+        self.event(dict(call, failed=True))
+        out, _ = self.event(dict(stop, last_assistant_message="Fixed; pytest -q düşüyor, doğrulanmadı."))
         self.assertIsNone(out)
 
     def test_the_reply_after_a_block_is_never_blocked_again(self):

@@ -280,10 +280,19 @@ VERIFIED = re.compile(
 # The DONE forms that say a check passed ("all tests pass", "testler yeşil"):
 # such a claim rests on a pass even when the turn only edited prose.
 TESTED_WORD = re.compile(r"test|check|suite", re.I)
-# an explicit admission that removes the lie: an unverified claim is allowed
+# An explicit admission that the work is unverified. Until plan 080 the word
+# alone cleared every claim branch, so writing it was cheaper than verifying;
+# it now clears only a class whose repair is a check (ADMITTED_CLASSES), and
+# only when a check ran and failed after the turn's newest change
+# (`_failed_since_change`, applied by `_admitted`).
 NEGATED = re.compile(
     r"doğrulanmadı|doğrulamadım|unverified|not verified|could ?n[o']t verify|"
     r"verification (?:was )?skipped|kontrol edilmedi|test edilmedi", re.I)
+ADMITTED_CLASSES = frozenset(("check failed", "partial failure", "stale evidence",
+                              "no verify_ok"))
+# What the evidence classes tell the model the admission takes, in one place.
+ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and failed '
+             'since the newest change, with its error line quoted')
 # Rule 10 of skills/i-have-adhd/SKILL.md - "No preamble, no recap, no closer" -
 # names the forms a reply may neither open nor close on. Each alternative below
 # is quoted from that rule's own lines; none is invented:
@@ -900,8 +909,9 @@ DAMAGE_KIND = "ledger_damage"
 TAMPERED = (
     "Evidence tampered: a line of this session's evidence ledger is not a row "
     "(recorded as `ledger_damage`), so the ledger cannot carry a done or tested "
-    "claim this turn. Say what is unverified (\"doğrulanmadı\") and tell the "
-    "user the ledger was damaged; the ledger is theirs to inspect.")
+    "claim this turn, nor the failed check an admission rests on. Drop the "
+    "claim, say what is unverified and tell the user the ledger was damaged; "
+    "the ledger is theirs to inspect.")
 # The damaged lines this process already recorded, so a reader that parses the
 # same tail on every gated call scans the file for the row once, not each time.
 _DAMAGE_SEEN = set()
@@ -4106,8 +4116,8 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
     `detail` carries the reason class - `blocked: no verify_ok`, `blocked: check
     failed`, `blocked: partial failure`, `blocked: stale evidence`, `blocked: no
     ui_ok` (both halves of the UI rule: the screen proof and the design-contract
-    floor), `blocked: no external read`, `blocked: evidence tampered`, the shape
-    classes in SHAPE_BLOCKS, or
+    floor), `blocked: no external read`, `blocked: evidence tampered`,
+    `blocked: residual work` (plan 080), the shape classes in SHAPE_BLOCKS, or
     `ok` - so which branch refused a turn is readable; a `no verify_ok` row also
     carries `cause` (`_no_pass_cause`). One row per reply per turn: an identical
     row for the same key is skipped.
@@ -4405,13 +4415,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     passed before the newest write that changed the tree, or a turn that
     recorded a step and has no passing check - that last half is the
     evidence-shaped trigger, so the same unfounded state stated as a plain
-    description is refused too. An explicit 'doğrulanmadı' clears the claim
-    branches, so honest uncertainty is always allowed.
+    description is refused too. An explicit 'doğrulanmadı' clears a class whose
+    repair is a check, and only after a check that ran and failed since the
+    newest change (`_admitted`, plan 080): the word alone ended every turn.
 
     The shape is judged before any evidence is read: it is a rule about how the
     reply is written, so it holds for a turn with no work in it too, has no
-    repair that depends on the ledger, and is not cleared by the admission
-    below - "doğrulanmadı" excuses an unverified claim, not a sign-off.
+    repair that depends on the ledger, and is not cleared by the admission -
+    "doğrulanmadı" excuses an unverified claim, not a sign-off.
 
     Branch order is the reason classes' contract: a new branch goes after the
     ones it overlaps, so it cannot swallow their class - the partial-failure
@@ -4427,12 +4438,18 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     above it carries the one exemption - an advice-only turn is exactly the
     shape that stated both of the claims this class was written for.
 
+    `residual work` (plan 080) is asked after all of them, at every exit that
+    would end the turn (`_residual_block`): a turn that did work and ends on a
+    list of what is left, with an item no blocker accounts for. It never takes
+    a turn another class refused.
+
     "Evidence tampered" is the first evidence class: a `ledger_damage` row in
     the turn (`_parse`) means a line of the ledger is not a row, and no fold
     over it can carry a claim - corrupting a `verify_fail` row would otherwise
     turn `check failed` into an allow. It sits after the shape check (a rule
-    about the reply, not the ledger) and after NEGATED: an admission that the
-    work is unverified claims nothing the damage could carry.
+    about the reply, not the ledger) and before the admission, which since plan
+    080 rests on the ledger's own rows and so cannot clear a ledger that cannot
+    carry them.
 
     `rows` is this turn's own rows, read once by `stop_reason`: the fold is
     scoped the way `_partial_state`'s already was, and the Stop path still reads
@@ -4455,19 +4472,19 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # the raw vocabulary, not `claims`: what a damaged ledger could carry is any
     # claim word, an admitted conflict included (plan 067 leaves verdicts alone)
     done, verified = bool(DONE.search(t)), bool(VERIFIED.search(t))
-    if NEGATED.search(t):
-        return (None, None)
     rows = events(session_id) if rows is None else rows
     if (done or verified) and any(r.get("kind") == DAMAGE_KIND for r in rows):
         return ("evidence tampered", TAMPERED)
     if (done or verified) and any(r.get(ORPHAN) for r in rows):
         return ("evidence tampered", ORPHANED)
+    fold = _admitted(fold, t)
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state
     # stated as a description ("the parser is wired up now"), which is what E2
     # measured at 0 refused of 10 replies. A turn that recorded a step - an edit,
     # a command, a check - and never saw a check pass is refused whatever it
-    # says, and the reply's own "doğrulanmadı" (above) is the only exemption.
+    # says; the reply's own "doğrulanmadı" clears it only after a check that ran
+    # and failed since the newest change (`_admitted`, above).
     # `run`/`verify_fail` are steps here for the same reason: work the turn did
     # and left unverified is exactly the state this refuses.
     # `interrupted` too: the call was stopped, so the turn did that much work and
@@ -4505,9 +4522,10 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # shape that used to leave such a claim unjudged.
     external = _external_claim(t)
     if not worked and not (done or verified) and not external:
-        return (None, None)
+        return _residual_block(t, rows, shape)
     if lost:
-        return fold(rows, worked | {BEGAN_KIND}, external)
+        return _residual_block(t, rows, shape,
+                               fold(rows, worked | {BEGAN_KIND}, external))
     # Two shapes the turn's own rows cannot judge, so they are judged against
     # the session's (the contract says "no successful check recorded in the
     # session"). Read only for these two, so every other turn still pays for
@@ -4530,7 +4548,8 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
             # the turn fold below, which asks for a fresh check.
             srows = events(session_id)
             if not external and _settled(srows):
-                return fold(_before_turn(srows), True, None, "this session")
+                return _residual_block(t, rows, shape, fold(
+                    _before_turn(srows), True, None, "this session"))
         elif not worked and (done or verified):
             # A claim in a turn that did nothing: "Tamamlandı, tüm testler
             # geçti" after a turn that edited and ended "doğrulanmadı" was
@@ -4541,7 +4560,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 "this session")
             if refused[0]:
                 return refused
-    return fold(rows, worked, external)
+    return _residual_block(t, rows, shape, fold(rows, worked, external))
 
 
 def _before_turn(rows):
@@ -4588,15 +4607,16 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "an earlier green run does not cover it. Report that failure "
                 "with its exact error line, or fix it and re-run the check; do "
                 "not describe a partial result as done. If you are deliberately "
-                "stopping on the failure, say what is still broken and mark the "
-                "claim \"doğrulanmadı\"."
+                "stopping on the failure, say what is still broken; %s."
                 % (_failed_check(rows),
-                   "after %s's edits" % where if state["edited"] else "in " + where))
+                   "after %s's edits" % where if state["edited"] else "in " + where,
+                   ADMISSION))
     # A passing check licenses the claim only when it is newer than the newest
     # write the gate saw change the tree: a green run over the previous revision
     # is not evidence about this one, and the ledger already carries both sides
-    # (the check's position, and `changed` on the write). The escape is the
-    # reply's own "doğrulanmadı", which returns above. The pass has to be one
+    # (the check's position, and `changed` on the write). The admission is the
+    # reply's own "doğrulanmadı" after a check that failed since that write
+    # (`_admitted`). The pass has to be one
     # run in the newest change's own repository (`_last_pass`'s `repo`).
     last_change = _last_change(rows)
     last_pass = _last_pass(rows, _change_repo(rows, last_change))
@@ -4621,8 +4641,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "its output, or read the rendered screen (`analyze-app`: the "
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
-                "what a person sees; if you are stopping short, mark the "
-                "claim \"doğrulanmadı\"." % (where, shown or "a UI file"))
+                "what a person sees, and \"doğrulanmadı\" does not stand in for "
+                "the screen; if nothing can render it here, name it under "
+                "\"Engeller\" as ORTAM with the command that failed."
+                % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
         # screenshot or a rendered check says what the thing looks like and
@@ -4644,7 +4666,8 @@ def _evidence_block(rows, worked, external, where="this turn"):
                     "(`tezgah-design derive` writes the contract when the repo "
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
-                    "violation it prints, or mark the claim \"doğrulanmadı\"."
+                    "violation it prints; if the check cannot run here, name it "
+                    "under \"Engeller\" as ORTAM with the command that failed."
                     % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,
     # so a UI turn whose UI work is proven is not asked for a check it already
@@ -4672,10 +4695,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "written, so it verified an earlier revision of the tree than the "
                 "one this reply is about. Re-run the smallest check that covers "
                 "the files written since (their own tests, not the whole suite) "
-                "and report its output, or mark the claim \"doğrulanmadı\". "
+                "and report its output; %s. "
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
-                   "was" if len(names) <= 1 else "were"))
+                   "was" if len(names) <= 1 else "were", ADMISSION))
     elif worked and _last_pass(rows) > last_change:
         # a pass newer than the change exists, only in another repository: the
         # class stays (ledger continuity), the text names the real reason
@@ -4683,10 +4706,10 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "%s changed %s, and the check that passed after it ran in "
                 "another repository (%s), so it says nothing about this one. "
                 "Run the check in the repository you changed and report its "
-                "output, or mark the claim \"doğrulanmadı\"."
+                "output; %s."
                 % (where.capitalize(), _change_repo(rows, last_change),
                    rows[max(i for i, r in enumerate(rows)
-                            if passing_check(r))].get("repo")))
+                            if passing_check(r))].get("repo"), ADMISSION))
     elif worked:
         return ("no verify_ok",
                 "%s did work (edits or commands) and no check ran "
@@ -4694,10 +4717,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "real result and an unmasked command), so nothing here supports "
                 "calling it done, complete or verified. Run the smallest check "
                 "that proves the change (the tests of what changed, not the "
-                "whole suite) and report its output, or mark the claim "
-                "\"doğrulanmadı\". Do not "
+                "whole suite) and report its output; %s. Do not "
                 "describe a check you did not run as if it ran."
-                % where.capitalize())
+                % (where.capitalize(), ADMISSION))
     # Last, so none of the classes above loses its turn to it: every shape this
     # one refuses is a shape the fold was about to allow. That is the whole
     # ordering rule of this function - the branch is asked only where the answer
@@ -4708,9 +4730,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "and no read of that system ran in %s. Only the system "
                 "itself knows: a local client's cache, a stale checkout and a "
                 "memory of what used to be published all answer this wrongly. Run "
-                "the read and report its output - %s - or mark the claim "
-                "\"doğrulanmadı\"." % (cut(external.strip(), 80), where,
-                                       _external_command(external)))
+                "the read and report its output - %s; a read that fails is an "
+                "answer too, quote it." % (cut(external.strip(), 80), where,
+                                          _external_command(external)))
     return (None, None)
 
 
@@ -4886,6 +4908,248 @@ def _external_read_row(rows):
     return -1
 
 
+def _failed_since_change(rows):
+    """True when a check ran and failed after the newest write that changed the
+    tree (`_last_change`): the attempt the admission rests on. A failure before
+    that write is about the tree the write replaced."""
+    return any(r.get("kind") == "verify_fail" for r in rows[_last_change(rows) + 1:])
+
+
+def _admitted(fold, text):
+    """`fold` with the admission applied (plan 080): a verdict in
+    ADMITTED_CLASSES is cleared when the reply admits the work is unverified
+    (NEGATED) and the rows that fold judged hold a check that failed since
+    their newest change. Wrapped around whichever fold the selector was given,
+    so the live rule and the temporal spec read the admission the same way.
+    The screen, design and external classes are not among them: a failed unit
+    check is no attempt at the screen, and a read that failed already answers
+    the external class (`_external_read_row`)."""
+    if not NEGATED.search(text):
+        return fold
+
+    def admitted(rows, *args, **kwargs):
+        verdict = fold(rows, *args, **kwargs)
+        if verdict[0] in ADMITTED_CLASSES and _failed_since_change(rows):
+            return (None, None)
+        return verdict
+    return admitted
+
+
+# The eleventh Stop class, `residual work` (plan 080): a turn that did work and
+# ends on a list of what is left - "Açık kalanlar", "Doğrulanmadı:", "Sıradaki
+# adım" - instead of doing it. Before the class, 503 of 1876 final replies in
+# the owner's omp and Claude transcripts carried such a label at a line start,
+# 467 of them in a turn that called a non-read tool: a section that reported
+# the work was the cheapest end of a turn. An item may stay only as one of four
+# blockers, named by a capitalised token: KARAR or GERİ ALINAMAZ (a choice or a
+# consent, which no ledger row can prove), or YETKİ or ORTAM (an access or an
+# environment the turn tried, so the item quotes the command that failed in
+# it). Asked only in a turn that did work - a spec, an answer or a plan
+# proposal lists assumptions, non-goals and next steps as its content - and
+# only at an exit that would end the turn, so it never takes a turn another
+# class refused. Labels the other rules ask for stay out of the list: a spec's
+# assumptions and alternatives, a measurement's limits ("Ölçüm sınırı"), risks
+# and recommendations. ponytail: a word list read at line starts, not a reader
+# of what an item means - a doable item typed KARAR passes, which the question
+# endings `tezgah-gate replay` counts are there to watch.
+RESIDUAL_LABEL = re.compile(
+    r"(?:açık (?:kalan|iş|madde|nokta|soru)|kalan(?:lar\b|\s+(?:iş|tek|madde))|"
+    r"eksik(?!siz)|yapılama|yapılma(?:yan|dı)|bakılma|bitme(?:yen|di)|"
+    r"tamamlanma|kısmen|doğrulan(?:a)?ma|test edilme|çalıştırılma|koşulma|"
+    r"dokunulma|sonraki adım|sıradaki|sırada\b|kapsam dışı|atlan(?:an|dı)|"
+    r"ertelen|bilinen (?:hata|sınırlama|sorun)|teknik borç|ileride|"
+    r"gelecek (?:iş|çalışma)|önerilen (?:iyileştirme|adım)|manuel doğrulama|"
+    r"elle doğrula|etkilenebilecek|regresyon riski|engel|erişilemeyen|"
+    r"fix-?later|open (?:items?|issues?|questions?|points?|work)|remaining|"
+    r"left to do|not (?:done|verified|tested|run|checked|covered)|unverified|"
+    r"untested|next(?:\s+steps?|\s+up)?\b|out of scope|follow[- ]?ups?|"
+    r"deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|"
+    r"future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|"
+    r"manual (?:verification|checks?|testing)|blockers?\b|partially)")
+# A label that says nothing is left is no list of what is left, and an item that
+# is only that word is no item ("Engeller: yok"); a "yok" inside an item is
+# content ("playwright yok") and is judged like the rest.
+NOTHING_LEFT = re.compile(r"\byok\b|\bnone\b|\bnothing\b|^no\b|\bhiç\b")
+EMPTY_ITEM = re.compile(r"\W*(?:yok|none|nothing|n/a)?\W*", re.I)
+# The four blocker types, as the capitalised token the contract names them by:
+# "bu karar senin" in prose is not a type. The first pair needs no ledger row;
+# the second names an attempt, so its item quotes the command that failed.
+BLOCKER_SAID = re.compile(r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)\b")
+BLOCKER_TRIED = re.compile(r"\b(?:YETK[İI]|ACCESS|ORTAM|ENV)\b")
+LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
+CODE_SPAN = re.compile(r"`([^`\n]+)`")
+FENCED_BODY = re.compile(r"^\s*(?:```|~~~)[^\n]*\n(.*?)^\s*(?:```|~~~)", re.M | re.S)
+RESIDUAL_WORK = (
+    "Bu maddeleri şimdi yap veya engel türü ve kanıtla yaz. The reply lists "
+    "work that is left (%s) at the end of a turn that did work. Do each item "
+    "now with the tools you have; a step that cannot be undone (a push, a "
+    "merge, a delete, a release) is never taken to clear this list - it is "
+    "GERİ ALINAMAZ, and you ask. An item may stay only as one of four "
+    "blockers, named in capitals: KARAR (a choice only the user can make - "
+    "never \"which first\" or \"shall I go on\"), YETKİ (a credential or grant "
+    "no tool supplies), GERİ ALINAMAZ (needs consent), ORTAM (a tool or "
+    "environment is missing); YETKİ and ORTAM quote, in backticks, the command "
+    "that failed in this turn and its error. \"Out of scope\", \"later\", "
+    "\"time\" and \"could be added\" are not blockers. Report what is left under "
+    "one heading, \"Engeller\", at most three lines: item - blocker - evidence "
+    "- what unblocks it.")
+
+
+def _tr_lower(text):
+    """`text` lowercased the Turkish way (I -> ı, İ -> i): `str.lower` reads
+    "DOĞRULANMADI" as "doğrulanmadi" and "İleride" with a combining dot."""
+    return text.replace("I", "ı").replace("İ", "i").lower()
+
+
+def _label(line):
+    """(label, rest) when `line` opens with a label - a markdown heading, a bold
+    lead, or at most six words before a colon - after an optional list marker,
+    else None. `rest` is what follows the label on its line."""
+    s = line.strip()
+    marker = LIST_MARK.match(s)
+    if marker:
+        s = s[marker.end():]
+    m = re.match(r"#{1,6}\s+(.+)$", s)
+    if m:
+        return m.group(1).strip(" *_:"), ""
+    m = re.match(r"(\*\*|__)(.+?)\1(.*)$", s)
+    if m:
+        return (m.group(2).strip().rstrip(":").strip(),
+                m.group(3).strip().lstrip(":").strip())
+    head, colon, rest = s.partition(":")
+    if colon and head.strip() and len(head.split()) <= 6 and "`" not in head:
+        return head.strip(), rest.strip()
+    return None
+
+
+def _residual(label):
+    """True when `label` names work that is left: it opens with a
+    RESIDUAL_LABEL form (TODO only in capitals, the marker), claims nothing done
+    and does not say nothing is left."""
+    if label.startswith("TODO"):
+        return True
+    for low in (_tr_lower(label), label.lower()):
+        if (RESIDUAL_LABEL.match(low) and not any(asserted_claims(low))
+                and not NOTHING_LEFT.search(low)):
+            return True
+    return False
+
+
+def _indent(line):
+    return len(line) - len(line.lstrip())
+
+
+def _sections(text):
+    """[(label, intro, items)] for every residual section, outside fences and
+    tables. A list item that opens with the label holds itself alone - its rest
+    and its deeper lines. Any other label line holds its rest and the lines
+    under it, up to the next heading, the next label at its depth, or prose
+    after a blank line: their list entries are the items (the rest is then an
+    intro), else everything is one item. A fenced block belongs to the item it
+    follows."""
+    lines = str(text or "").split("\n")
+    out, i, inside = [], 0, False
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if FENCE.match(line):
+            inside = not inside
+            continue
+        found = None if inside or TABLE_ROW.match(line) else _label(line)
+        if not found or not _residual(found[0]):
+            continue
+        label, rest = found
+        depth, own = _indent(line), bool(LIST_MARK.match(line))
+        body, blank, fenced = [], False, False
+        while i < len(lines):
+            nxt = lines[i]
+            if FENCE.match(nxt):
+                fenced = not fenced
+            elif not fenced:
+                if not nxt.strip():
+                    blank = True
+                    i += 1
+                    continue
+                deeper = _indent(nxt) > depth
+                if own and not deeper:
+                    break
+                if not deeper and (HEADING.match(nxt) or (
+                        not LIST_MARK.match(nxt) and (blank or _label(nxt)))):
+                    break
+            body.append(nxt)
+            i += 1
+        entries, top = [], min((_indent(b) for b in body if LIST_MARK.match(b)),
+                               default=None)
+        for b in body:
+            if top is not None and LIST_MARK.match(b) and _indent(b) == top:
+                entries.append(b[LIST_MARK.match(b).end():])
+            elif entries:
+                entries[-1] += "\n" + b
+        if entries and not own:
+            out.append((label, rest, entries))
+        else:
+            out.append((label, "", ["\n".join([rest] + body).strip()]))
+    return out
+
+
+def residual_sections(text):
+    """[(label, items)] for every residual section of a reply (`_sections`):
+    what the Stop rule's `residual work` class and the replay's per-turn count
+    both read."""
+    return [(label, items) for label, _intro, items in _sections(text)]
+
+
+def _quotes_failure(item, failed):
+    """True when a code span or a fenced line of `item` names a command that
+    failed: the span inside the failed command line, or that line inside it."""
+    spans = CODE_SPAN.findall(item) + [
+        ln for body in FENCED_BODY.findall(item) for ln in body.split("\n")]
+    for span in (s.strip() for s in spans):
+        if len(span) >= 3 and any(span in cmd or (len(cmd) >= 3 and cmd in span)
+                                  for cmd in failed):
+            return True
+    return False
+
+
+def unblocked_items(text, rows):
+    """[(label, item)] for every residual item no blocker accounts for: one that
+    names no blocker type, or YETKİ/ORTAM with no quoted command that failed in
+    `rows` (a row with exit 1, or a `verify_fail`). A type named in the label or
+    the intro covers the items under it; an item that says nothing is left is
+    none."""
+    failed = [str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
+              for r in rows if r.get("exit") == 1 or r.get("kind") == "verify_fail"]
+    out = []
+    for label, intro, items in _sections(text):
+        for item in items:
+            if EMPTY_ITEM.fullmatch(item):
+                continue
+            said = " ".join((label, intro, item))
+            if BLOCKER_SAID.search(said):
+                continue
+            if BLOCKER_TRIED.search(said) and _quotes_failure(item, failed):
+                continue
+            out.append((label, item))
+    return out
+
+
+def _residual_block(text, rows, shape, verdict=(None, None)):
+    """`verdict` when it refuses; else, in a turn that did work (a STEP_KINDS
+    row), the `residual work` class when `unblocked_items` names one; else
+    `verdict`. Not asked for a subagent's end (`shape` false) or a nested
+    session: both replies are read by code, not by the user (`_shape_block`)."""
+    if verdict[0] or not shape or os.environ.get("TEZGAH_NESTED"):
+        return verdict
+    if not any(str(r.get("kind")) in STEP_KINDS for r in rows):
+        return verdict
+    left = unblocked_items(text, rows)
+    if not left:
+        return verdict
+    named = "; ".join("%s: %s" % (label, cut(" ".join(item.split()), 48))
+                      for label, item in left[:3])
+    return ("residual work", RESIDUAL_WORK % named)
+
+
 # The workspaces a probe or a benchmark runs in rather than a user: the temp
 # trees (/tmp, macOS's /var/folders), an OpenResearch run copy (`local-runs/`)
 # and the arm-bench instrument's run tree. tezgah's own cache is the fourth,
@@ -4961,8 +5225,8 @@ ORPHANED = (
     "Evidence tampered: a passing check in this turn has no `began` row from the "
     "gate before it (counted as an orphan), so it was written outside the hooks "
     "or the rows of its call were removed, and the ledger cannot carry a done or "
-    "tested claim this turn. Run the check again through the tool, or say what "
-    "is unverified (\"doğrulanmadı\"); the ledger is the user's to inspect.")
+    "tested claim this turn. Run the check again through the tool, or drop the "
+    "claim and say what is unverified; the ledger is the user's to inspect.")
 BEGAN_ROW = re.compile(r'"kind"\s*:\s*"%s"' % BEGAN_KIND)
 UNLOCKED_ROW = re.compile(r'"%s"\s*:\s*1\b' % UNLOCKED)
 # How many rows before a `turn_rows` slice seed `_pair`'s waiting `began` rows:

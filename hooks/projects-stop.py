@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Claude Code Stop / SubagentStop hook: refuse to end a turn on a false claim.
 
-Blocks (decision: "block") when the final message opens by placating, or claims
+Blocks (decision: "block") when the final message opens by placating, claims
 done/tested/passing in a session whose newest turn changed code and left a check
-failing or unproven by a later pass. An explicit "doğrulanmadı" always clears
-it, so honest uncertainty is never punished. With `stop_hook_active` set - the
+failing or unproven by a later pass, or ends a turn that did work on a list of
+what is left with an item no blocker accounts for (`residual work`). An explicit
+"doğrulanmadı" clears only a claim whose repair is a check, and only after a
+check that ran and failed since the newest change: the word alone used to clear
+every refusal, so writing it was cheaper than verifying (plan 080). With
+`stop_hook_active` set - the
 reply after a block - the reply is judged in record-only mode (an `after_block`
 row) and never blocked again, and Claude Code overrides the hook after its own
 consecutive-block cap, so this can never trap a session. A subagent's end

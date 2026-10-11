@@ -90,7 +90,11 @@ class AfterBlock(TempHome):
 
     def test_an_honest_reply_after_a_block_records_its_verdict(self):
         self.stop("claude", active=False)
-        self.stop("claude", text="Done, ama testler doğrulanmadı.")
+        # plan 080: the admission rests on a check that ran and failed
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "pytest -q"}, "failed": True}, env=self.envv)
+        self.stop("claude", text="Done, ama testler doğrulanmadı: pytest -q düşüyor.")
         self.assertEqual([r["detail"] for r in self.rows("after_block")], ["ok"])
 
     def test_a_reply_with_no_claim_still_leaves_its_row(self):
@@ -142,7 +146,8 @@ class AfterBlock(TempHome):
         self.assertEqual(self.stop("claude", active=False).get("decision"),
                          "block")
         self.stop("claude", text="Done. Testler doğrulanmadı.")
-        self.assertEqual([r["detail"] for r in self.rows("after_block")], ["ok"])
+        self.assertEqual([r["detail"] for r in self.rows("after_block")],
+                         ["would block: no verify_ok"])
 
     def test_verify_off_records_nothing(self):
         self.stop("claude", active=False)
@@ -180,10 +185,11 @@ class AfterBlock(TempHome):
         counts = self.counters()
         self.assertEqual((counts["claims"], counts["false_completion"],
                           counts["refusals"]), (0, 0, 1))
-        # a refusal is a block this rule made, so the reply after it is answered
+        # a refusal is a block this rule made, so the reply after it is answered;
+        # the admission with no failed check would still refuse (plan 080)
         self.stop("claude", text="Parser yazıldı; testler doğrulanmadı.")
         self.assertEqual([r["detail"] for r in self.rows("after_block")],
-                         ["no claim"])
+                         ["would block: no verify_ok"])
 
     def test_a_check_with_no_outcome_is_cause_outcome_unread(self):
         self.session = "s-unread"

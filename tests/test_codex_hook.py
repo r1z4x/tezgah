@@ -463,9 +463,12 @@ class CodexStopGate(TempHome):
         self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 1})
         self.assertEqual(self.stop("Done. Tests pass.").get("decision"), "block")
 
-    def test_explicit_unverified_admission_passes(self):
+    def test_an_admission_rests_on_a_check_that_failed(self):
+        # plan 080: the word alone no longer ends a turn that did work
         self.worked()
-        self.assertNotIn("decision", self.stop("Yaptım ama doğrulanmadı."))
+        self.assertEqual(self.stop("Yaptım ama doğrulanmadı.").get("decision"), "block")
+        self.post("exec_command", {"command": "pytest -q"}, {"exit_code": 1})
+        self.assertNotIn("decision", self.stop("Yaptım; pytest -q düşüyor, doğrulanmadı."))
 
     def test_stop_names_the_turn_s_changed_files(self):
         # `systemMessage` is the one Stop surface in tezgah that shows text

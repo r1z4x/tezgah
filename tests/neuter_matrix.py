@@ -27,14 +27,16 @@ anchor, is the address because one rule repeats the same `_deny` line (task four
 times, shortcut and attribution three).
 
 The Stop half is generated the same way: one `stop-<class>` mutant per `return
-("<class>", ...)` site of `_stop_block`, `_shape_block` and `_evidence_block`
-(the functions `stop_triggers` reads; `_stop_block` returns one class itself,
-`evidence tampered`), turned into `pass`, so the turn falls through to the branches below it. A class
+("<class>", ...)` site of `_stop_block`, `_shape_block`, `_evidence_block` and
+`_residual_block` (the functions `stop_triggers` reads; `_stop_block` returns
+one class itself, `evidence tampered`), turned into `pass`, so the turn falls
+through to the branches below it. A class
 returned at two sites (`no ui_ok`, `no verify_ok`) gets a mutant per site. The
 guards around those classes - the pass predicate, the empty-run read, the
-"doğrulanmadı" clear, the lost call, the bookkeeping and session fallbacks, the
-refusal row - are hand-written rows below. ponytail: the hand-written rows cover
-a guard only once a row names it."""
+"doğrulanmadı" clear and the failed check and classes it rests on, the lost
+call, the bookkeeping and session fallbacks, the refusal row, the residual
+class's work scope and its blocker types - are hand-written rows below.
+ponytail: the hand-written rows cover a guard only once a row names it."""
 import ast
 import concurrent.futures
 import importlib.machinery
@@ -53,7 +55,7 @@ MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
            "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
            "test_omp_hook.py", "test_stop_after_block.py")
 # the functions whose `return ("<class>", ...)` sites are the Stop classes
-STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block")
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block", "_residual_block")
 
 
 def anchored(anchor, replacement):
@@ -130,9 +132,30 @@ MUTANTS = (
               "    return True\n"),
      "a pass whose status a pipe or a later command owns"),
     ("negated", INTEGRITY,
-     anchored("    if NEGATED.search(t):\n        return (None, None)\n",
-              "    if False and NEGATED.search(t):\n        return (None, None)\n"),
-     "the \"doğrulanmadı\" clear of the claim branches"),
+     anchored("        if verdict[0] in ADMITTED_CLASSES and _failed_since_change(rows):\n",
+              "        if False and verdict[0] in ADMITTED_CLASSES:\n"),
+     "the \"doğrulanmadı\" clear of the check-repair classes"),
+    ("admission-needs-a-failure", INTEGRITY,
+     anchored("        if verdict[0] in ADMITTED_CLASSES and _failed_since_change(rows):\n",
+              "        if verdict[0] in ADMITTED_CLASSES:\n"),
+     "the admission resting on a check that failed since the newest change"),
+    ("admission-classes", INTEGRITY,
+     anchored("        if verdict[0] in ADMITTED_CLASSES and _failed_since_change(rows):\n",
+              "        if verdict[0] and _failed_since_change(rows):\n"),
+     "the admission clearing only the classes whose repair is a check"),
+    ("residual-scope", INTEGRITY,
+     anchored("    if not any(str(r.get(\"kind\")) in STEP_KINDS for r in rows):\n"
+              "        return verdict\n",
+              "    if False:\n        return verdict\n"),
+     "the residual class asked only of a turn that did work"),
+    ("residual-said", INTEGRITY,
+     anchored("            if BLOCKER_SAID.search(said):\n",
+              "            if False and BLOCKER_SAID.search(said):\n"),
+     "a KARAR or GERİ ALINAMAZ item kept as a blocker"),
+    ("residual-tried", INTEGRITY,
+     anchored("            if BLOCKER_TRIED.search(said) and _quotes_failure(item, failed):\n",
+              "            if BLOCKER_TRIED.search(said):\n"),
+     "a YETKİ or ORTAM item quoting the command that failed"),
     ("lost-began", INTEGRITY,
      anchored("    if lost:\n", "    if False and lost:\n"),
      "a claim resting on a check whose result never arrived"),
