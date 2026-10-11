@@ -402,7 +402,8 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    consent leaves no row to check. The other is a capitalised YETKİ or ORTAM token together with a
    quote of a command that failed in the turn, in backticks or a fenced line. The quote is the
    attempt and the error the request asks for, and the token is its type. Neither counts alone:
-   "Doğrulanmadı: `pytest` ..." with no type is still refused, and so is "ORTAM" with no quote. A
+   "Doğrulanmadı: `pytest` ..." with no type is still refused, and so is "ORTAM" with no quote.
+   "YETKİ yok" is the type, not its negation; only "değil" negates it. A
    fragment of a command does not count. A type in the heading covers the items under it, and
    "Engeller: yok" holds no item. The refusal opens with "Bu maddeleri şimdi yap veya engel türü ve
    kanıtla yaz." It also says that a step that cannot be undone never clears the list.

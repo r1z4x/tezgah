@@ -292,8 +292,9 @@ ADMITTED_CLASSES = frozenset(("check failed", "partial failure", "stale evidence
                               "no verify_ok"))
 # What the evidence classes tell the model the admission takes, in one place.
 ADMISSION = ('"doğrulanmadı" ends the turn only after a check that ran and failed '
-             'since the newest change; quote its error line, and if you list it, '
-             'type it YETKİ or ORTAM')
+             'since the newest change; quote its error line. A failing check of '
+             'your own code is work to fix, not a blocker: list it under '
+             '"Engeller" only when it truly is YETKİ or ORTAM, typed so')
 # Rule 10 of skills/i-have-adhd/SKILL.md - "No preamble, no recap, no closer" -
 # names the forms a reply may neither open nor close on. Each alternative below
 # is quoted from that rule's own lines; none is invented:
@@ -4652,8 +4653,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "accessibility/DOM tree, a screenshot at the widths in scope) "
                 "and say what it showed. A green unit suite does not cover "
                 "what a person sees, and \"doğrulanmadı\" does not stand in for "
-                "the screen; if nothing can render it here, name it under "
-                "\"Engeller\" as ORTAM with the command that failed."
+                "the screen; if nothing can render it here, write "
+                "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM with "
+                "the command that failed."
                 % (where, shown or "a UI file"))
     if ui_write >= 0:
         # The floor, asked of a component turn on top of the screen proof: a
@@ -4676,8 +4678,9 @@ def _evidence_block(rows, worked, external, where="this turn"):
                     "(`tezgah-design derive` writes the contract when the repo "
                     "has none; the measurement is the per-component styles and "
                     "states the analyze-app loop produces) and report every "
-                    "violation it prints; if the check cannot run here, name it "
-                    "under \"Engeller\" as ORTAM with the command that failed."
+                    "violation it prints; if the check cannot run here, write "
+                    "\"doğrulanmadı\" and name it under \"Engeller\" as ORTAM "
+                    "with the command that failed."
                     % (where, shown or "a component file"))
     # A screen proof stands where a unit pass stands for the rest of this fold,
     # so a UI turn whose UI work is proven is not asked for a check it already
@@ -4992,9 +4995,10 @@ def _admitted(fold, text):
 # 467 of them in a turn that called a non-read tool: a section that reported
 # the work was the cheapest end of a turn. An item stays only when something
 # accounts for it: a KARAR or GERİ ALINAMAZ token (a choice or a consent, which
-# no ledger row can prove), or a quote of a command that failed in the turn -
-# the attempt and its error the request asks for, which is also what a YETKİ or
-# ORTAM blocker and an honest "Doğrulanmadı: `pytest` ..." carry. Asked only in
+# no ledger row can prove), or a YETKİ or ORTAM token together with a quote of a
+# command that failed in the turn - the type, and the attempt and its error the
+# request asks for; either alone keeps nothing, so an untyped "Doğrulanmadı:
+# `pytest` ..." is refused like any other item. Asked only in
 # a turn that did work - a spec, an answer or a plan proposal lists
 # assumptions, non-goals and next steps as its content - and only at an exit
 # that would end the turn, so it never takes a turn another class refused.
@@ -5059,7 +5063,11 @@ EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
 BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))"
 BLOCKER_SAID = re.compile(
     r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
-BLOCKER_TRIED = re.compile(r"\b(?:YETK[İI]|ACCESS|ORTAM|ENV)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
+# After YETKİ/ORTAM, "yok" and "not" describe the blocker ("YETKİ yok", "ENV not
+# set"), so only "değil" negates them; the Turkish suffix is read on the
+# Turkish stems only, so ACCESSIBILITY or ENVELOPE is no type.
+BLOCKER_TRIED = re.compile(r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|"
+                           r"\bACCESS|\bENV(?:IRONMENT)?)\b(?!\s+değil\b)")
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
