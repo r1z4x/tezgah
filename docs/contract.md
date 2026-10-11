@@ -436,8 +436,8 @@ old 12000 B budget it lost its lessons and sibling checkouts to pay for core
 rules, so the budget moved to 13000 B. The residual rule (plan 080) added
 1473 B to the core and 151 B to the reminder, so the always-on band is
 11972 B (`tests/test_setup.py`). At 13000 B the healthy fixture gave up its
-lessons, plans and steer blocks, and the busiest prompt turn its active-task
-line, so the session budgets moved to 14500 B and the prompt budget to 6500 B.
+lessons, plans and steer blocks. At 6000 B the busiest prompt turn gave up its
+active-task line. The session budgets moved to 14500 B, the prompt budget to 6500 B.
 The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A
