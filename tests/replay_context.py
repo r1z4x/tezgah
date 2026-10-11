@@ -188,7 +188,9 @@ def main(argv):
     args = ap.parse_args(argv)
     # the current repository by default, as `tezgah-taste mine`: another
     # project's sessions are read only when asked (`--all-projects`)
-    here = taste().repo_root(os.getcwd()) or os.getcwd()
+    t = taste()
+    here = (t.tezgah_paths.linked_main(os.getcwd()) or t.repo_root(os.getcwd())
+            or os.getcwd())
     sessions = mine(args.host, args.root or (None if args.all_projects else here))
     if not sessions:
         print("replay_context: no session with a prompt", file=sys.stderr)

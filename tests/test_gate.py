@@ -1056,7 +1056,8 @@ class Gate(TempHome):
         reason = self.decide("Edit", {"file_path": target, "old_string": "a",
                                       "new_string": "b"}, session_id="mine")
         self.assertIsNotNone(reason)
-        self.assertIn("other", reason)    # names the other session
+        # names the other session by its relation and its ledger id
+        self.assertIn("another, unrelated session %s" % ti._slug("other"), reason)
         self.assertIn(target, reason)     # and the file
         self.assertIn("Re-read", reason)  # and what to do about it
 
@@ -1141,6 +1142,22 @@ class Gate(TempHome):
         self.assertIn("unrelated session", self.decide("Edit", edit,
                                                        session_id="else") or "")
 
+    def test_a_child_that_wrote_after_its_record_closed_is_live(self):
+        # review of S7 (F4): a closed record is no proof the child stopped
+        # writing - a write newer than the close is a live writer
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("kid2", "spawned", "mine2", agent="Late")
+        tt.open_slice(self.repo, "Late", host="claude", parent="mine2", brief="b")
+        rec = tt.close_slice(self.repo, "Late", "stopped", "quota")
+        rec["updated"] = "2026-01-01T00:00:00Z"
+        tt._write_record(self.repo, rec)
+        self.seed_write("kid2", target)
+        self.assertIn("your own subagent Late", self.decide("Edit", edit,
+                                                            session_id="mine2") or "")
+
     def test_a_fork_is_named_as_one_in_the_refusal(self):
         # finding 4: the bare ledger id read as "a second window of this session"
         target = os.path.join(self.repo, "src", "a.py")
@@ -1172,6 +1189,34 @@ class Gate(TempHome):
         self.assertIsNone(tg.cross_project_note("xp", "Read", {"path": there}, self.repo))
         self.assertIsNotNone(tg.cross_project_note(
             "xp", "Bash", {"command": "echo x > %s" % os.path.join(self.repo, "y")}, other))
+
+    def test_a_write_into_the_repositorys_own_tezgah_is_no_other_project(self):
+        # review of S7 (F2): `.tezgah` keeps a git repository of its own, and a
+        # plan or lesson write read as a write into another project
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, ".tezgah", ".git"))
+        plan = os.path.join(self.repo, ".tezgah", "plans", "open", "001.md")
+        self.assertIsNone(tg.cross_project_note("xp2", "Write", {"file_path": plan},
+                                                self.repo))
+
+    def test_the_post_tool_hook_records_its_row_without_the_notice(self):
+        # review of S7 (F6): a gate module that cannot give the notice must cost
+        # that one line, never the evidence row the hook exists to write
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        body = ("import runpy, sys; sys.path.insert(0, %r); sys.modules['tezgah_gate'] = None;"
+                " runpy.run_path(%r, run_name='__main__')"
+                % (support.HOOKS, os.path.join(support.HOOKS, "projects-posttooluse.py")))
+        proc = subprocess.run(
+            [sys.executable, "-c", body], capture_output=True, text=True, env=self.envv,
+            input=json.dumps({"hook_event_name": "PostToolUse", "session_id": "nogate",
+                              "tool_name": "Write", "cwd": self.repo, "tool_response": {},
+                              "tool_input": {"file_path": os.path.join(self.repo, "a.py")}}),
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows, _ = run_json([support.PROBE_INTEGRITY], {"fn": "events", "session": "nogate"},
+                           env=self.envv)
+        self.assertEqual([r.get("tool") for r in rows or [] if r.get("kind") == "edit"],
+                         ["Write"])
 
     def test_a_scratch_file_is_no_shared_work(self):
         # review of plan 057: shell rows carried scratch targets, so two

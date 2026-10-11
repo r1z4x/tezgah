@@ -1190,7 +1190,7 @@ def scratch_target(path, cwd=None):
 def writers_elsewhere(path, session_id, minutes=10, cwd=None, lineage=False):
     """The other sessions that recorded a write of `path` in the last `minutes`,
     newest first, as ledger ids. With `lineage`, each one is a (ledger id,
-    relation, agent) triple instead (`_relation`).
+    relation, agent, newest write ts) tuple instead (`_relation`).
 
     `path` is resolved against `cwd` (`_abs_target`) and matched against the
     `target` the writing session's PostToolUse hook stored, which is that
@@ -1236,7 +1236,8 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None, lineage=False):
         if isinstance(row, dict) and row.get("target") == want:
             found[stem] = max(found.get(stem, stamp), stamp)
     stems = sorted(found, key=lambda stem: -found[stem])
-    return [(stem,) + _relation(stem, session_id) for stem in stems] if lineage else stems
+    return [(stem,) + _relation(stem, session_id) + (found[stem],)
+            for stem in stems] if lineage else stems
 
 
 # The rows that name a session's lineage at its start: `spawned` (a subagent's

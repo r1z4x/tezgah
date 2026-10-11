@@ -113,6 +113,25 @@ class Mine(support.TempHome):
                          % (alias["repo"], alias["repo"]))
         self.assertNotIn(web, json.dumps(rows))
 
+    def test_every_mined_repository_is_unnamed_in_any_case_in_every_prompt(self):
+        # review of S7 (F5): only the row's own repository was unnamed, and only
+        # in the case it was spelled, so `WEB` in an app prompt leaked
+        web = self.make_repo("web")
+        os.makedirs(os.path.join(web, ".git"))
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions")
+        jsonl(os.path.join(sessions, "-web-", "w1.jsonl"), [
+            '{"type":"session","id":"w1","cwd":%s}' % json.dumps(web),
+            omp_tool("write"), omp_user("fix the Web login")])
+        jsonl(os.path.join(sessions, "-app-", "a2.jsonl"), [
+            '{"type":"session","id":"a2","cwd":%s}' % json.dumps(self.app),
+            omp_tool("write"), omp_user("port the WEB login into App, not web-kit")])
+        rows = {r["session"]: r for r in (json.loads(line) for line in self.run_cli(
+            "mine", "--host", "omp", "--all-projects").splitlines())}
+        web_alias, app_alias = rows["w1"]["repo"], rows["a2"]["repo"]
+        self.assertEqual(rows["w1"]["prompt"], "fix the %s login" % web_alias)
+        self.assertEqual(rows["a2"]["prompt"], "port the %s login into %s, not web-kit"
+                         % (web_alias, app_alias))
+
     def test_stats_count_top_level_sessions_under_the_root(self):
         self.assertEqual(self.run_cli("mine", "--stats").splitlines(), [
             "omp: sessions=1 writes=4 prompts_after_write=2",

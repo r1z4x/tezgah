@@ -701,11 +701,21 @@ def unfinished_review(root, reviewer, plan="", since=0):
     done. A record that names the plan active when it opened counts only for
     that `plan`; one that names none counts when it changed at or after `since`
     (epoch seconds; the plan's checkpoint commit). A `resumed` record has handed
-    its work to the re-dispatch, whose own record is the one read."""
+    its work to the re-dispatch, whose own record is the one read. A record
+    spawned as `reviewer` under its own id (`Reviewer-<digest6>`,
+    `tt.open_slice`) counts too when this session (TEZGAH_SESSION) or no session
+    owns it."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
     tt.pending(root)
+    session = os.environ.get("TEZGAH_SESSION")
+
+    def named(rec):
+        if reviewer in (rec.get("id"), rec.get("agent")):
+            return True
+        return rec.get("name") == reviewer and (
+            not session or rec.get("parent") in (session, "", None))
 
     def ours(rec):
         if rec.get("plan"):
@@ -721,7 +731,7 @@ def unfinished_review(root, reviewer, plan="", since=0):
                rec["id"], rec["id"])
             for rec in tt.slices(root)
             if rec.get("status") in ("open", "stopped", "stale")
-            and reviewer in (rec.get("id"), rec.get("agent")) and ours(rec)]
+            and named(rec) and ours(rec)]
 
 
 def cmd_review(args):
@@ -1202,10 +1212,11 @@ def cmd_slice(args):
             return misuse("--class is one of %s" % ", ".join(tt.FAILURES))
         status = "done" if sub == "done" else "stopped"
         try:
-            rec = tt.close_slice(root, pos[0], status, failure)
+            found = tt.find_slice(root, pos[0], os.environ.get("TEZGAH_SESSION"))
+            rec = found and tt.close_slice(root, found["id"], status, failure)
         except OSError as exc:
             return problems(["cannot write the slice record: %s" % exc])
-        if rec is None:
+        if not rec:
             return problems(["no slice record %s under %s" % (pos[0], tt.slice_dir(root))])
         print("slice %s %s%s" % (rec["id"], status,
                                  " (%s)" % rec["failure"] if rec.get("failure") else ""))
@@ -1234,7 +1245,7 @@ def cmd_slice(args):
     if sub == "resume":
         if len(rest) != 1:
             return misuse("slice resume takes one ID")
-        rec = next((r for r in tt.slices(root) if r["id"] == rest[0]), None)
+        rec = tt.find_slice(root, rest[0], os.environ.get("TEZGAH_SESSION"))
         if rec is None:
             return problems(["no slice record %s under %s" % (rest[0], tt.slice_dir(root))])
         print(resume_text(root, rec))

@@ -18,10 +18,11 @@
 files under `~/.omp/agent/sessions/*/` (a nested file is a subagent session) and
 Claude's top-level transcripts under `~/.claude/projects/*/` - whose cwd is under
 `--root` (default the current repository, a `.runs` directory excluded).
-`--all-projects` reads every session under `~/Projects` instead. A row from any
-repository but the current one, and every row under `--all-projects`, carries a
-pseudonym (`project-<sha1[:8]>`) for its `repo` and `cwd` and in its prompt, so
-another project's name never lands in this repository's research data. A writing turn is
+`--all-projects` reads every session under `~/Projects` instead. Each repository
+a mined session ran in, but the current one (every one under `--all-projects`),
+gets a pseudonym (`project-<sha1[:8]>`). It stands for that repository's `repo`
+and `cwd`, and for its path and its name, in any case, in every prompt. A name
+the miner never saw as a session's repository stays as written. A writing turn is
 one in which the agent wrote a file without an error (omp `edit`/`write`, Claude
 `Edit`/`Write`/`MultiEdit`/`NotebookEdit`); the prompt the user sent directly
 after one, unless it is a harness injection, is a row. The definitions are the
@@ -277,6 +278,18 @@ def pseudonym(repo):
     return "project-" + hashlib.sha1(repo.encode("utf-8", "replace")).hexdigest()[:8]
 
 
+def unname(text, repos):
+    """`text` with each repository of `repos` - its path, then its name as a
+    word, in any case - replaced by its pseudonym, the longest first so a name
+    inside another is not cut."""
+    for repo in sorted(repos, key=len, reverse=True):
+        text = re.sub(re.escape(repo), pseudonym(repo), text, flags=re.I)
+    for repo in sorted(repos, key=lambda r: len(os.path.basename(r)), reverse=True):
+        text = re.sub(r"(?<![\w.-])%s(?![\w-]|\.\w)" % re.escape(os.path.basename(repo)),
+                      pseudonym(repo), text, flags=re.I)
+    return text
+
+
 def mine_session(events):
     """(writes, [(prompt, writes_in_turn)]) under the frozen definitions."""
     writes, turn, prompts = 0, 0, []
@@ -298,28 +311,29 @@ def cmd_mine(args):
         args.root or ("~/Projects" if args.all_projects else here)))
     out = open(args.out, "w", encoding="utf-8") if args.out and not args.stats else sys.stdout
     try:
-        for host in (("omp", "claude") if args.host == "all" else (args.host,)):
+        hosts = ("omp", "claude") if args.host == "all" else (args.host,)
+        found = {host: list(sessions(host, root)) for host in hosts}
+        hidden = {r for r in (repo_of(cwd, root) for rows in found.values()
+                              for _path, cwd in rows) if args.all_projects or r != here}
+        for host in hosts:
             count = writes = prompts = 0
-            for path, cwd in sessions(host, root):
+            for path, cwd in found[host]:
                 count += 1
                 wrote, rows = mine_session(HOSTS[host][2](path))
                 writes += wrote
                 prompts += len(rows)
                 if args.stats:
                     continue
+                repo = repo_of(cwd, root)
+                repo_out = pseudonym(repo) if repo in hidden else repo
+                cwd_out = repo_out + cwd[len(repo):] if cwd.startswith(repo) else repo_out
                 for text, turn in rows:
-                    repo, cwd_out, prompt = repo_of(cwd, root), cwd, ti.redact(text)
-                    if args.all_projects or repo != here:
-                        alias = pseudonym(repo)
-                        cwd_out = alias + cwd[len(repo):] if cwd.startswith(repo) else alias
-                        prompt = re.sub(r"\b%s\b" % re.escape(os.path.basename(repo)),
-                                        alias, prompt.replace(repo, alias))
-                        repo = alias
                     out.write(json.dumps({
                         "host": host,
                         "session": os.path.splitext(os.path.basename(path))[0],
-                        "cwd": cwd_out, "repo": repo,
-                        "prompt": prompt[:CUT], "writes_in_turn": turn},
+                        "cwd": cwd_out, "repo": repo_out,
+                        "prompt": unname(ti.redact(text), hidden)[:CUT],
+                        "writes_in_turn": turn},
                         ensure_ascii=False) + "\n")
             if args.stats:
                 print("%s: sessions=%d writes=%d prompts_after_write=%d"

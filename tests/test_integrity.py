@@ -1055,13 +1055,17 @@ class WritersElsewhere(unittest.TestCase):
         self.write("peer", [{"kind": "spawned", "ts": now, "parent": "boss", "agent": "W2"},
                             self.edit("/repo/x.py", age=30)])
         self.write("stray", [self.edit("/repo/x.py", age=40)])
-        self.assertEqual(ti.writers_elsewhere("/repo/x.py", "mine", lineage=True), [
+        got = ti.writers_elsewhere("/repo/x.py", "mine", lineage=True)
+        self.assertEqual([w[:3] for w in got], [
             (ti._slug("kid"), "child", "W1"), (ti._slug("fork"), "fork", ""),
             (ti._slug("boss"), "parent", ""), (ti._slug("peer"), "sibling", "W2"),
             (ti._slug("stray"), "unrelated", "")])
+        # the fourth field is the writer's newest write of the file
+        self.assertIn(got[-1][3], (now - 40, now - 39))
         self.write("forked", [{"kind": "forked", "ts": now, "parent": "stray"}])
         self.assertIn((ti._slug("stray"), "forked-from", ""),
-                      ti.writers_elsewhere("/repo/x.py", "forked", lineage=True))
+                      [w[:3] for w in ti.writers_elsewhere("/repo/x.py", "forked",
+                                                           lineage=True)])
 
     def test_last_check_skips_a_check_of_another_repository(self):
         # finding 8: the resume block named another project's check as this one's

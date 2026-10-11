@@ -1109,7 +1109,7 @@ def race_reason(inp, session_id, cwd=None):
                                                cwd=cwd, lineage=True)
                   if not ended_child(w, session_id, path, cwd)]
         if others:
-            return RACE_DENY % (", ".join(race_who(*w) for w in others[:3]),
+            return RACE_DENY % (", ".join(race_who(*w[:3]) for w in others[:3]),
                                 RACE_WINDOW_MIN, path)
     return None
 
@@ -1121,19 +1121,21 @@ def race_who(stem, relation, agent):
 
 
 def ended_child(writer, session_id, path, cwd):
-    """True when `writer` (a writers_elsewhere triple) is this session's own
-    subagent whose slice record has ended: a parent taking over a child that
-    stopped on a quota error is no race (research orchestrator-flow-audit S7,
-    finding 3). The record is read after `pending` closes an ended omp child,
-    from the journal of the written file's repository and of cwd's. No record,
-    or one still open, is a live writer and stays refused."""
-    stem, relation, agent = writer
+    """True when `writer` (a writers_elsewhere (stem, relation, agent, ts)) is
+    this session's own subagent whose slice record closed after its newest
+    write of this file: a parent taking over a child that stopped on a quota
+    error is no race (research orchestrator-flow-audit S7, finding 3). The
+    record is read after `pending` closes an ended omp child, from cwd's journal
+    and the written file's. No record, one still open, or a write newer than the
+    record's close is a live writer and stays refused. ponytail: the close time
+    is stored to the second, so a write in the second the record closed counts
+    as before the close."""
+    import calendar
+    stem, relation, agent, wrote = writer
     if relation != "child" or not agent or tezgah_task is None:
         return False
-    from tezgah_paths import _toplevel
-    real = os.path.realpath(os.path.join(cwd or os.getcwd(), path))
-    repos = {r for r in (_toplevel(os.path.dirname(real)),
-                         _toplevel(os.path.realpath(cwd or os.getcwd()))) if r}
+    repos = {r for r in (tezgah_task.main_repo(os.path.join(cwd or os.getcwd(), path)),
+                         tezgah_task.main_repo(cwd or os.getcwd())) if r}
     base = re.sub(r"-\d+$", "", agent)
     recs = []
     try:
@@ -1141,9 +1143,12 @@ def ended_child(writer, session_id, path, cwd):
             tezgah_task.pending(repo)   # closes an omp child whose transcript ended
             recs += [r for r in tezgah_task.slices(repo) if r.get("parent") == session_id
                      and (r.get("name") or r.get("id")) in (agent, base)]
+        closed = max(calendar.timegm(time.strptime(str(r.get("updated")), "%Y-%m-%dT%H:%M:%SZ"))
+                     for r in recs) if recs else None
     except Exception:
         return False
-    return bool(recs) and all(r.get("status") != "open" for r in recs)
+    return (closed is not None and closed >= int(wrote)
+            and all(r.get("status") != "open" for r in recs))
 
 
 # The cross-project write notice: a session works under the rules of the
@@ -1157,9 +1162,9 @@ CROSS_PROJECT = (
 
 
 def _main_repo(path):
-    """The main checkout of the repository holding `path`, else None."""
-    from tezgah_paths import _toplevel
-    return linked_main(path) or _toplevel(os.path.realpath(path))
+    """The main checkout of the repository holding `path`, else None
+    (`tezgah_task.main_repo`: a repository's own `.tezgah` is that repository)."""
+    return tezgah_task.main_repo(path) if tezgah_task is not None else None
 
 
 def cross_project_note(session_id, tool, inp, cwd):

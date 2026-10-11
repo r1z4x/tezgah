@@ -866,6 +866,22 @@ def _own_id(root, base, brief, parent):
     return own or "%s-%s" % (base, _digest(brief)[:6])
 
 
+def find_slice(root, ref, session=None):
+    """The record `ref` names for `tezgah-task slice done|stop|resume`. With
+    `session` (TEZGAH_SESSION), the newest record that session spawned, or no
+    session owns, whose id or spawned `name` is `ref`: another session's record
+    never answers, so `slice done Reviewer` cannot close it. Without one, the
+    record whose id is `ref`, else the one record spawned as `ref`. None when
+    nothing answers."""
+    ref = slice_id(ref)
+    recs = slices(root)
+    if session:
+        return next((r for r in recs if r.get("parent") in (session, "", None)
+                     and ref in (r["id"], r.get("name"))), None)
+    named = [r for r in recs if r["id"] == ref] or [r for r in recs if r.get("name") == ref]
+    return named[0] if len(named) == 1 else None
+
+
 def _named_worktree(root, brief):
     """(worktree, branch) for the linked worktree of this repository the brief
     names, else ("", "")."""
@@ -883,13 +899,15 @@ def _named_worktree(root, brief):
 
 
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
-               cwd=""):
+               cwd="", repo=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
     are derived from the brief, the base is the main checkout's HEAD. A re-open
     of an existing id counts one more attempt, sets the status back to open and
     clears the failure; a field the new call leaves empty keeps its old value.
     A record another session holds under another brief is not re-opened: the
-    spawn gets its own id (`_own_id`), and `name` keeps the spawned name."""
+    spawn gets its own id (`_own_id`), and `name` keeps the spawned name.
+    `repo` names the repository the slice works in when that is not this
+    journal's (`_brief_repo`)."""
     base = slice_id(sid, brief)
     main = _journal_root(root)
     brief = (brief or "")[:SLICE_BRIEF]
@@ -899,7 +917,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
     if rec is None:
         rec = {"id": sid, "name": base, "kind": kind if kind in SLICE_KINDS else "agent",
                "host": host, "agent": agent, "brief": brief, "parent": parent,
-               "cwd": cwd, "worktree": "", "branch": "", "attempts": 1,
+               "cwd": cwd, "repo": repo, "worktree": "", "branch": "", "attempts": 1,
                "opened": now}
     else:
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
@@ -909,7 +927,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
             # one holds the first run, whose end must not close this record
             rec["transcript_dir"] = ""
         for key, value in (("host", host), ("agent", agent), ("brief", brief),
-                           ("parent", parent), ("cwd", cwd)):
+                           ("parent", parent), ("cwd", cwd), ("repo", repo)):
             if value:
                 rec[key] = value
     if brief or not rec.get("worktree"):
@@ -1006,24 +1024,28 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
     that runs the subagent synchronously (Claude's PostToolUse on Agent/Task)
     passes `failed` as a bool and the record closes at once: stopped with the
     class of `result_text` (error when it names none), else done. No-op ([])
-    under `slices-off` or outside a git checkout. Each slice journals in the
-    repository its brief names (`_brief_repo`), else in cwd's."""
+    under `slices-off` or outside a git checkout. The record stays in cwd's
+    journal, the one the owner's Stop rule, resume block and review guard
+    read, and names the repository its brief works in as `repo`
+    (`_brief_repo`) when that is another one."""
     from tezgah_paths import _toplevel, off
     if off("slices-off") or not cwd:
         return []
     root = _toplevel(os.path.realpath(cwd))
     if not root:
         return []
+    here = _journal_root(root)
     out = []
     for sid, agent, brief in spawned(tool, inp):
-        where = _brief_repo(brief, root)
-        rec = open_slice(where, sid, host=host, agent=agent, brief=brief,
-                         parent=session_id or "", cwd=cwd)
+        repo = _brief_repo(brief, here)
+        rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
+                         parent=session_id or "", cwd=cwd,
+                         repo="" if repo == here else repo)
         if failed is True:
-            rec = close_slice(where, rec["id"], "stopped",
+            rec = close_slice(root, rec["id"], "stopped",
                               classify(result_text) or "error")
         elif failed is False:
-            rec = close_slice(where, rec["id"], "done")
+            rec = close_slice(root, rec["id"], "done")
         out.append(rec)
     return out
 
@@ -1033,18 +1055,27 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
 _ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`<>()\[\]{},;|*?]+")
 
 
+def main_repo(path):
+    """The main checkout of the repository holding `path`, else None. A path
+    under a repository's own `.tezgah` - a private git repository of its own -
+    belongs to the repository around it, and a worktree to its main checkout."""
+    from tezgah_paths import _toplevel
+    top = _toplevel(os.path.realpath(path))
+    while top and os.path.basename(top) == ".tezgah":
+        top = _toplevel(os.path.dirname(top))
+    return _journal_root(top) if top else None
+
+
 def _brief_repo(brief, root):
     """The main checkout of the one armed repository every absolute path the
-    brief names lies in, else `root`. A session opened in one repository that
-    delegates work on another journals that work there, not here (research
-    orchestrator-flow-audit S7, finding 2). A brief naming two repositories,
-    or none, keeps `root`. A worktree counts as its main checkout."""
-    from tezgah_paths import _toplevel, root_for
+    brief names lies in, else `root`. A brief naming two repositories, or none,
+    keeps `root` (research orchestrator-flow-audit S7, finding 2)."""
+    from tezgah_paths import root_for
     found = set()
     for path in _ABS_PATH.findall(brief or ""):
-        top = _toplevel(os.path.realpath(path.rstrip(".:")))
+        top = main_repo(path.rstrip(".:"))
         if top and root_for(top):
-            found.add(_journal_root(top))
+            found.add(top)
     return found.pop() if len(found) == 1 else root
 
 
@@ -1217,6 +1248,8 @@ def slice_line(rec):
         sid, rec.get("host") or "?", rec.get("agent") or "?", status,
         (" " + rec["failure"]) if rec.get("failure") else "", rec.get("attempts") or 1)
     tree = rec.get("worktree") or ""
+    if rec.get("repo"):
+        head += " (in %s)" % os.path.basename(rec["repo"])
     if tree and os.path.isdir(tree):
         head += " worktree %s @ %s" % (tree, _git(tree, "rev-parse", "--short", "HEAD") or "?")
     return _cut(head, ": tezgah-task slice resume %s" % sid)

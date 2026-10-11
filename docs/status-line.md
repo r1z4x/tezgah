@@ -164,7 +164,7 @@ the command really ran it (34-38,84) and is the one writer that can earn `judge`
 hosts/opencode/plugins/tezgah.js:2702, `hosts/omp/hook.py::handle`. Both Claude (hooks/hooks.json) and dsh
 (hosts/dsh/hooks.json) wire PostToolUse to that one shared hook, which is how dsh
 gets any used mark at all: with no local transcript, the store is the only channel
-its line has (hooks/projects-posttooluse.py:34-38).
+its line has (hooks/projects-posttooluse.py:45-49).
 
 Claude's line never reads the store: it parses `tool_use` blocks out of
 `payload["transcript_path"]` plus the subagent transcripts under it, which is how
