@@ -154,9 +154,10 @@ the session's ledger. They come before the reminder switch, so `reminder-off`
 keeps them. A `constraint.lift` shape ("artık bana sor", "ask me again",
 "Don't push.", "şimdilik push yapma") lifts them. So does a later constraint that
 names the class. A grant shape grants nothing in a sentence that ends in "?" or
-carries a pack's `constraint.grant_not` word: a prohibition ("yapma", "don't"), a
-complaint ("pushladın", "why did you") or a question particle
-(`hooks/tezgah_context.py::GRANT_NOT`). Quoted text and a subagent's prompt grant nothing.
+that its own pack's rules take back (`hooks/tezgah_context.py::_refuses`): a
+`constraint.grant_not` word such as "don't" or a complaint ("pushladın"), or a
+`grant_not_verb` prohibition ("yapma") right after the shape or at the
+sentence's end. A negated outward step lifts only the class it names. Quoted text and a subagent's prompt grant nothing.
 `grants_in_force` (`hooks/tezgah_integrity.py::grants_in_force`) folds the rows
 oldest first. The Stop rule's `needless ask` class and the ask-tool warning read
 that fold. A grant never covers a never-default step: a force push, a delete, a

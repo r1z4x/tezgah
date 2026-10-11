@@ -1771,47 +1771,82 @@ def user_constraints(prompt):
 # `needless ask` and the ask-tool warning read them back
 # (`tezgah_integrity.grants_in_force`). Never a class-F step: a grant lowers
 # asks, it never licenses a force push, a delete or a spend over the cap.
-GRANT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "grant"))
 LIFT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift"))
+# A negated outward step ("Don't push.", "şimdilik push yapma") lifts only the
+# class its own words name, never `all`.
+LIFT_OUTWARD = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift_outward"))
 # A grant shape in a sentence that forbids, complains or asks is no grant:
 # "bana sormadan hiçbir şey yapma", "neden bana sormadan pushladın?", "Never
-# tag without asking me". Read on the sentence with the grant shape itself
-# blanked, so "don't ask me again" stays a grant. ponytail: a Turkish noun
-# ending in -ma/-me ("yapılandırma") also reads as a prohibition - a missed
-# grant costs one question, a false one an unasked push.
-GRANT_NOT = re.compile(r"(?i)(?:%s)|\b(?:%s)\b" % (alts("constraint", "grant_not"),
-                                                  alts("question_particle")))
+# tag without asking me". Each pack's rules read only the sentences its own
+# grant shape matched, so "theme" is no Turkish -me: `grant_not` anywhere in
+# the sentence with the grant shape blanked ("don't ask me again" stays a
+# grant), the pack's question particle, and `grant_not_verb` only on the word
+# right after the grant shape or the sentence's last word - one of
+# `grant_not_soft` ("durma", "unutma") only after an outward word. ponytail: a
+# Turkish noun ending in -ma/-me in those two places also reads as a
+# prohibition - a missed grant costs one question, a false one an unasked push.
+
+
+def _any(frags):
+    return re.compile(r"(?i)(?:%s)" % ("|".join(frags) or "(?!)"))
+
+
+GRANT_PACKS = [(re.compile(r"(?i)\b(?:%s)" % "|".join(p["constraint"]["grant"])),
+                _any(p["constraint"]["grant_not"]
+                     + [r"\b(?:%s)\b" % q for q in p["question_end"]]),
+                _any(p["constraint"]["grant_not_verb"]),
+                _any(p["constraint"]["grant_not_soft"]))
+               for p in packs().values() if p["constraint"]["grant"]]
+WORD = re.compile(r"[^\W\d_]+")
+
+
+def _refuses(text, start, at, to, stop, nots, verb, soft):
+    """True when the sentence `text[start:stop]` takes back the grant shape
+    at `text[at:to]` (GRANT_PACKS' rules of the pack that matched it)."""
+    if text[stop:stop + 1] == "?" or nots.search(text[start:at] + " " + text[to:stop]):
+        return True
+    words = [m for m in WORD.finditer(text, start, stop) if not at <= m.start() < to]
+    near = [m for m in words if m.start() >= to][:1] + words[-1:]
+    return any(verb.fullmatch(m.group(0)) and not (
+        soft.fullmatch(m.group(0)) and not outward_classes(text[start:m.start()]))
+        for m in near)
 
 
 def user_grants(prompt):
     """[(clause, target)] for every grant and lift a prompt issues, in order:
     `target` is an OUTWARD class or `all`, `lift:` before it for a lift. A
     sentence is read whole for the class it names, since a Turkish grant often
-    names the step before "sormadan"; a grant in a sentence that ends in "?" or
-    carries a GRANT_NOT word is none, and a lift shape inside a grant shape
-    ("don't ask me again") is the grant's. Pasted material and an over-long
-    prompt are skipped as `user_constraints` skips them."""
+    names the step before "sormadan"; a grant its sentence takes back
+    (`_refuses`) is none, a lift shape inside a grant shape ("don't ask me
+    again") is the grant's, and a LIFT_OUTWARD match lifts only the classes it
+    names. Pasted material and an over-long prompt are skipped as
+    `user_constraints` skips them."""
     text = prompt or ""
     if len(text) > CONSTRAINT_PROMPT_MAX:
         return []
     quoted = [q.span() for q in QUOTED.finditer(text)]
-    grants = [m.span() for m in GRANT_SHAPES.finditer(text)]
-    found = [(a, b, False) for a, b in grants]
-    found += [(m.start(), m.end(), True) for m in LIFT_SHAPES.finditer(text)
+    found = [(m.start(), m.end(), rules) for shapes, *rules in GRANT_PACKS
+             for m in shapes.finditer(text)]
+    grants = [(a, b) for a, b, _r in found]
+    found += [(m.start(), m.end(), kind) for kind, shapes in
+              (("lift", LIFT_SHAPES), ("outward", LIFT_OUTWARD))
+              for m in shapes.finditer(text)
               if not any(a <= m.start() < b for a, b in grants)]
     out = []
-    for at, to, lift in sorted(found):
+    for at, to, rules in sorted(found, key=lambda f: f[:2]):
         if any(a <= at < b for a, b in quoted):
             continue
+        lift = isinstance(rules, str)
         start = max((e.end() for e in SENTENCE_END.finditer(text, 0, at)), default=0)
         end = SENTENCE_END.search(text, to)
         stop = end.start() if end else len(text)
-        if not lift and (text[stop:stop + 1] == "?" or GRANT_NOT.search(
-                text[start:at] + " " + text[to:stop])):
+        if not lift and _refuses(text, start, at, to, stop, *rules):
             continue
         sentence = " ".join(text[start:stop].split())
         clause = cut(redact(sentence.strip("-*• ")), CONSTRAINT_CHARS)
-        for cls in sorted(outward_classes(sentence)) or ["all"]:
+        classes = (sorted(outward_classes(text[at:to])) if rules == "outward"
+                   else sorted(outward_classes(sentence)) or ["all"])
+        for cls in classes:
             out.append((clause, ("lift:" if lift else "") + cls))
     for clause in user_constraints(text):
         out += [(clause, "lift:" + cls) for cls in sorted(outward_classes(clause))]

@@ -232,13 +232,20 @@
    "(?:bana\\s+)?sormadan(?!\\s+(?:\\w+\\s+)?(?:etme|yapma|ilerleme|gitme)\\w*)|onay(?:ı|ımı)?\\s+ver(?:iyorum|dim)|izin\\s+ver(?:iyorum|dim)|onaylıyorum|sormana gerek yok"
   ],
   "lift": [
-   "(?:artık|bundan sonra|tekrar|yine)\\s+(?:bana\\s+)?sor\\b|onay\\w*\\s+geri\\s+al\\w*|izn\\w*\\s+geri\\s+al\\w*",
-   "(?:push\\w*|pr\\w*|release\\w*|yay[ıi]n\\w*|yayım\\w*|sürüm\\w*|versiyon\\w*|etiket\\w*|tag\\w*)(?:\\s+\\S+){0,2}?\\s+(?:et|yap|çıkar)m[ae]\\w*",
+   "(?:artık|bundan sonra|tekrar|yine)\\s+(?:bana\\s+)?sor\\b|onay\\w*\\s+geri\\s+al\\w*|izn\\w*\\s+geri\\s+al\\w*"
+  ],
+  "lift_outward": [
+   "(?:pr\\b|push\\w*|release\\w*|yayınla\\w*|yayımla\\w*|sürüm\\b|versiyonla\\w*|etiketle\\w*|tag\\w*)(?:\\s+\\S+){0,2}?\\s+(?:et|yap|çıkar)(?:ma|me)(?:y[ıi]n\\w*)?\\b",
    "(?:push|yay[ıi]nla|yayımla|etiketle|versiyonla|tag)(?:la|le)?m[ae](?:y[ıi]n\\w*)?\\b"
   ],
   "grant_not": [
-   "\\b\\w{2,}m[ae](?:y[ıi]n(?:[ıi]z)?)?\\b",
-   "\\b\\w+[dt][ıiuü]n(?:[ıi]z)?\\b|\\bneden\\b|\\bniye\\b"
+   "\\b(?!bütün\\b)\\w+[dt][ıiuü]n(?:[ıi]z)?\\b|\\bneden\\b|\\bniye\\b"
+  ],
+  "grant_not_verb": [
+   "\\w{2,}m[ae](?:y[ıi]n(?:[ıi]z)?)?"
+  ],
+  "grant_not_soft": [
+   "durma|bekleme|sorma|unutma"
   ]
  },
  "ask": {

@@ -3598,6 +3598,26 @@ class AskPolicy(unittest.TestCase):
                      "«bana sormadan pushla»"):
             self.assertEqual(tc.user_grants(text), [], text)
 
+    def test_an_outward_negation_lifts_only_its_class_and_no_lookalike(self):
+        # review round 2: `pr\w*` read "Projeyi", `yay[ıi]n\w*` read "Yayın",
+        # and a negation that named no class lifted `all`
+        import tezgah_context as tc
+        for text in ("Projeyi tekrar test etmeyi unutma", "Problemi tespit etmeden düzeltme",
+                     "Yayın akışını kontrol etmek istiyorum", "Don't deploy yet."):
+            self.assertEqual(tc.user_grants(text), [], text)
+        self.assertEqual([t for _c, t in tc.user_grants(
+            "bana sormadan pushla. Projeyi tekrar test etmeyi unutma.")], ["push"])
+
+    def test_each_packs_polarity_reads_only_its_own_sentences(self):
+        # review round 2: the Turkish -me read "some" and "theme", "bütün" read
+        # as a complaint, and "durma" took back a grant to keep going
+        import tezgah_context as tc
+        for text, want in (("you have my approval to push some fixes", ["push"]),
+                           ("go ahead and push the theme change", ["push"]),
+                           ("bana sormadan ilerle, durma", ["all"]),
+                           ("bütün değişiklikleri bana sormadan pushla", ["push"])):
+            self.assertEqual([t for _c, t in tc.user_grants(text)], want, text)
+
     def test_a_granted_outward_step_is_not_asked_again(self):
         asked = "`main`'i push edeyim mi?"
         self.assertIsNone(ti.needless_ask(asked, self.NONE))
