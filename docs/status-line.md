@@ -185,7 +185,7 @@ Every other surface reads the store.
   `setWidget`, and it is plain because omp strips ANSI (12-29). `status_line()`
   builds the line and carries `idx_override`, so a per-tool redraw forks no git
   (`hosts/omp/hook.py::status_line`); it redraws on session start, session switch, turn end
-  and each watched tool result (hosts/omp/tezgah-hook.ts.in:558-588,626-631,672-697).
+  and each watched tool result (hosts/omp/tezgah-hook.ts.in:596-636,674-679,720-745).
   **Motion:** while the agent runs (`agent_start` until an `agent_end` whose
   `isTerminal` is not `false`) the widget leads with a braille spinner, the tool
   in flight (`tool_execution_start`/`_end`, "thinking" between tools) and the

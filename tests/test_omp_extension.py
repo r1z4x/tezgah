@@ -473,6 +473,41 @@ class OmpExtension(TempHome):
                          ("main-id", "Scout"))
         self.assertNotIn("parent", asked["main"])
 
+    def test_a_subagent_s_end_sends_its_last_reply_for_the_parent(self):
+        # S4 review F3: omp fires no session_stop for a task session, so the
+        # child's terminal agent_end carries its report; a main session's does not
+        root = os.path.join(self.home, "sessions", "2026_abc")
+        env = dict(self.env(), TEZGAH_SESSION="main-id")
+        messages = [{"role": "user", "content": "go"},
+                    {"role": "assistant", "content": [{"type": "text", "text": "Rapor"}]}]
+        # review N4: a grandchild's parent is the child, read from the child's
+        # own session header, not the main session's exported id
+        os.makedirs(root, exist_ok=True)
+        with open(root + "/Scout.jsonl", "w") as fh:
+            fh.write('{"type":"title","v":1,"title":""}\n'
+                     '{"type":"session","version":3,"id":"child-id"}\n')
+        sent = {}
+        for name, file, link, arg in (
+                ("child", root + "/Scout.jsonl", root + ".jsonl", {"messages": messages}),
+                ("grandchild", root + "/Scout/Deep.jsonl", root + "/Scout.jsonl",
+                 {"messages": messages}),
+                ("continuing", root + "/Scout.jsonl", root + ".jsonl",
+                 {"messages": messages, "willContinue": True}),
+                ("main", root + ".jsonl", None, {"messages": messages})):
+            hook, log = self.fake_hook({})
+            self.ext = self.make_ext(hook, name + "-end.ts")
+            self.results(self.drive([{"event": "agent_end", "arg": arg}], env=env,
+                                    sessionFile=file, parentSession=link))
+            sent[name] = ([p for p in self.asked(log) if p.get("event") == "subagent_stop"]
+                          if os.path.exists(log) else [])
+            if os.path.exists(log):
+                os.remove(log)
+        self.assertEqual([(p["parent"], p["agent"], p["last_assistant_message"])
+                          for p in sent["child"]], [("main-id", "Scout", "Rapor")])
+        self.assertEqual([(p["parent"], p["agent"]) for p in sent["grandchild"]],
+                         [("child-id", "Deep")])
+        self.assertEqual((sent["continuing"], sent["main"]), ([], []))
+
     def test_a_skill_url_read_reaches_the_hook(self):
         # omp's read takes `skill://<name>`: that read of the ponytail skill
         # must move its mark, and an ordinary read still never spawns python

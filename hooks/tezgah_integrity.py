@@ -444,7 +444,9 @@ USER_ERROR = re.compile(
     r"authentication (?:failed|required)|"
     r"(?:invalid|missing|no|bad|expired) (?:api[ _-]?key|credentials?)|"
     r"(?:api[ _-]?key|token|credentials?) (?:is |are |has )?(?:invalid|missing|expired)|"
-    r"not logged in|login required", re.I)
+    r"not logged in|login required|"
+    # a spent quota is a grant only the user can renew (S4 finding 6)
+    r"quota|key limit exceeded|usage limit", re.I)
 PERMANENT_ERROR = re.compile(
     r"command not found|no such file|not found|cannot find|permission denied|"
     r"unrecognized|unknown option|invalid|syntax error|does not exist|"
@@ -504,6 +506,8 @@ PERMANENT_ERROR = re.compile(
 # `open`, `ready` and `blocked` are a `todo` row's counts of the host's todo list
 # (`note_todo`), and `heads` the list of its ready items' heads, each redacted:
 # `detail` holds the same heads, one per line, under the row's cut.
+# `residual` is a `subagent_end` row's count of residual items no blocker type
+# accounts for (`unblocked_items`): the parent's Stop owes them (S4 finding 2).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -512,7 +516,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
-                           "reask", "open", "ready", "blocked", "heads"))
+                           "reask", "open", "ready", "blocked", "heads", "residual"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -4323,7 +4327,8 @@ def _blocked(entry):
 
 
 def _turn_refusals(session_id, rows):
-    """This rule's refusal rows in the user turn `rows` belongs to.
+    """(this rule's refusal rows in the user turn `rows` belongs to, that turn's
+    rows).
 
     omp hands a Stop block back to the model as a queued message, and its
     prompt hook records that text as a new `turn` row (`note_turn`), so the
@@ -4333,10 +4338,14 @@ def _turn_refusals(session_id, rows):
     new user turn, and that turn's refusals count too. Read back no further
     than STOP_REASKS refusals, and only the lines that carry a `reask` key are
     parsed: the Stop path stays a read of the turn, not of the session
-    (StopReadBound)."""
+    (StopReadBound). When the chain reaches back, the rows returned run from
+    the chain's first turn with the re-ask markers left out, so the reply after
+    a block is judged on the turn's whole work, as on a host that writes no
+    such marker (S4 finding 1)."""
     refused = [entry for entry in rows if _blocked(entry)]
-    lines = _ledger_lines(_path(session_id))
-    end = _turn_line(lines)
+    path = _path(session_id)
+    lines = _ledger_lines(path)
+    end = first = _turn_line(lines)
     while end and len(refused) < STOP_REASKS:
         marker = _parse([lines[end - 1]])
         start = _turn_line(lines[:end - 1])
@@ -4348,7 +4357,11 @@ def _turn_refusals(session_id, rows):
             break
         refused = before + refused
         end = start
-    return refused
+    if end != first:
+        rows = [row for row in _pair(_parse(lines[end:], path), path, lines,
+                                     lines[:end])
+                if row.get("kind") != TURN_KIND]
+    return refused, rows
 
 
 def _record_only(refused, turns, after_block, cls):
@@ -4370,7 +4383,7 @@ def _record_only(refused, turns, after_block, cls):
 
 
 def stop_reason(text, session_id, cwd=None, after_block=0,
-                subagent=False, agent=None):
+                subagent=False, agent=None, parent=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
     `cwd` is the session's directory, read for the repo's `.no-adhd` mark.
@@ -4415,13 +4428,15 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
     blocked, not that this one did. `subagent` is a subagent's end (ADR 011):
     judged the same way, never refused, recorded as a `subagent_end` row with
     the same detail vocabulary, the host's subagent id in `agent` when it sent
-    one, and no turn precondition. Both return None. A reply counts as
+    one, and no turn precondition. `parent` is the ledger that row goes to when
+    the child keeps a ledger of its own (omp's task sessions); the child's own
+    rows still judge it. Both return None. A reply counts as
     claiming only with `asserted_claims`: "Testler geçti mi?" leaves no
     `claim ok` row."""
     rows, turns = turn_rows(session_id, turns=True)
-    refused = [str(entry.get("detail"))[len("blocked: "):] for entry in
-               (_turn_refusals(session_id, rows) if turns
-                else filter(_blocked, rows))]
+    chain, rows = (_turn_refusals(session_id, rows) if turns
+                   else (list(filter(_blocked, rows)), rows))
+    refused = [str(entry.get("detail"))[len("blocked: "):] for entry in chain]
     if after_block and not subagent and not refused:
         return None
     cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
@@ -4467,10 +4482,12 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
                 raise
     # A refusal is skipped only as the same verdict on the same reply: the same
     # reply text refused for a new class is the turn's next refusal, and
-    # `_record_only` counts refusals by these rows.
+    # `_record_only` counts refusals by these rows. A row bound for a parent's
+    # ledger is looked up there, so one child's end is one row.
     if not any(entry.get("kind") == kind and entry.get("id") == key
                and (entry.get("detail") == detail or not reason)
-               for entry in rows):
+               and (not parent or entry.get("agent") == (str(agent) if agent else None))
+               for entry in (turn_rows(parent) if parent else rows)):
         if cls == "no verify_ok" and not record_only:
             shape = dict(shape, cause=_no_pass_cause(rows))
         if reason:
@@ -4478,6 +4495,13 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
             shape = dict(shape, reask=_prompt_key(str(reason).strip()))
         if subagent and agent:
             shape = dict(shape, agent=str(agent))
+        if subagent:
+            # the child is never refused (ADR 011); the parent's Stop reads
+            # this count (`_residual_block`), so an untyped item handed up
+            # still owes a type before the user's turn ends
+            handed = len(unblocked_items(text, rows))
+            if handed:
+                shape = dict(shape, residual=handed)
         if kind == "claim":
             # "harness drifted" rides on the claim as a record, read from the
             # mark the session start left; it never refuses the turn. Imported
@@ -4489,7 +4513,7 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
                 drifted = ""
             if drifted:
                 shape = dict(shape, harness="drifted: " + drifted)
-        note(session_id, kind, detail, id=key, **shape)
+        note(parent or session_id, kind, detail, id=key, **shape)
     return reason
 
 
@@ -4530,18 +4554,59 @@ WORK_KINDS = frozenset(STEP_KINDS) - {"verify_ok"}
 # that writes would excuse an unverified change.
 READ_ONLY_PROGRAMS = frozenset((
     "ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "which", "stat",
-    "du", "df", "date", "whoami", "grep", "rg", "cd", "true"))
+    "du", "df", "date", "whoami", "grep", "rg", "cd", "true", "find", "jq", "sort",
+    "diff", "ps", "curl"))
 GIT_BOOKKEEPING = frozenset((
     "status", "log", "diff", "show", "add", "commit", "push", "fetch", "branch",
     "tag", "remote", "rev-parse", "describe", "shortlog", "blame", "ls-files"))
+# The git subcommands that only read: a turn made of these and READ_ONLY_PROGRAMS
+# owes no check at all (`_stop_block`, S4 finding 3). A command not on the lists
+# is work - an unknown program owes the check, a known one never excuses a write.
+GIT_READS = GIT_BOOKKEEPING - {"add", "commit", "push", "fetch", "branch", "tag",
+                               "remote"}
+# ssh's options that take the next word, so the host is read after them
+SSH_VALUE_OPTS = frozenset(("-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
+                            "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S",
+                            "-W", "-w"))
+# sqlite3 arguments that write a file or run a script even on a read-only open:
+# a dot-command that writes, runs or reads one, an init script, a second
+# database, a vacuum into a file
+SQLITE_WRITE = re.compile(r"^\s*\.(?:output|once|shell|system|save|backup|import|"
+                          r"excel|clone|log|trace|cd|open|read)\b|^-{1,2}init\b|"
+                          r"\battach\b|\bvacuum\b", re.I | re.M)
+# sqlite3's options that take the next word, so the database is read after them
+SQLITE_VALUE_OPTS = frozenset(("cmd", "init", "separator", "newline", "nullvalue",
+                               "vfs", "lookaside", "pagecache", "mmap", "heap",
+                               "maxsize", "escape"))
+# A script argument of sed or awk that writes a file or runs a command: sed's
+# `w`/`W`/`e` commands and flags, awk's redirect, pipe, system() and getline.
+SCRIPT_WRITE = {"sed": re.compile(r"(?:^|[;}/\n$\d])\s*[wWe]\b"),
+                "awk": re.compile(r"[>|]|\b(?:system|getline)\b"),
+                "gawk": re.compile(r"[>|]|\b(?:system|getline)\b")}
+# The read verbs of a program whose subcommand decides what it does
+SUBCOMMAND_READS = {"gh": (("pr", "view"), ("pr", "list"), ("issue", "view"),
+                           ("issue", "list")),
+                    "codegraph": (("explore",), ("callers",), ("callees",),
+                                  ("impact",), ("search",), ("node",), ("files",),
+                                  ("status",))}
 # The options that make an allowlisted program write a file or run one after
-# all (review F6): git's `--output` and external diff/textconv drivers,
-# ripgrep's `--pre`. A word that starts with one of these is not a read.
-# `tree` and `file` left the list instead of growing one here: tree writes
-# through clustered short options (`-fo out`) and `-R -H`, file through `-C`
-# (review N4).
-WRITING_OPTIONS = {"git": ("--output", "--ext-diff", "--textconv"),
-                   "rg": ("--pre",)}
+# all (review F6), as a pattern read at an argument's start: git's `--output`
+# and external diff/textconv drivers, ripgrep's `--pre`, find's actions, a
+# short-option cluster holding sort's `-o`, sed's `-i`/`-f`, awk's `-i`/`-f`,
+# and curl's writes to a file and non-GET requests. `tree` and `file` left the
+# list instead of growing one here: tree writes through clustered short options
+# (`-fo out`) and `-R -H`, file through `-C` (review N4).
+WRITING_OPTIONS = {
+    "git": re.compile(r"--(?:output|ext-diff|textconv)"),
+    "rg": re.compile(r"--pre"),
+    "find": re.compile(r"-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$"),
+    "sort": re.compile(r"-[^-]*o|--output"),
+    "sed": re.compile(r"-[^-]*[if]|--(?:in-place|file)"),
+    "awk": re.compile(r"-[^-]*[if]|--(?:include|file|load)"),
+    "gawk": re.compile(r"-[^-]*[if]|--(?:include|file|load|inplace)"),
+    "curl": re.compile(r"-[^-]*[oOdTFKXcD]|--(?:output|remote-name|data|upload-file|"
+                       r"form|json|request|config|cookie-jar|dump-header|trace|"
+                       r"stderr|libcurl|etag-save|hsts|alt-svc|create-dirs)")}
 # git global options that set configuration or the program path, and so can
 # name a program a read subcommand then runs (`git -c diff.external=./x diff`)
 GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
@@ -4623,12 +4688,18 @@ def _shell_read(cmd):
     return ">" in text or "<(" in text, "".join(out).replace("<", " ")
 
 
-def _bookkeeping_command(cmd):
-    """True when every simple command of `cmd` reads, or does VCS bookkeeping
-    that changes no working-tree file. A redirect, a substitution, an env
-    assignment in front of a program, a git config override and an option that
-    makes a reader write (`WRITING_OPTIONS`) are never bookkeeping: each can
-    write or run something this reader does not follow.
+def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
+    """True when every simple command of `cmd` reads, or runs a git subcommand
+    in `git` (VCS bookkeeping that changes no working-tree file by default,
+    GIT_READS for a pure read). A redirect, a substitution, an env assignment
+    in front of a program, a git config override and an option that makes a
+    reader write (`WRITING_OPTIONS`) are never bookkeeping: each can write or
+    run something this reader does not follow. `sed` and `awk` read with no
+    writing script (`SCRIPT_WRITE`), `uniq` with one operand, `gh` and
+    `codegraph` with a read verb (`SUBCOMMAND_READS`). `sqlite3` reads with a
+    read-only open (the option, or `mode=ro` in the database URI) and no
+    writing dot-command or stdin (`SQLITE_WRITE`), `ssh` with a remote command
+    that is itself one of these reads.
 
     ponytail: `git commit` and `git push` run the repository's hooks, and a
     pre-commit autofixer can rewrite files the row never names. They stay on
@@ -4650,9 +4721,44 @@ def _bookkeeping_command(cmd):
         if "/" in words[i]:
             return False
         program, args = words[i], words[i + 1:]
-        if any(a.startswith(WRITING_OPTIONS.get(program, ("\0",))) for a in args):
+        writes = WRITING_OPTIONS.get(program)
+        if writes and any(writes.match(a) for a in args):
             return False
         if program in READ_ONLY_PROGRAMS:
+            continue
+        plain = [a for a in args if not a.startswith("-")]
+        if program in SCRIPT_WRITE:
+            if any(SCRIPT_WRITE[program].search(a) for a in plain):
+                return False
+            continue
+        if program == "uniq":
+            # `uniq IN OUT` writes its second operand
+            if len(plain) > 1:
+                return False
+            continue
+        if program in SUBCOMMAND_READS:
+            if not any(tuple(plain[:len(verb)]) == verb
+                       for verb in SUBCOMMAND_READS[program]):
+                return False
+            continue
+        if program == "sqlite3":
+            j, ro = 0, False
+            while j < len(args) and args[j].startswith("-"):
+                ro = ro or args[j].lstrip("-") == "readonly"
+                j += 2 if args[j].lstrip("-") in SQLITE_VALUE_OPTS else 1
+            db = args[j] if j < len(args) else ""
+            # read-only from the option or the database URI itself, never
+            # from words in the SQL
+            ro = ro or (db.startswith("file:") and "mode=ro" in db.partition("?")[2])
+            if "<" in raw or not ro or any(SQLITE_WRITE.search(a) for a in args):
+                return False
+            continue
+        if program == "ssh":
+            j = 0
+            while j < len(args) and args[j].startswith("-"):
+                j += 2 if args[j][:2] in SSH_VALUE_OPTS and len(args[j]) == 2 else 1
+            if j + 1 >= len(args) or not _bookkeeping_command(" ".join(args[j + 1:]), git):
+                return False
             continue
         if program != "git":
             return False
@@ -4661,14 +4767,15 @@ def _bookkeeping_command(cmd):
             if args[j].startswith(GIT_CONFIG_OPTS):
                 return False
             j += 2 if args[j] in GIT_VALUE_OPTS else 1
-        if j >= len(args) or args[j].lower() not in GIT_BOOKKEEPING:
+        if j >= len(args) or args[j].lower() not in git:
             return False
     return bool(segs)
 
 
-def _bookkeeping_turn(rows):
-    """True when every work row in `rows` is a shell call that read or did VCS
-    bookkeeping and was not seen to change a file.
+def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):
+    """True when every work row in `rows` is a shell call that read or ran a
+    git subcommand in `git` (`_bookkeeping_command`) and was not seen to
+    change a file.
 
     A detail of DETAIL_MAX characters or more is never bookkeeping: the ledger
     cut it there, and the command after the cut is unread (review F1). Nor is
@@ -4679,7 +4786,7 @@ def _bookkeeping_turn(rows):
         r.get("kind") == "run" and not _change_row(r)
         and len(str(r.get("detail") or "")) < DETAIL_MAX
         and "[redacted:" not in str(r.get("detail") or "")
-        and _bookkeeping_command(r.get("detail")) for r in steps)
+        and _bookkeeping_command(r.get("detail"), git) for r in steps)
 
 
 def _settled(rows):
@@ -4789,7 +4896,13 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     if not worked and any(_prose_edit(r) for r in rows) and (
             verified or any(TESTED_WORD.search(m.group(0)) for m in DONE.finditer(t))):
         worked = {"edit"}
-    if not worked:
+    # A turn whose steps are only reads - every simple command a known reader
+    # or a git read (`_bookkeeping_turn` with GIT_READS), no change row - is
+    # judged like a turn that did no work (S4 finding 3): a `git status`, a
+    # `tail` or a read-only query owes no check. Its claim words are read the
+    # same way, and a claim is judged against the session's earlier turns below.
+    quiet = _bookkeeping_turn(rows, GIT_READS)
+    if not worked or quiet:
         # With no work, the words are the whole trigger, so a question or a
         # negation is not read as the claim it names (`asserted_claims`).
         done, verified = asserted_claims(t)
@@ -4813,7 +4926,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # exit below - "nothing was done and nothing was claimed" - is exactly the
     # shape that used to leave such a claim unjudged.
     external = _external_claim(t)
-    if not worked and not (done or verified) and not external:
+    if (not worked or quiet) and not (done or verified) and not external:
         return _residual_block(t, rows, shape, session_id=session_id, cwd=cwd)
     if lost:
         return _residual_block(t, rows, shape,
@@ -4844,7 +4957,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 return _residual_block(t, rows, shape, fold(
                     _before_turn(srows), True, None, "this session"),
                     session_id, cwd)
-        elif not worked and (done or verified):
+        if (not worked or quiet) and (done or verified):
             # A claim in a turn that did nothing: "Tamamlandı, tüm testler
             # geçti" after a turn that edited and ended "doğrulanmadı" was
             # allowed on all five Stop hosts (audit INT-01 / M-2).
@@ -4854,7 +4967,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
                 "this session")
             if refused[0]:
                 return refused
-    return _residual_block(t, rows, shape, fold(rows, worked, external),
+    judged = rows
+    if quiet:
+        # the fold reads work off the rows too (the spec's `W` atom), so a turn
+        # of reads hands it none - only an external read, the one thing such a
+        # turn can prove
+        judged, worked = [r for r in rows if not _work_row(r) or (
+            external and _external_read_row([r]) == 0)], set()
+    return _residual_block(t, rows, shape, fold(judged, worked, external),
                            session_id, cwd)
 
 
@@ -5295,6 +5415,9 @@ def _admitted(fold, text):
 # list read at line starts, not a reader of what an item means - a doable item
 # typed KARAR passes, which the question endings `tezgah-gate replay` counts are
 # there to watch.
+# The first-person negatives ("Yapamadım", "Bakmadıklarım", "Test etmedim"),
+# the passive stems "kontrol edil-", "incelen-", "ölçül-", "çözül-", "denen-" and
+# the English forms after them were added from the S4 corpus (finding 4).
 RESIDUAL_LABEL = re.compile(
     r"(?:açık (?:kalan|iş|madde|nokta|soru)|eksik(?!siz)|"
     r"yapılama|yapılma(?:yan|dı)|yapılacak|bekleyen|bakıla?ma|bitme(?:yen|di)|"
@@ -5303,9 +5426,14 @@ RESIDUAL_LABEL = re.compile(
     r"ertelen|bilinen (?:hata|sınırlama|sorun)|teknik borç|ileride|"
     r"gelecek (?:iş|çalışma)|önerilen (?:iyileştirme|adım)|manuel doğrulama|"
     r"elle doğrula|engel(?:ler)?\b|engelleyenler\b|erişilemeyen|fix-?later|"
+    r"\w+m[ae]d[ıiuü](?:m|kl[ae]r(?:[ıi]m)?)\b|kontrol edil(?:e)?me|incelen(?:e)?me|ölçül(?:e)?me|"
+    r"çözül(?:e)?me|denen(?:e)?me|ulaşılama|(?:yarım|askıda|sonraya) kalan|"
+    r"sonra bakılacak|"
     r"open (?:items?|issues?|questions?|points?|work)|remaining\b|"
     r"what(?:'s| is) left|left to do|pending\b|outstanding\b|"
-    r"not (?:done|verified|tested|run|checked|covered)|unverified|untested|"
+    r"not (?:done|verified|tested|run|checked|covered|looked at)|unverified|untested|"
+    r"unresolved|still open|could(?:n't| not) (?:verify|check|run)|unable to|"
+    r"unchecked|to[ -]?do(?=\s*(?:\(|$))|"
     r"next\s+(?:steps?|up|actions?)\b|next(?=\s*(?:\(|$))|out of scope|"
     r"follow[- ]?ups?\b|deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|"
     r"future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|"
@@ -5315,9 +5443,9 @@ RESIDUAL_LABEL = re.compile(
 # names - "Kalan:", "Kalanlar", "Kalan iş", "Kalan adımlar", "Kalan tek şey".
 RESIDUAL_FIRST = (r"kalan(?:lar)?(?=\s*(?:\(|$))|kalan\s+(?:tek\s+)?"
                   r"(?:iş|işler|adım|adımlar|madde|maddeler|görev|görevler|şey)\b")
-# At most two words may lead any other stem: "Bu turda açık kalanlar", "Henüz
-# yapılmayanlar", "Bilerek kapsam dışı bırakılanlar".
-RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,2}(?:%s)"
+# At most three words may lead any other stem: "Bu turda açık kalanlar", "Henüz
+# yapılmayanlar", "Bu turda henüz bakılmayanlar".
+RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,3}(?:%s)"
                          % (RESIDUAL_FIRST, RESIDUAL_LABEL.pattern))
 # A label whose own words close the list: a claim word (`asserted_claims`), or
 # a completion verb or participle the claim vocabulary does not carry ("Eksik
@@ -5344,8 +5472,11 @@ EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
 # Turkish suffix allowed ("KARARI senin"); a token negated by the next word
 # ("KARAR gerekmiyor") is none, and code is blanked first (`_prose`).
 # BLOCKER_SAID needs no ledger row: a choice or a consent leaves none to check.
-# BLOCKER_TRIED is the attempt that failed - it counts only beside a quote of
-# a command that failed in the turn (`_quotes_failure`).
+# BLOCKER_TRIED is the attempt that failed - it counts only beside the error
+# its type names (ENV_ERROR for ORTAM, ACCESS_ERROR for YETKİ) and its ledger
+# evidence: a quote of a command that failed in the turn (`_quotes_failure`), or
+# a spawn call of the turn the host answered with a provider failure
+# (`_spawn_failed`: a 429, a quota, a credential).
 BLOCKER_NOT = r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))"
 BLOCKER_SAID = re.compile(
     r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b" + BLOCKER_NOT)
@@ -5356,6 +5487,23 @@ BLOCKER_SAID = re.compile(
 BLOCKER_TRIED = re.compile(
     r"(?:\bYETK[İI][A-ZÇĞİIÖŞÜ]*|\bORTAM[A-ZÇĞİIÖŞÜ]*|\bACCESS|\bENV(?:IRONMENTS?)?)\b"
     r"(?!\s+(?:değil\b|gerek(?:mi|mez|tirm)|istem))")
+ENV_ERROR = re.compile(
+    r"not found|no such|cannot find|can'?t find|could not find|does(?:n'?t| not) "
+    r"exist|no module named|ModuleNotFound|not installed|not available|unavailable|missing|"
+    r"not set|ENOENT|\b12[67]\b|bulunamad|kurulu değil|yüklü değil|mevcut değil|"
+    r"quota|limit exceeded|rate.?limit|\b429\b", re.I)
+ACCESS_ERROR = re.compile(
+    USER_ERROR.pattern + r"|permission denied|access denied|not permitted|"
+    r"EACCES|\b40[13]\b|quota|limit exceeded|rate.?limit|\b429\b|izin|reddedil|"
+    r"erişim", re.I)
+# A spawn call's failure classes that are the provider's, not the brief's: a
+# rate limit or a timeout (`transient`) and a quota or a credential (`user`).
+SPAWN_FAIL_CLASSES = frozenset(("transient", "user"))
+# The words that tie an item to a spawn call: only such an item borrows a
+# failed spawn's row as its evidence (`_tried_holds`).
+SPAWN_WORDS = re.compile(r"sub-?agent|\bagent|ajan|provider|sağlayıcı|\bmodel|spawn")
+# A search that matched nothing exits 1 and failed nothing (`_failed_commands`).
+NO_MATCH_PROGRAMS = frozenset(("grep", "egrep", "fgrep", "rg", "ag"))
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
@@ -5436,12 +5584,14 @@ def _residual(label):
     """True when `label` names work that is left: it opens, after at most two
     words, with a RESIDUAL_LABEL form (TODO only in capitals, the marker), its
     own words close nothing ("Eksikler giderildi" is done, "Kısmen güncellendi"
-    is not) and it does not say nothing is left."""
+    is not) and it does not say nothing is left - in a few words, or after its
+    last colon ("Engeller: yok")."""
     if label.startswith("TODO"):
         return True
     for low in (_tr_lower(label), label.lower()):
         core = " ".join(PARENTHESIS.sub(" ", low).split())
-        if not RESIDUAL_AT.match(core) or (
+        _head, colon, after = core.rpartition(":")
+        if not RESIDUAL_AT.match(core) or (colon and EMPTY_ITEM.fullmatch(after)) or (
                 NOTHING_LEFT.search(core) and len(core.split()) <= NOTHING_SHORT
                 and not re.search(r"[,;:—–]", core)):
             continue
@@ -5449,6 +5599,22 @@ def _residual(label):
                                        or LABEL_DONE.search(core)):
             return True
     return False
+
+
+def _bare_label(line):
+    """The text of a plain line that is a label with no colon, else "": at most
+    four words that open on a RESIDUAL_FIRST or RESIDUAL_LABEL form with only a
+    suffix after it ("Açık kalanlar", "Unresolved"). "Pending changes" and
+    "Kod değişikliği yapılmadı" name something else and are no label."""
+    s = LEAD_SYMBOLS.sub("", line.strip()).strip()
+    if not s or ":" in s or len(s.split()) > 4:
+        return ""
+    for low in (_tr_lower(s), s.lower()):
+        core = " ".join(PARENTHESIS.sub(" ", low).split())
+        m = re.match(RESIDUAL_FIRST, core) or RESIDUAL_LABEL.match(core)
+        if m and not re.search(r"\s", core[m.end():]):
+            return s
+    return ""
 
 
 def _indent(line):
@@ -5475,6 +5641,12 @@ def _sections(text):
             inside = not inside
             continue
         found = None if inside or TABLE_ROW.match(line) else _label(line)
+        if (not found and not inside and not TABLE_ROW.match(line)
+                and not LIST_MARK.match(line) and i < len(lines)
+                and LIST_MARK.match(lines[i]) and _bare_label(line)):
+            # a label line with no colon right over a list ("Açık kalanlar\n-
+            # ...", S4 finding 4)
+            found = (_bare_label(line), "")
         if not found or not _residual(found[0]):
             continue
         label, rest = found
@@ -5552,39 +5724,125 @@ def _quotes_failure(item, failed):
     """True when a code span or a fenced line of `item` quotes a command that
     failed: the span is one of its commands, holds one whole (two words at
     least, so a bare `git` that failed is not `git push`), or opens one word for
-    word (`pytest` for `pytest -q`). A fragment such as `src` of `ls src/e2e`
-    quotes nothing."""
+    word (`pytest` for `pytest -q`). A span cut short with `…` or `...` opens
+    one with what is left of it, two words at least (`tezgah-task note 001
+    state …`). A fragment such as `src` of `ls src/e2e` quotes nothing."""
     spans = CODE_SPAN.findall(item) + [
         ln for body in FENCED_BODY.findall(item) for ln in body.split("\n")]
     for span in (re.sub(r"^\$\s+", "", s.strip()) for s in spans):
+        head = re.sub(r"\s*(?:…|\.\.\.)$", "", span)
+        shortened = head != span and len(head.split()) >= 2
         for cmd in failed:
             for seg in (s.strip() for s in COMMAND_SPLIT.split(cmd)):
                 if not seg or not span:
                     continue
                 if seg == span or (seg in span and len(seg.split()) >= 2) or (
-                        seg.startswith(span) and seg[len(span)].isspace()):
+                        seg.startswith(span) and seg[len(span)].isspace()) or (
+                        shortened and seg.startswith(head)):
                     return True
     return False
+
+
+def _failed_commands(rows):
+    """The commands that failed in `rows`: a `verify_fail`, or a shell row with
+    exit 1. A write tool's `edit` row is none (its detail is a path), and
+    neither is a search alone that matched nothing (NO_MATCH_PROGRAMS: grep's
+    exit 1 is its "no"); a grep after `&&`, `;` or a pipe reports the line's
+    exit, so that row stays a failure."""
+    out = []
+    for r in rows:
+        if r.get("kind") == "edit" or not (r.get("exit") == 1
+                                           or r.get("kind") == "verify_fail"):
+            continue
+        cmd = str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
+        segs = [words for words in _shell_segments(cmd) if words]
+        if (r.get("kind") != "verify_fail" and len(segs) == 1
+                and segs[0][0] in NO_MATCH_PROGRAMS):
+            continue
+        out.append(cmd)
+    return out
+
+
+def _spawn_failed(rows):
+    """True when `rows` hold a spawn call (SUBAGENT_TOOLS) the host answered
+    with a provider failure (SPAWN_FAIL_CLASSES): the ledger's evidence for a
+    YETKİ or ORTAM that no shell command shows."""
+    return any(str(r.get("tool") or "").lower() in SUBAGENT_TOOLS
+               and r.get("fail_class") in SPAWN_FAIL_CLASSES for r in rows)
+
+
+def _tried_holds(item, said, failed, spawn_failed=False):
+    """True when a YETKİ or ORTAM item carries its evidence: the error its type
+    names (ENV_ERROR for ORTAM/ENV, ACCESS_ERROR for YETKİ/ACCESS), read in the
+    item outside the type token and the quoted command, beside a quote of a
+    command that failed (`_quotes_failure`), or - for an item that names a
+    subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
+    spawn call failed at the provider (`spawn_failed`). A failure of another
+    kind - an assertion, a typo, a grep that matched nothing - is doable work,
+    whatever it is typed."""
+    kinds = {m.group(0)[0] for m in BLOCKER_TRIED.finditer(said)}
+    rest = re.sub(BLOCKER_TRIED.pattern + r"(?:\s+yok\b)?", " ", item)
+    rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
+                         else m.group(0), rest)
+    if not any((ENV_ERROR if k in "OE" else ACCESS_ERROR).search(rest)
+               for k in kinds):
+        return False
+    return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
+        _quotes_failure(item, failed)
+
+
+# An item under a blocker label that tells a blocker it already removed: an
+# earlier sentence in the past ("reddediyordu", "yoktu") and a last sentence
+# that opens on "Artık" with a present verb ("Artık var", "Artık
+# reddedilmiyor", S4 finding 10). A negative past ("güncellenmedi") reports work
+# not done, and "şimdi"/"kendi" only end like a past tense, so neither is WAS.
+# A last sentence that still names work left (a RESIDUAL_LABEL stem) or a
+# future ("koşulacak") keeps the item open. ponytail: one adverb rule, not a
+# tense reader.
+BLOCKER_LABEL = re.compile(r"\W*(?:engel|blocker)")
+WAS = re.compile(r"\b(?!(?:şimdi|kendi|ileri|geri)\b)\w+(?<!m[ae])(?:yordu|[dt][ıiuü])\b")
+NOW = re.compile(r"^artık\b.*(?:\bvar\b|\bmevcut\b|\w+yor\b)", re.S)
+FUTURE = re.compile(r"\w+(?:acak|ecek)")
+
+
+def _now_closed(item, label):
+    """True when `item`, under a blocker `label`, reports a blocker that is
+    gone (WAS, then NOW, with nothing left or due in the last sentence)."""
+    if not BLOCKER_LABEL.match(_tr_lower(label)):
+        return False
+    sentences = re.split(r"(?<=[.!?])\s+", _tr_lower(_prose(item)).strip())
+    last = sentences[-1].strip(" *_")
+    return (len(sentences) > 1 and bool(NOW.search(last))
+            and not RESIDUAL_LABEL.search(last) and not FUTURE.search(last)
+            and any(WAS.search(s) for s in sentences[:-1]))
+
+
+# A blocker heading with nothing under it lists no blocker ("## Engeller" last).
+BLOCKERS_ONLY = re.compile(r"\s*(?:engel(?:ler)?|blockers?)\s*")
 
 
 def unblocked_items(text, rows):
     """[(label, item)] for every residual item nothing accounts for. A KARAR or
     GERİ ALINAMAZ token in the label, the intro or the item accounts for it
-    (`BLOCKER_SAID`, on the prose); a YETKİ or ORTAM token does only beside a
-    quote of a command that failed in `rows` (a row with exit 1, or a
-    `verify_fail`) - the type and its evidence, never one of the two. An item
-    that says nothing is left is none."""
-    failed = [str(r.get("detail") or "").replace(FAILED_MARK, "").strip()
-              for r in rows if r.get("exit") == 1 or r.get("kind") == "verify_fail"]
+    (`BLOCKER_SAID`, on the prose); a YETKİ or ORTAM token does only with its
+    evidence (`_tried_holds`: the error of its type and its ledger evidence) -
+    the type and its evidence, never one of the two. An empty blocker list
+    (BLOCKERS_ONLY), an item that says nothing is left and one that reports a
+    blocker already gone (`_now_closed`) are none; an empty item under any other
+    label is the label itself ("**V4 ölçülmedi.**")."""
+    failed = _failed_commands(rows)
+    spawn_failed = _spawn_failed(rows)
     out = []
     for label, intro, items in _sections(text):
         for item in items:
-            if EMPTY_ITEM.fullmatch(item.strip()):
+            if (EMPTY_ITEM.fullmatch(item.strip()) or _now_closed(item, label) or (
+                    not item.strip() and BLOCKERS_ONLY.fullmatch(_tr_lower(label)))):
                 continue
             said = _prose(" ".join((label, intro, item)))
             if BLOCKER_SAID.search(said):
                 continue
-            if BLOCKER_TRIED.search(said) and _quotes_failure(item, failed):
+            if BLOCKER_TRIED.search(said) and _tried_holds(item, said, failed,
+                                                           spawn_failed):
                 continue
             out.append((label, item))
     return out
@@ -5593,19 +5851,30 @@ def unblocked_items(text, rows):
 def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
                     cwd=None):
     """`verdict` when it refuses; else, in a turn that did work (a STEP_KINDS
-    row), the `residual work` class when `unblocked_items` names one; else the
-    `ready steps` class when `ready_left` names one; else the
+    row), the `residual work` class when `unblocked_items` names one, or when a
+    subagent ended in the turn handing up items no type accounts for (the
+    `residual` count on its `subagent_end` row) and this reply types none; else
+    the `ready steps` class when `ready_left` names one; else the
     `stopped slice` class when `_stopped_slice` finds one; else `verdict`. Not
     asked for a subagent's end (`shape` false) or a nested session: both
     replies are read by code, not by the user (`_shape_block`). Residual work
     is not asked of a session whose ledger holds no turn marker either:
     `turn_rows` hands it the whole ledger as the turn, so the steps it sees are
-    not this turn's."""
+    not this turn's. ponytail: one typed item in the reply covers every item
+    handed up - the rule cannot tell which child item a parent item answers."""
     if verdict[0] or not shape or os.environ.get("TEZGAH_NESTED"):
         return verdict
     left = []
-    if any(str(r.get("kind")) in STEP_KINDS for r in rows):
+    # the newest end of each child counts once (`agent`): a child that ended
+    # twice, or a re-sent end, is one hand-up
+    handed = sum({r.get("agent") or id(r): int(r.get("residual") or 0)
+                  for r in rows if r.get("kind") == "subagent_end"}.values())
+    if handed or any(str(r.get("kind")) in STEP_KINDS for r in rows):
         left = unblocked_items(text, rows)
+        if handed and not left and not any(
+                item.strip() and not EMPTY_ITEM.fullmatch(item.strip())
+                for _label, _intro, entries in _sections(text) for item in entries):
+            left = [("subagent report", "%d untyped item(s) handed up" % handed)]
         if left and session_id and not _turn_count(_ledger_lines(_path(session_id))):
             left = []
     if left:

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync } from "node:fs";
 import { basename, delimiter, dirname, join } from "node:path";
 
 // tezgah-setup substitutes the absolute path of hosts/omp/hook.py, the python
@@ -314,6 +314,44 @@ function emptyRun(content: any): boolean {
   return EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL));
 }
 
+// The text of the newest assistant message in an agent_end `messages` list:
+// the subagent's final report, which the hook reads like a Stop reply.
+function lastReply(messages: any): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "assistant") continue;
+    if (typeof m.content === "string") return m.content;
+    if (Array.isArray(m.content)) {
+      return m.content.map((p: any) => (p?.type === "text" && typeof p.text === "string"
+                                        ? p.text : "")).join("\n");
+    }
+  }
+  return undefined;
+}
+
+// The id of the session that spawned this one: the `session` header line of the
+// file `parentSession` names, so a grandchild's end reaches the child that
+// spawned it. The main session's exported id stands in when that file cannot be
+// read; only the first SESSION_HEAD bytes are read, never the transcript.
+const SESSION_HEAD = 16384;
+function parentSessionId(ctx: any): string | undefined {
+  try {
+    const file = String(ctx?.sessionManager?.getHeader?.()?.parentSession ?? "");
+    const fd = openSync(file, "r");
+    const buf = Buffer.alloc(SESSION_HEAD);
+    const n = readSync(fd, buf, 0, SESSION_HEAD, 0);
+    closeSync(fd);
+    for (const line of buf.subarray(0, n).toString("utf8").split("\n")) {
+      try {
+        const row = JSON.parse(line);
+        if (row?.type === "session" && row.id) return String(row.id);
+      } catch { /* a title line cut at the buffer's end, or another row */ }
+    }
+  } catch { /* no readable parent file: the exported id below */ }
+  return process.env.TEZGAH_SESSION || undefined;
+}
+
 // The hook's failure is the one state the bridge can see and the hook cannot
 // report: no interpreter to start it with, the checkout moved, the hook crashed
 // or ran past the timeout. It is remembered here so the next event can say so.
@@ -564,6 +602,16 @@ export default function tezgahOmp(pi: any): void {
     tool = "";
     stopMotion();
     paint(ctx);
+    // omp fires no session_stop for a task subagent, so its end is recorded
+    // here: the child's last reply, judged record-only, lands in the parent's
+    // ledger with its untyped residual count (ADR 011, S4 finding 2).
+    const parent = isSubagent(ctx) ? parentSessionId(ctx) : undefined;
+    if (parent && event?.willContinue !== true) {
+      ask({ event: "subagent_stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
+            parent,
+            agent: basename(String(ctx?.sessionManager?.getSessionFile?.() ?? ""), ".jsonl"),
+            last_assistant_message: lastReply(event?.messages) });
+    }
   });
   pi.on("session_shutdown", async () => {
     busy = false;

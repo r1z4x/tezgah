@@ -71,7 +71,8 @@ try:
 except Exception as exc:
     import_failed(exc)
 
-# omp has no subagent-end event: `session_stop` does not fire for task sessions.
+# omp has no subagent-end event: `session_stop` does not fire for task sessions,
+# so the bridge sends `subagent_stop` from the child's terminal `agent_end`.
 # The re-ask budget is the core's (tezgah_integrity.STOP_REASKS, plan 083).
 
 
@@ -276,6 +277,14 @@ def handle(payload):
                       payload.get("last_assistant_message"), session_id,
                       cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
         return {"decision": "block", "reason": reason} if reason else {}
+    if event == "subagent_stop":
+        # record-only (ADR 011): judged on the child's own rows, the row lands
+        # in the parent's ledger so the parent's Stop reads its residual count
+        if not off("verify-off") and payload.get("parent"):
+            safe(session_id, stop_reason, payload.get("last_assistant_message"),
+                 session_id, cwd=cwd, subagent=True, agent=payload.get("agent"),
+                 parent=str(payload["parent"]))
+        return {}
     return {}
 
 
