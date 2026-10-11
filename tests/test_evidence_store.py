@@ -143,6 +143,33 @@ class DeviceChange(Cache):
                          [("s.jsonl", st.st_dev, st.st_ino, st.st_size),
                           ("s.jsonl", st.st_dev + 1, st.st_ino, short)])
 
+    def test_a_file_cut_in_place_resumes_at_its_end_for_every_import(self):
+        # two imports recorded, the shorter under another id; the file is then
+        # rewritten shorter in place and grows again: no line after the cut is
+        # skipped by the other import's larger offset
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "a"},
+                                 {"kind": "run", "ts": 2, "detail": "b"},
+                                 {"kind": "run", "ts": 3, "detail": "c"}])
+        ts.import_session(path)
+        st = os.stat(path)
+        with open(path, "rb") as fh:
+            first, second = len(fh.readline()), len(fh.readline())
+        db = os.path.join(self.cache, ts.CACHE_DB)
+        ts._HELD.pop(db)[0].close()
+        con = sqlite3.connect(db)
+        with con:
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        ("s.jsonl", st.st_dev + 1, st.st_ino, first + second))
+        con.close()
+        with open(path, "r+b") as fh:  # rewritten in place: the same inode
+            fh.truncate(first)
+        ts.import_session(path)
+        self.legacy("s", [{"kind": "run", "ts": 4, "detail": "d"},
+                          {"kind": "run", "ts": 5, "detail": "e"}])
+        ts.import_session(path)
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)],
+                         ["a", "b", "c", "d", "e"])
+
 
 class Concurrency(Cache):
     WRITES = 150

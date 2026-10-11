@@ -331,7 +331,8 @@ class RepairEvidence(DoctorBase):
 
     def test_a_row_only_the_longest_import_took_is_never_a_copy(self):
         # the file grew between the imports (a, then a, b, a); a row written to
-        # the database equal to b is a row of its own, not a copy
+        # the database equal to b is a row of its own: a rule that kept one
+        # import's worth of each line (held - k) would take it as a copy
         con = sqlite3.connect(self.store)
         with con:
             self.ledger(con, "grew", ["a", "b", "a"], [1, 3], direct=["b"])
@@ -409,21 +410,28 @@ class RepairEvidence(DoctorBase):
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("re-check: 1 row(s) missing, 1 row(s) left", proc.stdout)
 
-    def test_a_session_holding_a_line_fewer_times_than_its_file_is_left_whole(self):
-        # the file holds e twice, the session once: no import stream explains
-        # that, so nothing there is counted as a copy
+    def test_a_session_its_imports_do_not_explain_is_left_whole(self):
+        # lost: two whole imports of e, f put e in twice, but the session holds
+        # it once - a lost row, or a row that only continued another import -
+        # so f's second copy is not counted as one either. gone: its file is no
+        # longer there to count the copies by.
         con = sqlite3.connect(self.store)
         with con:
-            self.ledger(con, "lost", ["e", "e", "f"], [3, 3])
-            con.execute("DELETE FROM evidence WHERE n IN (SELECT n FROM evidence WHERE "
-                        "session = 'lost' AND row = '{\"detail\":\"e\"}' ORDER BY n LIMIT 3)")
+            self.ledger(con, "lost", ["e", "f"], [2, 2])
+            con.execute("DELETE FROM evidence WHERE n = (SELECT min(n) FROM evidence "
+                        "WHERE session = 'lost')")
+            self.ledger(con, "gone", ["g"], [1, 1])
         con.close()
+        os.remove(os.path.join(self.cache, "evidence", "gone.jsonl"))
         proc = self.doctor("--repair-evidence", "--apply")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertIn("  lost  manual review: 1 line(s) held fewer times than the file holds them",
-                      proc.stdout)
-        self.assertEqual(self.rows(sessions=("lost",))["lost"],
-                         ['{"detail":"f"}', '{"detail":"e"}', '{"detail":"f"}'])
+        self.assertIn("  lost  manual review: 1 line(s) held fewer times than its imports "
+                      "put them in\n", proc.stdout)
+        self.assertIn("  gone  skipped: its file is gone, replaced or shorter than its "
+                      "imports\n", proc.stdout)
+        after = self.rows(sessions=("lost", "gone"))
+        self.assertEqual(after["lost"], ['{"detail":"%s"}' % s for s in "fef"])
+        self.assertEqual(after["gone"], ['{"detail":"g"}'] * 2)
         self.assertEqual(len(self.imported("lost.jsonl")), 2)
 
 

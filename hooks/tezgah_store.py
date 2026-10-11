@@ -289,15 +289,19 @@ def _recorded(conn, name, st):
 def _record(conn, key, size, stale):
     """`size` bytes of the file `key` in. An import resumed from a row under
     another device id (`stale`) moves that row to the current key, and a
-    shorter stream's row already under the current key takes the stale id: one
-    row per import stream stays, which is what the doctor's repair counts a
-    double import by (`tezgah-doctor --repair-evidence`)."""
+    shorter stream's row already under the current key takes the stale id: the
+    two swap, so one row per import stream stays, which is what the doctor's
+    repair counts a double import by (`tezgah-doctor --repair-evidence`). A file
+    cut below what went in resumes at its end for every stream, or a longer one
+    would skip the lines written after the cut."""
     name, dev, ino = key
     if stale is not None:
         conn.execute("DELETE FROM imported WHERE name = ? AND dev = ? AND ino = ?",
                      (name, stale, ino))
         conn.execute("UPDATE imported SET dev = ? WHERE name = ? AND dev = ? AND ino = ?",
                      (stale, name, dev, ino))
+    conn.execute("UPDATE imported SET bytes = ? WHERE name = ? AND ino = ? AND bytes > ?",
+                 (size, name, ino, size))
     conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
                  "VALUES (?, ?, ?, ?)", key + (size,))
 

@@ -352,22 +352,24 @@ def evidence_plan(conn, cache):
     """The copies every legacy ledger the remount bug imported more than once
     put in the cache database `conn`: ({session: [row n to delete]},
     {(name, ino): (current dev, longest import's bytes)} to collapse to,
-    {session: how many of its file's line texts it holds fewer times than the
-    file does}, {session: {line text: (fewest, most) rows after the repair}}).
+    {session: why it is left alone}, {session: (its newest row n, {line text:
+    rows it holds after the repair})}).
 
-    Every `imported` row of one (name, ino) is one import stream: the store
-    moves only the row it resumed from (`tezgah_store._record`), and a store
-    from before the fix started over at offset 0 under a renumbered device id.
+    Every `imported` row of one (name, ino) is one import stream: a store from
+    before the fix started over at offset 0 under a renumbered device id, and
+    the store now swaps only the row it resumed from (`tezgah_store._record`).
     A stream put the file's first `bytes` in, so a line text went in once per
-    occurrence in each stream's prefix. The longest stream's count k stays;
-    every other stream's count x is a copy. The newest min(x, held - k) rows
-    go: never below one stream's worth, and a row written to the database
-    directly beside the copies stays. A session holding a line fewer times
-    than k is not what its streams explain, so it is left whole for review.
+    occurrence in each stream's prefix. The longest stream's count stays; every
+    other stream's count is a copy, and that many of the newest rows go. A row
+    written to the database directly beside them stays. A session holding a
+    line fewer times than its streams put it in is not what they explain - a
+    lost row, or a row that only continued another import, as the unreleased
+    plan-078 store wrote - so it is left whole for review; only a direct row
+    equal to every line such a row covers would hide it.
 
     Only the file still at its name with that inode, and at least as long as
-    its longest stream, is read: another file there is skipped, because
-    counting its lines would delete the wrong rows."""
+    its longest stream, is read: another file there is listed and skipped,
+    because counting its lines would delete the wrong rows."""
     import tezgah_store
     streams = collections.defaultdict(list)
     for name, ino, size in conn.execute(
@@ -378,13 +380,15 @@ def evidence_plan(conn, cache):
     doomed, collapse, review, bounds = {}, {}, {}, {}
     for (name, ino), sizes in streams.items():
         path = os.path.join(cache, "evidence", name)
+        session = tezgah_store._ledger(path)[1]
         try:
             st = os.stat(path)
-            if st.st_ino != ino or st.st_size < max(sizes):
-                continue
             with open(path, "rb") as fh:
                 raw = fh.read(max(sizes))
         except OSError:
+            st = None
+        if st is None or st.st_ino != ino or st.st_size < max(sizes):
+            review[session] = "skipped: its file is gone, replaced or shorter than its imports"
             continue
         counts = []
         for size in sizes:
@@ -392,20 +396,21 @@ def evidence_plan(conn, cache):
             lines = prefix[:prefix.rfind(b"\n") + 1].split(b"\n")
             counts.append(collections.Counter(filter(None, map(tezgah_store._line_text, lines))))
         longest = counts[sizes.index(max(sizes))]
-        extra = sum(counts, collections.Counter()) - longest
-        session = tezgah_store._ledger(path)[1]
+        put = sum(counts, collections.Counter())
+        rows = conn.execute("SELECT n, row FROM evidence WHERE session = ? ORDER BY n DESC",
+                            (session,)).fetchall()
         copies = collections.defaultdict(list)
-        for n, text in conn.execute("SELECT n, row FROM evidence WHERE session = ? "
-                                    "ORDER BY n DESC", (session,)):
+        for n, text in rows:
             copies[text].append(n)
-        short = sum(1 for text, k in longest.items() if len(copies[text]) < k)
+        short = sum(1 for text, many in put.items() if len(copies[text]) < many)
         if short:
-            review[session] = short
+            review[session] = ("manual review: %d line(s) held fewer times than its "
+                               "imports put them in" % short)
             continue
-        go = {text: min(extra[text], len(copies[text]) - k) for text, k in longest.items()}
-        doomed[session] = [n for text, many in go.items() for n in copies[text][:many]]
-        bounds[session] = {text: (k, len(copies[text]) - go[text])
-                           for text, k in longest.items()}
+        extra = put - longest
+        doomed[session] = [n for text, many in extra.items() for n in copies[text][:many]]
+        bounds[session] = (rows[0][0] if rows else 0,
+                           {text: len(copies[text]) - extra[text] for text in longest})
         collapse[(name, ino)] = (st.st_dev, max(sizes))
     return doomed, collapse, review, bounds
 
@@ -415,9 +420,8 @@ def print_plan(plan):
     for session, ns in doomed.items():
         if ns:
             print("  %s  %d row(s)" % (session, len(ns)))
-    for session, short in review.items():
-        print("  %s  manual review: %d line(s) held fewer times than the file holds them"
-              % (session, short))
+    for session, why in review.items():
+        print("  %s  %s" % (session, why))
     total = sum(map(len, doomed.values()))
     print("  total %d row(s) in %d session(s)" % (total, sum(1 for ns in doomed.values() if ns)))
     return total
@@ -459,16 +463,17 @@ def repair_evidence(apply):
                     conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
                     conn.execute("INSERT INTO imported (name, dev, ino, bytes) "
                                  "VALUES (?, ?, ?, ?)", (name, dev, ino, size))
-            # the committed rows against the plan: a line held fewer times than
-            # one stream (missing), or a copy the plan deleted still there
-            # (left), means the deletion went wrong, and the exit code says so
+            # the committed rows against the plan, past the rows a writer added
+            # since: a row the plan kept that is gone (missing), or a copy it
+            # deleted still there (left), means the deletion went wrong, and the
+            # exit code says so
             missing = left = 0
-            for session, want in bounds.items():
+            for session, (newest, want) in bounds.items():
                 held = collections.Counter(text for (text,) in conn.execute(
-                    "SELECT row FROM evidence WHERE session = ?", (session,)))
-                for text, (fewest, most) in want.items():
-                    missing += max(0, fewest - held[text])
-                    left += max(0, held[text] - most)
+                    "SELECT row FROM evidence WHERE session = ? AND n <= ?", (session, newest)))
+                for text, many in want.items():
+                    missing += max(0, many - held[text])
+                    left += max(0, held[text] - many)
             print("  re-check: %d row(s) missing, %d row(s) left" % (missing, left))
             code = code or int(bool(missing or left))
         except (OSError, sqlite3.Error) as exc:
