@@ -383,7 +383,8 @@
         "where does an installed version unpack and how do I roll back",
         "something is broken what do I check first",
         "how do I turn on taste signal capture and measure my corrections",
-        "how does taste learn my coding preferences and inject them"
+        "how does taste learn my coding preferences and inject them",
+        "how do I resume or clean up a delegated slice after a crash or a quota stop"
       ],
       "answers_tr": [
         "bunu bir makineye nasıl kurar, doğrular ve yükseltirim",
@@ -392,7 +393,8 @@
         "kurulu bir sürüm nereye açılır ve nasıl geri alırım",
         "bir şey bozuk, önce neyi kontrol etmeliyim",
         "zevk sinyali kaydını nasıl açar ve düzeltmelerimi nasıl ölçerim",
-        "taste kodlama tercihlerimi nasıl öğrenir ve oturuma nasıl ekler"
+        "taste kodlama tercihlerimi nasıl öğrenir ve oturuma nasıl ekler",
+        "bir çökme veya kota durmasından sonra devredilen bir dilimi nasıl sürdürür veya temizlerim"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -407,7 +409,9 @@
         "hooks/tezgah_embed.py",
         "hooks/tezgah_taste.py",
         "hooks/tezgah_taste_ledger.py",
-        "bin/tezgah-taste"
+        "bin/tezgah-taste",
+        "hooks/tezgah_task.py",
+        "bin/tezgah-task"
       ]
     },
     {

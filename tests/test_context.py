@@ -1532,6 +1532,29 @@ class ResumeBlock(ChildCall):
         self.assertEqual("", self.block(repo))
         self.assertNotIn("## Session so far", self.session(repo))
 
+    def test_the_journal_lines_ride_the_resume_block_and_every_prompt(self):
+        # Plan 081: an omp `/clear` fires no session_start, so the stopped or
+        # open slices reach the next turn through the prompt's `slices` part
+        # as well as the resume block; slices-off and a raising journal drop them.
+        repo = self.full_repo()
+        line = "- slice W1 (omp/task) stopped quota attempts 1: tezgah-task slice resume W1"
+        stub = ("import json, tezgah_context as tc\n"
+                "tc.tezgah_task.slice_lines = lambda root, limit=3: [%r] * 5\n" % line)
+        out = self.child(stub + "print(json.dumps(tc.resume_state(%r, 's1')))\n" % repo)
+        self.assertEqual(out.count("slice W1"), 3, out)
+        prompt = self.child(stub + "print(json.dumps(tc.context_for('user_prompt', %r,"
+                            " {'session_id': 's1', 'prompt': 'devam'})))\n" % repo)
+        self.assertIn("Slices left stopped or open", prompt)
+        self.assertIn("tezgah-task slice resume W1", prompt)
+        off = self.child(stub + "tc.off = lambda name: name == 'slices-off'\n"
+                         "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
+        self.assertEqual(off, [])
+        broken = self.child("import json, tezgah_context as tc\n"
+                            "def boom(root, limit=3): raise OSError('x')\n"
+                            "tc.tezgah_task.slice_lines = boom\n"
+                            "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
+        self.assertEqual(broken, [])
+
     def test_a_damaged_ledger_line_costs_the_line_and_not_the_block(self):
         # A line that is terminated but does not parse used to make `_parse`
         # raise, and the guarded reads behind the resume block then dropped both
@@ -2985,11 +3008,12 @@ class SubagentBriefHeader(unittest.TestCase):
         self.assertTrue(names, "the kill-switch paragraph names no switch")
         for name in names:
             self.assertIn(name, self.brief)
-        # The always-on text names the 16 CORE switches and none of the four the
+        # The always-on text names the 16 CORE switches and none of the five the
         # owner has not classified (`UNCLASSIFIED_SWITCHES`, bin/tezgah-docs).
         switches = [n for n in names if n.endswith(("-off", ".off"))]
         self.assertEqual(len(switches), 16, switches)
-        for name in ("agents-off", "update-check-off", "taste-on", "skill-suggest-on"):
+        for name in ("agents-off", "update-check-off", "slices-off", "taste-on",
+                     "skill-suggest-on"):
             self.assertNotIn("`%s`" % name, paragraphs[0])
 
 

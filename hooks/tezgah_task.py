@@ -42,6 +42,12 @@ when the tree was clean, or `pending <sha>` when it was not, `<sha>` being the
 reader of that form). The gate refuses a write in that phase only while the
 recorded sha is still HEAD and the tree is still dirty, so the commit its refusal
 names clears it by itself.
+
+The slice journal lives here too (`open_slice` ... `slice_lines`): one JSON
+record per delegated slice under `<main checkout>/.tezgah/slices/`, written by
+the post-tool path on a spawn call and by `tezgah-task slice`, so a parent
+crash, an omp `/clear`, a quota stop or a host switch loses no slice. They shell
+out to git and read omp transcripts; the Stop rule reads `pending` (fail open).
 """
 import os
 import re
@@ -610,3 +616,453 @@ def _field_lines(key, value):
     if value is None or value == "":
         return [key + ":"]
     return ["%s: %s" % (key, value)]
+
+
+# ---------------------------------------------------------------- slice journal
+#
+# One JSON record per delegated slice under `<main checkout>/.tezgah/slices/`,
+# so a parent crash, an omp `/clear`, a quota stop or a model or host switch
+# loses no slice: the record names the brief, the worktree and branch it works
+# in, and how it ended. Written by the post-tool path on a spawn call
+# (`note_spawn`) and by `tezgah-task slice`; read by the context line
+# (`slice_lines`), the Stop rule and `tezgah-task slice reconcile|resume|stats`.
+# Every reader fails open: an unreadable record is skipped, never a refusal.
+# These functions shell out to git; none of them is on the gate's write path.
+
+SLICE_KINDS = ("agent", "job")
+SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh")
+# `stale`: no terminal status was observed within SLICE_IDLE_SECONDS - a host
+# that reports none (Codex `spawn_agent` returns at once and tezgah sees no child
+# event) or a child that died without writing its end. It leaves the pending
+# list without being read as finished or as failed.
+SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")
+SLICE_CLOSED = ("done", "stopped", "resumed", "stale")
+SLICE_IDLE_SECONDS = 6 * 3600
+FAILURES = ("quota", "rate_limit", "aborted", "timeout", "cut_off", "error")
+SLICE_BRIEF = 4000
+SLICE_LINE = 160
+SLICE_TAIL = 64 * 1024
+_SLICE_ID = re.compile(r"[^A-Za-z0-9._-]+")
+# Failure classes, first match wins, in this order. The table moved here from
+# the research line's measure (data/E2-subagent-stops/measure.py::CLASSES) and
+# was narrowed to the classes a lever exists for (`tezgah-task slice stats`).
+_CLASSES = (
+    ("rate_limit", re.compile(r"\b429\b|rate[ _-]?limit", re.I)),
+    ("quota", re.compile(r"quota|key limit exceeded|usage limit|"
+                         r"\b40[23]\b.*\blimit|\blimit\b.*\b40[23]\b", re.I)),
+    ("aborted", re.compile(r"abort|cancell?ed", re.I)),
+    ("timeout", re.compile(r"timed out|timeout", re.I)),
+    ("cut_off", re.compile(r"max[ _]turns|max_tokens|cut off|context[ _]length",
+                           re.I)),
+)
+
+
+def _now():
+    import time
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _git(cwd, *args):
+    """One git command's stdout in `cwd`, or None when git cannot answer."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", cwd] + list(args), capture_output=True,
+                             text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def _journal_root(root):
+    """The main checkout of `root`'s repository: every worktree of one repository
+    writes one journal, so a slice opened from a worktree is still found from the
+    main checkout the parent session runs in."""
+    from tezgah_paths import linked_main
+    real = os.path.realpath(root)
+    return linked_main(real) or real
+
+
+def slice_dir(root):
+    """`<main checkout>/.tezgah/slices`, the one directory the records live in."""
+    return os.path.join(_journal_root(root), ".tezgah", "slices")
+
+
+def _digest(text):
+    import hashlib
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
+
+
+def slice_id(name, brief=""):
+    """A record id: `name` cut to [A-Za-z0-9._-] and 80 characters, else the
+    first 12 hex digits of the brief's sha1 - so a re-dispatch of the same brief
+    re-opens the same record and counts an attempt."""
+    sid = _SLICE_ID.sub("-", str(name or "")).strip("-.")[:80]
+    return sid or _digest(brief)
+
+
+def _record_path(root, sid):
+    return os.path.join(slice_dir(root), slice_id(sid) + ".json")
+
+
+def _read_record(path):
+    try:
+        import json
+        with open(path, encoding="utf-8") as fh:
+            rec = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return rec if isinstance(rec, dict) and rec.get("id") else None
+
+
+def _write_record(root, rec):
+    """Write one record atomically (a temp file in the same directory, then
+    os.replace), creating the private directory on the first write."""
+    import json
+    folder = slice_dir(root)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, rec["id"] + ".json")
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(rec, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+    return rec
+
+
+def _named_worktree(root, brief):
+    """(worktree, branch) for the linked worktree of this repository the brief
+    names, else ("", "")."""
+    if not brief:
+        return "", ""
+    from tezgah_paths import worktrees
+    found = [p for p in worktrees(root)[1:] if p in brief]
+    if not found:
+        return "", ""
+    # the one named last: an omp brief is the shared context (which may list
+    # every slice's worktree) followed by this slice's own task; on a tie the
+    # longer path, since `.../a` is found inside `.../a-b` at the same place
+    top = max(found, key=lambda p: (brief.rfind(p), len(p)))
+    return top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or ""
+
+
+def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
+               cwd=""):
+    """Open (or re-open) the record `sid` and return it. The worktree and branch
+    are derived from the brief, the base is the main checkout's HEAD. A re-open
+    of an existing id counts one more attempt, sets the status back to open and
+    clears the failure; a field the new call leaves empty keeps its old value."""
+    sid = slice_id(sid, brief)
+    main = _journal_root(root)
+    brief = (brief or "")[:SLICE_BRIEF]
+    now = _now()
+    rec = _read_record(_record_path(root, sid))
+    if rec is None:
+        rec = {"id": sid, "kind": kind if kind in SLICE_KINDS else "agent",
+               "host": host, "agent": agent, "brief": brief, "parent": parent,
+               "cwd": cwd, "worktree": "", "branch": "", "attempts": 1,
+               "opened": now}
+    else:
+        rec["attempts"] = int(rec.get("attempts") or 0) + 1
+        if parent and parent != rec.get("parent"):
+            # a re-dispatch from another session (after a /clear, a crash, a
+            # resume) writes its child under that session's directory: the old
+            # one holds the first run, whose end must not close this record
+            rec["transcript_dir"] = ""
+        for key, value in (("host", host), ("agent", agent), ("brief", brief),
+                           ("parent", parent), ("cwd", cwd)):
+            if value:
+                rec[key] = value
+    if brief or not rec.get("worktree"):
+        rec["worktree"], rec["branch"] = _named_worktree(main, rec.get("brief"))
+    if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
+        # one glob over every omp project at open, so `pending` - run on every
+        # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
+        rec["transcript_dir"] = _omp_session_dir(rec["parent"]) or ""
+    # the plan whose task was active when the slice opened: the review guard
+    # reads its own plan's records only
+    rec["plan"] = (active(main, main) or {}).get("id") or rec.get("plan") or ""
+    rec.update(base=_git(main, "rev-parse", "HEAD") or "", status="open",
+               failure="", updated=now)
+    return _write_record(root, rec)
+
+
+def close_slice(root, sid, status, failure=""):
+    """Close the record `sid` as done, stopped or resumed; None when it has none.
+    A stopped record takes `failure` (a FAILURES class or ""); done and resumed
+    keep the class the slice stopped with, so the stats still count the event."""
+    if status not in SLICE_CLOSED:
+        raise ValueError("status %r is not one of %s" % (status, ", ".join(SLICE_CLOSED)))
+    rec = _read_record(_record_path(root, sid))
+    if rec is None:
+        return None
+    if status == "stopped" or failure:
+        rec["failure"] = failure if failure in FAILURES else ""
+    rec.update(status=status, updated=_now())
+    return _write_record(root, rec)
+
+
+def slices(root):
+    """Every readable record, newest `updated` first; an unreadable file is
+    skipped."""
+    import glob
+    out = []
+    for path in glob.glob(os.path.join(slice_dir(root), "*.json")):
+        rec = _read_record(path)
+        if rec is None:
+            continue
+        try:
+            mtime = os.stat(path).st_mtime_ns
+        except OSError:
+            mtime = 0
+        out.append((str(rec.get("updated") or ""), mtime, rec))
+    out.sort(key=lambda row: row[:2], reverse=True)
+    return [rec for _u, _m, rec in out]
+
+
+def classify(text):
+    """The failure class of an error or result text: rate_limit, quota, aborted,
+    timeout, cut_off, else error for any other non-empty text, "" for none."""
+    text = str(text or "").strip()
+    if not text:
+        return ""
+    for name, pattern in _CLASSES:
+        if pattern.search(text):
+            return name
+    return "error"
+
+
+def _brief(*parts):
+    return "\n\n".join(str(p).strip() for p in parts if str(p or "").strip())
+
+
+def spawned(tool, inp):
+    """[(id, agent, brief)] for one spawn call's input, [] for any other tool.
+    omp `task` carries a batch ({tasks: [{name, agent, task}], context}, brief =
+    context + task); Claude, dsh and Cursor `Agent`/`Task` and opencode `task`
+    carry one ({description, prompt, subagent_type}); Codex `spawn_agent` carries
+    {task_name, message|prompt, agent_type|agent} - its `task_name` is the id the
+    user addresses the child by."""
+    if not isinstance(inp, dict):
+        return []
+    name = str(tool or "").lower()
+    out = []
+    if name == "task" and isinstance(inp.get("tasks"), list):
+        context = inp.get("context") or ""
+        for item in inp["tasks"]:
+            if not isinstance(item, dict):
+                continue
+            brief = _brief(context, item.get("task") or "")
+            out.append((slice_id(item.get("name"), brief), str(item.get("agent") or ""),
+                        brief))
+    elif name in ("task", "agent"):
+        brief = _brief(inp.get("description") or "", inp.get("prompt") or "")
+        out.append((slice_id(inp.get("name"), brief),
+                    str(inp.get("subagent_type") or ""), brief))
+    elif name == "spawn_agent":
+        brief = str(inp.get("message") or inp.get("prompt") or "")
+        out.append((slice_id(inp.get("task_name") or inp.get("name"), brief),
+                    str(inp.get("agent_type") or inp.get("agent") or ""), brief))
+    return [row for row in out if row[2]]
+
+
+def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
+    """Open one record per slice a spawn call started, and return them. A host
+    that runs the subagent synchronously (Claude's PostToolUse on Agent/Task)
+    passes `failed` as a bool and the record closes at once: stopped with the
+    class of `result_text` (error when it names none), else done. No-op ([])
+    under `slices-off` or outside a git checkout."""
+    from tezgah_paths import _toplevel, off
+    if off("slices-off") or not cwd:
+        return []
+    root = _toplevel(os.path.realpath(cwd))
+    if not root:
+        return []
+    out = []
+    for sid, agent, brief in spawned(tool, inp):
+        rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
+                         parent=session_id or "", cwd=cwd)
+        if failed is True:
+            rec = close_slice(root, rec["id"], "stopped",
+                              classify(result_text) or "error")
+        elif failed is False:
+            rec = close_slice(root, rec["id"], "done")
+        out.append(rec)
+    return out
+
+
+def _omp_session_dir(parent):
+    """The omp session directory of parent session `parent`
+    (`~/.omp/agent/sessions/<project>/<stamp>_<parent>/`, one `<agent id>.jsonl`
+    per subagent), or None. One glob over every project, so it runs once per
+    record (`open_slice`), never per prompt."""
+    import glob
+    if not parent or "/" in parent or os.sep in parent:
+        return None
+    home = os.path.expanduser("~")
+    hits = glob.glob(os.path.join(home, ".omp", "agent", "sessions", "*",
+                                  "*_" + glob.escape(parent)))
+    return hits[0] if hits else None
+
+
+def _omp_transcript(rec):
+    """The newest omp child transcript of the record: omp names a re-dispatch of
+    the same agent name in one session `<name>-2.jsonl`, `<name>-3.jsonl`, so the
+    highest suffix is the attempt the record now tracks - reading `<name>.jsonl`
+    would close a re-opened record with the first run's end. None when the
+    record names no session directory or the directory holds no such file."""
+    folder, sid = rec.get("transcript_dir"), rec.get("id")
+    if not folder or not sid:
+        return None
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return None
+    best, rank = None, -1
+    attempt = re.compile(re.escape(sid) + r"(?:-(\d+))?\.jsonl")
+    for name in names:
+        hit = attempt.fullmatch(name)
+        n = int(hit.group(1) or 1) if hit else -1
+        if n > rank:
+            best, rank = os.path.join(folder, name), n
+    return best
+
+
+def _transcript_end(path):
+    """How an omp child transcript ended, read from its last SLICE_TAIL bytes:
+    ("stopped", class) for an error, abort or length stop on the last assistant
+    message; ("done", "") once it yielded, stopped normally or exited; None while
+    it may still be running or cannot be read."""
+    import json
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - SLICE_TAIL))
+            data = fh.read().decode("utf-8", "replace")
+    except OSError:
+        return None
+    rows = []
+    for line in data.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue  # the first line of a cut tail, or a torn last one
+        if isinstance(row, dict):
+            rows.append(row)
+    exited = yielded = False
+    for row in reversed(rows):
+        if row.get("type") == "custom" and row.get("customType") == "session_exit":
+            exited = True
+        msg = row.get("message") if isinstance(row.get("message"), dict) else None
+        if not msg:
+            continue
+        if msg.get("role") == "toolResult" and msg.get("toolName") in ("yield",
+                                                                         "submit_result"):
+            yielded = True
+        if msg.get("role") != "assistant":
+            continue
+        stop = msg.get("stopReason")
+        if stop == "error":
+            return "stopped", classify(msg.get("errorMessage")) or "error"
+        if stop == "aborted":
+            return "stopped", "aborted"
+        if stop == "length":
+            return "stopped", "cut_off"
+        if yielded or exited or stop == "stop":
+            return "done", ""
+        return None
+    return ("done", "") if yielded or exited else None
+
+
+# How long a `job` record stays pending: omp clamps a background call's
+# deadline to 3600 s, so a job opened longer ago has ended either way and its
+# line would only repeat itself on every prompt. Its result stays in the parent
+# transcript the record names, so it closes `stale`, not done.
+SLICE_JOB_SECONDS = 3600
+
+
+def _age(rec):
+    """Seconds since the record last changed (`updated`, else `opened`), or None
+    when neither reads as a record time."""
+    import calendar
+    import time
+    stamp = str(rec.get("updated") or rec.get("opened") or "")
+    try:
+        then = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+    except ValueError:
+        return None
+    return time.time() - then
+
+
+def pending(root):
+    """The records still owed work - status open or stopped - newest first. An
+    omp record still open whose child transcript has ended is closed first:
+    stopped with its failure class, or done when it ended normally. An open
+    record nothing has moved for SLICE_IDLE_SECONDS (an omp child's transcript
+    included) - or a `job` past SLICE_JOB_SECONDS - closes `stale`. One stat and
+    at most one SLICE_TAIL read per open omp record."""
+    out = []
+    for rec in slices(root):
+        if rec.get("status") != "open":
+            if rec.get("status") == "stopped":
+                out.append(rec)
+            continue
+        idle, limit = _age(rec), SLICE_IDLE_SECONDS
+        if rec.get("kind") == "job":
+            limit = SLICE_JOB_SECONDS
+        elif rec.get("host") == "omp":
+            if not rec.get("transcript_dir") and idle is not None and idle < 600:
+                # the parent's directory did not exist yet when the record
+                # opened: one more glob while the record is young, then kept
+                found = _omp_session_dir(rec.get("parent"))
+                if found:
+                    rec["transcript_dir"] = found
+                    _write_record(root, rec)
+            path = _omp_transcript(rec)
+            end = _transcript_end(path) if path else None
+            if end:
+                rec = close_slice(root, rec["id"], *end) or rec
+            elif path:
+                try:
+                    import time
+                    idle = min(idle if idle is not None else 1e18,
+                               time.time() - os.stat(path).st_mtime)
+                except OSError:
+                    pass
+        if rec.get("status") == "open" and idle is not None and idle > limit:
+            rec = close_slice(root, rec["id"], "stale") or rec
+        if rec.get("status") in ("open", "stopped"):
+            out.append(rec)
+    return out
+
+
+def _cut(line, keep=""):
+    """`line` + `keep` cut to SLICE_LINE characters, the cut taken from `line` so
+    `keep` (the command that acts on the record) survives whole."""
+    room = SLICE_LINE - len(keep)
+    if len(line) > room:
+        line = line[:max(0, room - 3)] + "..."
+    return (line + keep)[:SLICE_LINE]
+
+
+def slice_line(rec):
+    """One bounded line (SLICE_LINE characters) for one record."""
+    sid = rec.get("id") or ""
+    status = rec.get("status") or ""
+    if rec.get("kind") == "job":
+        return _cut("- job %s %s: %s (parent session %s) - read its result there "
+                    "before re-running" % (sid, status,
+                                           " ".join(str(rec.get("brief") or "").split())[:60],
+                                           rec.get("parent") or "?"))
+    head = "- slice %s (%s/%s) %s%s attempts %s" % (
+        sid, rec.get("host") or "?", rec.get("agent") or "?", status,
+        (" " + rec["failure"]) if rec.get("failure") else "", rec.get("attempts") or 1)
+    tree = rec.get("worktree") or ""
+    if tree and os.path.isdir(tree):
+        head += " worktree %s @ %s" % (tree, _git(tree, "rev-parse", "--short", "HEAD") or "?")
+    return _cut(head, ": tezgah-task slice resume %s" % sid)
+
+
+def slice_lines(root, limit=3):
+    """One line per pending record, newest first, at most `limit` of them."""
+    return [slice_line(rec) for rec in pending(root)[:limit]]

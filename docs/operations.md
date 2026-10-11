@@ -615,6 +615,70 @@ it costs nothing there. On held-out Turkish phrasings of the docs index,
 meaning alone found the page in the top three for 0.91 with `embed-mrl` and 0.78
 with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
+## Slice journal: `tezgah-task slice`
+
+A delegated slice can die with its parent. A crash, an omp `/clear`, a quota or
+429 answer, or a model or host switch ends the parent session. The child's
+worktree and commits stay, but no one remembers them. The slice journal is that
+memory, and it is host-neutral.
+
+Each spawned slice gets one JSON record at `<repo root>/.tezgah/slices/<id>.json`.
+The writer replaces the file atomically (a temp file, then `os.replace`).
+`.gitignore` excludes `.tezgah/`, a private directory, so the journal never reaches a commit.
+The id is the host's own agent name: the omp task `name` or the Codex
+`task_name`. A Claude `Agent`/`Task` input may carry a `name` too. Otherwise the
+id is the first 12 hex digits of the brief's sha1. A record holds the host, the agent
+type, the first 4000 characters of the brief, the parent session and the cwd.
+It also holds the linked worktree the brief names, its branch, and the root's
+HEAD at open. Its `status` is `open`, `done`, `stopped`, `resumed` or `stale`.
+Its `failure` is one of `quota`, `rate_limit`, `aborted`, `timeout`, `cut_off`
+or `error`. `attempts` counts each re-open of the same id
+(`hooks/tezgah_task.py::open_slice`, `hooks/tezgah_task.py::close_slice`).
+
+The hooks write it. A spawn call - omp `task`, Claude, dsh and Cursor
+`Agent`/`Task`, Codex `spawn_agent`, opencode `task` - opens one record per
+slice (`hooks/tezgah_task.py::spawned`, `hooks/tezgah_task.py::note_spawn`).
+Claude, dsh, Cursor and opencode answer the call once the child ended. So the
+record closes at once (`hooks/tezgah_task.py::classify`). A failed call becomes
+`stopped` with its failure class, and a good one `done`. The omp `task` and Codex
+`spawn_agent` calls answer while the child runs, so the record stays `open`. An omp
+record settles from the newest child transcript in the parent's session dir.
+omp names a same-name re-dispatch `<name>-2.jsonl`. The last 64 KB of that file
+decide `stopped` or `done` (`hooks/tezgah_task.py::pending`). A record
+nothing moved for six hours closes `stale`, and a background `job` after
+omp's 3600 s deadline. Codex reports no child end tezgah can see, so its
+records end `stale`. Session start and every prompt list up to three pending
+records, newest first, each with the command that resumes it
+(`hooks/tezgah_task.py::slice_lines`).
+
+| Command | What it does |
+|---|---|
+| `tezgah-task slice open --id ID [--kind agent\|job] [--host H] [--agent A] [--brief TEXT\|--brief-file F] [--parent P] [--cwd PATH]` | records a slice by hand, for a host whose spawn the hooks do not see |
+| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class |
+| `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
+| `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
+| `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
+
+`tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
+stale record names that reviewer as its id or agent. A record keeps the plan
+that was active when it opened, and only that plan's records count. A record
+with no plan counts when it changed after the plan's checkpoint commit. A
+`resumed` record hands the guard to its re-dispatch's own record
+(`bin/tezgah-task::unfinished_review`).
+
+The lever map is a closed set. `rate_limit` and `quota` point at the
+`hooks/tezgah_models.py` fallback chain. `cut_off` and `timeout` point at a
+per-slice deadline, `aborted` at the `wip:` commit cadence, a duplicate job at
+journalling background jobs. Plain `error` has no lever: read the transcript.
+
+The orchestration text carries the session's rule
+(`hooks/tezgah_policy.py::ORCHESTRATE`, `hooks/tezgah_agents.py::_orch_body`). A
+slice commits `wip: <step>` after each step. The session resumes or re-dispatches
+a stopped slice and never absorbs it inline. `slice reconcile --prune` runs
+before the turn that merged slices ends. The `~/.config/tezgah/slices-off` switch
+stops the hooks from writing records (`hooks/tezgah_paths.py::UNCLASSIFIED_SWITCHES`).
+A cwd outside a git repository writes nothing either.
+
 ## Troubleshooting
 
 | Symptom | First check | Likely cause |
@@ -761,6 +825,8 @@ page exits 1 with the message it always printed (`available()`,
   its pins, the fetch and conversion, the reader and `fuse`; the `embed-mrl` and
   `embed-m2v` registry rows that `--enable`, `--disable` and `--features` read.
   `tests/test_embed.py` builds tiny models in the test and pins the rest.
+- `hooks/tezgah_task.py`, `bin/tezgah-task` — the slice journal: the record, the
+  spawn parser, reconcile, resume, prune and stats.
 - `hooks/tezgah_paths.py`, `hooks/tezgah_context.py` — the paths and `off()`; the
   marks and the kill-switch filtering.
 - `RELEASING.md`, `README.md`, `AGENTS.md`, `.gitignore`, `tests/test_setup.py` —

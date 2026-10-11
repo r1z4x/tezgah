@@ -2144,6 +2144,49 @@ class OpenCodePlugin(TempHome):
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["output"]["context"], [])
 
+    # ---- the slice journal (plan 081) ----------------------------------------
+    def task_bin(self):
+        """A stand-in bin/tezgah-task that appends its argv as one JSON line."""
+        d = os.path.join(self.home, ".config", "tezgah", "bin")
+        os.makedirs(d, exist_ok=True)
+        log = os.path.join(self.home, "task-argv.jsonl")
+        path = os.path.join(d, "tezgah-task")
+        with open(path, "w") as fh:
+            fh.write("#!/usr/bin/env python3\nimport json, sys\n"
+                     "with open(%r, 'a') as fh:\n"
+                     "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n" % log)
+        os.chmod(path, 0o755)
+        return log
+
+    def task_calls(self, log):
+        with open(log) as fh:
+            return [json.loads(line) for line in fh]
+
+    def test_a_task_call_opens_and_closes_its_slice_record(self):
+        log = self.task_bin()
+        args = {"description": "fix", "prompt": "fix the parser",
+                "subagent_type": "general"}
+        self.drive([
+            {"hook": "tool.execute.after",
+             "input": {"tool": "task", "args": args, "sessionID": "s1"},
+             "output": {"metadata": {"sessionId": "child-1"}}},
+            {"hook": "tool.execute.after",
+             "input": {"tool": "task", "args": args, "sessionID": "s1"},
+             "output": {"metadata": {"sessionId": "child-2"},
+                        "error": "429 rate_limit_error"}}])
+        calls = self.task_calls(log)
+        self.assertEqual(calls[0][:3], ["slice", "open", "--id"])
+        self.assertEqual(calls[0][3], "child-1")
+        self.assertIn("opencode", calls[0])
+        self.assertIn("fix\n\nfix the parser", calls[0])
+        self.assertEqual(calls[1], ["slice", "done", "child-1"])
+        self.assertEqual(calls[3], ["slice", "stop", "child-2", "--class", "rate_limit"])
+
+    def test_another_tool_writes_no_slice(self):
+        log = self.task_bin()
+        self.after("bash", {"command": "ls"})
+        self.assertFalse(os.path.exists(log))
+
 
 # The plugin's node:path import, swapped for `path.win32` in a copy, plus an
 # export of the two root helpers: node picks its path flavour at startup from

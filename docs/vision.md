@@ -48,9 +48,15 @@ the workspace's own records; every number below names where it came from.
 | Tier | Command | Wall time |
 |---|---|---|
 | edit loop | `tests/impacted.py --run <changed paths>` | 0.1-95 s (integrity+gate: 18 modules, 93.8 s) |
-| pre-commit | that set + compileall + ruff (+ `--citations` when hooks/ or bin/ moved) | +~5 s |
-| pre-merge, once | `tests/impacted.py --all` + the two e2e scripts | 103.5 s (8 shards; 566.9 s serial) |
+| pre-commit | that set + compileall + ruff | +~5 s |
+| merge step, once | `tests/impacted.py --all` + neuter + `tezgah-docs --citations` and `--clarity` + `render_table.py --acceptance --strict` + the two e2e scripts | 103.5 s for the suite (8 shards; 566.9 s serial), the rest not timed here |
 | CI | the same, on the matrix in `.github/workflows/ci.yml` | unchanged |
+
+Nothing in the merge-step row runs inside a turn (`AGENTS.md`, "Checks, by
+tier", and `hooks/tezgah_policy.py::CORE`). The cut came from a replay of 522 turns
+(the check-loop-cost research line, variant D). It kept 0.5958 of the in-turn
+checks and lost no failure the status quo caught. A third of those failures
+surface at the merge step or in CI instead of in the turn.
 
 A path the map does not know runs everything (`tests/impacted.py::modules_for`): `tests/support.py`,
 `hooks/tezgah_paths.py` and anything new. `tests/test_impacted.py` refuses a

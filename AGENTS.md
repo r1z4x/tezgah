@@ -24,12 +24,15 @@ python3 tests/impacted.py --run hooks/tezgah_integrity.py bin/tezgah-task
 # before a commit: that set plus the cheap whole-tree checks (~40 s + lint)
 python3 -m compileall -q hooks hosts bin statusline.py   # byte-compile every script
 ruff check .                                              # lint; config in pyproject.toml
-python3 bin/tezgah-docs --citations                       # only when hooks/ or bin/ changed
-python3 bin/tezgah-docs --clarity                         # only when docs/ or CHANGELOG.md changed
-python3 skills/plan-add/render_table.py --acceptance --strict
+python3 tests/impacted.py --run <changed paths>           # the impacted set of what changed
 
-# once per final tree, before a merge (~105 s + the e2e scripts)
+# once per final tree, at the merge step and in CI - never inside a turn
+# (~105 s + the e2e scripts and the audits)
 python3 tests/impacted.py --all                           # the whole suite, sharded
+TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py        # every guard still fails when neutered (reads HEAD)
+python3 bin/tezgah-docs --citations                       # every docs citation lands in its symbol
+python3 bin/tezgah-docs --clarity                         # the docs prose audit
+python3 skills/plan-add/render_table.py --acceptance --strict
 python3 tests/e2e_packaged_install.py                     # install from the built artifact, not the checkout
 TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decision rules, in a real project
 ```
