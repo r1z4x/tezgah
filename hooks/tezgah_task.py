@@ -884,37 +884,62 @@ def find_slice(root, ref, session=None):
     return named[0] if len(named) == 1 else None
 
 
-def _worktree_in(root, text):
-    """The linked worktree of this repository `text` names, else "": the one
-    named last (an omp brief is the shared context, which may list every
-    slice's worktree, followed by this slice's own task); on a tie the longer
-    path, since `.../a` is found inside `.../a-b` at the same place."""
-    if not text:
-        return ""
+# Where a brief says its slice works: a `Worktree:`, `Checkout` or `Cwd:` line
+# opening with an absolute path. A path merely mentioned - a worktree to remove,
+# a sibling's tree, a file to read - is no declaration (review of S6, F2).
+_DECLARED = re.compile(r"(?im)^[ \t>#*_-]*(?:worktree|checkout|cwd)\b[*_]*[ \t]*:?"
+                       r"[*_]*[ \t]*`?(/[^\s`'\"()<>,;]+)")
+
+
+def _worktree_in(root, *texts):
+    """The linked worktree of this repository the first of `texts` that
+    declares a checkout of it declares, else "": a slice's own task before the
+    batch's shared context, and the last declaration in a text. A declared main
+    checkout is no worktree - an integrator works there."""
     from tezgah_paths import worktrees
-    found = [p for p in worktrees(root)[1:] if p in text]
-    return max(found, key=lambda p: (text.rfind(p), len(p))) if found else ""
+    trees = worktrees(root)
+    for text in texts:
+        found = [os.path.realpath(p.rstrip("/.:")) for p in _DECLARED.findall(text or "")]
+        found = [p for p in found if p in trees]
+        if found:
+            return found[-1] if found[-1] != trees[0] else ""
+    return ""
 
 
-def _named_worktree(root, brief):
-    """(worktree, branch) for the linked worktree of this repository the brief
-    names, else ("", "")."""
-    top = _worktree_in(root, brief)
+def _named_worktree(root, *texts):
+    """(worktree, branch) for the linked worktree `_worktree_in` reads off
+    `texts`, else ("", "")."""
+    top = _worktree_in(root, *texts)
     return (top, _git(top, "symbolic-ref", "-q", "--short", "HEAD") or "") if top else ("", "")
 
 
 # `Owns:` in a slice's own task: the repository-relative globs only that slice
 # writes while its record is open (research orchestrator-flow-audit S6, pick
 # V2). The gate refuses a sibling's write into them (`tezgah_gate.lease_reason`).
-# One line or several, globs split on commas and spaces, Markdown emphasis and
-# backticks dropped; an absolute glob under the slice's checkout is cut to it.
-_OWNS = re.compile(r"(?im)^[\s>#*_-]*owns[*_]*\s*:[*_]*\s*(.+)$")
+# The globs follow on the line, split on commas and spaces, or - with nothing
+# after the colon - as the `- glob` list items under it. Markdown emphasis and
+# backticks are dropped; an absolute glob under the slice's checkout is cut to it.
+_OWNS = re.compile(r"(?i)^[ \t>#*_-]*owns[*_]*[ \t]*:[*_]*[ \t]*(.*)$")
+_LIST_ITEM = re.compile(r"^[ \t>]*(?:[-*+]|\d+[.)])[ \t]+(.+)$")
 
 
 def owned_globs(text, tops=()):
     """The `Owns:` globs `text` names, in order, each once."""
+    found, lines = [], (text or "").splitlines()
+    for i, line in enumerate(lines):
+        hit = _OWNS.match(line)
+        if not hit:
+            continue
+        if hit.group(1).strip():
+            found.append(hit.group(1))
+            continue
+        for item in lines[i + 1:]:
+            listed = _LIST_ITEM.match(item)
+            if not listed:
+                break
+            found.append(listed.group(1))
     out = []
-    for line in _OWNS.findall(text or ""):
+    for line in found:
         for glob in re.split(r"[\s,]+", line.replace("`", "")):
             glob = glob.rstrip(".;")
             top = next((t for t in tops if t and glob.startswith(t + "/")), "")
@@ -928,26 +953,40 @@ def slice_of(root, parent, name):
     """The newest record `parent` spawned under `name` - a subagent's own
     record, read from its `spawned` row (`tezgah_integrity.spawn_of`), or from
     Claude's `agent_id`, which a background spawn stores as `child` - else
-    None. omp names a re-dispatch `<name>-2`, so the bare name counts too."""
-    base = re.sub(r"-\d+$", "", name or "")
-    return next((r for r in slices(root) if parent and name and r.get("parent") == parent
-                 and ((r.get("name") or r["id"]) in (name, base)
-                      or r.get("child") == name)), None)
+    None. An exact name or child first; omp names a re-dispatch `<name>-2`, so
+    the bare name answers only after that."""
+    if not (parent and name):
+        return None
+    mine = [r for r in slices(root) if r.get("parent") == parent]
+    base = re.sub(r"-\d+$", "", name)
+    return (next((r for r in mine if (r.get("name") or r["id"]) == name
+                  or r.get("child") == name), None)
+            or next((r for r in mine if (r.get("name") or r["id"]) == base), None))
 
 
 def owner_of(root, path, parent, me):
-    """The open record of another slice `parent` spawned whose `owns` matches
-    the repository-relative `path`, else None; `me` is the writing slice's id.
-    A hit re-reads after `pending`, which closes an omp sibling whose child
-    transcript ended, so a finished owner frees its files."""
+    """The open record of another writing slice `parent` spawned whose `owns`
+    matches the repository-relative `path`, else None; `me` is the writing
+    slice's id. A read-only record (`_writes`) holds no lease. A hit re-reads
+    after `pending`, which closes an omp sibling whose child transcript ended,
+    so a finished owner frees its files."""
     def held():
         return next((r for r in slices(root) if parent and r.get("parent") == parent
-                     and r.get("status") == "open" and r["id"] != me
+                     and r.get("status") == "open" and r["id"] != me and _writes(r)
                      and any(match(path, g) for g in r.get("owns") or ())), None)
     if held() is None:
         return None
     pending(root)
     return held()
+
+
+def close_child(root, parent, child):
+    """Close as done the open record `parent` spawned whose `child` is the
+    host's id of a background child that just ended (Claude's SubagentStop),
+    and return it; None when no record holds it."""
+    rec = next((r for r in slices(root) if parent and child and r.get("parent") == parent
+                and r.get("child") == child and r.get("status") == "open"), None)
+    return close_slice(root, rec["id"], "done") if rec else None
 
 
 BOARD_LINES = 12
@@ -988,6 +1027,12 @@ def _writing(agent, owns):
     return bool(owns) or not _READ_ONLY_AGENT.search(agent or "")
 
 
+def _writes(rec):
+    """A writing record: its own task's `Owns:`, else an agent not named for a
+    read-only role. A reviewer whose lease came from a shared brief is not one."""
+    return _writing(rec.get("agent"), owned_globs(rec.get("task") or ""))
+
+
 def worktree_clash(root, tool, inp, parent=""):
     """SHARED_WORKTREE when two writing slices - of this spawn call, or this
     call and an open record `parent` spawned - name one worktree, else None.
@@ -997,12 +1042,12 @@ def worktree_clash(root, tool, inp, parent=""):
     seen = {}
     for rec in slices(root):
         if parent and rec.get("parent") == parent and rec.get("status") == "open" \
-                and rec.get("worktree") and _writing(rec.get("agent"), rec.get("owns")):
+                and rec.get("worktree") and _writes(rec):
             seen.setdefault(rec["worktree"], set()).add(rec.get("name") or rec["id"])
     context = str(inp.get("context") or "").strip() if isinstance(inp, dict) else ""
     for sid, agent, brief in spawned(tool, inp):
         task = brief[len(context):] if context else brief
-        tree = _worktree_in(main, task) or _worktree_in(main, brief)
+        tree = _worktree_in(main, task, brief)
         if tree and _writing(agent, owned_globs(task)):
             seen.setdefault(tree, set()).add(sid)
     clash = sorted((t, sorted(n)) for t, n in seen.items() if len(n) > 1)
@@ -1012,8 +1057,9 @@ def worktree_clash(root, tool, inp, parent=""):
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
                cwd="", repo="", task="", child=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
-    are derived from the slice's own task (else the brief), the base is the main
-    checkout's HEAD, and `owns` holds the `Owns:` globs of the task (else the
+    are the ones the slice's own task declares (else the brief,
+    `_worktree_in`), the base is the main checkout's HEAD, and `owns` holds the
+    `Owns:` globs of the task (else the
     brief, `owned_globs`). A re-open
     of an existing id counts one more attempt, sets the status back to open and
     clears the failure; a field the new call leaves empty keeps its old value.
@@ -1049,9 +1095,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
     if task:  # the slice's own task, without a batch's shared context
         rec["task"] = task[:SLICE_BRIEF]
     if brief or not rec.get("worktree"):
-        found = _named_worktree(main, task)
-        rec["worktree"], rec["branch"] = found if found[0] else _named_worktree(
-            main, rec.get("brief"))
+        rec["worktree"], rec["branch"] = _named_worktree(main, task, rec.get("brief"))
     if own:
         rec["owns"] = owned_globs(own, (rec["worktree"], main))
     if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):

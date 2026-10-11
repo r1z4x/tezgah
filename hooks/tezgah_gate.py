@@ -1181,11 +1181,13 @@ def ended_child(writer, session_id, path, cwd):
 LEASE_DENY = (
     "Lease: %s is owned by sibling slice %s (owns %s), still open under your "
     "parent. Leave the file to it: %s, or ask your parent to move the lease; "
-    "every lease is on `tezgah-task slice board`.")
+    "once the owner has finished, `tezgah-task slice done %s` frees it. Every "
+    "lease is on `tezgah-task slice board`.")
 MAIN_CHECKOUT_DENY = (
     "Lease: %s is in the main checkout %s, but your slice %s works in worktree "
-    "%s. Write the same path under that worktree (an absolute path - a relative "
-    "one resolves against the parent's cwd).")
+    "%s. Write the same path under that worktree: an absolute path, or a shell "
+    "whose `cwd` or `cd` is there - a relative path resolves against this "
+    "session's cwd.")
 
 
 def _channel(rec):
@@ -1195,6 +1197,29 @@ def _channel(rec):
     if rec.get("host") == "omp":
         return "message the owner (`write agent://%s`)" % (rec.get("name") or rec["id"])
     return "ask the owner through your parent"
+
+
+def _shell_dir(inp, cwd):
+    """The directory a shell call's redirect or `tee` target resolves against:
+    the call's own `cwd`/`workdir`, then each `cd`/`pushd` before the first
+    redirect or `tee`, read the way `shell_control` walks the line."""
+    base = inp.get("cwd") or inp.get("workdir")
+    where, words = _full(base, cwd) if base else cwd, []
+    for word, is_op in _shell_words(inp.get("command") or inp.get("cmd") or ""):
+        if not is_op:
+            if _unquote(word) == "tee":
+                return where
+            words.append(_unquote(word))
+            continue
+        if ">" in word:
+            return where
+        while words and words[0] in SHELL_KEYWORDS:
+            words = words[1:]
+        if words and words[0] in ("cd", "pushd"):
+            dest = [a for a in words[1:] if not a.startswith("-")]
+            where = _full(dest[0] if dest else "~", where)
+        words = []
+    return where
 
 
 def lease_reason(inp, session_id, cwd=None, agent=None):
@@ -1209,6 +1234,8 @@ def lease_reason(inp, session_id, cwd=None, agent=None):
         return None
     here = cwd or os.getcwd()
     try:
+        if inp.get("command") or inp.get("cmd"):
+            here = _shell_dir(inp, here)
         for path in write_paths(inp):
             if (URI_CHANNEL.match(path) or scratch_target(path, here)
                     or unnamed_target(path, inp)):
@@ -1230,7 +1257,8 @@ def lease_reason(inp, session_id, cwd=None, agent=None):
             owner = tezgah_task.owner_of(repo, rel, spawn[0], me["id"])
             if owner:
                 return LEASE_DENY % (rel, owner.get("name") or owner["id"],
-                                     ", ".join(owner["owns"][:3]), _channel(owner))
+                                     ", ".join(owner["owns"][:3]), _channel(owner),
+                                     owner["id"])
     except Exception:
         return None
     return None

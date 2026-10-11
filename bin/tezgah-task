@@ -93,8 +93,9 @@ subagent its parent's - with the `Owns:` globs of each brief (the lease the
 gate holds siblings to), worktree, branch and last commit. `merge-plan` forecasts
 each done slice branch against `--base` (HEAD) and against the others with `git
 merge-tree`, leaves out a `merge=union` file such as CHANGELOG.md, and orders
-them fewest conflicts first, a branch touching MANIFEST or the citation baseline
-last. `review ... approve`
+them with a branch touching MANIFEST or the citation baseline last, then fewest
+conflicts first; a branch merge-tree cannot forecast (git before 2.38, no shared
+history) is printed as `not judged` and the exit is 1. `review ... approve`
 is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
@@ -1170,8 +1171,8 @@ def _counts(counter):
 
 
 # Files every slice appends to and only the integrator resolves (research
-# orchestrator-flow-audit S6, finding 8): a branch whose forecast conflict
-# touches one merges after the others.
+# orchestrator-flow-audit S6, finding 8): a branch that touches one merges
+# after every branch that does not.
 HOTSPOTS = ("MANIFEST", "docs/citations-baseline.json")
 
 
@@ -1197,28 +1198,34 @@ def merge_conflicts(root, ours, theirs):
 
 
 def merge_plan(root, base):
-    """One line per done slice whose branch carries work `base` lacks, in the
-    order to merge them: fewest forecast conflicts with `base` first, then a
-    branch touching no HOTSPOTS, then fewest siblings it overlaps; each names
-    its conflicting files and the siblings it collides with."""
+    """(lines, unjudged) for the done slices whose branch carries work `base`
+    lacks. The lines are the order to merge them: a branch touching no
+    HOTSPOTS first, then fewest forecast conflicts with `base`, then fewest
+    siblings it overlaps; each names its conflicting files and the siblings it
+    collides with. `unjudged` names each branch `git merge-tree` could not
+    forecast (git before 2.38, no shared history) instead of dropping it."""
     branches = {}
     for rec in tt.slices(root):
         branch = rec.get("branch")
         if (rec.get("status") == "done" and branch and branch not in branches
                 and own_commits(root, rec) and not _landed(root, branch, base)):
             branches[branch] = rec
-    rows = []
+    rows, unjudged = [], []
     for branch, rec in branches.items():
         mine = merge_conflicts(root, base, branch)
         if mine is None:
+            unjudged.append("not judged: %s (slice %s): `git merge-tree --write-tree` "
+                            "could not forecast it against %s" % (branch, rec["id"], base))
             continue
         overlaps = {}
         for other in branches:
             files = merge_conflicts(root, other, branch) if other != branch else None
             if files:
                 overlaps[other] = files
-        hot = any(f in HOTSPOTS for f in mine + sum(overlaps.values(), []))
-        rows.append(((len(mine), hot, len(overlaps), branch), rec, mine, overlaps))
+        touched = (git_out(root, "diff", "--name-only", "%s...%s" % (base, branch))
+                   or "").splitlines()
+        hot = any(f in HOTSPOTS for f in touched)
+        rows.append(((hot, len(mine), len(overlaps), branch), rec, mine, overlaps))
     rows.sort(key=lambda row: row[0])
     out = []
     for n, (key, rec, mine, overlaps) in enumerate(rows, 1):
@@ -1227,8 +1234,9 @@ def merge_plan(root, base):
             ": " + ", ".join(mine) if mine else "")
         for other, files in sorted(overlaps.items()):
             line += "; overlaps %s on %s" % (other, ", ".join(files))
-        out.append(line + (" (a hotspot: the integrator resolves it)" if key[1] else ""))
-    return out
+        out.append(line + (" (touches a hotspot: the integrator merges it last)"
+                           if key[0] else ""))
+    return out, unjudged
 
 
 def board_parent():
@@ -1271,9 +1279,12 @@ def cmd_slice(args):
         base = opts.get("--base", "HEAD")
         if git_out(root, "rev-parse", "-q", "--verify", base) is None:
             return problems(["no revision %s in %s" % (base, root)])
-        lines = merge_plan(root, base)
-        print("\n".join(lines) if lines else "no done slice branch to merge into %s" % base)
-        return 0
+        lines, unjudged = merge_plan(root, base)
+        if lines or not unjudged:
+            print("\n".join(lines) if lines else "no done slice branch to merge into %s" % base)
+        for line in unjudged:
+            print(line)
+        return 1 if unjudged else 0
     if sub == "open":
         opts, pos, bad = parse_options(rest, ("--id", "--kind", "--host", "--agent",
                                               "--brief", "--brief-file", "--parent",

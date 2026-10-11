@@ -1180,8 +1180,11 @@ class Gate(TempHome):
                       task="Owns: src/a.py, docs/**")
         tt.open_slice(self.repo, "LeaseB", host="omp", agent="task", parent="P",
                       task="Owns: src/b.py")
+        tt.open_slice(self.repo, "LeaseC", host="omp", agent="task", parent="P",
+                      task="Owns: src/c.py")
         self.lineage("kidA", "spawned", "P", agent="LeaseA")
         self.lineage("kidB", "spawned", "P", agent="LeaseB")
+        self.lineage("kidC", "spawned", "P", agent="LeaseC")
 
         def edit(rel, who):
             return self.decide("Edit", {"file_path": os.path.join(self.repo, rel),
@@ -1192,11 +1195,13 @@ class Gate(TempHome):
         self.assertIn("Lease: src/a.py is owned by sibling slice LeaseA "
                       "(owns src/a.py, docs/**)", reason)
         self.assertIn("`write agent://LeaseA`", reason)
+        # review of S6, F3: the refusal names the command that frees the lease
+        self.assertIn("`tezgah-task slice done LeaseA` frees it", reason)
         # a shell redirect relative to the cwd is the same write
         self.assertIn("Lease: docs/x.md", self.decide(
             "Bash", {"command": "echo x > docs/x.md"}, session_id="kidB") or "")
         # the owner, an unleased file, the parent and an unmapped session pass
-        for rel, who in (("src/a.py", "kidA"), ("src/c.py", "kidB"),
+        for rel, who in (("src/a.py", "kidA"), ("src/x.py", "kidB"),
                          ("src/a.py", "P"), ("src/a.py", "stranger")):
             self.assertIsNone(edit(rel, who), (rel, who))
         # orchestrate-off lifts it (a session that started after the switch)
@@ -1205,9 +1210,13 @@ class Gate(TempHome):
         self.lineage("kidB2", "spawned", "P", agent="LeaseB")
         self.assertIsNone(edit("src/a.py", "kidB2"))
         os.remove(switch)
-        # a closed owner frees its files
-        tt.close_slice(self.repo, "LeaseA", "done")
+        # a slice whose own record closed is no longer held to it
+        tt.close_slice(self.repo, "LeaseB", "done")
         self.assertIsNone(edit("src/a.py", "kidB"))
+        # a closed owner frees its files
+        self.assertIn("Lease", edit("src/a.py", "kidC") or "")
+        tt.close_slice(self.repo, "LeaseA", "done")
+        self.assertIsNone(edit("src/a.py", "kidC"))
 
     def test_a_claude_background_childs_agent_id_maps_it_to_its_slice(self):
         import tezgah_task as tt
@@ -1229,6 +1238,14 @@ class Gate(TempHome):
                       self.decide("Edit", edit, session_id="PC", agent="agB") or "")
         for agent in ("agA", None, "agZ"):
             self.assertIsNone(self.decide("Edit", edit, session_id="PC", agent=agent), agent)
+        # review of S6, F3: agA's SubagentStop closes its record, and its lease
+        proc = support.run([support.STOP_HOOK], {
+            "hook_event_name": "SubagentStop", "cwd": self.repo, "session_id": "PC",
+            "agent_id": "agA", "last_assistant_message": "finished"}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted((r["child"], r["status"]) for r in tt.slices(self.repo)),
+                         [("agA", "done"), ("agB", "open")])
+        self.assertIsNone(self.decide("Edit", edit, session_id="PC", agent="agB"))
 
     def test_a_slice_with_a_worktree_may_not_write_the_main_checkout(self):
         import tezgah_task as tt
@@ -1247,7 +1264,7 @@ class Gate(TempHome):
         git("worktree", "add", "-q", "-b", "s6", tree)
         tree = os.path.realpath(tree)
         tt.open_slice(self.repo, "InTree", host="omp", agent="task", parent="P3",
-                      task="work only in %s" % tree)
+                      task="# Target\nCheckout %s (branch s6)\nwork only there" % tree)
         self.lineage("kidT", "spawned", "P3", agent="InTree")
         main_edit = {"file_path": os.path.join(self.repo, "src", "x.py"),
                      "old_string": "a", "new_string": "b"}
@@ -1262,13 +1279,29 @@ class Gate(TempHome):
         self.assertNotIn("Lease", self.decide("Write", {
             "file_path": os.path.join(self.repo, ".tezgah", "notes.md"),
             "content": "x"}, session_id="kidT") or "")
+        # review of S6, F1: a shell whose own cwd or `cd` is the worktree writes there
+        for inp in ({"cwd": tree, "command": "printf x > out.txt"},
+                    {"command": "cd %s && printf x > out.txt" % tree},
+                    {"command": "cd %s && printf x | tee out.txt" % tree}):
+            self.assertIsNone(self.decide("Bash", inp, session_id="kidT"), inp)
+        self.assertIn("is in the main checkout", self.decide(
+            "Bash", {"cwd": tree, "command": "cd %s && printf x > out.txt" % self.repo},
+            session_id="kidT") or "")
+        # F2: an integrator whose task declares the main checkout works there,
+        # whatever worktrees it names to remove
+        tt.open_slice(self.repo, "Merger", host="omp", agent="task", parent="P3",
+                      task="Integrate.\nCwd: %s\nThen remove the worktree %s." % (self.repo, tree))
+        self.lineage("kidM", "spawned", "P3", agent="Merger")
+        self.assertIsNone(self.decide("Edit", {
+            "file_path": os.path.join(self.repo, "CHANGELOG.md"),
+            "old_string": "a", "new_string": "b"}, session_id="kidM"))
         # the parent's own write into its checkout is not a slice's
         self.assertIsNone(self.decide("Edit", main_edit, session_id="P3"))
         # and a second writing slice sent to the same worktree is warned at spawn
         out, proc = run_json([support.OMP_HOOK], {
             "event": "pre_tool_use", "cwd": self.repo, "session_id": "P3", "tool": "task",
             "input": {"tasks": [{"name": "Also", "agent": "task",
-                                 "task": "edit in %s" % tree}]}}, env=self.envv)
+                                 "task": "Checkout %s" % tree}]}}, env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("writing slices Also, InTree all name worktree %s" % tree,
                       (out or {}).get("advice", ""))

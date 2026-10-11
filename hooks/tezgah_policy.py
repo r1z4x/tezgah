@@ -330,8 +330,9 @@ when no item is ready, never on a question about a step it can take. Fan out onl
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
 sequence them. Every writing brief names its `Owns:` globs - the files only
-that slice writes; the gate refuses a sibling's write into them and a slice's
-write into the main checkout when its brief names a worktree. The integrator
+that slice writes - and declares its checkout on a `Worktree: <abs path>` line;
+the gate refuses a sibling's write into those globs and a slice's write into
+the main checkout when its brief declares a worktree. The integrator
 owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline)
 and merges in the order `tezgah-task slice merge-plan` prints. Siblings message
 each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface

@@ -8,24 +8,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **An ownership lease on every delegated slice.** A writing brief's `Owns:`
-  lines name the globs only that slice writes. One line or several work, split
-  on commas and spaces. The journal stores them as `owns`. The gate refuses a
-  sibling's write into them while the owner runs. It also refuses a slice's
-  write into the main checkout when its record names a worktree, the shape two
-  wave-1 slices hit with relative paths. The refusal names the owner, its globs
-  and how to reach it: omp `write agent://<name>`, Claude `SendMessage`, else
-  the parent. `.tezgah/` and scratch stay free. A closed owner frees its files.
-  omp maps a writing session to its record through its ledger's `spawned` row.
-  A Claude background child maps through the `agentId` its launch result names
-  and the record keeps as `child`. Every other host fails open. `tezgah-task
-  slice board` lists one parent's open slices with their lease, worktree,
-  branch and last commit. `slice merge-plan` orders the done slice branches by
-  their forecast `git merge-tree` conflicts against a base and against each
-  other, with CHANGELOG.md left to its union driver. A spawn whose writing
-  slices name one worktree gets a warning. The orchestration text now tells
-  every writing brief to name `Owns:` globs. It gives the shared append points
-  to the integrator. Siblings message each other only on an interface or
+- **An ownership lease on every delegated slice.** `Owns:` lines in a brief
+  name the globs only that slice writes. They sit on the line or as `- glob`
+  items under it. The journal stores them as `owns`. The gate refuses a
+  sibling's write into them while the owner runs. A brief may declare its
+  worktree on a `Worktree:`, `Checkout` or `Cwd:` line. The gate then refuses
+  that slice's write into the main checkout, the shape two wave-1 slices hit
+  with relative paths. A shell target resolves against the call's own `cwd`
+  and its `cd`. A path the brief only mentions is no worktree, so an integrator
+  that lists worktrees to remove still works in the main checkout. The refusal
+  names the owner, its globs, how to reach it - omp `write agent://<name>`,
+  Claude `SendMessage`, else the parent - and the `tezgah-task slice done
+  <id>` that frees it. `.tezgah/` and scratch stay free. A closed owner frees
+  its files, and a reviewer holds no lease. omp maps a writing session to its
+  record through its ledger's `spawned` row. A Claude background child maps
+  through the `agentId` its launch result names, and its SubagentStop closes
+  the record. Every other host fails open. `tezgah-task slice board` lists one
+  parent's open slices with their lease, worktree, branch and last commit.
+  `slice merge-plan` puts a branch touching MANIFEST or the citation baseline
+  last. It orders the rest by their forecast `git merge-tree` conflicts and
+  leaves CHANGELOG.md to its union driver. It names a branch it cannot
+  forecast and exits 1. A spawn whose writing slices declare one worktree gets
+  a warning. The orchestration text now tells every writing brief to name
+  `Owns:` globs and declare its worktree. It gives the shared append points to
+  the integrator. Siblings message each other only on an interface or
   ownership change. `orchestrate-off` and `slices-off` disarm it.
 
 - **`CHANGELOG.md` merges with the union driver.** A new `.gitattributes` keeps both branches' lines, so parallel slices no longer conflict on the `[Unreleased]` head.
