@@ -772,12 +772,16 @@ class ProviderHealth(unittest.TestCase):
         now = 2_000_000_000.0
         self.assertEqual(tm.limit_until("429 limit, reset at 2001-01-01 00:00:00",
                                         now=now), now + tm.HEALTH_DOWN)
+        # a provider saying "retry now" is not a misread clock: a minute's hold
+        self.assertEqual(tm.limit_until("429 rate limit retry-after-ms=0", now=now),
+                         now + 60)
 
     def test_the_omp_probe_is_one_bare_request_on_the_cheap_row(self):
-        runs = []
+        runs, envs = [], []
 
         def run(argv, **kw):
             runs.append(argv)
+            envs.append(kw.get("env") or {})
             return subprocess.CompletedProcess(argv, 1, "", "429 Weekly/Monthly Limit "
                                                "Exhausted. Your limit will reset at "
                                                "2030-01-01 00:00:00")
@@ -791,6 +795,8 @@ class ProviderHealth(unittest.TestCase):
                      "--no-extensions", "--no-title"):
             self.assertIn(flag, argv)
         self.assertEqual(argv[argv.index("--model") + 1], tm._selector("zai", "cheap"))
+        # a tezgah hook that loads in the child records and refuses nothing
+        self.assertEqual(envs[0].get("TEZGAH_NESTED"), "1")
         with mock.patch.object(tm.tp, "omp_bin", return_value="/x/omp"), \
                 mock.patch.object(tm.subprocess, "run", return_value=subprocess.CompletedProcess(
                     [], 1, "", "segfault")):
@@ -843,16 +849,43 @@ class ProviderHealth(unittest.TestCase):
         with open(cfg, "w") as fh:
             fh.write("{not json")
         route = os.path.join(support.REPO, "bin", "tezgah-route")
+        # no real omp answers the re-apply (tests/test_host_models.py's rule)
+        env = support.base_env(home, extra={
+            "TEZGAH_OMP_BIN": os.path.join(home, "no-such-omp")})
         proc = subprocess.run([sys.executable, route, "--fallback", "any"],
-                              env=support.base_env(home), capture_output=True, text=True)
+                              env=env, capture_output=True, text=True)
         self.assertEqual(proc.returncode, 1)
         with open(cfg) as fh:
             self.assertEqual(fh.read(), "{not json")
         os.remove(cfg)
         proc = subprocess.run([sys.executable, route, "--fallback", "none"],
-                              env=support.base_env(home), capture_output=True, text=True)
+                              env=env, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         with open(cfg) as fh:
             self.assertEqual(json.load(fh)["fallback"], "none")
+
+    def test_route_health_reports_each_family_and_re_applies(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "tezgah_route_cli", os.path.join(support.REPO, "bin", "tezgah-route.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        import time
+        down = {"zai": {"until": time.time() + 3600, "reason": "429 weekly limit"}}
+        out = io.StringIO()
+        with mock.patch.object(tm, "omp_mode", return_value="anthropic"), \
+                mock.patch.object(tm, "refresh_health",
+                                  return_value={"checked": 1, "down": down}) as refresh, \
+                mock.patch.object(tm, "apply_omp", return_value="omp model overrides written"), \
+                mock.patch("sys.stdout", out):
+            self.assertEqual(cli.main(["tezgah-route", "--health"]), 0)
+        refresh.assert_called_once_with("anthropic")
+        text = out.getvalue()
+        self.assertIn("anthropic: the mode's own family, not probed", text)
+        self.assertIn("zai: down until", text)
+        self.assertIn("429 weekly limit", text)
+        self.assertIn("any: up", text)
+        self.assertIn("omp model overrides written", text)
 
 
 class Refresh(unittest.TestCase):

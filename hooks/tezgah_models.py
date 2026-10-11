@@ -332,14 +332,13 @@ def limit_until(text, now=None):
             until = time.mktime(time.strptime("%s %s" % hit.groups(), "%Y-%m-%d %H:%M:%S"))
         except (ValueError, OverflowError):
             until = None
+        if until is not None and until <= now:
+            # a named reset already past is a clock we misread (the provider's
+            # zone is not stated): a minute's hold would re-probe every prompt
+            until = now + HEALTH_DOWN
     if until is None:
         ms = _RETRY_MS.search(text)
         until = now + int(ms.group(1)) / 1000.0 if ms else now + HEALTH_DOWN
-    if until <= now:
-        # a named reset already past is a clock we misread (the provider's zone
-        # is not stated): a minute's hold re-probed every prompt, so hold it like
-        # a limit that names none
-        until = now + HEALTH_DOWN
     return min(max(until, now + 60), now + HEALTH_DOWN_MAX)
 
 
@@ -382,7 +381,9 @@ def probe_family(family, timeout=60):
     exe = tp.omp_bin()
     if not exe:
         return None, "omp not found"
-    env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
+    # TEZGAH_NESTED, as consult and the judge set it: a hook that does load in
+    # the child records nothing and refuses nothing
+    env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT, TEZGAH_NESTED="1")
     try:
         # the consult argv: no tools, rules, skills, extensions or title call, so
         # the probe is one short request and fires no nested tezgah hooks
