@@ -8,7 +8,7 @@ the gate and the evidence ledger underneath are the shared core in `hooks/`,
 the same code every other host runs.
 
     {"event": "session_start", "cwd": ..., "session_id": ..., "subagent": bool,
-     "parent": <the main session's id>, "agent": <the child's AgentId>}
+     "parent": <the main session's id>, "agent": <the child's AgentId>, "fork_of": <id>}
         -> {"context": <this repo's live state, or the subagent brief>,
             "status": "pony✓ ...", "idx": glyph}
     {"event": "status", "cwd": ..., "session_id": ...}
@@ -59,7 +59,7 @@ try:
     from tezgah_context import (  # noqa: E402
         color_default, command_text, context_for, health_segments, record,
         render_tiers, shell_kind, skill_read_kind)
-    from tezgah_gate import decision, graph_advice  # noqa: E402
+    from tezgah_gate import cross_project_note, decision, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, stop_reason, untrusted_label,
         untrusted_source)
@@ -169,6 +169,11 @@ def handle(payload):
             # `tezgah-route --report` joins the two through this row
             note(session_id, "spawned", "", parent=str(payload["parent"]),
                  agent=payload.get("agent"))
+        elif payload.get("fork_of"):
+            # an omp fork names the session it was forked from: the race rule
+            # names that relation instead of an opaque ledger id
+            # (tezgah_integrity._relation)
+            note(session_id, "forked", "", parent=str(payload["fork_of"]))
         context = context_for(kind, cwd, dict(payload, host="omp"),
                               with_core=False)
         if context:
@@ -247,10 +252,13 @@ def handle(payload):
         # reads where the text came from - or, on an effect after such a read,
         # the taint notice - while it reads the result.
         # the opt-in taste note for the first write to this file type
-        # (hooks/tezgah_taste.write_note) rides the same label
+        # (hooks/tezgah_taste.write_note) and the cross-project write notice
+        # (hooks/tezgah_gate.py::cross_project_note) ride the same label
         taste = (safe(session_id, write_note, session_id, inp, cwd, tool)
                  if failed is not True else None)
-        label = "\n".join(t for t in (label, taste) if t)
+        cross = (safe(session_id, cross_project_note, session_id, tool, inp, cwd)
+                 if failed is not True else None)
+        label = "\n".join(t for t in (label, taste, cross) if t)
         if label:
             out["label"] = label
         return out

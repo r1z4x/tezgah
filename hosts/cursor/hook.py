@@ -48,7 +48,7 @@ from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
     from tezgah_context import (  # noqa: E402
         command_text, context_for, record, shell_kind, slug, under)
-    from tezgah_gate import decision, explored, graph_advice  # noqa: E402
+    from tezgah_gate import cross_project_note, decision, explored, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
         SUBAGENT_CHANNEL, bind_session, note, note_tool, ran_nothing, report_bytes,
         residual_text, stop_reason)
@@ -317,7 +317,11 @@ def dispatch(payload):
         # (hooks/tezgah_taste.write_note)
         taste = (write_note(session_id, inp, cwd, gate_name(payload.get("tool_name", "")))
                  if under(cwd) and not call_failed(payload) else None)
-        text = "\n".join(t for t in (notice, reinforce, advice, taste) if t)
+        # the cross-project write notice (tezgah_gate.cross_project_note)
+        cross = (cross_project_note(session_id, gate_name(payload.get("tool_name", "")),
+                                    inp, cwd)
+                 if under(cwd) and not call_failed(payload) else None)
+        text = "\n".join(t for t in (notice, reinforce, advice, taste, cross) if t)
         out = {"additional_context": text} if text else {}
     elif event == "postToolUseFailure":
         if kind:

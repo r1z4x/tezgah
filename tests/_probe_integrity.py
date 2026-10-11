@@ -17,7 +17,8 @@ fn = p.get("fn")
 if fn == "note":
     ti.note(p.get("session"), p.get("kind"), p.get("detail", ""),
             id=p.get("id"), exit=p.get("exit"), out_bytes=p.get("out_bytes"),
-            fail_class=p.get("fail_class"), workspace=p.get("workspace"))
+            fail_class=p.get("fail_class"), workspace=p.get("workspace"),
+            parent=p.get("parent"), agent=p.get("agent"))
     out = None
 elif fn == "note_tool":
     # the argument is omitted when the test omits it, so the signature's default

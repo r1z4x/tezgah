@@ -896,11 +896,23 @@ RACE_WINDOW_MIN = 10
 # overwrite, so this rule cannot be a soft one.
 RACE_REFUSE = True
 RACE_DENY = (
-    "Concurrent write refused: session %s wrote this file within the last %d "
+    "Concurrent write refused: %s wrote this file within the last %d "
     "minutes, so the copy of %s in your context may already be stale. Re-read "
     "the file and re-apply your change to what is on disk now; if both sessions "
     "are editing it, say so and let one of them own the file rather than "
     "overwriting the other's work.")
+# How RACE_DENY names a writer, by its relation to this session
+# (tezgah_integrity._relation): the bare ledger id sent a model to the wrong
+# cause - it called an omp fork "a second window of the same session"
+# (research orchestrator-flow-audit S7, finding 4).
+RACE_WHO = {
+    "child": "your own subagent %s (ledger %s), not ended in the slice journal",
+    "parent": "your parent session (ledger %s)",
+    "sibling": "sibling subagent %s of your parent (ledger %s)",
+    "fork": "an omp fork of this session (ledger %s)",
+    "forked-from": "the session this one was forked from (ledger %s)",
+    "unrelated": "another, unrelated session %s",
+}
 # The file a write call names, per host dialect, plus the apply_patch headers
 # (tezgah_integrity.PATCH_FILE) for the dialect whose paths live in the body.
 # The race guard resolves each against the call's cwd to an absolute real path
@@ -1093,10 +1105,91 @@ def race_reason(inp, session_id, cwd=None):
         if (URI_CHANNEL.match(path) or scratch_target(path, cwd)
                 or (not URI_TARGET.match(path) and unnamed_target(path, inp))):
             continue    # a temp file or a device is no one's shared work
-        others = writers_elsewhere(path, session_id, RACE_WINDOW_MIN, cwd=cwd)
+        others = [w for w in writers_elsewhere(path, session_id, RACE_WINDOW_MIN,
+                                               cwd=cwd, lineage=True)
+                  if not ended_child(w, session_id, path, cwd)]
         if others:
-            return RACE_DENY % (", ".join(str(s) for s in others[:3]),
+            return RACE_DENY % (", ".join(race_who(*w[:3]) for w in others[:3]),
                                 RACE_WINDOW_MIN, path)
+    return None
+
+
+def race_who(stem, relation, agent):
+    """One writer as RACE_DENY names it (RACE_WHO)."""
+    text = RACE_WHO.get(relation, RACE_WHO["unrelated"])
+    return text % ((agent or "?", stem) if text.count("%s") == 2 else (stem,))
+
+
+def ended_child(writer, session_id, path, cwd):
+    """True when `writer` (a writers_elsewhere (stem, relation, agent, ts)) is
+    this session's own subagent whose slice record closed after its newest
+    write of this file: a parent taking over a child that stopped on a quota
+    error is no race (research orchestrator-flow-audit S7, finding 3). The
+    record is read after `pending` closes an ended omp child, from cwd's journal
+    and the written file's. No record, one still open, or a write newer than the
+    record's close is a live writer and stays refused. ponytail: the close time
+    is stored to the second, so a write in the second the record closed counts
+    as before the close."""
+    import calendar
+    stem, relation, agent, wrote = writer
+    if relation != "child" or not agent or tezgah_task is None:
+        return False
+    repos = {r for r in (tezgah_task.main_repo(os.path.join(cwd or os.getcwd(), path)),
+                         tezgah_task.main_repo(cwd or os.getcwd())) if r}
+    base = re.sub(r"-\d+$", "", agent)
+    recs = []
+    try:
+        for repo in repos:
+            tezgah_task.pending(repo)   # closes an omp child whose transcript ended
+            recs += [r for r in tezgah_task.slices(repo) if r.get("parent") == session_id
+                     and (r.get("name") or r.get("id")) in (agent, base)]
+        closed = max(calendar.timegm(time.strptime(str(r.get("updated")), "%Y-%m-%dT%H:%M:%SZ"))
+                     for r in recs) if recs else None
+    except Exception:
+        return False
+    return (closed is not None and closed >= int(wrote)
+            and all(r.get("status") != "open" for r in recs))
+
+
+# The cross-project write notice: a session works under the rules of the
+# repository its cwd is in, so a write into another one is under none of that
+# repository's plans, lessons or slice journal (research orchestrator-flow-audit
+# S7, finding 7). A notice, never a refusal: the write may be the user's ask.
+CROSS_PROJECT = (
+    "tezgah: this write is in %s, not in this session's repository (%s). That "
+    "repository's plans, lessons and slice journal do not apply to this session. "
+    "Work on that project from a session opened there.")
+
+
+def _main_repo(path):
+    """The main checkout of the repository holding `path`, else None
+    (`tezgah_task.main_repo`: a repository's own `.tezgah` is that repository)."""
+    return tezgah_task.main_repo(path) if tezgah_task is not None else None
+
+
+def cross_project_note(session_id, tool, inp, cwd):
+    """CROSS_PROJECT when this write call's file lies in another repository than
+    cwd's (a worktree counts as its main checkout), once per session per target
+    repository (a `nudged` mark), else None. Every host's post-tool channel
+    carries it beside its other notices. Total: any failure is no notice."""
+    try:
+        name = str(tool or "").lower()
+        if (name not in WRITE_TOOLS and name not in BASH_TOOLS) or not cwd \
+                or not isinstance(inp, dict) or inp.get("command") == "view":
+            return None
+        here = _main_repo(cwd)
+        for path in write_paths(inp):
+            if URI_CHANNEL.match(path) or scratch_target(path, cwd):
+                continue
+            there = _main_repo(os.path.join(cwd, path))
+            if not there or there == here:
+                continue
+            key = "cross:" + hashlib.sha1(("%s\0%s" % (session_id, there)).encode(
+                "utf-8", "replace")).hexdigest()[:16]
+            return CROSS_PROJECT % (there, here or cwd) \
+                if tezgah_store.mark("nudged", key) else None
+    except Exception:
+        return None
     return None
 
 

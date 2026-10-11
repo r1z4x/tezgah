@@ -1056,7 +1056,8 @@ class Gate(TempHome):
         reason = self.decide("Edit", {"file_path": target, "old_string": "a",
                                       "new_string": "b"}, session_id="mine")
         self.assertIsNotNone(reason)
-        self.assertIn("other", reason)    # names the other session
+        # names the other session by its relation and its ledger id
+        self.assertIn("another, unrelated session %s" % ti._slug("other"), reason)
         self.assertIn(target, reason)     # and the file
         self.assertIn("Re-read", reason)  # and what to do about it
 
@@ -1112,6 +1113,110 @@ class Gate(TempHome):
             self.assertIn("Concurrent write", reason or "", inp)
         self.assertIsNone(self.decide("Bash", {"command": "printf y > src/b.py"},
                                       session_id="mine"))
+
+    def lineage(self, session, kind, parent, agent=None):
+        """The `spawned` or `forked` row a session's start writes."""
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note", "session": session, "kind": kind,
+                              "parent": parent, "agent": agent}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_an_own_child_that_ended_is_no_race_and_a_live_one_is(self):
+        # research orchestrator-flow-audit S7, finding 3: a child stopped on a
+        # 403 and the parent's takeover of its file was refused for 10 minutes
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        self.lineage("kid", "spawned", "mine", agent="Worker")
+        self.seed_write("kid", target)
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        # no slice record: nothing says the child ended
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.open_slice(self.repo, "Worker", host="claude", parent="mine", brief="b")
+        self.assertIn("your own subagent Worker", self.decide("Edit", edit,
+                                                              session_id="mine") or "")
+        tt.close_slice(self.repo, "Worker", "stopped", "quota")
+        self.assertIsNone(self.decide("Edit", edit, session_id="mine"))
+        # another session is still refused on the same child's write
+        self.assertIn("unrelated session", self.decide("Edit", edit,
+                                                       session_id="else") or "")
+
+    def test_a_child_that_wrote_after_its_record_closed_is_live(self):
+        # review of S7 (F4): a closed record is no proof the child stopped
+        # writing - a write newer than the close is a live writer
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.repo, ".git"))
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("kid2", "spawned", "mine2", agent="Late")
+        tt.open_slice(self.repo, "Late", host="claude", parent="mine2", brief="b")
+        rec = tt.close_slice(self.repo, "Late", "stopped", "quota")
+        rec["updated"] = "2026-01-01T00:00:00Z"
+        tt._write_record(self.repo, rec)
+        self.seed_write("kid2", target)
+        self.assertIn("your own subagent Late", self.decide("Edit", edit,
+                                                            session_id="mine2") or "")
+
+    def test_a_fork_is_named_as_one_in_the_refusal(self):
+        # finding 4: the bare ledger id read as "a second window of this session"
+        target = os.path.join(self.repo, "src", "a.py")
+        edit = {"file_path": target, "old_string": "a", "new_string": "b"}
+        self.lineage("forkee", "forked", "mine")
+        self.seed_write("forkee", target)
+        reason = self.decide("Edit", edit, session_id="mine") or ""
+        self.assertIn("an omp fork of this session (ledger %s)" % ti._slug("forkee"),
+                      reason)
+        # and seen from the fork, the writer is the session it was forked from
+        self.seed_write("mine", target)
+        self.assertIn("the session this one was forked from (ledger %s)" % ti._slug("mine"),
+                      self.decide("Edit", edit, session_id="forkee") or "")
+
+    def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
+        # finding 7: cwd decides which project's rules apply, so a write into
+        # another repository runs under none of its plans; a notice, no refusal
+        other = self.make_repo("other")
+        for repo in (self.repo, other):
+            os.makedirs(os.path.join(repo, ".git"), exist_ok=True)
+        there = os.path.join(other, "x.py")
+        note = tg.cross_project_note("xp", "Edit", {"file_path": there}, self.repo)
+        self.assertIn("this write is in %s, not in this session's repository (%s)"
+                      % (other, self.repo), note or "")
+        self.assertIsNone(tg.cross_project_note("xp", "Write", {"file_path": there},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Bash", {"command": "ls > a.py"},
+                                                self.repo))
+        self.assertIsNone(tg.cross_project_note("xp", "Read", {"path": there}, self.repo))
+        self.assertIsNotNone(tg.cross_project_note(
+            "xp", "Bash", {"command": "echo x > %s" % os.path.join(self.repo, "y")}, other))
+
+    def test_a_write_into_the_repositorys_own_tezgah_is_no_other_project(self):
+        # review of S7 (F2): `.tezgah` keeps a git repository of its own, and a
+        # plan or lesson write read as a write into another project
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(self.repo, ".tezgah", ".git"))
+        plan = os.path.join(self.repo, ".tezgah", "plans", "open", "001.md")
+        self.assertIsNone(tg.cross_project_note("xp2", "Write", {"file_path": plan},
+                                                self.repo))
+
+    def test_the_post_tool_hook_records_its_row_without_the_notice(self):
+        # review of S7 (F6): a gate module that cannot give the notice must cost
+        # that one line, never the evidence row the hook exists to write
+        os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
+        body = ("import runpy, sys; sys.path.insert(0, %r); sys.modules['tezgah_gate'] = None;"
+                " runpy.run_path(%r, run_name='__main__')"
+                % (support.HOOKS, os.path.join(support.HOOKS, "projects-posttooluse.py")))
+        proc = subprocess.run(
+            [sys.executable, "-c", body], capture_output=True, text=True, env=self.envv,
+            input=json.dumps({"hook_event_name": "PostToolUse", "session_id": "nogate",
+                              "tool_name": "Write", "cwd": self.repo, "tool_response": {},
+                              "tool_input": {"file_path": os.path.join(self.repo, "a.py")}}),
+            timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows, _ = run_json([support.PROBE_INTEGRITY], {"fn": "events", "session": "nogate"},
+                           env=self.envv)
+        self.assertEqual([r.get("tool") for r in rows or [] if r.get("kind") == "edit"],
+                         ["Write"])
 
     def test_a_scratch_file_is_no_shared_work(self):
         # review of plan 057: shell rows carried scratch targets, so two

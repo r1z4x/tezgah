@@ -850,6 +850,40 @@ def _write_record(root, rec):
     return rec
 
 
+def _own_id(root, base, brief, parent):
+    """The record id a spawn of `base` opens: `base` itself, unless another
+    session holds that record under another brief. Then it is this session's
+    own record of that name, else `base-<digest6>` of the brief, so another
+    session's stopped slice stays its owner's (research orchestrator-flow-audit
+    S7). A same-brief re-dispatch from another session still re-opens `base`."""
+    held = _read_record(root, base)
+    if (held is None or not parent or not brief
+            or held.get("parent") in ("", None, parent)
+            or held.get("brief") == brief):
+        return base
+    own = next((r["id"] for r in slices(root) if r.get("parent") == parent
+                and (r.get("name") or r["id"]) == base), None)
+    return own or "%s-%s" % (base, _digest(brief)[:6])
+
+
+def find_slice(root, ref, session=None):
+    """The record `ref` names for `tezgah-task slice done|stop|resume`. An
+    exact id answers whatever session owns it: an id is unambiguous, and it is
+    what `slice reconcile` and the review guard print, so a crashed session's
+    slice stays reachable. A bare spawned `name` is a lookup: with `session`
+    (TEZGAH_SESSION), the newest record of that name the session spawned or no
+    session owns; without one, the one record of that name. None when nothing
+    answers."""
+    ref = slice_id(ref)
+    recs = slices(root)
+    exact = next((r for r in recs if r["id"] == ref), None)
+    if exact or session:
+        return exact or next((r for r in recs if r.get("name") == ref
+                              and r.get("parent") in (session, "", None)), None)
+    named = [r for r in recs if r.get("name") == ref]
+    return named[0] if len(named) == 1 else None
+
+
 def _named_worktree(root, brief):
     """(worktree, branch) for the linked worktree of this repository the brief
     names, else ("", "")."""
@@ -867,20 +901,25 @@ def _named_worktree(root, brief):
 
 
 def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="",
-               cwd=""):
+               cwd="", repo=""):
     """Open (or re-open) the record `sid` and return it. The worktree and branch
     are derived from the brief, the base is the main checkout's HEAD. A re-open
     of an existing id counts one more attempt, sets the status back to open and
-    clears the failure; a field the new call leaves empty keeps its old value."""
-    sid = slice_id(sid, brief)
+    clears the failure; a field the new call leaves empty keeps its old value.
+    A record another session holds under another brief is not re-opened: the
+    spawn gets its own id (`_own_id`), and `name` keeps the spawned name.
+    `repo` names the repository the slice works in when that is not this
+    journal's (`_brief_repo`)."""
+    base = slice_id(sid, brief)
     main = _journal_root(root)
     brief = (brief or "")[:SLICE_BRIEF]
     now = _now()
+    sid = _own_id(root, base, brief, parent)
     rec = _read_record(root, sid)
     if rec is None:
-        rec = {"id": sid, "kind": kind if kind in SLICE_KINDS else "agent",
+        rec = {"id": sid, "name": base, "kind": kind if kind in SLICE_KINDS else "agent",
                "host": host, "agent": agent, "brief": brief, "parent": parent,
-               "cwd": cwd, "worktree": "", "branch": "", "attempts": 1,
+               "cwd": cwd, "repo": repo, "worktree": "", "branch": "", "attempts": 1,
                "opened": now}
     else:
         rec["attempts"] = int(rec.get("attempts") or 0) + 1
@@ -890,7 +929,7 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
             # one holds the first run, whose end must not close this record
             rec["transcript_dir"] = ""
         for key, value in (("host", host), ("agent", agent), ("brief", brief),
-                           ("parent", parent), ("cwd", cwd)):
+                           ("parent", parent), ("cwd", cwd), ("repo", repo)):
             if value:
                 rec[key] = value
     if brief or not rec.get("worktree"):
@@ -987,17 +1026,23 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
     that runs the subagent synchronously (Claude's PostToolUse on Agent/Task)
     passes `failed` as a bool and the record closes at once: stopped with the
     class of `result_text` (error when it names none), else done. No-op ([])
-    under `slices-off` or outside a git checkout."""
+    under `slices-off` or outside a git checkout. The record stays in cwd's
+    journal, the one the owner's Stop rule, resume block and review guard
+    read, and names the repository its brief works in as `repo`
+    (`_brief_repo`) when that is another one."""
     from tezgah_paths import _toplevel, off
     if off("slices-off") or not cwd:
         return []
     root = _toplevel(os.path.realpath(cwd))
     if not root:
         return []
+    here = _journal_root(root)
     out = []
     for sid, agent, brief in spawned(tool, inp):
+        repo = _brief_repo(brief, here)
         rec = open_slice(root, sid, host=host, agent=agent, brief=brief,
-                         parent=session_id or "", cwd=cwd)
+                         parent=session_id or "", cwd=cwd,
+                         repo="" if repo == here else repo)
         if failed is True:
             rec = close_slice(root, rec["id"], "stopped",
                               classify(result_text) or "error")
@@ -1005,6 +1050,35 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
             rec = close_slice(root, rec["id"], "done")
         out.append(rec)
     return out
+
+
+# An absolute path in a brief: a slash after a space, a quote or a bracket, up
+# to the next space, quote, bracket or separator.
+_ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`<>()\[\]{},;|*?]+")
+
+
+def main_repo(path):
+    """The main checkout of the repository holding `path`, else None. A path
+    under a repository's own `.tezgah` - a private git repository of its own -
+    belongs to the repository around it, and a worktree to its main checkout."""
+    from tezgah_paths import _toplevel
+    top = _toplevel(os.path.realpath(path))
+    while top and os.path.basename(top) == ".tezgah":
+        top = _toplevel(os.path.dirname(top))
+    return _journal_root(top) if top else None
+
+
+def _brief_repo(brief, root):
+    """The main checkout of the one armed repository every absolute path the
+    brief names lies in, else `root`. A brief naming two repositories, or none,
+    keeps `root` (research orchestrator-flow-audit S7, finding 2)."""
+    from tezgah_paths import root_for
+    found = set()
+    for path in _ABS_PATH.findall(brief or ""):
+        top = main_repo(path.rstrip(".:"))
+        if top and root_for(top):
+            found.add(top)
+    return found.pop() if len(found) == 1 else root
 
 
 def _omp_session_dir(parent):
@@ -1026,8 +1100,9 @@ def _omp_transcript(rec):
     the same agent name in one session `<name>-2.jsonl`, `<name>-3.jsonl`, so the
     highest suffix is the attempt the record now tracks - reading `<name>.jsonl`
     would close a re-opened record with the first run's end. None when the
-    record names no session directory or the directory holds no such file."""
-    folder, sid = rec.get("transcript_dir"), rec.get("id")
+    record names no session directory or the directory holds no such file. The
+    file is named by the spawned `name`, which a record's own id may extend."""
+    folder, sid = rec.get("transcript_dir"), rec.get("name") or rec.get("id")
     if not folder or not sid:
         return None
     try:
@@ -1175,6 +1250,8 @@ def slice_line(rec):
         sid, rec.get("host") or "?", rec.get("agent") or "?", status,
         (" " + rec["failure"]) if rec.get("failure") else "", rec.get("attempts") or 1)
     tree = rec.get("worktree") or ""
+    if rec.get("repo"):
+        head += " (in %s)" % os.path.basename(rec["repo"])
     if tree and os.path.isdir(tree):
         head += " worktree %s @ %s" % (tree, _git(tree, "rev-parse", "--short", "HEAD") or "?")
     return _cut(head, ": tezgah-task slice resume %s" % sid)

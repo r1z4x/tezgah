@@ -3,10 +3,12 @@
 print the bytes injected per session.
 
   python3 tests/replay_context.py [--base REV] [--head REV]
-                                  [--host omp|claude|all] [--root DIR] [--json]
+                                  [--host omp|claude|all] [--root DIR | --all-projects]
+                                  [--json]
 
 The sessions are the top-level omp and Claude transcripts `bin/tezgah-taste
-mine` reads (same walkers, same `--root`, read-only). Each one replays as the
+mine` reads (same walkers, same `--root`, read-only): the current repository's
+by default, every one under `~/Projects` with `--all-projects`. Each one replays as the
 hosts deliver it: `session_start` (the core lives in the host's file on both,
 so `with_core=False`), one `user_prompt` per user prompt that is not a harness
 injection, and at each compaction omp's `post_compact` or Claude's
@@ -181,9 +183,15 @@ def main(argv):
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--host", choices=("omp", "claude", "all"), default="all")
     ap.add_argument("--root")
+    ap.add_argument("--all-projects", action="store_true")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    sessions = mine(args.host, args.root)
+    # the current repository by default, as `tezgah-taste mine`: another
+    # project's sessions are read only when asked (`--all-projects`)
+    t = taste()
+    here = (t.tezgah_paths.linked_main(os.getcwd()) or t.repo_root(os.getcwd())
+            or os.getcwd())
+    sessions = mine(args.host, args.root or (None if args.all_projects else here))
     if not sessions:
         print("replay_context: no session with a prompt", file=sys.stderr)
         return 2

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """tezgah-taste - mine, measure, learn and apply the coding-taste signals.
 
-  tezgah-taste mine [--host omp|claude|all] [--root DIR] [--stats] [--out FILE]
+  tezgah-taste mine [--host omp|claude|all] [--root DIR | --all-projects] [--stats]
+                    [--out FILE]
   tezgah-taste measure --samples FILE --labels FILE [--model M] [--json]
   tezgah-taste rate --in MINED [--limit N] [--json]
   tezgah-taste learn [--repo DIR] [--from-transcripts] [--host omp|claude|all]
@@ -16,7 +17,12 @@
 `mine` reads the session transcripts on this machine - omp's top-level session
 files under `~/.omp/agent/sessions/*/` (a nested file is a subagent session) and
 Claude's top-level transcripts under `~/.claude/projects/*/` - whose cwd is under
-`--root` (default `~/Projects`, a `.runs` directory excluded). A writing turn is
+`--root` (default the current repository, a `.runs` directory excluded).
+`--all-projects` reads every session under `~/Projects` instead. Each repository
+a mined session ran in, but the current one (every one under `--all-projects`),
+gets a pseudonym (`project-<sha1[:8]>`). It stands for that repository's `repo`
+and `cwd`, and for its path and its name, in any case, in every prompt. A name
+the miner never saw as a session's repository stays as written. A writing turn is
 one in which the agent wrote a file without an error (omp `edit`/`write`, Claude
 `Edit`/`Write`/`MultiEdit`/`NotebookEdit`); the prompt the user sent directly
 after one, unless it is a harness injection, is a row. The definitions are the
@@ -64,6 +70,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 
@@ -236,7 +243,7 @@ def sessions(host, root, nested=False):
     pattern = ("**", "*.jsonl") if nested else ("*", "*.jsonl")
     for path in sorted(glob.glob(os.path.join(base(), *pattern), recursive=nested)):
         cwd = cwd_of(path)
-        if cwd.startswith(root + os.sep) and ".runs" not in cwd.split(os.sep):
+        if (cwd == root or cwd.startswith(root + os.sep)) and ".runs" not in cwd.split(os.sep):
             yield path, cwd
 
 
@@ -258,11 +265,29 @@ def repo_of(cwd, root):
     """The nearest directory holding `.git` below the root, else the first path
     component under it - without git, since a session's cwd may be gone."""
     here = cwd
-    while here.startswith(root + os.sep):
+    while here == root or here.startswith(root + os.sep):
         if os.path.exists(os.path.join(here, ".git")):
             return here
         here = os.path.dirname(here)
-    return os.path.join(root, os.path.relpath(cwd, root).split(os.sep)[0])
+    return os.path.normpath(os.path.join(root, os.path.relpath(cwd, root).split(os.sep)[0]))
+
+
+def pseudonym(repo):
+    """`project-<sha1[:8]>` for a repository path: the same name for every row of
+    one repository, and no trace of its own name."""
+    return "project-" + hashlib.sha1(repo.encode("utf-8", "replace")).hexdigest()[:8]
+
+
+def unname(text, repos):
+    """`text` with each repository of `repos` - its path, then its name as a
+    word, in any case - replaced by its pseudonym, the longest first so a name
+    inside another is not cut."""
+    for repo in sorted(repos, key=len, reverse=True):
+        text = re.sub(re.escape(repo), pseudonym(repo), text, flags=re.I)
+    for repo in sorted(repos, key=lambda r: len(os.path.basename(r)), reverse=True):
+        text = re.sub(r"(?<![\w.-])%s(?![\w-]|\.\w)" % re.escape(os.path.basename(repo)),
+                      pseudonym(repo), text, flags=re.I)
+    return text
 
 
 def mine_session(events):
@@ -280,24 +305,35 @@ def mine_session(events):
 
 
 def cmd_mine(args):
-    root = os.path.abspath(os.path.expanduser(args.root or "~/Projects"))
+    here = (tezgah_paths.linked_main(os.getcwd()) or repo_root(os.getcwd())
+            or os.getcwd())
+    root = os.path.abspath(os.path.expanduser(
+        args.root or ("~/Projects" if args.all_projects else here)))
     out = open(args.out, "w", encoding="utf-8") if args.out and not args.stats else sys.stdout
     try:
-        for host in (("omp", "claude") if args.host == "all" else (args.host,)):
+        hosts = ("omp", "claude") if args.host == "all" else (args.host,)
+        found = {host: list(sessions(host, root)) for host in hosts}
+        hidden = {r for r in (repo_of(cwd, root) for rows in found.values()
+                              for _path, cwd in rows) if args.all_projects or r != here}
+        for host in hosts:
             count = writes = prompts = 0
-            for path, cwd in sessions(host, root):
+            for path, cwd in found[host]:
                 count += 1
                 wrote, rows = mine_session(HOSTS[host][2](path))
                 writes += wrote
                 prompts += len(rows)
                 if args.stats:
                     continue
+                repo = repo_of(cwd, root)
+                repo_out = pseudonym(repo) if repo in hidden else repo
+                cwd_out = repo_out + cwd[len(repo):] if cwd.startswith(repo) else repo_out
                 for text, turn in rows:
                     out.write(json.dumps({
                         "host": host,
                         "session": os.path.splitext(os.path.basename(path))[0],
-                        "cwd": cwd, "repo": repo_of(cwd, root),
-                        "prompt": ti.redact(text)[:CUT], "writes_in_turn": turn},
+                        "cwd": cwd_out, "repo": repo_out,
+                        "prompt": unname(ti.redact(text), hidden)[:CUT],
+                        "writes_in_turn": turn},
                         ensure_ascii=False) + "\n")
             if args.stats:
                 print("%s: sessions=%d writes=%d prompts_after_write=%d"
@@ -883,6 +919,8 @@ def main(argv):
     mine = sub.add_parser("mine")
     mine.add_argument("--host", choices=("omp", "claude", "all"), default="all")
     mine.add_argument("--root")
+    mine.add_argument("--all-projects", action="store_true",
+                      help="every session under ~/Projects, each repo and cwd pseudonymised")
     mine.add_argument("--stats", action="store_true")
     mine.add_argument("--out")
     measure = sub.add_parser("measure")

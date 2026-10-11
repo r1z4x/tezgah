@@ -370,6 +370,85 @@ class Pending(Journal):
             tt.pending(self.repo)
             self.assertEqual(self.record("Rev")["status"], "open")
 
+    def test_another_sessions_same_name_never_takes_a_stopped_slice(self):
+        # research orchestrator-flow-audit S7, finding 1 (data/scripts/s7/
+        # repro.py): session Y's unrelated `Fixer` re-opened X's stopped record,
+        # which then left X's resume line and X's Stop rule
+        with unittest.mock.patch.dict(os.environ, {"HOME": self.home}):
+            task = {"tasks": [{"name": "Fixer", "agent": "task", "task": "edit app.py"}]}
+            tt.note_spawn(self.repo, "sessX", "omp", "task", dict(task, context="x work"))
+            tt.close_slice(self.repo, "Fixer", "stopped", "rate_limit")
+            (theirs,) = tt.note_spawn(self.repo, "sessY", "omp", "task", {
+                "context": "other work",
+                "tasks": [{"name": "Fixer", "agent": "task", "task": "unrelated"}]})
+            mine = self.record("Fixer")
+            self.assertEqual((mine["parent"], mine["status"], mine["attempts"]),
+                             ("sessX", "stopped", 1))
+            self.assertEqual([ln.split()[2] for ln in tt.slice_lines(self.repo, session="sessX")],
+                             ["Fixer"])
+            self.assertTrue(theirs["id"].startswith("Fixer-"), theirs["id"])
+            self.assertEqual((theirs["name"], theirs["parent"]), ("Fixer", "sessY"))
+            # Y's next dispatch of that name, under another brief, is its own record
+            (again,) = tt.note_spawn(self.repo, "sessY", "omp", "task", {
+                "tasks": [{"name": "Fixer", "agent": "task", "task": "third brief"}]})
+            self.assertEqual((again["id"], again["attempts"]), (theirs["id"], 2))
+            # the child file omp writes is still `Fixer.jsonl` in Y's directory
+            self.transcript("sessY", "Fixer", [_row("toolResult", toolName="yield")])
+            rec = tt.open_slice(self.repo, "Fixer", host="omp", parent="sessY",
+                                brief="third brief")
+            self.assertEqual(rec["id"], theirs["id"])
+            tt.pending(self.repo)
+            self.assertEqual(self.record(theirs["id"])["status"], "done")
+            # the same brief from another session is a re-dispatch and re-opens it
+            (resent,) = tt.note_spawn(self.repo, "sessZ", "omp", "task",
+                                      dict(task, context="x work"))
+            self.assertEqual((resent["id"], resent["parent"]), ("Fixer", "sessZ"))
+
+
+class BriefRepo(Journal):
+    """note_spawn names the repository the brief works in (finding 2), and the
+    record stays in cwd's journal, the one its owner reads."""
+
+    def spawn(self, name, brief, **kw):
+        with unittest.mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.home}):
+            return tt.note_spawn(self.repo, "s", "omp", "task", {
+                "tasks": [{"name": name, "task": brief}]}, **kw)[0]
+
+    def test_a_brief_naming_another_repository_names_it_and_stays_here(self):
+        other = self.make_repo("other")
+        self.git("init", "-q", other, cwd=self.home)
+        tree = self.worktree("w1")
+        away = self.spawn("Away", "Work in %s only. Edit %s/app.py." % (other, other))
+        here = self.spawn("Here", "edit %s/app.py" % tree)
+        both = self.spawn("Both", "%s and %s" % (other, self.repo))
+        self.assertEqual((away["cwd"], away["repo"]), (self.repo, other))
+        self.assertEqual((here["repo"], both["repo"]), ("", ""))
+        self.assertEqual(sorted(r["id"] for r in tt.slices(self.repo)), ["Away", "Both", "Here"])
+        self.assertEqual(tt.slices(other), [])
+        self.assertIn("(in other)", tt.slice_line(away))
+
+    def test_a_stopped_slice_working_on_another_repository_still_refuses_its_owner(self):
+        # review of S7 (F3): journalled in the other repository, the stopped
+        # slice left its owner's Stop rule, which reads cwd's journal only
+        import tezgah_integrity as ti
+        other = self.make_repo("other")
+        self.git("init", "-q", other, cwd=self.home)
+        self.spawn("Away", "edit %s/app.py" % other, failed=True, result_text="429")
+        stopped = ti._stopped_slice("s", self.repo)
+        self.assertEqual((stopped or {}).get("id"), "Away")
+
+    def test_a_repositorys_own_private_tezgah_repository_is_that_repository(self):
+        # review of S7 (F2): `.tezgah` keeps its own git repository, and a
+        # brief naming a plan file read as work in a second repository
+        other = self.make_repo("other")
+        self.git("init", "-q", other, cwd=self.home)
+        for repo in (self.repo, other):
+            self.git("init", "-q", os.path.join(repo, ".tezgah"), cwd=self.home)
+        mine = self.spawn("Plan", "tick %s/.tezgah/plans/open/001.md" % self.repo)
+        theirs = self.spawn("Theirs", "read %s/.tezgah/lessons.md" % other)
+        self.assertEqual((mine["repo"], theirs["repo"]), ("", other))
+        self.assertEqual(tt.main_repo(os.path.join(other, ".tezgah", "x")), other)
+
 
 class Cli(Journal):
 
@@ -505,6 +584,48 @@ class Cli(Journal):
         self.plan_at_head()
         self.assertEqual(self.task("review", "001", "tezgah-reviewer",
                                    "approve").returncode, 0)
+
+    def task_as(self, session, *args):
+        return support.run([CLI] + list(args), cwd=self.repo,
+                           env=self.env(extra={"TEZGAH_SESSION": session}))
+
+    def test_a_suffixed_review_record_is_this_sessions_and_only_its_own(self):
+        # review of S7 (F1, N1): a reviewer spawned as `Reviewer` under another
+        # session's record got `Reviewer-<d6>`, which the guard did not find; an
+        # exact id stays reachable from any session, a bare name only from its own
+        self.plan_at_head()
+        theirs = tt.open_slice(self.repo, "Reviewer", host="omp", agent="task",
+                               parent="X", brief="review plan 001, first run")
+        tt.close_slice(self.repo, theirs["id"], "stopped", "quota")
+        mine = tt.open_slice(self.repo, "Reviewer", host="claude", agent="task",
+                             parent="Y", brief="review plan 001")
+        self.assertNotEqual(mine["id"], "Reviewer")
+        tt.close_slice(self.repo, mine["id"], "stopped", "quota")
+        refused = self.task_as("Y", "review", "001", "Reviewer", "approve")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("review slice %s is stopped" % mine["id"], refused.stdout)
+        self.assertNotIn("review slice Reviewer is", refused.stdout)  # X's review
+        # a bare name answers only for its own session (no record has it as id)
+        tt._write_record(self.repo, {"id": "Rev-0a1b2c", "name": "Rev", "parent": "Y",
+                                     "kind": "agent", "status": "stopped",
+                                     "updated": tt._now()})
+        self.assertEqual(self.task_as("Z", "slice", "done", "Rev").returncode, 1)
+        self.assertEqual(self.task_as("Y", "slice", "done", "Rev").stdout.strip(),
+                         "slice Rev-0a1b2c done")
+        # the exact id the refusal printed closes Y's record from any session
+        done = self.task_as("Z", "slice", "done", mine["id"])
+        self.assertEqual(done.stdout.strip(), "slice %s done (quota)" % mine["id"])
+        self.assertEqual(self.record("Reviewer")["status"], "stopped")
+        allowed = self.task_as("Y", "review", "001", "Reviewer", "approve")
+        self.assertEqual(allowed.returncode, 0, allowed.stdout)
+
+    def test_a_crashed_sessions_slice_is_resumed_by_its_id_from_another(self):
+        # N1: `slice reconcile` lists X's stopped Fixer; Y resumes it by that id
+        tt.open_slice(self.repo, "Fixer", host="claude", parent="X", brief="fix it")
+        tt.close_slice(self.repo, "Fixer", "stopped", "quota")
+        proc = self.task_as("Y", "slice", "resume", "Fixer")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.record("Fixer")["status"], "resumed")
 
     def test_the_guard_reads_its_own_plans_records_and_a_stale_review(self):
         self.plan_at_head()

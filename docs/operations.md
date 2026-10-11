@@ -426,7 +426,8 @@ bin/tezgah-taste export                       # accepted learnings into AGENTS.m
 bin/tezgah-taste label; bin/tezgah-taste label ID preference   # the calibration sample
 bin/tezgah-taste calibrate                    # the bound a rule needs
 bin/tezgah-taste gate                         # the pooled before/after test
-bin/tezgah-taste mine --host omp --stats      # sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --host omp --stats      # this repository's sessions, writes, prompts after a writing turn
+bin/tezgah-taste mine --all-projects          # every session under ~/Projects, each repo pseudonymised
 bin/tezgah-taste measure --samples S --labels L [--typed]   # judge precision/recall
 ```
 
@@ -635,6 +636,14 @@ HEAD at open. Its `status` is `open`, `done`, `stopped`, `resumed` or `stale`.
 Its `failure` is one of `quota`, `rate_limit`, `aborted`, `timeout`, `cut_off`
 or `error`. `attempts` counts each re-open of the same id
 (`hooks/tezgah_task.py::open_slice`, `hooks/tezgah_task.py::close_slice`).
+Another session's record of the same name is not re-opened under another brief.
+The spawn gets this session's own record of that name, else `<name>-<sha1[:6]>` of its brief.
+`name` keeps the spawned name, and the same brief from another session still re-opens the record
+(`hooks/tezgah_task.py::_own_id`). The record stays in cwd's journal, the one its
+owner's Stop rule, resume block and review guard read. When every absolute path its
+brief names lies in one other repository, `repo` names that repository, and the
+slice line says `(in <name>)` (`hooks/tezgah_task.py::_brief_repo`). A repository's
+own `.tezgah` counts as that repository (`hooks/tezgah_task.py::main_repo`).
 
 The hooks write it. A spawn call - omp `task`, Claude, dsh and Cursor
 `Agent`/`Task`, Codex `spawn_agent`, opencode `task` - opens one record per
@@ -657,13 +666,15 @@ sessions' records. `tezgah-task slice reconcile` lists them all.
 | Command | What it does |
 |---|---|
 | `tezgah-task slice open --id ID [--kind agent\|job] [--host H] [--agent A] [--brief TEXT\|--brief-file F] [--parent P] [--cwd PATH]` | records a slice by hand, for a host whose spawn the hooks do not see |
-| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class |
+| `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class. An exact record id answers from any session. A spawned name answers too, and under `TEZGAH_SESSION` only for that session's records and unowned ones (`hooks/tezgah_task.py::find_slice`) |
 | `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 
 `tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
-stale record names that reviewer as its id or agent. A record keeps the plan
+stale record names that reviewer as its id, agent or spawned name. Under
+`TEZGAH_SESSION` only that session's records and unowned ones count. The refusal
+prints the exact id to resume or close. A record keeps the plan
 that was active when it opened, and only that plan's records count. A record
 with no plan counts when it changed after the plan's checkpoint commit. A
 `resumed` record hands the guard to its re-dispatch's own record
