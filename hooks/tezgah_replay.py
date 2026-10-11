@@ -114,6 +114,8 @@ SEED = 55
 CUT_PROMPT, CUT_INPUT, CUT_REPLY = 1500, 2000, 3000
 STOP_CONTEXT = ("run", "edit", "verify", "verify_ok", "verify_fail",
                 "interrupted", "external")
+# A final reply's last line asking the user (`?`, or a Turkish question particle)
+QUESTION_END = re.compile(r"(?:\?|\bm[ıiuü][.!]?)$")
 
 
 def replay_root():
@@ -266,6 +268,55 @@ def _transcripts(wanted):
             os.path.exists(str(parent)) and taste.session_id("omp", parent)[0]) or None
         parent_of[stem] = ti._slug(psid) if psid else "unknown"
     return found, parent_of
+
+
+def residual_turns(cutoff, since=None):
+    """Residual sections per user turn over the top-level omp and Claude
+    transcripts (a subagent's reply is not user-facing). A turn starts at a user
+    prompt that is not a harness prompt; its final reply is the last reply
+    before the next one, and it counts when that reply's ts is in
+    `(since, cutoff]`. A turn did work when one of its calls `ti.classify`es.
+    `unblocked_work_turns` reads each reply with no ledger rows, so a YETKİ or
+    ORTAM item counts as unblocked: an upper bound. `question_endings` watches
+    doable work rephrased as a question. Whole-corpus even under `--split`."""
+    taste = _taste()
+    out = Counter()
+
+    def close(reply, work):
+        if reply is None or reply[1] is None or reply[1] > cutoff \
+                or (since is not None and reply[1] <= since):
+            return
+        text = reply[0]
+        found = ti.residual_sections(text)
+        lines = [ln.strip().rstrip("*_` ") for ln in text.splitlines() if ln.strip()]
+        out["turns"] += 1
+        out["work_turns"] += work
+        out["residual_turns"] += bool(found)
+        out["residual_work_turns"] += bool(found) and work
+        out["sections"] += len(found)
+        out["unblocked_work_turns"] += work and bool(ti.unblocked_items(text, []))
+        out["question_endings"] += bool(lines and QUESTION_END.search(lines[-1]))
+
+    for host in ("omp", "claude"):
+        walk = taste.HOSTS[host][2]
+        for path, _cwd in taste.sessions(host, "", nested=False):
+            reply, work, started = None, False, False
+            for event in walk(path, calls=True):
+                if event[0] == "user" and not taste.harness_prompt(event[1]):
+                    if started:
+                        close(reply, work)
+                    reply, work, started = None, False, True
+                elif event[0] == "reply":
+                    reply = (event[1], event[2])
+                elif event[0] == "call":
+                    work = work or ti.classify(event[1], event[2]) is not None
+            if started:
+                close(reply, work)
+    keys = ("turns", "work_turns", "residual_turns", "residual_work_turns", "sections",
+            "unblocked_work_turns", "question_endings")
+    res = {k: int(out[k]) for k in keys}
+    res["per_turn"] = round(res["sections"] / res["turns"], 3) if res["turns"] else None
+    return res
 
 
 def _nearest(candidates, ts):
@@ -597,6 +648,7 @@ def run_replay(cutoff=None, since=None):
                "excluded": dict(counts["excluded"])}
     summary.update(_item_stats(items, results))
     summary["deny_runs"] = folds
+    summary["residual"] = residual_turns(cutoff, since)
     tezgah_store.add_replay(_run_key(run), summary, tp.CACHE)
     return summary
 
@@ -840,6 +892,7 @@ def report(run, label_files=(), split=None):
                                    "ledgers", "candidates", "excluded", "items", "joined",
                                    "join", "stop_text_fidelity", "fidelity", "race_family",
                                    "deny_runs")}
+    out["residual"] = summary.get("residual")
     keyfile = os.path.join(run, "sheet-key.jsonl")
     labels = _labels(label_files)
     raters = sorted(labels)
@@ -1061,6 +1114,16 @@ def _print_summary(s):
           "sessions with %d+ denies: %d" % (
               runs["run_min"], runs["runs"] or "none", runs["longest"] or "none",
               runs["session_min"], runs["sessions_over"]))
+    res = s.get("residual")
+    if res:
+        print("residual sections%s: %d turns (%d with work); %d with a residual section "
+              "(%d in work turns), %d sections (%s per turn); %d work turns with an "
+              "unblocked item; %d question endings" % (
+                  " (whole corpus)" if s.get("split") not in (None, "all") else "",
+                  res["turns"], res["work_turns"], res["residual_turns"],
+                  res["residual_work_turns"], res["sections"],
+                  "n/a" if res["per_turn"] is None else "%.3f" % res["per_turn"],
+                  res["unblocked_work_turns"], res["question_endings"]))
 
 
 def _pct(k, n):
