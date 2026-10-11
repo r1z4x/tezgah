@@ -648,8 +648,9 @@ decide `stopped` or `done` (`hooks/tezgah_task.py::pending`). A record
 nothing moved for six hours closes `stale`, and a background `job` after
 omp's 3600 s deadline. Codex reports no child end tezgah can see, so its
 records end `stale`. Session start and every prompt list up to three pending
-records, newest first, each with the command that resumes it
-(`hooks/tezgah_task.py::slice_lines`).
+records this session spawned, newest first, each with the command that resumes
+it (`hooks/tezgah_task.py::slice_lines`). Another session's records stay its own,
+and `tezgah-task slice reconcile` lists them all.
 
 | Command | What it does |
 |---|---|
