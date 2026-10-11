@@ -270,40 +270,57 @@ def _taste_put(table):
 
 
 def _recorded(conn, name, st):
-    """(the bytes `imported` counts for the file `name` with stat `st`, whether
-    they were found only under another device id) or None. A volume remount
-    can renumber the device of a file whose name and inode are unchanged; the
-    largest count under any device is that file's, so it never imports twice."""
-    found = conn.execute("SELECT bytes FROM imported WHERE name = ? AND dev = ? AND ino = ?",
-                         (name, st.st_dev, st.st_ino)).fetchone()
-    if found:
-        return found[0], False
-    found = conn.execute("SELECT max(bytes) FROM imported WHERE name = ? AND ino = ?",
-                         (name, st.st_ino)).fetchone()
-    return (found[0], True) if found[0] is not None else None
+    """(the bytes `imported` counts for the file `name` with stat `st`, the
+    device id of the row they were found under when it is not the current one)
+    or None. A volume remount can renumber the device of a file whose name and
+    inode are unchanged, and a store from before the fix imported such a file
+    again from offset 0 under the new id, so every row for (name, inode) is one
+    import stream. The longest is the file's offset under any id - this id's
+    own row included, when the id comes back to a shorter stream - so no byte
+    goes in twice."""
+    found = conn.execute("SELECT bytes, dev FROM imported WHERE name = ? AND ino = ? "
+                         "ORDER BY bytes DESC, dev = ? DESC LIMIT 1",
+                         (name, st.st_ino, st.st_dev)).fetchone()
+    if found is None:
+        return None
+    return found[0], None if found[1] == st.st_dev else found[1]
 
 
-def _record(conn, key, size, moved):
-    """`size` bytes of the file `key` in. A moved row is rewritten under the
-    current device id and its stale rows stay: the doctor's repair finds a
-    double import by those rows, so the store must not erase the evidence
-    before the user runs it (plan 078 review round 1)."""
+def _record(conn, key, start, end, stale):
+    """The file `key` in up to byte `end`, its import having resumed at `start`.
+    An import resumed from a row under another device id (`stale`) moves that
+    row to the current key, and a shorter stream's row already under the
+    current key takes the stale id: the two swap, so one row per import stream
+    stays, which is what the doctor's repair counts a double import by
+    (`tezgah-doctor --repair-evidence`). A file cut below what went in (a row
+    past `start`) no longer holds what its imports read: it goes on as one
+    stream, which resumes at its end and which the repair leaves alone."""
+    name, dev, ino = key
+    if conn.execute("SELECT 1 FROM imported WHERE name = ? AND ino = ? AND bytes > ?",
+                    (name, ino, start)).fetchone():
+        conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
+    elif stale is not None:
+        conn.execute("DELETE FROM imported WHERE name = ? AND dev = ? AND ino = ?",
+                     (name, stale, ino))
+        conn.execute("UPDATE imported SET dev = ? WHERE name = ? AND dev = ? AND ino = ?",
+                     (stale, name, dev, ino))
     conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
-                 "VALUES (?, ?, ?, ?)", key + (size,))
+                 "VALUES (?, ?, ?, ?)", key + (end,))
 
 
 def _offset(conn, name, fh):
     """(the file's key, the byte offset its import resumes at, whether the
-    recorded row must be rewritten, whether it is under another device id
-    (`_recorded`)). The row is rewritten when its offset differs or it moved: a
-    file cut below what went in (rewritten in place) resumes at its end, so
-    the rows appended after the cut still import."""
+    recorded row must be rewritten, the device id of the row it resumes from
+    when that is not the current one (`_recorded`)). The row is rewritten when
+    its offset differs or it is under another id: a file cut below what went
+    in (rewritten in place) resumes at its end, so the rows appended after the
+    cut still import."""
     st = os.fstat(fh.fileno())
     key = (name, st.st_dev, st.st_ino)
     found = _recorded(conn, name, st)
     start = min(found[0], st.st_size) if found else 0
-    moved = bool(found and found[1])
-    return key, start, bool(found and found[0] != start) or moved, moved
+    stale = found[1] if found else None
+    return key, start, bool(found and found[0] != start) or stale is not None, stale
 
 
 def _import_rows(conn, name, src, st, put=None, keep=False):
@@ -327,14 +344,14 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
         _failed(conn, name, st)
         return
     with fh:  # closing it releases the flock
-        key, start, cut, _moved = _offset(conn, name, fh)
+        key, start, cut, _stale = _offset(conn, name, fh)
         fh.seek(start)
         raw = fh.read()
         if b"\n" in raw or cut:
             with transaction(conn):
                 if not _locked(fh):
                     return  # its writer holds it: the next open takes it
-                key, start, cut, moved = _offset(conn, name, fh)
+                key, start, cut, stale = _offset(conn, name, fh)
                 fh.seek(start)
                 raw = fh.read()
                 whole = raw[:raw.rfind(b"\n") + 1]
@@ -342,7 +359,7 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
                     put = put or _taste_put(name[:-len(".jsonl")])
                     for line in whole.split(b"\n"):
                         put(conn, line)
-                    _record(conn, key, start + len(whole), moved)
+                    _record(conn, key, start, start + len(whole), stale)
         # aside only when every byte went in (no fragment past the last newline)
         # and no writer appended past the read (the old writer appends unlocked
         # once its own wait runs out), under the flock so no writer is inside
@@ -585,7 +602,7 @@ def _sync(held, path):
     if seen.get(path) == mark:
         return
     name = os.path.basename(path)
-    if _recorded(conn, name, st) == (st.st_size, False):
+    if _recorded(conn, name, st) == (st.st_size, None):
         seen[path] = mark
         return
     if conn.execute("SELECT 1 FROM import_failed WHERE name = ? AND mtime_ns = ? "

@@ -99,22 +99,76 @@ class DeviceChange(Cache):
         path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "a"},
                                  {"kind": "run", "ts": 2, "detail": "b"}])
         ts.import_session(path)
-        # nothing new in the file: the lookup falls back to (name, inode) and
-        # writes the row under the current device. The stale-device row stays:
-        # the doctor's repair finds a double import by those rows, so the store
-        # must not erase the evidence before the user runs it (plan 078 review)
+        # nothing new in the file: the offset is found by (name, inode) and its
+        # row moves to the current device - one import, so one row
         self.moved(path)
         ts.import_session(path)
         st = os.stat(path)
         self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b"])
-        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
+        self.assertEqual(self.imported(), [("s.jsonl", st.st_dev, st.st_ino, st.st_size)])
         # a line appended since: only it goes in, under the current device
         self.moved(path)
         self.legacy("s", [{"kind": "run", "ts": 3, "detail": "c"}])
         ts.import_session(path)
         st = os.stat(path)
         self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "b", "c"])
-        self.assertIn(("s.jsonl", st.st_dev, st.st_ino, st.st_size), self.imported())
+        self.assertEqual(self.imported(), [("s.jsonl", st.st_dev, st.st_ino, st.st_size)])
+
+    def test_a_device_id_that_comes_back_resumes_from_the_longest_import(self):
+        # the bug's history: the file went in under this device id (line a),
+        # then again from its start under another id (a, b); now this id is back
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "a"}])
+        ts.import_session(path)
+        short = os.stat(path).st_size
+        self.legacy("s", [{"kind": "run", "ts": 2, "detail": "b"}])
+        st = os.stat(path)
+        db = os.path.join(self.cache, ts.CACHE_DB)
+        ts._HELD.pop(db)[0].close()
+        con = sqlite3.connect(db)
+        with con, open(path, encoding="utf-8") as fh:
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        ("s.jsonl", st.st_dev + 1, st.st_ino, st.st_size))
+            con.executemany("INSERT INTO evidence (session, row) VALUES ('s', ?)",
+                            [(line,) for line in fh.read().splitlines()])
+        con.close()
+        self.legacy("s", [{"kind": "run", "ts": 3, "detail": "c"}])
+        ts.import_session(path)
+        # only c goes in: the longest import's offset wins over this id's own
+        # shorter row, so no line goes in a third time
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)], ["a", "a", "b", "c"])
+        # one row per import stays, the long one under this id: the doctor's
+        # repair counts the copies by them
+        st = os.stat(path)
+        self.assertEqual(sorted(self.imported()),
+                         [("s.jsonl", st.st_dev, st.st_ino, st.st_size),
+                          ("s.jsonl", st.st_dev + 1, st.st_ino, short)])
+
+    def test_a_file_cut_in_place_resumes_at_its_end_for_every_import(self):
+        # two imports recorded, the shorter under another id; the file is then
+        # rewritten shorter in place and grows again: no line after the cut is
+        # skipped by the other import's larger offset
+        path = self.legacy("s", [{"kind": "run", "ts": 1, "detail": "a"},
+                                 {"kind": "run", "ts": 2, "detail": "b"},
+                                 {"kind": "run", "ts": 3, "detail": "c"}])
+        ts.import_session(path)
+        st = os.stat(path)
+        with open(path, "rb") as fh:
+            first, second = len(fh.readline()), len(fh.readline())
+        db = os.path.join(self.cache, ts.CACHE_DB)
+        ts._HELD.pop(db)[0].close()
+        con = sqlite3.connect(db)
+        with con:
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        ("s.jsonl", st.st_dev + 1, st.st_ino, first + second))
+        con.close()
+        with open(path, "r+b") as fh:  # rewritten in place: the same inode
+            fh.truncate(first)
+        ts.import_session(path)
+        self.legacy("s", [{"kind": "run", "ts": 4, "detail": "d"},
+                          {"kind": "run", "ts": 5, "detail": "e"}])
+        ts.import_session(path)
+        self.assertEqual([r["detail"] for r in support.ledger_rows(path)],
+                         ["a", "b", "c", "d", "e"])
 
 
 class Concurrency(Cache):
