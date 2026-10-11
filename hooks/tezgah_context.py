@@ -27,13 +27,13 @@ from tezgah_integrity import (STEP_KINDS, _heredocs, _path as _ledger_path,
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
-                           PROMPT_REMINDER, REPLY_LANG_TEXT, open_lines_note,
+                           PROMPT_REMINDER, REPLY_ANY, open_lines_note,
                            pony_level_line)
 from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
-                          ai_research_dir, armed,
+                          ai_research_dir, alts, armed,
                           cache_dir, codegraph_bin, consult_options,
-                          ensure_workspace, fallback_cache, have_judge_key, off,
-                          orx_bin, pony_level, reply_lang, root_for, roots, tool,
+                          ensure_workspace, fallback_cache, have_judge_key, language,
+                          off, orx_bin, packs, pony_level, root_for, roots, say, tool,
                           workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
@@ -56,325 +56,95 @@ except ImportError:  # pragma: no cover - only where the module has not landed
 
 # A prompt that matches one of these arms the matching conditional rule for that
 # turn only. Kept as (key, compiled regex) so the arming is one pass and the
-# patterns are reviewable. Word-ish boundaries keep "deploy" from firing inside
-# an identifier; Turkish hints are included because the user writes Turkish.
+# patterns are reviewable. The words are data: each language pack
+# (hooks/lang/<code>.json, `hints.<key>`) lists its own half, and `_hints`
+# joins every pack's into one pattern per key, so a prompt in any shipped
+# language arms the same rules. Word-ish boundaries keep "deploy" from firing
+# inside an identifier.
 #
-# Turkish is agglutinative and the hints are verb/noun stems, so an English-style
-# trailing \b would kill the most natural phrasing (düzgün çalışsın, hipotezi
-# test et): a Turkish alternation therefore carries \w* where a suffix can land,
-# which \b then closes. \w is Unicode-aware, so it eats Türkçe letters. A whole
-# word keeps its plain boundary, so "deney" still does not fire on "deneyim".
+# Turkish is agglutinative and its hints are verb/noun stems, so an
+# English-style trailing \b would kill the most natural phrasing (düzgün
+# çalışsın, hipotezi test et): such a fragment carries \w* where a suffix can
+# land, which \b then closes. \w is Unicode-aware. A whole word keeps its plain
+# boundary, so "deney" still does not fire on "deneyim".
 #
-# The craft words in the spec class that are ALSO ordinary English nouns are
-# qualified by one of these rather than matched bare: the bare word armed the
-# paragraph on asks that had no UI in them at all. One closed list and one
-# helper, so qualifying a new sibling is a one-line change and no word can be
-# left bare by omission - `_ui_ask` is applied at the word's own place in the
-# pattern below, and both halves are pinned in tests/test_hint_coverage.py.
-# Every entry is word-bounded, so `app` cannot match inside `happen`.
-UI_OBJECTS = (r"components?|ui|ux|css|layout|styles?|tokens?|themes?|buttons?|"
-              r"cards?|icons?|labels?|elements?|widgets?|containers?|headers?|"
-              r"footers?|sidebars?|toolbars?|navbars?|nav|menu|modals?|dialogs?|"
-              r"dropdowns?|popovers?|tooltips?|badges?|avatars?|spinners?|"
-              r"skeletons?|inputs?|fields?|forms?|headings?|images?|logos?|"
-              r"grids?|panels?|columns?|screens?|pages?|views?|dashboards?|"
-              r"viewport|tables?|app")
-# What a UI ask says about the thing: "the badges look wrong", "the theme
-# renders late". A quality word alone answers for the object it follows.
-UI_QUALITY = r"look\w*|feels?\w*|seems?\w*|renders?\w*"
+# The craft words in the spec class that are ALSO ordinary nouns are qualified
+# by a UI object rather than matched bare (a pack fragment `{"ui_ask": word}`):
+# the bare word armed the paragraph on asks that had no UI in them at all.
+# `_ui_ask` expands one in the pack's own word order - a `verb_first` pack (en)
+# takes a UI object beside the word or a quality word after it, an
+# `object_first` pack (tr: "adım akışını sadeleştir" is a UI ask, "bu
+# fonksiyonu sadeleştir" a refactor) only an object before it - and both halves
+# are pinned in tests/test_hint_coverage.py. Every object is word-bounded, so
+# `app` cannot match inside `happen`.
 
 
-def _ui_ask(word):
-    """`word` as a UI ask: a UI object beside it, or a quality word after it.
-
-    The gap is bounded and stops at a sentence's end, so the qualification is
-    about the phrase the word sits in and not about the paragraph it is in."""
-    obj = r"\b(?:%s)\b" % UI_OBJECTS
+def _ui_ask(word, pack):
+    """`word` as a UI ask in `pack`'s word order. The gap is bounded and stops
+    at a sentence's end, so the qualification is about the phrase the word sits
+    in and not about the paragraph it is in."""
+    objects = "|".join(pack["ui_objects"]) or "(?!)"
+    if pack["word_order"] == "object_first":
+        # the object takes its case suffix through \w*
+        return r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (objects, word)
+    obj = r"\b(?:%s)\b" % objects
     return (r"(?:%s[^.!?\n]{0,40}\b(?:%s)\b"
             r"|\b(?:%s)\b(?=[^.!?\n]{0,40}(?:%s|\b(?:%s))))"
-            % (obj, word, word, obj, UI_QUALITY))
+            % (obj, word, word, obj, "|".join(pack["ui_quality"]) or "(?!)"))
 
 
-# The Turkish surfaces a simplify ask names before its verb (Turkish puts the
-# object first): "adım akışını sadeleştir" is a UI ask, "bu fonksiyonu
-# sadeleştir" is a refactor. Each takes its case suffix through \w*.
-TR_UI_OBJECTS = (r"akış|adım|ekran|sayfa|arayüz|form|menü|buton|düğme|panel|"
-                 r"tasarım|görünüm|kart|bileşen|sekme|pencere")
+def _hints(key):
+    """Every pack's `hints.<key>` fragments as one `\\b(...)\\b` pattern."""
+    return r"\b(%s)\b" % "|".join(
+        frag if isinstance(frag, str) else _ui_ask(frag["ui_ask"], pack)
+        for pack in packs().values() for frag in pack["hints"][key])
 
 
-def _tr_ui_ask(word):
-    """`word` after a Turkish UI surface in the same phrase - `_ui_ask`'s
-    object-first half, for the language whose object comes first."""
-    return (r"(?:\b(?:%s)\w*[^.!?\n]{0,40}\b(?:%s))" % (TR_UI_OBJECTS, word))
+def _fanout():
+    """The fan-out hint: two or more independent items - a numbered or bulleted
+    list of at least two entries on their own lines, or the explicit delegation
+    ask. The owner had to say "do everything with subagents and in parallel" on
+    every task because nothing armed the fan-out rule from the shape of the
+    request. `parallelize` alone is code work, so only the delegation phrasings
+    count. The owner's own shapes armed nothing until 2026-10-09: `1 - `, `1- `,
+    `1:`, `a)`, `+` items, an inline `1. ... 2. ...`, "subagentlerle", three
+    files named as one list, "First, ... Second, ...", and three imperative
+    clauses in one sentence (clause-initial in a `verb_first` pack, clause-final
+    in an `object_first` one). A timestamp, a range and a traceback stay out
+    (the corpus)."""
+    # A list item's marker: `1.`, `1)`, `1 -`, `1:`, `a)`, or a `-`/`*`/`+`/`•`
+    # bullet, then its text.
+    item = r"(?:\d+[ \t]*[.):\u2013-]|[a-z]\)|[-*+\u2022])[ \t]+\S"
+    # A file a prompt names: a path with a directory, or a name with an
+    # extension. Anchored at a token start: unanchored, a long run of word
+    # characters made every position a start and the search quadratic (100 KB
+    # took minutes).
+    file = (r"(?<![\w./-])[`'\"]?(?:(?:[\w.-]+/)+[\w.-]*\w|"
+            r"\w[\w-]*\.[a-z]{1,4}\b)[`'\"]?")
+    join = "|".join(w for p in packs().values() for w in p["fan_join"])
+    parts = [r"(?ms:^[ \t]*" + item + r".*?^[ \t]*" + item + r")",
+             r"(?<![\w.])1[ \t]*[.)-][ \t]+\S[^\n]*?(?<![\w.])2[ \t]*[.)-][ \t]+\S",
+             file + r"(?:[ \t]*(?:,[ \t]*(?:(?:%s)[ \t]+)?|(?:%s|&)[ \t]+)" % (join, join)
+             + file + r"){2,}"]
+    for pack in packs().values():
+        first, second = pack["fan_ordinals"]
+        parts.append(r"(?s:\b%s[,:].*?\b%s[,:])" % (first, second))
+    for pack in packs().values():
+        verbs, joins = "|".join(pack["fan_verbs"]), "|".join(pack["fan_join"])
+        if pack["word_order"] == "object_first":
+            parts.append(r"(?m:(?:\b(?:%s)\w{0,4}[ \t]*(?:[,;.]|\b(?:%s)\b|$)"
+                         r"[^\n]*?){3})" % (verbs, joins))
+        else:
+            parts.append(r"(?m:(?:(?:^|[,;]|\b(?:%s)\b)[ \t]*(?:(?:%s)[ \t]+)?(?:%s)"
+                         r"\b[^\n]*?){3})" % (joins, joins, verbs))
+    parts.append(r"\b(?:%s)\b" % "|".join(
+        d for p in packs().values() for d in p["fan_directives"]))
+    return "|".join(parts)
 
 
-# The fan-out hint's parts (PROMPT_HINTS["fanout"]). A list item's marker:
-# `1.`, `1)`, `1 -`, `1:`, `a)`, or a `-`/`*`/`+`/`•` bullet, then its text.
-_FAN_ITEM = r"(?:\d+[ \t]*[.):\u2013-]|[a-z]\)|[-*+\u2022])[ \t]+\S"
-# A file a prompt names: a path with a directory, or a name with an extension.
-# Anchored at a token start: unanchored, a long run of word characters made
-# every position a start and the search quadratic (100 KB took minutes).
-_FAN_FILE = (r"(?<![\w./-])[`'\"]?(?:(?:[\w.-]+/)+[\w.-]*\w|"
-             r"\w[\w-]*\.[a-z]{1,4}\b)[`'\"]?")
-# The imperative that opens an English clause and closes a Turkish one.
-_FAN_VERB_EN = (r"(?:fix|add|update|write|remove|delete|rename|move|refactor|"
-                r"document|bump|create|implement|migrate|replace)")
-_FAN_VERB_TR = (r"(?:düzelt|güncelle|ekle|yaz|sil|kaldır|taşı|bitir|tamamla|"
-                r"incele|oluştur|değiştir)")
-
-
-PROMPT_HINTS = (
-    ("spec", r"\b(normal (user )?behaviou?r|clean ui|nicer|more intuitive|"
-             r"un?professional|polish(ed)?|improve the (ui|ux)|make it (better|"
-             r"usable|look)|look(s)? better|düzgün çalış\w*|düzgün görün\w*|"
-             r"güzel görün\w*|daha iyi (ol|görün)\w*|kullanıcı dostu|"
-             r"modern görün\w*|şık (ol|görün)\w*|profesyonel görün\w*|"
-             r"temiz (bir )?(arayüz|görün)\w*|anlaşılır\w*|"
-             # simplify is qualified by the surface it is about: "bu fonksiyonu
-             # sadeleştir" is a refactor, "adım akışını sadeleştir" a UI ask
-             r"kullanılabilirlik\w*|"
-             + _tr_ui_ask(r"basitleştir\w*|sadeleştir\w*") + r"|"
-             r"yeniden tasarla\w*|baştan tasarla\w*|"
-             # UI work said as work. The class fired on a quality adjective
-             # alone, so "refactor the components" or "the hover state is wrong"
-             # armed nothing and a UI task was built with no standard named for
-             # what a person sees. These are the craft words and the rendered
-             # formats, not the surface nouns: "ekran" and "arayüz" stay with the
-             # product class, so a surface ask still pays one paragraph.
-             #
-             # Each craft word that is also an ordinary English noun is qualified
-             # by a UI object through `_ui_ask` (above), because the bare word
-             # armed the paragraph on asks that are not UI at all - "refactor the
-             # parser module", "align the two arrays", "what colors does
-             # matplotlib use", "add a font to the PDF", "the card model in the
-             # game", "focus the terminal window" - and the same held for the six
-             # siblings below: "our margins are down this quarter", "the theme of
-             # the meeting", "the badges in the README", "scaffold the skeleton of
-             # the parser", "cluttered imports in the module", "the data center".
-             # The UI asks still arm it through `component\w*`, `ui`, `layout`,
-             # `spacing`, `hover`, `focus durum\w*`, `hizala\w*`, `renk\w*` and
-             # the rest (tests/test_hint_coverage.py holds both halves).
-             r"refactor\w* (the |this |our )?(\w+ ){0,2}(components?|ui|ux|css|"
-             r"layout|screens?|pages?|styles?|theme|forms?|fields?|inputs?|"
-             r"views?|widgets?|buttons?|modals?|dialogs?)|"
-             r"ui|ux|css|tailwind|tasarım\w*|layout|responsive|"
-             r"hover|focus[- ](?:state|ring|outline|visible|indicator|style|"
-             r"durum\w*)|spacing|tipografi\w*|typography|component\w*|"
-             r"bileşen\w*|dark mode|dark theme|light theme|"
-             + _ui_ask(r"theme\w*") + r"|tema\w*|animasyon\w*|animations?|"
-             r"erişilebilir\w*|accessib\w*|wireframe|mockup|prototip\w*|"
-             # The craft, and the surfaces a person names without the word
-             # component. Kept off the product class's surface nouns on purpose
-             # (tablo, filtre, ekran stay there) so an ordinary surface ask still
-             # pays one paragraph, and off bare `table`/`filter` so that pin holds.
-             # `align`/`alignment`/`misalign` are one family with the property
-             # spellings: `align-?items` allowed only a hyphen between the two
-             # words, so "align items in the header" armed nothing and neither
-             # adjective form was a hint at all. The nouns read bare the way
-             # `spacing` does - qualifying them by a UI object would drop "the
-             # alignment is off", the ask that named this defect - and the
-             # non-UI phrasings stay dead in the corpus ("align the two arrays",
-             # "align the teams on the roadmap").
-             r"align[- ]?(?:items|self|content)|text-align|alignment\w*|"
-             r"misalign\w*|hizala\w*|hiza\w*|"
-             r"padding|" + _ui_ask(r"cent(er|re)\w*") + r"|"
-             + _ui_ask(r"margins?") + r"|"
-             r"gutter\w*|boşluk\w*|satır aral\w*|line-?height|letter-?spacing|"
-             r"drop-?shadow|box-?shadow|border-?radius|corner radius|gölge\w*|"
-             r"kenarlık\w*|fonts?[- ](?:size|family|weight|face|stack|scale)\w*|"
-             r"yazı tipi\w*|punto\w*|type ?scale|"
-             r"colou?r[- ](?:role|scheme|palette|token|contrast)|palette|"
-             r"renk\w*|palet\w*|"
-             r"cards?[- ](?:component\w*|layout|grid|list|view|title|body|"
-             r"footer|header)|sidebars?|toolbars?|modals?|dialogs?|dropdowns?|"
-             r"popovers?|accordions?|tooltips?|toasts?|avatars?|"
-             + _ui_ask(r"badges?") + r"|"
-             # pagination is qualified like the craft nouns above: "add
-             # pagination to the API" is an endpoint, "the data table pagination
-             # is wrong" a rendered surface
-             r"breadcrumbs?|" + _ui_ask(r"pagination") + r"|tab ?bar|steppers?|"
-             r"spinners?|"
-             + _ui_ask(r"skeletons?") + r"|"
-             r"disabled\w*|devre dışı\w*|pressed|active state|selected state|"
-             r"empty state|boş durum\w*|breakpoints?\w*|kırılma nokta\w*|"
-             r"viewport|media quer\w*|mobil (uyumlu|görünüm)|karanlık mod\w*|"
-             r"aydınlık mod\w*|renk şema\w*|design (system|token|guide|library|"
-             r"language)\w*|style guides?|stil rehber\w*|tasarım sistemi|"
-             r"tasarım token\w*|wcag\w*|a11y|aria-?\w*|screen readers?|"
-             r"ekran okuyucu\w*|tab order|keyboard naviga\w*|kontrast\w*|"
-             r"contrast (ratio|level|check|issue)|screenshots?|"
-             r"ekran görüntü\w*|visual (review|regression|diff|check)|"
-             r"görsel (incele|kontrol|karşılaştır)\w*|redesign\w*|revamp\w*|"
-             r"restyle\w*|makeover|" + _ui_ask(r"cluttered")
-             + r"|outdated|cohesive)\b"),
-    ("consult", r"\b(architect(ure|ural)|root cause|migrat(e|ion)|deploy|"
-                r"security|trade-?off|which approach|design decision|"
-                r"irreversible|rollback|schema change|mimari\w*|kök neden\w*|"
-                r"geri dönüşü olmayan|"
-                # The durable-structure asks the rule's own trigger list names,
-                # which reached no rule: a rewrite of a unit, a contract others
-                # inherit, a live-data move, a budget or a hard-to-undo call.
-                # `refactor` is qualified by its object rather than left bare, so
-                # a UI refactor still pays the spec paragraph alone; `güvenlik`,
-                # `şema` and `göç` are the Turkish halves of security/schema/
-                # migration, which the rule text already named in English only.
-                r"re-?architect\w*|restructur\w*|rewrite\w*|"
-                r"(refactor\w*|rewrite\w*) (the |this |our )?(\w+ ){0,2}"
-                r"(module|subsystem|service|system|layer|engine|architecture|"
-                r"data ?model|code ?base|ingest\w*)|"
-                r"breaking change\w*|backwards?[- ]incompatib\w*|"
-                r"kırıcı değişiklik\w*|geriye dönük uyum\w*|"
-                r"api version\w*|version(ing)? the api|api sürüm\w*|"
-                r"sürümleme\w*|versiyonlama\w*|backfill\w*|şema\w*|göç\w*|"
-                r"migrasyon\w*|veri (taşı|göç)\w*|revert\w*|rollback|"
-                r"geri al\w*|geri (alınamaz|dönüşü (yok|olmaz|olmayan))|"
-                r"performance budget|perf budget|latency budget|hot ?path|"
-                r"performans bütçe\w*|gecikme bütçe\w*|threat model\w*|"
-                r"security review\w*|güvenlik\w*|zafiyet\w*|cve\b|"
-                r"threat model\w*|bağımlılık(ları)? güncelle\w*|"
-                r"paket güncelle\w*|sürüm yükselt\w*|tedarik zincir\w*|"
-                r"concurren\w*|race condition\w*|deadlock\w*|eş ?zamanlı\w*|"
-                r"yarış (durumu|koşulu)\w*|capacit\w* (plan|budget|test|limit)\w*|"
-                r"scal(e|ing) (plan|strategy|limit|test)\w*|load test\w*|"
-                r"kapasite (plan|hesab|test|sınır)\w*|ölçeklen\w*|yük test\w*|"
-                r"adrs?\b|architecture decision record\w*|design doc\w*|"
-                r"mimari karar\w*|tasarım karar\w*|politika değiş\w*|"
-                r"sözleşme (değiş|yenile)\w*|yayına al\w*|canlıya al\w*|"
-                r"sürüm çıkar\w*|rollout|ödün (ver|vermey)\w*)\b"),
-    ("research", r"\b(research|literature|hypothes(is|es)|experiment(al)?|"
-                 r"ablation|hyperparameter|benchmark|survey|paper|dataset|"
-                 r"araştır\w*|literatür\w*|hipotez\w*|deney|"
-                 # The study asks the rule's own opening names - a comparison of
-                 # variants under a metric, a study with people, a claim that
-                 # needs a number - which reached no rule. `compar` is qualified
-                 # nowhere on purpose: a file diff asks the same question of the
-                 # evidence, so the turn pays the paragraph and says so.
-                 r"compar\w*|karşılaştır\w*|karşılaştırmalı analiz|kıyaslama\w*|"
-                 r"varyant\w*|(a/?b|ab) tests?|a/b testi|"
-                 r"(user|kullanıcı|müşteri) (interview\w*|görüşme\w*|mülakat\w*)|"
-                 r"anket\w*|root[ -]?cause (analys|investigat)\w*|"
-                 r"kök neden (analiz|araştır)\w*|reference review|"
-                 r"lit(erature)?[ -]review|kaynak tarama\w*|referans tarama\w*|"
-                 r"evaluat(e|ing) (whether|the (librar|technique|approach|tool|"
-                 r"option|alternative))|(yöntem|yaklaşım|kütüphane|varyant|"
-                 r"seçenek)\w* karşılaştır\w*|"
-                 # a timing ask is not a study: "measure how long the hook
-                 # takes" is a stopwatch, "measure the effect of X" a study
-                 r"measure(?! how (?:long|fast|much time)| the (?:time|duration|"
-                 r"latency|speed|runtime))\w*|ölçüm\w*|deneysel\w*|"
-                 r"deneyler\w*|makale\w*|veri (seti|kümesi)|post[ -]?mortem|"
-                 r"error budget|incident (review|report)|olay sonrası (analiz|"
-                 r"değerlendirme)\w*|hata bütçe\w*|is (this|that|it) (actually )?"
-                 r"(true|right)|does (this|that) (claim )?hold|gerçekten (doğru|"
-                 r"öyle) mu|kanıt\w*|test kapsam\w*|kapsam oran\w*|"
-                 r"kapsamı (artır|yükselt)\w*|doküman(tasyon)?\w* "
-                 r"(yetersiz|eksik|kötü|zayıf))\b"),
-    # A product question reached no rule at all before this: the four above are
-    # about code, a UI adjective or a study, so "ürünümü nasıl iyileştiririz"
-    # armed nothing and the answer came from priors. `product` excludes
-    # production/productivity/productive explicitly - those are code words that
-    # merely share the prefix, and matching them would arm product analysis on a
-    # deploy question.
-    # The generic stems are qualified, never dropped (decision 006): each keeps
-    # its product sense and loses the code sense a lookahead names - a feature
-    # flag, a segment fault, a tier list, writing to the screen, a SQL table, a
-    # page number - so the frozen corpus keeps its rows.
-    ("product", r"\b(ürün\w*|product(?!ion|ivity|ive)\w*|"
-                r"feature(?!s?[ -](?:flags?|toggles?|gates?|branch\w*))\w*|roadmap|"
-                r"yol harita\w*|backlog|prd|north star|kuzey yıldız\w*|jtbd|"
-                r"retention|churn|onboarding|aktivasyon\w*|cohort|funnel|"
-                r"dönüşüm\w*|conversion rate|pricing|fiyatlandır\w*|"
-                r"prioriti[sz]\w*|önceliklendir\w*|user research|"
-                r"user interview\w*|kullanıcı araştırma\w*|ürün keşf\w*|"
-                r"müşteri geri bildirim\w*|ab test|a/b test|"
-                # The product vocabulary the rule's five axes name and the table
-                # never carried: the HEART signals as people say them, the
-                # packaging and positioning words, the segmentation input, and
-                # the plural forms the bare singulars' trailing \b rejected.
-                r"activations?\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|"
-                r"roadmaps?|priorit(y|ies)|adoption|benimsen\w*|"
-                r"conversion (rate|funnel|drop\w*)|packaging|monetiz\w*|"
-                r"price\w*|tier(?!s?[ -]lists?)\w*|positioning|value proposition|"
-                r"konumlandır\w*|\bicp\b|ideal customer profile|persona\w*|"
-                r"segment(?!(?:ation)?[ -]faults?)\w*|segmentasyon\w*|hedef kitle\w*|"
-                r"(customer|user|product|problem|kullanıcı|müşteri) discovery|"
-                r"keşif (görüşme|çalışma)\w*|opportunity (tree|solution|space|"
-                r"score)|fırsat\w*|\bnps\b|net promoter|\bcsat\b|satisfaction|"
-                r"memnuniyet\w*|anket\w*|(customer|user|kullanıcı|müşteri)"
-                r"[ -]?(feedback|geri bildirim)\w*|support ticket\w*|"
-                r"şikayet\w*|competitor\w*|competitive (analysis|landscape|"
-                r"teardown|benchmark)\w*|rakip\w*|rekabet\w*|pazar pay\w*|"
-                r"terk oran\w*|elde tutma\w*|abonelik\w*|gelir model\w*|"
-                r"özellik\w*|sayfa(?! numara)\w*|"
-                # A single feature said by its surface: an admin screen, a table,
-                # a filter, a form, a step flow. These armed nothing before, so a
-                # feature-level audit got a screen-level answer. The lookaheads
-                # keep the code senses out: "ekran kartı" is a GPU, "adım sayısı"
-                # is a count, "format" is not a form.
-                r"ekran(?! kart)(?!a\b[^.!?\n]{0,40}\b(?:yaz|bas)\w*)\w*|arayüz\w*|"
-                r"arama kutu\w*|filtre\w*|"
-                r"tablo(?![^.!?\n]{0,60}\b(?:sütun|kolon|sql|index|indeks)\w*)\w*|"
-                r"wizard|adım(?! sayı)\w*|crud|kullanıcı liste\w*|"
-                r"form(u|un|da|daki|lar|ları|unu)\w*|"
-                r"form (validation|field|error|label)|data table|step flow|"
-                r"search (dropdown|box)|form validation|user management|"
-                r"(admin|users?) (panel|screen|page|list)|"
-                + _ui_ask(r"(?:admin|users?) table") + r")\b"),
-    ("graph", r"\b(who calls|callers?|call sites?|who uses|what breaks|"
-            r"blast radius|where is|where's|definition of|who invokes|"
-            r"kim çağır\w*|çağrı yerleri|nerede tanımlı|nasıl bağlan\w*|"
-            r"etkilenir\w*|hangi dosyalar etkilen\w*|"
-            # The structural questions the graph answers and the table never
-            # asked: impact in the active voice, direction and layering, the
-            # import edge, reachability, cycles, entry points, and a rename's
-            # blast radius. The Turkish who-uses form is anchored to a code noun,
-            # because bare "kim kullanıyor" is user research, not a caller.
-            r"impact (analysis|assessment|of (changing|renaming|removing|"
-            r"deleting|editing))|change impact|ripple effect|"
-            r"(who|what|anything)( else)? (depends on|uses)|dependents? of|"
-            r"dependenc(y|ies) (graph|direction|inversion|cycle)|"
-            r"layer (violation|boundar\w*|direction)|layering|who imports|"
-            r"which (files|modules) import|call (graph|chain|path|tree|"
-            r"hierarchy)|transitive callers?|callers? of|usages? of|"
-            r"find usages|references? to|is \w+ (still )?(used|referenced|"
-            r"called)|never called|dead code|unused (code|function|method|"
-            r"module|export|class|variable|import|param\w*)|unreachable code|"
-            r"orphan(ed)? (module|file|code)|circular (import|dependenc\w*)|"
-            r"(import|dependenc\w*) cycle|cycle (between|detection)|"
-            r"(code|app|program|service|main|server|cli|boot) entry ?points?|"
-            r"boot (path|sequence|order)|startup (path|sequence|order)|"
-            r"how is (this|it|\w+) wired|wired up|rename\w*|"
-            r"etki (analiz|alan)\w*|neyi etkile\w*|neleri etkile\w*|"
-            r"etkilen\w*|bağımlı\w*|kullanılmayan\w*|kullanılmıyor|ölü kod|"
-            r"döngüsel (bağımlılık|import)\w*|giriş nokta\w*|"
-            r"uygulama (nerede|nereden) başl\w*|kim import ed\w*|"
-            r"(fonksiyon|metod|sınıf|modül|api)\w* (kim|nerede) kullan\w*|"
-            r"nerede (kullanıl|çağrıl)\w*|tanım\w* nerede|kullanım yerleri|"
-            r"çağrı (zinciri|grafiği)|bağımlılık (grafiği|ağacı)|"
-            r"yeniden adlandır\w*)\b"),
-    # Two or more independent items: a numbered or bulleted list of at least
-    # two entries on their own lines, or the explicit delegation ask. The owner
-    # had to say "do everything with subagents and in parallel" on every task
-    # because nothing armed the fan-out rule from the shape of the request.
-    # `parallelize` alone is code work, so only the delegation phrasings count.
-    # The owner's own shapes armed nothing until 2026-10-09: `1 - `, `1- `,
-    # `1:`, `a)`, `+` items, an inline `1. ... 2. ...`, "subagentlerle", three
-    # files named as one list, "First, ... Second, ...", and three imperative
-    # clauses in one sentence (clause-initial in English, clause-final in
-    # Turkish). A timestamp, a range and a traceback stay out (the corpus).
-    ("fanout", r"(?ms:^[ \t]*" + _FAN_ITEM + r".*?^[ \t]*" + _FAN_ITEM + r")|"
-               r"(?<![\w.])1[ \t]*[.)-][ \t]+\S[^\n]*?(?<![\w.])2[ \t]*[.)-][ \t]+\S|"
-               + _FAN_FILE + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|ve)[ \t]+)?|"
-               r"(?:and|ve|&)[ \t]+)" + _FAN_FILE + r"){2,}|"
-               r"(?s:\bfirst(?:ly)?[,:].*?\bsecond(?:ly)?[,:])|"
-               r"(?s:\bbirinci(?:si)?[,:].*?\bikinci(?:si)?[,:])|"
-               r"(?m:(?:(?:^|[,;]|\band\b)[ \t]*(?:and[ \t]+)?" + _FAN_VERB_EN
-               + r"\b[^\n]*?){3})|"
-               r"(?m:(?:\b" + _FAN_VERB_TR + r"\w{0,4}[ \t]*(?:[,;.]|\bve\b|$)"
-               r"[^\n]*?){3})|"
-               r"\b(?:in parallel|paralel\w*|sub-?agent\w*|alt ?ajan\w*|"
-               r"worktrees?|fan[- ]?out|orchestrat\w*|orkestra\w*)\b"),
-)
+PROMPT_HINTS = tuple((key, _hints(key)) for key in
+                     ("spec", "consult", "research", "product", "graph")) + (
+    ("fanout", _fanout()),)
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
 INDEX_WORKER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -423,7 +193,7 @@ REMINDER_CLAUSES = (
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
     ("consult", "consult before irreversible calls; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
-                             r'unverified "done"; .*?under "Engeller"; ')),
+                             r'unverified "done"; .*?under "\{BLOCKERS_HEADING\}"; ')),
 )
 
 
@@ -450,12 +220,17 @@ def prompt_reminder(drop=()):
 
 
 def render(text, root=""):
-    """Fill the path placeholders with stable, existing paths, and the reply
-    language placeholders with the words config.json's `reply_lang` names."""
+    """Fill the path placeholders with stable, existing paths, and the language
+    placeholders - the reply language and the contract's own tokens, `{UNVERIFIED}`,
+    `{BLOCKERS_HEADING}`, `{DECISION}`... - with the configured language's words
+    (`tezgah_paths.say`; REPLY_ANY's reply clause under `any`)."""
     if not text:
         return text
-    for key, words in REPLY_LANG_TEXT[reply_lang()].items():
-        text = text.replace(key, words)
+    words = say()
+    if language() == "any":
+        words.update(REPLY_ANY)
+    for key, word in words.items():
+        text = text.replace("{%s}" % key.upper(), word)
     return (text.replace("{CONSULT_BIN}", tool("consult"))
                 .replace("{CODEGEN_BIN}", tool("codegen"))
                 .replace("{ORX_BIN}", orx_bin() or "orx")
@@ -1224,35 +999,8 @@ def constraint_notice(cwd, session_id):
 # So the ask is judged per clause: it arms `product` only when no code marker -
 # a file name, an identifier, SQL, a build, test or runtime word - shares its
 # clause (decision 006: qualify the stem, never drop it).
-DATA_ASK = re.compile(
-    r"\b(?:(?:design|create|make|build|sketch|propose|need|want)\w* (?:\w+ ){0,4}"
-    r"(?:dashboard|charts?|visuali[sz]ation)|"
-    r"(?:metri[ck]s?|kpis?|data|sales|revenue|veri\w*|satış\w*|gelir\w*) "
-    r"(?:\w+ ){0,2}(?:dashboard|pano)|"
-    r"(?:dashboard|gösterge panel)\w* (?:\w+ ){0,4}(?:tasarla|oluştur|hazırla|"
-    r"yap|göster)\w*|"
-    r"(?:what|which) (?:\w+ ){0,3}(?:metri[ck]s|kpis|charts?) (?:\w+ ){0,3}"
-    r"(?:should|to|do|matter|would)|"
-    r"what should (?:\w+ ){0,3}dashboard show|"
-    r"(?:choose|pick|define|track|design)(?:s|ing)? (?:\w+ ){0,3}(?:metri[ck]s|kpis)|"
-    r"(?:metri[ck]s|kpis) (?:should|to|do|would) (?:\w+ ){0,2}"
-    r"(?:track|measure|use|watch)|success metrics?|"
-    r"(?:suggest|recommend)\w* (?:\w+ ){0,3}charts?|öner\w* (?:\w+ ){0,3}grafi\w*|"
-    r"hangi (?:metri[ck]\w*|kpi\w*|grafi\w*|göstergeleri?)|"
-    r"(?:metri[ck]\w*|kpi\w*) (?:\w+ ){0,3}(?:tasarla|seç|tanımla|belirle|takip|izle)\w*|"
-    r"gösterge panel\w*|visuali[sz]\w* (?:\w+ ){0,3}(?:data|numbers|veri\w*)|"
-    r"data visuali[sz]ation|veri\w* (?:\w+ ){0,3}görselleştir\w*)")
-CODE_SENSE = re.compile(
-    r"\w\.(?:py|tsx?|jsx?|json|go|rs|ya?ml|sql|java|rb|css|html)\b|\b\w+_\w+\b|"
-    r"/metrics\b|\bselect\b.{0,200}?\bfrom\b|\b(?:tables?|columns?|schema|sql|queries|"
-    r"query|bundle|webpack|vite|tests?|ci|counters?|registry|pipeline|backend|"
-    r"handlers?|structs?|endpoints?|exporters?|export\w*|servers?|librar\w*|"
-    r"packages?|modules?|database|index\w*|indeks\w*|"
-    r"middleware|debugger|data (?:structure|flow)s?|clipboard|spinner|threads?|"
-    r"commit|git|functions?|class|component|prop|hooks?|prometheus|grafana|"
-    r"kibana|statsd|opentelemetry|config\w*|provision\w*|api|routes?|snake_case|"
-    r"veri yapı\w*|fonksiyon\w*|bileşen\w*|modül\w*|dosya\w*|kopyala\w*|"
-    r"seçici\w*|yükleme|ilerleme|paket\w*)\b")
+DATA_ASK = re.compile(r"\b(?:%s)" % alts("data_ask"))
+CODE_SENSE = re.compile(alts("code_sense"))
 
 
 def _data_ask(low):
@@ -1939,15 +1687,31 @@ POINTER_NEEDLE = "tezgah-contract"
 # constraint that the user never meant is a rule the session did not get from
 # the user. tests/constraint-fixtures.md holds the real prompts it was measured
 # on, its false positives listed.
-CONSTRAINT_SHAPES = re.compile(
-    r"(?i)\b(?:(?:do not|don'?t|never)\s+(?:touch|modify|edit|change|delete|"
-    r"remove|rename|push|commit|merge|deploy|publish|release)\s+"
-    r"(?:(?:the|any|my|this|that|to|a|an)\s+)?[`\"“]?"
-    r"(?P<obj>[\w~@/-](?:[\w./@~-]*[\w@~/-])?)"
-    r"|ask\s+(?:me\s+)?(?:first\s+)?before\s+(?P<ask>\w+)"
-    r"|(?P<tr>[\w./@~-]+?)(?:'\w+)?\s+(?:sakın\s+)?dokunma(?:yın|yınız)?\b"
-    r"(?!\s+(?:hedef|alan|olay|duyar)\w*)"
-    r"|(?:bana\s+)?sormadan\s+(?P<trask>\w+)\s+(?:etme|yapma)\w*)")
+def _constraint_shapes():
+    """Every pack's `constraint.dont` and `constraint.ask` shapes in one
+    pattern, each named group suffixed with its pack's code (`obj_en`,
+    `ask_tr`), so `_shape` can tell which language's shape matched."""
+    return re.compile(r"(?i)\b(?:%s)" % "|".join(
+        frag.replace("(?P<obj>", "(?P<obj_%s>" % code).replace(
+            "(?P<ask>", "(?P<ask_%s>" % code)
+        for code, pack in packs().items() for kind in ("dont", "ask")
+        for frag in pack["constraint"][kind]))
+
+
+CONSTRAINT_SHAPES = _constraint_shapes()
+
+
+def _shape(m):
+    """(kind, group, pack) of a CONSTRAINT_SHAPES match: `obj` for a
+    prohibition's object, `ask` for an ask-first clause's verb. Read off the
+    one named group that matched (`groupdict`), so a pack fragment's own
+    groups cannot stand in for it (tests/test_lang_packs.py holds each
+    fragment to its one named group)."""
+    group = next(k for k, v in m.groupdict().items() if v is not None)
+    kind, code = group.split("_", 1)
+    return kind, group, packs()[code]
+
+
 # Pasted material is not the user's constraint: a shape that starts inside a
 # quoted span, inline code, a fenced block or a `>` quote line is skipped (a
 # quoted object after an unquoted shape stays the user's), and a prompt
@@ -1960,8 +1724,7 @@ CONSTRAINT_PROMPT_MAX = 12000
 QUOTED = re.compile(r"```.*?```|`[^`\n]*`|\"[^\"\n]{0,200}\"|“[^”\n]{0,200}”"
                     r"|^\s*>.*$", re.S | re.M)
 SENTENCE_END = re.compile(r"[.!?;:](?=\s|$)|\n")
-NEEDLE_STOP = frozenset("while in on at without until unless and or for to with "
-                        "before after from into of but ve veya ile".split())
+NEEDLE_STOP = frozenset(w for p in packs().values() for w in p["needle_stop"])
 QUOTE_MARKS = re.compile(r"[`\"“”]")
 NEEDLE_WORDS = 3
 CONSTRAINT_CHARS = 120
@@ -1971,8 +1734,8 @@ CONSTRAINTS_MAX = 5
 def user_constraints(prompt):
     """The constraint clauses a prompt issues, redacted and cut, in order and
     once each. A clause runs from the shape to the end of its sentence - from the
-    sentence's start for the Turkish forms, whose object comes first. The stamp
-    keeps the clause, never the prompt."""
+    sentence's start for an `object_first` pack's prohibition (Turkish), whose
+    object comes first. The stamp keeps the clause, never the prompt."""
     text = prompt or ""
     if len(text) > CONSTRAINT_PROMPT_MAX:
         return []
@@ -1981,8 +1744,11 @@ def user_constraints(prompt):
     for m in CONSTRAINT_SHAPES.finditer(text):
         if any(a <= m.start() < b for a, b in quoted):
             continue
+        kind, _group, pack = _shape(m)
         start = (max((e.end() for e in SENTENCE_END.finditer(text, 0, m.start())),
-                     default=0) if m.group("tr") else m.start())
+                     default=0)
+                 if kind == "obj" and pack["word_order"] == "object_first"
+                 else m.start())
         end = SENTENCE_END.search(text, m.end())
         clause = " ".join(text[start:end.start() if end else len(text)].split())
         clause = cut(redact(clause.strip("-*• ")), CONSTRAINT_CHARS)
@@ -2011,13 +1777,14 @@ def constraint_needle(clause):
             if len(kept) == NEEDLE_WORDS or bare != word:
                 break
         return kept
-    if m.group("obj"):
-        needle = " ".join(phrase(clause[m.start("obj"):].split()))
-    elif m.group("tr"):
-        before = phrase(reversed(clause[:m.end("tr")].split()))
+    kind, group, pack = _shape(m)
+    if kind == "ask":
+        needle = m.group(group)
+    elif pack["word_order"] == "object_first":
+        before = phrase(reversed(clause[:m.end(group)].split()))
         needle = " ".join(reversed(before)).split("'")[0]
     else:
-        needle = m.group("ask") or m.group("trask")
+        needle = " ".join(phrase(clause[m.start(group):].split()))
     return needle or clause
 
 

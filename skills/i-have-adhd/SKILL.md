@@ -94,7 +94,7 @@ When nothing is left, end on what now works.
 
 Bad: "Hope that helps. Let me know if you want to dig deeper."
 Bad: "Next: run `npm test` and paste the first failing line." (you can run it)
-Good: "Engeller: the push to `main` - GERİ ALINAMAZ - `git push origin main` waits - your yes."
+Good: "Blockers: the push to `main` - IRREVERSIBLE - `git push origin main` waits - your yes." (tr: "Engeller", GERİ ALINAMAZ)
 
 ### 5. Suppress tangents
 

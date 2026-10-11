@@ -112,6 +112,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
+from tezgah_paths import say  # noqa: E402
 
 
 def repo_root(path):
@@ -423,8 +424,8 @@ def verification_steps(text, path):
               "third round. Fix a critical or major finding still confirmed "
               "yourself, prove it with a test and close with `--resolved`; fix a "
               "minor or suggestion one now, or record it fix-later under the "
-              "plan's ## State only when it waits on a user decision (KARAR)"
-              % REVIEW_ROUNDS)
+              "plan's ## State only when it waits on a user decision (%s)"
+              % (REVIEW_ROUNDS, say()["decision"]))
         return
     if rounds:
         print("  2. review round 2 (the last): each confirmed critical or major "
@@ -448,8 +449,8 @@ def verification_steps(text, path):
         print("     only a confirmed critical or major finding is `changes` and "
               "opens round 2; a minor or suggestion one is fixed in the session "
               "without a new round, or recorded fix-later under ## State only "
-              "when it waits on a user decision (KARAR), and the verdict is "
-              "`approve`")
+              "when it waits on a user decision (%s), and the verdict is "
+              "`approve`" % say()["decision"])
     print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
           " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
@@ -697,8 +698,8 @@ def budget_spent(path, ident):
             "a test, then `tezgah-task close %s done --resolved \"<the fix and the "
             "test that proves it>\"`; fix a minor or suggestion one now, or record "
             "it fix-later under the plan's ## State only when it waits on a "
-            "user decision (KARAR); `close %s discarded` needs no review"
-            % (path, REVIEW_ROUNDS, ident, ident))
+            "user decision (%s); `close %s discarded` needs no review"
+            % (path, REVIEW_ROUNDS, ident, say()["decision"], ident))
 
 
 def unfinished_review(root, reviewer, plan="", since=0):

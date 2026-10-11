@@ -13,12 +13,15 @@ import math
 import re
 from collections import Counter
 
+from tezgah_paths import packs
+
 # Lowercased words, Turkish letters kept; one- and two-letter words carry no topic.
 # Dotted and dotless i fold together (İ, I, ı -> i) so "İSTEK" meets "istek" and
 # "KIRMIZI" meets "kırmızı" while English capitals stay "index"; plain lower()
-# would turn İ into i + U+0307 and split the word. Circumflexes fold too.
+# would turn İ into i + U+0307 and split the word. A pack's `fold` pairs (tr:
+# dotless i and the circumflexes) fold too.
 WORD = re.compile(r"[a-zçğöşü0-9_]+")
-FOLD = str.maketrans("ıâîû", "iaiu")
+FOLD = str.maketrans({pair[0]: pair[1] for p in packs().values() for pair in p["fold"]})
 MIN_WORD = 3
 K1 = 1.2
 B = 0.75
@@ -33,18 +36,11 @@ def words(text):
 # The lessons path's own filter, passed as `max_df` (`tezgah_context.LESSON_MAX_DF`):
 # a word in most of the ledger ("the", "and" in 41 of 47 lines) ranked lines 9,
 # 7 and 34 for "update the changelog", a prompt no line is about. Function words
-# go first, in both languages the ledger is written in (folded the way `words`
-# folds them); then any term in more than `max_df` of the texts - once there are
+# go first, every pack's `rank_stopwords` (folded the way `words` folds them);
+# then any term in more than `max_df` of the texts - once there are
 # MIN_CAP_TEXTS of them, because on one or two texts a 50% cap drops every term.
 # The docs fallback passes no cap.
-STOPWORDS = frozenset((
-    "the", "and", "that", "this", "with", "for", "from", "are", "was", "were",
-    "not", "but", "its", "into", "than", "then", "they", "them", "their",
-    "have", "has", "had", "will", "would", "can", "could", "should", "you",
-    "your", "what", "when", "which", "who", "how", "all", "any", "out",
-    "bir", "bunu", "buna", "bunlar", "şunu", "için", "ile", "ama", "gibi",
-    "daha", "çok", "kadar", "veya", "değil", "her", "hem", "olan", "olarak",
-    "sonra", "önce", "ise", "yani", "nasil", "neden"))
+STOPWORDS = frozenset(w for p in packs().values() for w in p["rank_stopwords"])
 MIN_CAP_TEXTS = 10
 
 

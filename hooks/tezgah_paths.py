@@ -738,17 +738,88 @@ def codex_bin():
     return which_user(os.environ.get("TEZGAH_CODEX_BIN") or "codex")
 
 
-# The values `reply_lang` (config.json) takes. The value itself is the switch:
-# `tr` (the default, and what an install without the key reads) asks for Turkish
-# replies, `en` for English ones, and `any` drops the Stop language check.
-REPLY_LANGS = ("tr", "en", "any")
+# The reply language (config.json `language`; an older config's `reply_lang`
+# still reads and is never rewritten). The value is the switch: a code with a
+# pack under hooks/lang/ asks for replies in that language, `any` for the
+# user's own, and only a pack that ships reply `markers` (tr) is judged by the
+# Stop language check. A config naming neither key reads as `tr`, the default
+# every install made before the packs keeps; a first install writes the
+# environment's language instead (`env_language`, bin/tezgah-setup).
+LANG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lang")
+_PACKS = []
 
 
-def reply_lang():
-    """The configured reply language, `tr` when unset or not one of REPLY_LANGS."""
+def languages():
+    """The values `language` takes: every shipped pack's code, then `any`."""
+    return tuple(packs()) + ("any",)
+
+
+def language():
+    """The configured reply language, `tr` when unset or not one of `languages()`."""
     cfg = config()
-    value = cfg.get("reply_lang") if isinstance(cfg, dict) else None
-    return value if value in REPLY_LANGS else "tr"
+    for key in ("language", "reply_lang"):
+        value = cfg.get(key) if isinstance(cfg, dict) else None
+        if value in languages():
+            return value
+    return "tr"
+
+
+def env_language(environ=None):
+    """The language a first install asks for: the first of LANGUAGE (its own
+    first `:` entry), LC_ALL, LC_MESSAGES and LANG that is set and not empty -
+    GNU gettext's order - cut to its language code (`tr_TR.UTF-8` -> `tr`), or
+    `en` when that code has no pack (`C`, `POSIX`, a language not shipped)."""
+    environ = os.environ if environ is None else environ
+    for key in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = (environ.get(key) or "").split(":")[0]
+        if value:
+            code = value.split(".")[0].split("@")[0].split("_")[0].lower()
+            return code if code in packs() else "en"
+    return "en"
+
+
+def packs():
+    """{code: pack} for every hooks/lang/<code>.json, read once per process.
+
+    A pack is data: one language's half of every detection class (S5's
+    inventory) and the contract's own words (`say`), keyed alike in every pack
+    (tests/test_lang_packs.py). The detectors compile the union of all packs,
+    so a reply or prompt in any shipped language arms the same classes whatever
+    `language` says; a language is added by one file, never a regex edit."""
+    if not _PACKS:
+        found = {}
+        for name in sorted(os.listdir(LANG_DIR)):
+            if name.endswith(".json"):
+                with open(os.path.join(LANG_DIR, name), encoding="utf-8") as fh:
+                    found[name[:-5]] = json.load(fh)
+        _PACKS.append(found)
+    return _PACKS[0]
+
+
+def pack_values(*path):
+    """Each pack's value at `path` (nested keys), in pack order, skipping a
+    pack that lacks it."""
+    for pack in packs().values():
+        node = pack
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        if node is not None:
+            yield node
+
+
+def alts(*path):
+    """The fragments every pack lists at `path`, joined into one alternation;
+    `(?!)`, which never matches, when no pack lists one."""
+    return "|".join(f for frags in pack_values(*path) for f in frags) or "(?!)"
+
+
+def say(code=None):
+    """The contract's words for `code` (the configured language by default):
+    the English pack's `say` map with the code's own pack laid over it, so a
+    language with no pack, or `any`, speaks the canonical English tokens."""
+    words = dict(packs().get("en", {}).get("say", {}))
+    words.update(packs().get(code or language(), {}).get("say", {}))
+    return words
 
 
 # Switch latching (plan 051, ADR 018). A hook process that knows its session
