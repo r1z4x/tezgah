@@ -68,8 +68,8 @@ A volume remount can give the file a new device id. A store from before the fix 
 file again from its start under the new id. So every `imported` row of one name and inode is one
 import stream. The import resumes from the longest stream under any id, even when this id holds a
 shorter one (`hooks/tezgah_store.py::_recorded`). That row and this id's own row swap ids, so each
-stream keeps one row (`hooks/tezgah_store.py::_record`). `tezgah-doctor --repair-evidence`
-counts the copies by those rows and removes them
+stream keeps one row (`hooks/tezgah_store.py::_record`). A file cut below what went in goes on as
+one stream. `tezgah-doctor --repair-evidence` counts the copies by those rows and removes them
 ([operations](operations.md#health-pass-tezgah-doctor)). It never
 renames the file aside. An opencode process started before the store may still run the old plugin,
 which appends to it, and a refused row lands there. Session start launches the bulk import

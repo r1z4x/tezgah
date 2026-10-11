@@ -286,24 +286,26 @@ def _recorded(conn, name, st):
     return found[0], None if found[1] == st.st_dev else found[1]
 
 
-def _record(conn, key, size, stale):
-    """`size` bytes of the file `key` in. An import resumed from a row under
-    another device id (`stale`) moves that row to the current key, and a
-    shorter stream's row already under the current key takes the stale id: the
-    two swap, so one row per import stream stays, which is what the doctor's
-    repair counts a double import by (`tezgah-doctor --repair-evidence`). A file
-    cut below what went in resumes at its end for every stream, or a longer one
-    would skip the lines written after the cut."""
+def _record(conn, key, start, end, stale):
+    """The file `key` in up to byte `end`, its import having resumed at `start`.
+    An import resumed from a row under another device id (`stale`) moves that
+    row to the current key, and a shorter stream's row already under the
+    current key takes the stale id: the two swap, so one row per import stream
+    stays, which is what the doctor's repair counts a double import by
+    (`tezgah-doctor --repair-evidence`). A file cut below what went in (a row
+    past `start`) no longer holds what its imports read: it goes on as one
+    stream, which resumes at its end and which the repair leaves alone."""
     name, dev, ino = key
-    if stale is not None:
+    if conn.execute("SELECT 1 FROM imported WHERE name = ? AND ino = ? AND bytes > ?",
+                    (name, ino, start)).fetchone():
+        conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
+    elif stale is not None:
         conn.execute("DELETE FROM imported WHERE name = ? AND dev = ? AND ino = ?",
                      (name, stale, ino))
         conn.execute("UPDATE imported SET dev = ? WHERE name = ? AND dev = ? AND ino = ?",
                      (stale, name, dev, ino))
-    conn.execute("UPDATE imported SET bytes = ? WHERE name = ? AND ino = ? AND bytes > ?",
-                 (size, name, ino, size))
     conn.execute("INSERT OR REPLACE INTO imported (name, dev, ino, bytes) "
-                 "VALUES (?, ?, ?, ?)", key + (size,))
+                 "VALUES (?, ?, ?, ?)", key + (end,))
 
 
 def _offset(conn, name, fh):
@@ -357,7 +359,7 @@ def _import_rows(conn, name, src, st, put=None, keep=False):
                     put = put or _taste_put(name[:-len(".jsonl")])
                     for line in whole.split(b"\n"):
                         put(conn, line)
-                    _record(conn, key, start + len(whole), stale)
+                    _record(conn, key, start, start + len(whole), stale)
         # aside only when every byte went in (no fragment past the last newline)
         # and no writer appended past the read (the old writer appends unlocked
         # once its own wait runs out), under the flock so no writer is inside

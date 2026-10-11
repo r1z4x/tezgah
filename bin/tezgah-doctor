@@ -352,12 +352,13 @@ def evidence_plan(conn, cache):
     """The copies every legacy ledger the remount bug imported more than once
     put in the cache database `conn`: ({session: [row n to delete]},
     {(name, ino): (current dev, longest import's bytes)} to collapse to,
-    {session: why it is left alone}, {session: (its newest row n, {line text:
-    rows it holds after the repair})}).
+    {(session, ino): why that file is left alone}, {session: {line text: rows it
+    holds after the repair}}).
 
     Every `imported` row of one (name, ino) is one import stream: a store from
     before the fix started over at offset 0 under a renumbered device id, and
-    the store now swaps only the row it resumed from (`tezgah_store._record`).
+    the store now swaps only the row it resumed from and keeps a file cut
+    below what went in as one stream (`tezgah_store._record`).
     A stream put the file's first `bytes` in, so a line text went in once per
     occurrence in each stream's prefix. The longest stream's count stays; every
     other stream's count is a copy, and that many of the newest rows go. A row
@@ -388,7 +389,8 @@ def evidence_plan(conn, cache):
         except OSError:
             st = None
         if st is None or st.st_ino != ino or st.st_size < max(sizes):
-            review[session] = "skipped: its file is gone, replaced or shorter than its imports"
+            review[(session, ino)] = ("skipped: its file is gone, replaced or shorter "
+                                      "than its imports")
             continue
         counts = []
         for size in sizes:
@@ -404,13 +406,12 @@ def evidence_plan(conn, cache):
             copies[text].append(n)
         short = sum(1 for text, many in put.items() if len(copies[text]) < many)
         if short:
-            review[session] = ("manual review: %d line(s) held fewer times than its "
-                               "imports put them in" % short)
+            review[(session, ino)] = ("manual review: %d line(s) held fewer times than its "
+                                      "imports put them in" % short)
             continue
         extra = put - longest
         doomed[session] = [n for text, many in extra.items() for n in copies[text][:many]]
-        bounds[session] = (rows[0][0] if rows else 0,
-                           {text: len(copies[text]) - extra[text] for text in longest})
+        bounds[session] = {text: len(copies[text]) - extra[text] for text in longest}
         collapse[(name, ino)] = (st.st_dev, max(sizes))
     return doomed, collapse, review, bounds
 
@@ -420,7 +421,7 @@ def print_plan(plan):
     for session, ns in doomed.items():
         if ns:
             print("  %s  %d row(s)" % (session, len(ns)))
-    for session, why in review.items():
+    for (session, _ino), why in review.items():
         print("  %s  %s" % (session, why))
     total = sum(map(len, doomed.values()))
     print("  total %d row(s) in %d session(s)" % (total, sum(1 for ns in doomed.values() if ns)))
@@ -431,8 +432,8 @@ def repair_evidence(apply):
     """`--repair-evidence` over the cache database and its sandbox fallback's:
     the dry run prints `evidence_plan`; with `apply` the database is backed up
     through the SQLite backup API first, the rows go and `imported` collapses to
-    one row per file in one transaction, and the committed rows are counted
-    again against the plan's bounds. The exit code."""
+    one row per file in one transaction, whose rows are counted against the
+    plan before it commits: a count off the plan rolls it back. The exit code."""
     import tezgah_store
     code = 0
     for cache in dict.fromkeys((CACHE, fallback_cache())):
@@ -463,19 +464,19 @@ def repair_evidence(apply):
                     conn.execute("DELETE FROM imported WHERE name = ? AND ino = ?", (name, ino))
                     conn.execute("INSERT INTO imported (name, dev, ino, bytes) "
                                  "VALUES (?, ?, ?, ?)", (name, dev, ino, size))
-            # the committed rows against the plan, past the rows a writer added
-            # since: a row the plan kept that is gone (missing), or a copy it
-            # deleted still there (left), means the deletion went wrong, and the
-            # exit code says so
-            missing = left = 0
-            for session, (newest, want) in bounds.items():
-                held = collections.Counter(text for (text,) in conn.execute(
-                    "SELECT row FROM evidence WHERE session = ? AND n <= ?", (session, newest)))
-                for text, many in want.items():
-                    missing += max(0, many - held[text])
-                    left += max(0, held[text] - many)
-            print("  re-check: %d row(s) missing, %d row(s) left" % (missing, left))
-            code = code or int(bool(missing or left))
+                # the rows against the plan before the commit: a row the plan
+                # kept that is gone (missing), or a copy it deleted still there
+                # (left), means the deletion went wrong, and it rolls back
+                missing = left = 0
+                for session, want in bounds.items():
+                    held = collections.Counter(text for (text,) in conn.execute(
+                        "SELECT row FROM evidence WHERE session = ?", (session,)))
+                    for text, many in want.items():
+                        missing += max(0, many - held[text])
+                        left += max(0, held[text] - many)
+                print("  re-check: %d row(s) missing, %d row(s) left" % (missing, left))
+                if missing or left:
+                    raise sqlite3.DatabaseError("the re-check is off the plan; rolled back")
         except (OSError, sqlite3.Error) as exc:
             print("  failed: %s" % exc, file=sys.stderr)
             code = 1

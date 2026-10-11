@@ -396,7 +396,7 @@ class RepairEvidence(DoctorBase):
                          ['{"detail":"%s"}' % s for s in "abcde"])
         self.assertIn("re-check: 0 row(s) missing, 0 row(s) left", proc.stdout)
 
-    def test_the_recheck_fails_when_the_committed_rows_are_not_the_plan(self):
+    def test_a_recheck_off_the_plan_rolls_the_repair_back(self):
         # triggers stand in for a deletion gone wrong: one of dup's copies
         # refuses to go, and three loses every row with its first copy
         con = sqlite3.connect(self.store)
@@ -406,9 +406,42 @@ class RepairEvidence(DoctorBase):
             con.execute("CREATE TRIGGER sweep AFTER DELETE ON evidence WHEN old.session = 'three' "
                         "BEGIN DELETE FROM evidence WHERE session = 'three'; END")
         con.close()
+        before = self.rows()
         proc = self.doctor("--repair-evidence", "--apply")
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
         self.assertIn("re-check: 1 row(s) missing, 1 row(s) left", proc.stdout)
+        self.assertEqual(self.rows(), before)
+        self.assertEqual(len(self.imported("dup.jsonl")), 2)
+
+    def test_a_file_rewritten_in_place_below_its_imports_is_not_repaired(self):
+        # imported whole (long, b, b) and once more up to the long line, then
+        # rewritten in place to one b: its imports no longer read what the
+        # file holds, so no b may go for the long line's copy
+        import tezgah_store
+        path = os.path.join(self.cache, "evidence", "cut.jsonl")
+        long_line = '{"detail":"%s"}\n' % ("l" * 40)
+        with open(path, "w") as fh:
+            fh.write(long_line + '{"detail":"b"}\n' * 2)
+        tezgah_store.import_session(path)
+        st = os.stat(path)
+        con = sqlite3.connect(self.store)
+        with con:
+            con.execute("INSERT INTO imported (name, dev, ino, bytes) VALUES (?, ?, ?, ?)",
+                        ("cut.jsonl", st.st_dev + 1, st.st_ino, len(long_line)))
+            con.execute("INSERT INTO evidence (session, row) VALUES ('cut', ?)",
+                        (long_line.strip(),))
+        con.close()
+        with open(path, "r+") as fh:  # the same inode
+            fh.truncate(0)
+            fh.write('{"detail":"b"}\n')
+        tezgah_store.import_session(path)
+        held = tezgah_store._HELD.pop(self.store, None)
+        if held:
+            held[0].close()
+        before = self.rows(sessions=("cut",))
+        proc = self.doctor("--repair-evidence", "--apply")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.rows(sessions=("cut",)), before)
 
     def test_a_session_its_imports_do_not_explain_is_left_whole(self):
         # lost: two whole imports of e, f put e in twice, but the session holds
