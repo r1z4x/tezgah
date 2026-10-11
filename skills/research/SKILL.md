@@ -83,7 +83,7 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 
 | Path | What it holds |
 |---|---|
-| `state.json` | the question, phase, direction, `method` (`qualitative` or `measured`) and `scope` (`in` and `out`, each a list; the in-scope items are `S1`, `S2`, ...), the locked evaluation of a measured line (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
+| `state.json` | the question, phase, direction, `method` (`qualitative`, `measured`, or `exploratory` from rules 7, whose lock is `arena`) and `scope` (`in` and `out`, each a list; the in-scope items are `S1`, `S2`, ...), the locked evaluation of a measured line (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
 | `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `trace` (the in-scope item it answers, `S<n>`, required from rules 5), `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
@@ -447,7 +447,8 @@ impact, and model ideas lost more than human ones once someone built them
 (docs/research.md, "Rules 7"). So the campaign over-generates cheaply, kills
 early, and spends runs only on what survived the cheaper stages.
 
-**The arena is the lock.** `--arena "<the problem, verbatim>"`, `--in`/`--out`,
+**The arena is the lock.** `--ask "<the user's words>"`, `--arena "<the problem,
+verbatim>"`, `--in`/`--out` (every idea traces to an `--in` item),
 `--budget "<ideas, pilots, full runs, wall time>"` and, when a number can judge a
 candidate, `--evaluator <path> --metric "<what it returns>"` (its sha256 is
 recorded). Commit it (`tezgah-research commit <slug> "arena"`) before the first
@@ -474,9 +475,9 @@ idea's move on purpose:
 | `bisociation` | combine two known things, then ask what it predicts | creative-thinking framework 1 |
 | `inversion` | negate the approach or the goal | creative-thinking framework 5 |
 | `ablate-sota` | take the best method apart, piece by piece | brainstorming §9 |
-| `scale-shift` | move the problem up or down a scale | brainstorming §2, creative-thinking framework 6 |
+| `scale-shift` | move the problem up or down a scale | brainstorming §5, §2 |
 | `failure-mining` | read the cases the best method fails on | brainstorming §6 |
-| `replicate-extend` | reproduce a result, then extend it from there | creative-thinking framework 7 |
+| `replicate-extend` | reproduce a result, then extend it from there | - |
 | `literature-bridge` | concepts two literatures share that cite each other nowhere | brainstorming §4 |
 | `mutation`, `crossover` | vary one idea, or join two (`parents`) | - |
 | `user` | an idea the person brought | - |
@@ -486,12 +487,15 @@ and `.../creative-thinking-for-research/SKILL.md`. A closed line's dead ends
 (`done/`) are the first filter for a new idea.
 
 **The funnel** (`tezgah-research stage <slug> <idea> <stage> --evidence ...`); an
-idea moves forward only, or to `killed --reason` from anywhere, and its stage is
-its newest row:
+idea moves forward only, each stage after the one it needs (prior art before
+screening, screening before a pilot, a pilot before a full run, a full run
+before a confirmation), or to `killed --reason` from anywhere; its stage is its
+newest row:
 
 1. `dedup` clusters the proposed statements and writes nothing; it names its
    backend and threshold. Mark the members that repeat a cluster's first idea
-   `duplicate` with the similarity it printed, then kill them.
+   `duplicate` with the similarity it printed, then kill them: after `duplicate`
+   only `killed` follows.
 2. `prior-art`: at least three nearest works, each a note indexed in
    `literature/INDEX.jsonl` (not agent summaries only), a verdict `novel`,
    `incremental` or `known`, and one sentence on what the idea does differently.
@@ -505,7 +509,7 @@ its newest row:
 5. `promoted`: the full experiment, the ordinary loop above - protocol first,
    repeats, the arena's evaluator.
 6. `confirmed`: a fresh run, not the promoting one, on a held-out set or seeds
-   whose first `held_out_log.jsonl` look is this idea's own.
+   whose first `held_out_log.jsonl` look is this idea's own and its only one.
 
 Budget discipline: spend pilots only on screened ideas and full runs only on
 piloted ones, never let a ranking stand in for a pilot, and stop at the budget

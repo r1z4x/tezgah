@@ -34,7 +34,7 @@
                                                    move an idea to its next stage
   tezgah-research match <slug>                     record one judged tournament match from stdin
   tezgah-research board <slug> [--json]            each idea's stage, score and next action
-  tezgah-research dedup <slug> [--threshold <0..1>] [--json]
+  tezgah-research dedup <slug> [--threshold <(0,1]>] [--json]
                                                    cluster the proposed ideas, write nothing
   tezgah-research yield [--json] [--all-lines]     how far ideas got, per operator and family
 
@@ -114,9 +114,9 @@ stage whose verdict is `known` takes `--reason` and is killed in the same
 append. `board`, `dedup` and `yield` are reports: they write nothing and exit 0.
 
 Exit codes: 0 clean, 1 problems found - a broken line for `check`, a refused
-claim for `claim`, a refused row for `predict`, which writes nothing and prints
-one reason per problem, or a new line refused for `init` over unfinished ones - 2
-misuse.
+claim for `claim`, a refused row for `predict`, `idea`, `stage` or `match`, which
+writes nothing and prints one reason per problem, or a new line refused for
+`init` over unfinished ones - 2 misuse.
 """
 import json
 import os
@@ -727,9 +727,11 @@ def cmd_stage(args):
         problems = ["cannot append to stages.jsonl: %s" % exc]
     if _refused(slug, problems):
         return 1
+    killed = row["stage"] == "prior-art" and kill_reason \
+        and isinstance(row.get("evidence"), dict) \
+        and row["evidence"].get("verdict") == "known"
     print("%s: %s recorded%s" % (row["idea"], row["stage"],
-                                 " and killed (%s)" % kill_reason
-                                 if kill_reason and row["stage"] == "prior-art" else ""))
+                                 " and killed (%s)" % kill_reason if killed else ""))
     return 0
 
 
@@ -768,7 +770,7 @@ def cmd_board(args):
 
 def cmd_dedup(args):
     """Cluster the proposed ideas by statement; writes nothing, exit 0."""
-    usage = "dedup <slug> [--threshold <0..1>] [--json]"
+    usage = "dedup <slug> [--threshold <(0,1]>] [--json]"
     rest, threshold, as_json = list(args), None, False
     if "--json" in rest:
         rest.remove("--json")

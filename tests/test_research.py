@@ -5848,7 +5848,7 @@ class Exploratory(Workspace):
                 nearest=NEAREST[:2] + ["gone.md"])),
             "bad verdict": self.stage("I1", "prior-art", self.prior_art("maybe")),
             "proposed row": self.stage("I1", "proposed", "ideas.jsonl"),
-            "valid screened": self.stage("I1", "screened", "tournament.jsonl"),
+            "screened, no prior art": self.stage("I1", "screened", "tournament.jsonl"),
             "screened, never matched": self.stage("I3", "screened", "tournament.jsonl"),
             "valid duplicate": self.stage("I2", "duplicate", {"of": "I1",
                                                               "similarity": 0.9}),
@@ -5903,6 +5903,67 @@ class Exploratory(Workspace):
         self.assertTrue(hit("killed", tr.append_stage(repo, "camp", self.stage(
             "I1", "killed", reason="again"))))
         self.assertEqual(tr.campaign_stages(base)["I1"], "killed")
+
+    def test_each_stage_needs_the_one_before_it(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2), self.idea(3))
+        self.rows(base, "tournament.jsonl", self.match("I1", "I2"))
+        self.experiment(base, "p2", "I2")
+        self.commit(repo, "pilot", when=AFTER)
+        self.assertTrue(hit("has no screened row", tr.append_stage(
+            repo, "camp", self.stage("I2", "piloted", "p2"))))
+        self.assertEqual(tr.append_stage(repo, "camp", self.stage(
+            "I1", "prior-art", self.prior_art())), [])
+        self.assertEqual(tr.append_stage(repo, "camp", self.stage(
+            "I1", "screened", "tournament.jsonl")), [])
+        self.assertEqual(tr.append_stage(repo, "camp", self.stage(
+            "I3", "duplicate", {"of": "I1", "similarity": 0.9})), [])
+        self.assertTrue(hit("duplicate", tr.append_stage(repo, "camp", self.stage(
+            "I3", "prior-art", self.prior_art()))))
+
+    def test_a_list_where_an_id_belongs_is_refused_not_a_crash(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2))
+        self.assertTrue(tr.append_match(repo, "camp", self.match(["I1"], "I2")))
+        self.assertTrue(tr.append_idea(repo, "camp", self.idea(3, op=["mutation"]))[1])
+        self.assertTrue(tr.append_stage(repo, "camp", self.stage(
+            "I1", "duplicate", {"of": ["I2"], "similarity": 0.9})))
+        self.rows(base, "tournament.jsonl", self.match(["I1"], "I2"))
+        self.rows(base, "stages.jsonl", {"idea": ["I1"], "stage": "killed"})
+        self.assertTrue(self.at(repo, "tournament.jsonl:1"))
+        self.assertTrue(self.at(repo, "stages.jsonl:1"))
+        self.assertEqual(tr.board(repo, "camp")["files"]["tournament.jsonl"]["rows"], 1)
+
+    def test_a_rewritten_arena_hash_does_not_reopen_the_writer(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        self.write(os.path.join(repo, "eval", "score.py"), "print(2)\n")
+        state = json.loads(read(os.path.join(base, "state.json")))
+        state["arena"]["evaluator_sha256"] = tr._digest(
+            os.path.join(repo, "eval", "score.py"))
+        self.write(os.path.join(base, "state.json"), json.dumps(state))
+        refused = tr.append_stage(repo, "camp", self.stage("I1", "killed", reason="x"))
+        self.assertTrue(hit("arena changed after the lock", refused), refused)
+
+    def test_a_pilot_whose_results_came_first_is_refused(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        self.experiment(base, "p1", "I1")
+        proto = os.path.join(base, "experiments", "p1", "protocol.md")
+        text = read(proto)
+        os.remove(proto)
+        self.commit(repo, "results first", when=AFTER)
+        self.write(proto, text)
+        self.commit(repo, "protocol after", when=Standards.LATER)
+        self.rows(base, "stages.jsonl", self.stage("I1", "prior-art", self.prior_art()),
+                  {"idea": "I1", "stage": "screened", "date": "2026-01-03"})
+        refused = tr.append_stage(repo, "camp", self.stage("I1", "piloted", "p1"))
+        self.assertTrue(hit("did not enter the history before its results", refused),
+                        refused)
 
     def test_a_rules_6_line_reads_no_exploratory_rule(self):
         repo = self.repo()
@@ -5967,7 +6028,13 @@ class Exploratory(Workspace):
         self.rows(base, "ideas.jsonl", self.idea(1))
         for h in ("p1", "f1", "c1"):
             self.experiment(base, h, "I1")
-        self.commit(repo, "experiments", when=AFTER)
+            os.rename(os.path.join(base, "experiments", h, "results.jsonl"),
+                      os.path.join(base, "experiments", h, "results.later"))
+        self.commit(repo, "protocols", when=AFTER)
+        for h in ("p1", "f1", "c1"):
+            os.rename(os.path.join(base, "experiments", h, "results.later"),
+                      os.path.join(base, "experiments", h, "results.jsonl"))
+        self.commit(repo, "results", when=Standards.LATER)
         self.rows(base, "stages.jsonl", self.stage("I1", "piloted", "p1"),
                   self.stage("I1", "promoted", "f1"))
         self.write(os.path.join(base, "held_out_log.jsonl"), json.dumps(
@@ -5980,6 +6047,10 @@ class Exploratory(Workspace):
         self.write(log, json.dumps({"set": "s900", "candidate": "I2", "date": "x",
                                     "result": 0}) + "\n" + read(log))
         self.assertTrue(hit("looked at", self.at(repo, "stages.jsonl:3")))
+        self.write(log, "".join(json.dumps({"set": "s900", "candidate": "I1",
+                                            "date": d, "result": 1}) + "\n"
+                                for d in ("2026-01-02", "2026-01-04")))
+        self.assertTrue(hit("2 times", self.at(repo, "stages.jsonl:3")))
 
     def test_an_arena_with_no_evaluator_never_reaches_confirmed(self):
         repo = self.repo()

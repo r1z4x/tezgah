@@ -123,7 +123,8 @@ ideation moves had no fence. Rules 5 lock a line to its question:
 
 - `init --in "<covered>" --out "<left alone>"` (repeatable) write `state.json`
   `scope`. The in-scope items are `S1`, `S2`, ... in order. `--method
-  qualitative|measured` writes `method`. `scope_problems`
+  qualitative|measured|exploratory` writes `method` (`exploratory` from rules 7,
+  see "Rules 7: exploratory lines"). `scope_problems`
   (`hooks/tezgah_research.py::scope_problems`) names an empty `scope.in`, an
   empty `scope.out` and a missing method. `check` refuses them past `bootstrap`
   and warns at it.
@@ -251,12 +252,12 @@ through its seal.
 | `tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed: plainly, as `conclude` would, when every experiment's order still checks; with `--history-lost`, with that verdict for every experiment whose order the lost history left undecidable. Refuses a line with a real order violation, a plain seal on any order finding, and a `history-lost` seal with nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
 | `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |
 | `tezgah-research next --topic <t> [--flow f] [--json]` | prints every step of a product flow with its status from the topic's files under `.tezgah/analysis/<topic>/`, then the first missing or due step's skill and command; `--flow` picks `metric-dashboard` (the default) or `feature`, and `--json` prints the same steps as data (`next_steps`, `hooks/tezgah_product.py::next_steps`) | 0, 2 unknown flow or no `--topic` |
-| `tezgah-research init <slug> --method exploratory --arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<metric>"]` | opens a rules-7 exploratory line and writes the arena into `state.json` (`arena_record`, `hooks/tezgah_research.py::arena_record`). Without `--arena` or `--budget` it is misuse; `--evaluator` and `--metric` go together; the evaluator has to be a file in the repository; the four flags on any other method are misuse. Its next step says to commit the arena before the first idea | 0, 1 refused over open lines, 2 misuse |
+| `tezgah-research init <slug> --ask "<the user's words>" --method exploratory --in "<covered>" --out "<left alone>" --arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<metric>"]` | opens a rules-7 exploratory line and writes the arena into `state.json` (`arena_record`, `hooks/tezgah_research.py::arena_record`). `--ask`, `--in` and `--out` are required as on any rules-5 line. Without `--arena` or `--budget` it is misuse; `--evaluator` and `--metric` go together; the evaluator has to be a file in the repository; the four flags on any other method are misuse. Its next step says to commit the arena before the first idea | 0, 1 refused over open lines, 2 misuse |
 | `tezgah-research idea <slug>` | reads one idea row from stdin and appends it to `ideas.jsonl` under the lock, or refuses it with one reason per problem (`append_idea`, `hooks/tezgah_research.py::append_idea`) | 0 written, 1 refused, 2 misuse |
 | `tezgah-research stage <slug> <idea> <stage> [--evidence "<ref or JSON>"] [--reason "<why>"]` | appends one stage move to `stages.jsonl` under the lock, or refuses it. `--reason` is the kill's reason, and a `known` prior art needs it for the kill appended with it (`append_stage`, `hooks/tezgah_research.py::append_stage`) | 0 written, 1 refused, 2 misuse |
 | `tezgah-research match <slug>` | reads one judged match from stdin and appends it to `tournament.jsonl` under the lock, or refuses it (`append_match`, `hooks/tezgah_research.py::append_match`) | 0 written, 1 refused, 2 misuse |
 | `tezgah-research board <slug> [--json]` | the campaign as its files show it: arena, rows, torn tails, each idea's stage, score and next action, the ideas tested and the next step; writes nothing (`board_text`, `hooks/tezgah_research.py::board_text`) | 0, 2 misuse |
-| `tezgah-research dedup <slug> [--threshold <0..1>] [--json]` | clusters the `proposed` ideas by statement and prints the `stage ... duplicate` command for each member; names the backend and the threshold's source; writes nothing (`dedup_text`, `hooks/tezgah_research.py::dedup_text`) | 0, 2 misuse |
+| `tezgah-research dedup <slug> [--threshold <(0, 1]>] [--json]` | clusters the `proposed` ideas by statement and prints the `stage ... duplicate` command for each member; names the backend and the threshold's source; writes nothing (`dedup_text`, `hooks/tezgah_research.py::dedup_text`). A `--threshold` outside `(0, 1]` is misuse | 0, 2 misuse |
 | `tezgah-research yield [--json] [--all-lines]` | per operator and per generator family, how many ideas reached each stage, the kill reasons, the board-score-to-pilot correlation and the next campaign's operator weights; writes nothing (`yield_text`, `hooks/tezgah_research.py::yield_text`) | 0, 2 misuse |
 
 Exit code 2 is always misuse, so a caller can tell it from a line that fails the
@@ -552,7 +553,8 @@ holds. `scope_problems` (`hooks/tezgah_research.py::scope_problems`) accepts
 
 ### The arena lock
 
-`init <slug> --method exploratory --arena "<problem>" --budget "<budget>"` opens
+`init <slug> --ask "<the user's words>" --method exploratory --in "<covered>"
+--out "<left alone>" --arena "<problem>" --budget "<budget>"` opens
 the line. The arena is the problem in the user's words. The budget says how many
 ideas, pilots and full runs, and how much wall time, the campaign may spend. A
 measurable arena adds `--evaluator <path> --metric "<metric>"`. The two flags go
@@ -580,6 +582,10 @@ The lock has three halves:
   evaluator again. While the hash differs from the locked one, the writer and
   `check` refuse every stage row. The candidate a campaign judges must not move
   its judge.
+- `append_stage` (`hooks/tezgah_research.py::append_stage`) also compares the
+  working `state.json` arena with the arena at the lock commit
+  (`hooks/tezgah_research.py::_arena_lock`). While they differ, it refuses every
+  stage row. So a rewritten `evaluator_sha256` does not reopen the campaign.
 
 `init` prints the next step: commit the arena with `tezgah-research commit` before
 the first idea. The arena replaces the one locked metric of a measured line.
@@ -624,9 +630,14 @@ the moves to it:
   refusal.
 - A stage moves forward in that order only, or to `killed`. A kill needs
   `--reason`.
+- A stage also needs its prerequisite somewhere in the idea's history
+  (`hooks/tezgah_research.py::PREREQUISITES`). `screened` needs a `prior-art`
+  row. `piloted` needs `screened`, `promoted` needs `piloted`, and `confirmed`
+  needs `promoted`.
 - `killed` is final. A revived idea is a new idea that names the old one as its
   parent.
-- After a `known` prior art, the only allowed row is `killed`.
+- After `duplicate`, the only allowed row is `killed`. The same holds after a
+  `known` prior art.
 
 Each stage asks for its own evidence. `--evidence` takes a reference or a JSON
 object.
@@ -636,8 +647,8 @@ object.
 | `duplicate` | `{"of": "<id>", "similarity": <0..1>}` | `of` names another idea of the line |
 | `prior-art` | `{"verdict": "novel\|incremental\|known", "nearest": [...], "delta": "<one sentence>"}` | `nearest` names at least `NEAREST_MIN` (3) notes. `literature/INDEX.jsonl` indexes each one, and not all of them are `agent-report`. `delta` is one sentence (`_prior_art_problems`) |
 | `screened` | none | `tournament.jsonl` holds at least one match that names the idea |
-| `piloted`, `promoted` | `<h>` or `experiments/<h>` | `protocol.md` names the idea id and repeats its `kill` text. `results.jsonl` holds a row. `protocol.md` is in a commit when the check asks git (`_run_problems`) |
-| `confirmed` | `{"experiment": "<h>", "set": "<set>"}` | the arena has an evaluator. The idea reached `promoted`, through another experiment. The first `held_out_log.jsonl` row for that set names this idea (`_confirm_problems`) |
+| `piloted`, `promoted` | `<h>` or `experiments/<h>` | `protocol.md` names the idea id and repeats its `kill` text. `results.jsonl` holds a row. When the check asks git, `protocol.md` is in a commit. If `results.jsonl` is committed too, `protocol.md` entered the history before it (`_run_problems`) |
+| `confirmed` | `{"experiment": "<h>", "set": "<set>"}` | the arena has an evaluator. The experiment differs from every `promoted` row's experiment. The run passes the same `_run_problems` checks. The first `held_out_log.jsonl` row for that set names this idea, and the idea looked at the set exactly once. A second look means the set was used during selection (`_confirm_problems`) |
 | `killed` | `--reason "<why>"` | a reason |
 
 A `known` prior art kills the idea in the same write. `append_stage`
@@ -665,7 +676,9 @@ The three reports write nothing and exit 0. None of them is a gate.
 - `board <slug>` (`hooks/tezgah_research.py::board`) shows the arena and whether
   the evaluator still hashes as locked. It shows each file's row count, each
   idea's rank, stage, score, record, operator, generator family and next action,
-  and the campaign's next step.
+  and the campaign's next step. An idea whose prior art is `known` gets the
+  `stage ... killed --reason` command as its next action. That resumes a campaign
+  whose kill row was torn off.
 - `dedup <slug>` (`hooks/tezgah_research.py::dedup`) clusters the `proposed`
   ideas by statement, at one similarity threshold. The lowest id of a cluster
   represents it. For every other member it prints the `stage ... duplicate`
@@ -696,14 +709,21 @@ Fifty ideas tested at the 5% level yield about 2.5 winners by chance. A reader
 cannot discount what nobody counted. `_check_tested`
 (`hooks/tezgah_research.py::_check_tested`) warns when `to_human/report.md` has
 no line that names `piloted` with the number of ideas that reached it. The same
-holds for `promoted`. `board` prints both numbers on its `tested:` line.
+holds for `promoted`. A number followed by a full stop counts, as in "reached
+piloted: 2.". `board` prints both numbers on its `tested:` line.
 
 ### The dedup threshold (fixture calibration)
 
 Si et al. called two seed ideas duplicates at cosine 0.8 on MiniLM. That number
 does not carry to another similarity. Plan 087's calibration experiment labelled
 40 pairs by hand, 20 of them duplicates. These are fixture numbers, not
-measurements of a live campaign:
+measurements of a live campaign. The acceptance runner records each sweep as a
+fixture-scoped experiment. `dedup-calibration` holds the BM25 sweep.
+`dedup-calibration-embed` holds the embed-mrl sweep when the pinned model is
+present. Copies stay in the private workspace under
+`.tezgah/scratch/calibration/`.
+
+The results:
 
 - embed-mrl: 0.8 caught 9 of the 20 duplicates. The F1-best threshold is 0.60
   (F1 0.93).
@@ -714,13 +734,15 @@ measurements of a live campaign:
 `DEDUP_THRESHOLDS` (`hooks/tezgah_research.py::DEDUP_THRESHOLDS`) holds the two
 values. Any other backend keeps `DEDUP_THRESHOLD`
 (`hooks/tezgah_research.py::DEDUP_THRESHOLD`), Si et al.'s 0.8, and the output
-calls it uncalibrated. `--threshold` overrides all of them.
+calls it uncalibrated. `--threshold` overrides all of them. Its range is
+`(0, 1]`.
 
 ### The evidence behind the method
 
 - Si et al., arXiv 2409.04109: about 5% of 4,000 generated seed ideas were not
-  duplicates (cosine 0.8). LLM judges agreed with the human consensus 53.3% of
-  the time. Two humans agreed 56.1% of the time.
+  duplicates (cosine 0.8). The best LLM judge (a Claude-3.5 pairwise ranker)
+  agreed with the human ranking 53.3% of the time. Split-half reviewer panels
+  agreed 56.1%.
 - The ideation-execution gap, arXiv 2506.20803: after execution, AI ideas lost
   1.98 points overall and human ideas lost 0.63.
 - Gupta and Pruthi, arXiv 2502.16487: 24% of 50 AI research documents
@@ -740,7 +762,8 @@ The consequences:
 
 - An LLM ranking is a prior, never a verdict.
 - A run under the frozen evaluator is the judge.
-- Each idea gets its own prior-art check.
+- Each idea gets its own prior-art check. No idea reaches `screened` without a
+  `prior-art` row (`hooks/tezgah_research.py::PREREQUISITES`).
 - `dedup` and the operator weights keep the ideas diverse.
 - The report always states how many ideas the campaign tested.
 
@@ -855,6 +878,8 @@ from `_check_standards`):
   moves and the evidence each stage asks for. Every stage row fails while the
   evaluator's hash differs from the locked one
   (`hooks/tezgah_research.py::evaluator_problem`).
+- a stage row that skips its `PREREQUISITES` stage, and any row but `killed`
+  after `duplicate` or after a `known` prior art.
 - a `known` prior art with no `killed` row after it.
 - a match row that `match_problems` faults
   (`hooks/tezgah_research.py::match_problems`). That means a side that names no

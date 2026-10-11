@@ -51,7 +51,7 @@ MIN_CAP_TEXTS = 10
 def scores(query, texts, max_df=None):
     """Every text's BM25 score for `query`, in input order; 0.0 for a text that
     shares no term with it. `rank` orders these; the research dedup reads them as
-    numbers (`tezgah_research.pair_similarity`)."""
+    numbers (`tezgah_research.similarity_matrix`)."""
     docs = [Counter(words(t)) for t in texts]
     terms = set(words(query))
     if not docs or not terms:

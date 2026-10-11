@@ -5422,6 +5422,12 @@ IDEA_FIELDS = ("id", "statement", "mechanism", "trace", "operator", "generator",
 STAGES = ("proposed", "duplicate", "prior-art", "screened", "piloted", "promoted",
           "confirmed", "killed")
 PRIOR_ART_VERDICTS = ("novel", "incremental", "known")
+# The stage each stage needs somewhere in the idea's history, beside moving
+# forward: prior art is checked per idea before any judging, runs are spent only
+# on screened ideas, a ranking never stands in for a pilot, and a confirmation
+# confirms a selection that happened.
+PREREQUISITES = {"screened": "prior-art", "piloted": "screened",
+                 "promoted": "piloted", "confirmed": "promoted"}
 MATCH_ORDERS = ("ab", "ba")
 MATCH_WINNERS = ("a", "b", "tie")
 IDEA_ID = re.compile(r"I[1-9][0-9]*")
@@ -5444,6 +5450,12 @@ EXPLORE_SHARE = 0.2
 
 def _text(value):
     return isinstance(value, str) and bool(value.strip())
+
+
+def _is_idea(value, ideas):
+    """True when a row field names an idea; a list or an object there is not an id
+    and must not reach a dict lookup."""
+    return isinstance(value, str) and value in ideas
 
 
 def _sentences(text):
@@ -5634,7 +5646,7 @@ def idea_problems(row, state, held):
         parents = []
     problems.extend("idea %s names parent %s, and no earlier idea carries that id"
                     % (iid, p) for p in parents or [] if p not in ids)
-    need = PARENT_OPERATORS.get(op)
+    need = PARENT_OPERATORS.get(op) if isinstance(op, str) else None
     if need and len(set(parents or [])) < need:
         problems.append("idea %s is a %s and names %d parent(s): it takes at least %d"
                         % (iid, op, len(set(parents or [])), need))
@@ -5645,9 +5657,12 @@ def idea_problems(row, state, held):
     if _text(row.get("date")) and not ISO_DATE.fullmatch(row["date"].strip()):
         problems.append("idea %s date %r is not YYYY-MM-DD" % (iid, row["date"]))
     if _text(row.get("trace")) and not _in_scope(row["trace"], state):
-        problems.append("idea %s traces to no in-scope item (%s): an idea outside the "
-                        "arena is one line under Open questions in findings.md, never "
-                        "a row" % (iid, row["trace"]))
+        problems.append(
+            "idea %s traces to %s, and state.json scope.in names nothing: open the line "
+            "with --in for what the arena covers" % (iid, row["trace"])
+            if not _scope_items(state) else
+            "idea %s traces to no in-scope item (%s): an idea outside the arena is one "
+            "line under Open questions in findings.md, never a row" % (iid, row["trace"]))
     return problems
 
 
@@ -5738,6 +5753,13 @@ def _run_problems(label, h, base, repo, idea, git):
         if not err and not any(adds.values()):
             problems.append("%s: experiments/%s/protocol.md is not committed, so it "
                             "cannot show the plan came before the run" % (label, h))
+        elif not err:
+            done, done_err = _oldest_adds(repo, os.path.join(d, "results.jsonl"))
+            if not done_err and any(done.values()) \
+                    and False in _answers(repo, adds, done).values():
+                problems.append("%s: experiments/%s/protocol.md did not enter the "
+                                "history before its results.jsonl, so it predicts "
+                                "nothing" % (label, h))
     return problems
 
 
@@ -5754,10 +5776,7 @@ def _confirm_problems(label, row, base, repo, state, history, git):
     h = _experiment_ref(evidence.get("experiment"))
     promoted = [_experiment_ref(r.get("evidence")) for r in history
                 if r.get("stage") == "promoted"]
-    if not promoted:
-        problems.append("%s: %s was never promoted, so there is no selection to confirm"
-                        % (label, iid))
-    elif h in promoted:
+    if h in promoted:
         problems.append("%s: experiment %s is the run that promoted %s - a confirmation "
                         "runs on data the selection never saw" % (label, h, iid))
     problems.extend(_run_problems(label, h, base, repo, None, git))
@@ -5765,15 +5784,20 @@ def _confirm_problems(label, row, base, repo, state, history, git):
     if not _text(held):
         problems.append("%s names no held-out set" % label)
         return problems
-    first = next((r for r in _row_objects(os.path.join(base, "held_out_log.jsonl"))
-                  if str(r.get("set")) == held), None)
-    if first is None:
+    looks = [r for r in _row_objects(os.path.join(base, "held_out_log.jsonl"))
+             if str(r.get("set")) == held]
+    mine = [r for r in looks if str(r.get("candidate")) == iid]
+    if not looks:
         problems.append("%s: held_out_log.jsonl records no look at set %s - log the "
                         "confirmation's look before the stage" % (label, held))
-    elif str(first.get("candidate")) != iid:
+    elif str(looks[0].get("candidate")) != iid:
         problems.append("%s: held_out_log.jsonl shows %s looked at set %s first, so the "
                         "set was looked at during selection"
-                        % (label, first.get("candidate"), held))
+                        % (label, looks[0].get("candidate"), held))
+    elif len(mine) > 1:
+        problems.append("%s: held_out_log.jsonl shows %s looked at set %s %d times, so "
+                        "the set was looked at during selection, not only to confirm"
+                        % (label, iid, held, len(mine)))
     return problems
 
 
@@ -5807,6 +5831,9 @@ def stage_problems(row, base, repo, state, ideas, history, matches, evaluator=No
     if current == "prior-art" and _verdict(history[-1]) == "known" and stage != "killed":
         return problems + ["%s: %s's prior art is known, so the only row after it is "
                            "killed" % (label, iid)]
+    if current == "duplicate" and stage != "killed":
+        return problems + ["%s: %s is a duplicate, so the only row after it is killed"
+                           % (label, iid)]
     if stage == "killed":
         if not _text(row.get("reason")):
             problems.append("%s carries no reason: a kill says what killed it" % label)
@@ -5814,12 +5841,16 @@ def stage_problems(row, base, repo, state, ideas, history, matches, evaluator=No
     if current in STAGES and STAGES.index(stage) <= STAGES.index(current):
         return problems + ["%s: %s is at %s, and a stage moves forward only (or to "
                            "killed)" % (label, iid, current)]
+    need = PREREQUISITES.get(stage)
+    if need and not any(r.get("stage") == need for r in history):
+        return problems + ["%s: %s has no %s row, and %s comes only after it"
+                           % (label, iid, need, stage)]
     evidence = row.get("evidence")
     if stage == "duplicate":
         if not isinstance(evidence, dict):
             return problems + ["%s: the evidence is {of, similarity}: the idea it "
                                "duplicates and the similarity measured" % label]
-        if evidence.get("of") not in ideas or evidence.get("of") == iid:
+        if not _is_idea(evidence.get("of"), ideas) or evidence.get("of") == iid:
             problems.append("%s duplicates %r, which is not another idea of this line"
                             % (label, evidence.get("of")))
         sim = evidence.get("similarity")
@@ -5848,9 +5879,10 @@ def match_problems(row, ideas):
         return ["a match row is a JSON object, not a %s" % type(row).__name__]
     a, b = row.get("a"), row.get("b")
     label = "match %s v %s" % (a, b)
-    problems = ["%s: %s names %r, which is not an idea of this line" % (label, side, row.get(side))
-                for side in ("a", "b") if row.get(side) not in ideas]
-    if a == b and a in ideas:
+    problems = ["%s: %s names %r, which is not an idea of this line"
+                % (label, side, row.get(side))
+                for side in ("a", "b") if not _is_idea(row.get(side), ideas)]
+    if a == b and _is_idea(a, ideas):
         problems.append("%s matches an idea against itself" % label)
     who = _who_problem(row.get("judge"))
     if who:
@@ -5925,9 +5957,17 @@ def append_stage(repo, slug, row, kill_reason=None, git=True):
         return [refusal]
     if not isinstance(row, dict):
         return stage_problems(row, base, repo, state, {}, [], [])
-    ideas = {r.get("id"): r for r in _rows_of(base, IDEAS_FILE)}
+    ideas = {r["id"]: r for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
     matches = _rows_of(base, TOURNAMENT_FILE)
     evaluator = evaluator_problem(repo, state)
+    if git:
+        # the hash in the working state.json is the one a session can rewrite: while
+        # the arena differs from the committed lock, the line is refused, and so is
+        # every stage row written meanwhile
+        locked = _arena_lock(repo, base)[1]
+        if locked is not None and state.get("arena") != locked:
+            return ["state.json arena changed after the lock, so no stage is recorded "
+                    "until it is restored"]
 
     def judge(rows):
         history = [r for r in rows if r.get("idea") == row.get("idea")]
@@ -5951,7 +5991,7 @@ def append_match(repo, slug, row):
     base, _state_, refusal = _campaign_line(repo, slug)
     if refusal:
         return [refusal]
-    ideas = {r.get("id"): r for r in _rows_of(base, IDEAS_FILE)}
+    ideas = {r["id"]: r for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
     return _append_campaign(os.path.join(base, TOURNAMENT_FILE), TOURNAMENT_FILE,
                             lambda _rows: (match_problems(row, ideas), [row]))
 
@@ -5959,7 +5999,8 @@ def append_match(repo, slug, row):
 def _stage_histories(rows):
     out = {}
     for row in rows:
-        out.setdefault(row.get("idea"), []).append(row)
+        if isinstance(row.get("idea"), str):
+            out.setdefault(row["idea"], []).append(row)
     return out
 
 
@@ -5993,7 +6034,7 @@ def _tournament_warnings(ideas, matches):
     pairs, judges = {}, {}
     for m in matches:
         a, b = m.get("a"), m.get("b")
-        if a not in ideas or b not in ideas or a == b:
+        if not (_is_idea(a, ideas) and _is_idea(b, ideas)) or a == b:
             continue
         pairs.setdefault(tuple(sorted((a, b), key=_idea_number)), []).append(m)
         who = (_family(m.get("judge")), str((m.get("judge") or {}).get("model")))
@@ -6030,7 +6071,7 @@ def _check_tested(base, histories, warnings):
     lines = [line for line in _note_text(report).splitlines()]
     for stage in ("piloted", "promoted"):
         n = sum(1 for history in histories.values() if _reached(history, stage))
-        number = re.compile(r"(?<![\w.])%d(?![\w.])" % n)
+        number = re.compile(r"(?<![\w.])%d(?!\w|\.\d)" % n)
         if not any(stage in line.lower() and number.search(line) for line in lines):
             warnings.append("to_human/report.md does not state how many ideas reached "
                             "%s (%d): an exploratory line discloses how many ideas it "
@@ -6048,15 +6089,12 @@ def _arena_of(text):
         and _text(arena.get("budget")) else None
 
 
-def _check_arena_order(repo, base, state, errors, warnings, strict):
-    """The arena lock is the first commit, along HEAD, whose state.json holds an
-    arena with a problem and a budget. ideas.jsonl has to enter the history after
-    it - the evaluation lock's ancestry rule (`_answers`) - and the arena may not
-    change after it, or a re-written `evaluator_sha256` would re-lock a moved
-    evaluator."""
-    path = os.path.join(base, "state.json")
+def _arena_lock(repo, base):
+    """({history: the arena lock commit or None}, the arena at the lock or None):
+    the first commit along HEAD whose state.json holds an arena with a problem and
+    a budget, read in every history the order rules read."""
     firsts, locked = {}, None
-    for top, rel in _histories(repo, path):
+    for top, rel in _histories(repo, os.path.join(base, "state.json")):
         firsts[top] = None
         for sha, text in _versions(top, rel):
             arena = _arena_of(text)
@@ -6064,6 +6102,15 @@ def _check_arena_order(repo, base, state, errors, warnings, strict):
                 firsts[top] = sha
                 locked = locked if locked is not None else arena
                 break
+    return firsts, locked
+
+
+def _check_arena_order(repo, base, state, errors, warnings, strict):
+    """ideas.jsonl and every results.jsonl have to enter the history after the arena
+    lock (`_arena_lock`) - the evaluation lock's ancestry rule (`_answers`) - and
+    the arena may not change after it, or a re-written `evaluator_sha256` would
+    re-lock a moved evaluator."""
+    firsts, locked = _arena_lock(repo, base)
     if locked is not None and state.get("arena") != locked:
         errors.append("state.json arena changed after the lock: the problem, the budget "
                       "and the evaluator are fixed before the first idea - a new arena "
@@ -6105,7 +6152,8 @@ def _check_exploratory(repo, base, state, errors, warnings, strict, git):
     evaluator = evaluator_problem(repo, state)
     histories = {}
     for n, row in found[STAGES_FILE][0]:
-        history = histories.setdefault(row.get("idea"), [])
+        key = row.get("idea") if isinstance(row.get("idea"), str) else None
+        history = histories.setdefault(key, [])
         errors.extend("%s:%d %s" % (STAGES_FILE, n, p) for p in stage_problems(
             row, base, repo, state, ideas, list(history), matches, evaluator, git))
         history.append(row)
@@ -6139,7 +6187,8 @@ def bradley_terry(ids, matches):
     games = {}
     for m in matches:
         a, b, winner = m.get("a"), m.get("b"), m.get("winner")
-        if a not in wins or b not in wins or a == b or winner not in MATCH_WINNERS:
+        if not (isinstance(a, str) and isinstance(b, str)) or a not in wins \
+                or b not in wins or a == b or winner not in MATCH_WINNERS:
             continue
         for x, y in ((a, b), (b, a)):
             games.setdefault(x, {})
@@ -6170,8 +6219,12 @@ def _next_action(slug, iid, stage, history, record, arena):
                 "'{\"verdict\": \"novel|incremental|known\", \"nearest\": [3 indexed "
                 "notes], \"delta\": \"<one sentence>\"}'`" % (slug, cmd))
     if stage == "duplicate":
+        evidence = history[-1].get("evidence")
         return "`%s killed --reason \"duplicate of %s\"`" % (
-            cmd, (history[-1].get("evidence") or {}).get("of", "?"))
+            cmd, evidence.get("of", "?") if isinstance(evidence, dict) else "?")
+    if stage == "prior-art" and _verdict(history[-1]) == "known":
+        return ("`%s killed --reason \"<what already does it>\"` - its prior art is "
+                "known" % cmd)
     if stage == "prior-art":
         if record["judges"] >= 2 and record["orders"] >= 2:
             return "`%s screened --evidence tournament.jsonl`" % cmd
@@ -6210,7 +6263,8 @@ def board(repo, slug):
     ideas = {r["id"]: r for r in rows[IDEAS_FILE] if _text(r.get("id"))}
     histories = _stage_histories(rows[STAGES_FILE])
     matches = [m for m in rows[TOURNAMENT_FILE]
-               if m.get("a") in ideas and m.get("b") in ideas and m.get("a") != m.get("b")]
+               if _is_idea(m.get("a"), ideas) and _is_idea(m.get("b"), ideas)
+               and m.get("a") != m.get("b")]
     scores = bradley_terry(list(ideas), matches)
     entries = []
     for iid, idea in ideas.items():
