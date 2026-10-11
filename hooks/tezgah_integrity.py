@@ -1577,10 +1577,12 @@ def counters(session_id, weeks=False, tools=False):
     carries, because a host that reports none would otherwise read as a perfect
     success rate while opencode's real process codes (2, 127, 130) count in
     neither half. `steps` counts the work rows only (STEP_KINDS); and
-    `false_completion` counts the claim rows a stop refused, so the rate is
-    false_completion / claims. `judge` counts the seam's own rows by kind: a
-    judgement is a cost, so it is in neither STEP_KINDS nor the check set - it
-    can never make a "done" claim look backed. `shape` counts the report-only
+    `false_completion` counts the claim rows a stop refused for their evidence
+    - not for their shape (`SHAPE_BLOCKS`) or the work they leave
+    (`LIST_BLOCKS`) - so the rate is false_completion / claims. `judge` counts
+    the seam's own rows by kind: a judgement is a cost, so it is in neither
+    STEP_KINDS nor the check set - it can never make a "done" claim look
+    backed. `shape` counts the report-only
     reply-shape rows (`shape_flags`) by kind for the same reason: a flag nothing
     counted was indistinguishable from a flag that never fires.
 
@@ -4927,6 +4929,24 @@ def _failed_since_change(rows):
     return any(r.get("kind") == "verify_fail" for r in rows[_last_change(rows) + 1:])
 
 
+def _proof_attempt_failed(rows):
+    """True when the proof `no ui_ok` asks of `rows` was attempted and failed
+    after the write it is about: a check that sees the screen (`UI_CHECK`) after
+    the newest UI write - the design check measures that rendered screen, so a
+    screen that did not render leaves it nothing to run on - or, with the screen
+    proven, the design check (`DESIGN_CHECK`) after the newest component write.
+    A failed screen check is the attempt the admission rests on there; a failed
+    unit check is not."""
+    def failed_after(i, check):
+        return any(r.get("kind") == "verify_fail"
+                   and check.search(mask(str(r.get("detail") or "")))
+                   for r in rows[i + 1:])
+    write, proof = _ui_evidence(rows)
+    if write >= 0 and proof <= write:
+        return failed_after(write, UI_CHECK)
+    return failed_after(_design_evidence(rows)[0], DESIGN_CHECK)
+
+
 def _prose(text):
     """`text` with its fenced blocks and inline code blanked: a test selector
     (`pytest -k unverified`), a file name (`DECISION.md`) or a pasted log line is
@@ -4940,7 +4960,8 @@ def _admitted(fold, text):
     unverified (NEGATED) and the rows that fold judged hold a check that failed
     since their newest change. The failure is the part admitted, and nothing
     else: the fold is asked again without the failed checks, so a screen or
-    design proof the turn owes still comes back (`no ui_ok`), and an external
+    design proof the turn owes still comes back (`no ui_ok`) unless that proof
+    is the check that ran and failed (`_proof_attempt_failed`), and an external
     claim with no read of its system still owes the read (`no external read`) -
     otherwise a failed unit check would end a turn its passing twin cannot.
     Wrapped around whichever fold the selector was given, so the live rule and
@@ -4954,7 +4975,8 @@ def _admitted(fold, text):
             return verdict
         owed = fold([r for r in rows if r.get("kind") != "verify_fail"],
                     worked, external, *where)
-        if owed[0] and owed[0] not in ADMITTED_CLASSES:
+        if owed[0] and owed[0] not in ADMITTED_CLASSES and not (
+                owed[0] == "no ui_ok" and _proof_attempt_failed(rows)):
             return owed
         if external is not None and _external_read_row(rows) < 0:
             return ("no external read", _external_text(external, *where))
@@ -4983,36 +5005,47 @@ def _admitted(fold, text):
 # typed KARAR passes, which the question endings `tezgah-gate replay` counts are
 # there to watch.
 RESIDUAL_LABEL = re.compile(
-    r"(?:açık (?:kalan|iş|madde|nokta|soru)|kalan(?:lar)?\b|eksik(?!siz)|"
-    r"yapılama|yapılma(?:yan|dı)|yapılacak|bekleyen|bakılma|bitme(?:yen|di)|"
-    r"tamamlanma|kısmen|doğrulan(?:a)?ma|test edilme|çalıştırılma|koşulma|"
-    r"dokunulma|sonraki adım|sıradaki|sırada\b|kapsam dışı|atlan(?:an|dı)|"
+    r"(?:açık (?:kalan|iş|madde|nokta|soru)|eksik(?!siz)|"
+    r"yapılama|yapılma(?:yan|dı)|yapılacak|bekleyen|bakıla?ma|bitme(?:yen|di)|"
+    r"tamamlanma|kısmen|doğrulan(?:a)?ma|test edile?me|çalıştırıla?ma|koşula?ma|"
+    r"dokunula?ma|sonraki adım|sıradaki|sırada\b|kapsam dışı|atlan(?:an|dı)|"
     r"ertelen|bilinen (?:hata|sınırlama|sorun)|teknik borç|ileride|"
     r"gelecek (?:iş|çalışma)|önerilen (?:iyileştirme|adım)|manuel doğrulama|"
     r"elle doğrula|engel(?:ler)?\b|engelleyenler\b|erişilemeyen|fix-?later|"
     r"open (?:items?|issues?|questions?|points?|work)|remaining\b|"
     r"what(?:'s| is) left|left to do|pending\b|outstanding\b|"
     r"not (?:done|verified|tested|run|checked|covered)|unverified|untested|"
-    r"next(?:\s+(?:steps?|up|actions?))?(?=\s*(?:\(|$))|out of scope|"
+    r"next\s+(?:steps?|up|actions?)\b|next(?=\s*(?:\(|$))|out of scope|"
     r"follow[- ]?ups?\b|deferred|skipped|known (?:issues?|limitations?|bugs?|gaps?)|"
     r"future (?:work|improvements?)|tech(?:nical)? debt|suggested improvements?|"
     r"manual (?:verification|checks?|testing)|blockers?\b|partially)")
-# At most two words may lead the stem: "Bu turda açık kalanlar", "Henüz
+# "Kalan" is also an adjective ("Kalan riskler", "Kalan süre", "Ayakta kalan
+# tek şey"): it opens a list only as the label's first word and on the work it
+# names - "Kalan:", "Kalanlar", "Kalan iş", "Kalan adımlar", "Kalan tek şey".
+RESIDUAL_FIRST = (r"kalan(?:lar)?(?=\s*(?:\(|$))|kalan\s+(?:tek\s+)?"
+                  r"(?:iş|işler|adım|adımlar|madde|maddeler|görev|görevler|şey)\b")
+# At most two words may lead any other stem: "Bu turda açık kalanlar", "Henüz
 # yapılmayanlar", "Bilerek kapsam dışı bırakılanlar".
-RESIDUAL_AT = re.compile(r"(?:[^\W\d][\w'’-]*\s+){0,2}" + RESIDUAL_LABEL.pattern)
-# A label whose own words close the list: a claim word (`asserted_claims`) or a
-# completion verb the claim vocabulary does not carry. "Kısmen ..." stays open.
+RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,2}(?:%s)"
+                         % (RESIDUAL_FIRST, RESIDUAL_LABEL.pattern))
+# A label whose own words close the list: a claim word (`asserted_claims`), or
+# a completion verb or participle the claim vocabulary does not carry ("Eksik
+# kapandı", "Düzeltilen eksik", "Doğrulanmayan kalmadı"). "Kısmen ..." stays open.
 LABEL_DONE = re.compile(r"\b(?:giderildi|çözüldü|yazıldı|bitti|ölçüldü|yapıldı|"
-                        r"halledildi|resolved|addressed|closed)\b")
+                        r"halledildi|kapandı|kalmadı|tamamlanan|düzeltilen|"
+                        r"giderilen|kapatılan|çözülen|resolved|addressed|closed)\b")
 PARTIAL = re.compile(r"(?:kısmen|partially)\b")
-# A label that says nothing is left - it ends on "yok"/"none" or opens on
-# "no"/"none" - is no list; a word in a parenthesis is a comment on the label.
+# A short label that says nothing is left - it ends on "yok"/"none" or opens on
+# "no"/"none" - is no list ("Eksik yok"); in a longer one, or after a comma, the
+# "yok" is about something else ("Doğrulanmadı, kanıt yok"). A word in a
+# parenthesis is a comment on the label.
 NOTHING_LEFT = re.compile(r"(?:\byok|\bnone|\bnothing)\W*$|^(?:no|none|nothing)\b")
+NOTHING_SHORT = 4
 PARENTHESIS = re.compile(r"\([^)]*\)")
 # An item that is only that word, or opens on it before a stop ("yok, iş
 # bitti."), or is a bare zero, is no item; a "yok" inside an item ("playwright
 # yok") is content and is judged like the rest.
-EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiçbiri|hiçbir şey|n/a)"
+EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiç(?:biri|bir şey)?|n/a)"
                         r"(?:\s*[.,;:!—–-][^\n]*)?|0)\W*", re.I)
 # The blocker tokens that need no ledger row, as the capitalised token the
 # contract names them by, a Turkish suffix allowed ("KARARI senin"); a token
@@ -5020,7 +5053,7 @@ EMPTY_ITEM = re.compile(r"\W*(?:(?:yok|none|nothing|hiçbiri|hiçbir şey|n/a)"
 # first (`_prose`).
 BLOCKER_SAID = re.compile(
     r"\b(?:KARAR|DECISION|GER[İI] ALINAMAZ|IRREVERSIBLE)[A-ZÇĞİIÖŞÜ]*\b"
-    r"(?!\s+(?:gerek(?:mi|tirm)|istem|yok\b|değil\b|not\b|none\b|isn))")
+    r"(?!\s+(?:gerek(?:mi|mez|tirm|li\s+değil)|istem|yok\b|değil\b|not\b|none\b|isn))")
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
 QUOTE_MARK = re.compile(r"^(\s*)>\s?")
 LEAD_SYMBOLS = re.compile(r"^[^\w#*_`]+")
@@ -5083,7 +5116,9 @@ def _residual(label):
         return True
     for low in (_tr_lower(label), label.lower()):
         core = " ".join(PARENTHESIS.sub(" ", low).split())
-        if not RESIDUAL_AT.match(core) or NOTHING_LEFT.search(core):
+        if not RESIDUAL_AT.match(core) or (
+                NOTHING_LEFT.search(core) and len(core.split()) <= NOTHING_SHORT
+                and not re.search(r"[,;:—–]", core)):
             continue
         if PARTIAL.match(core) or not (any(asserted_claims(core))
                                        or LABEL_DONE.search(core)):
@@ -5099,13 +5134,13 @@ def _sections(text):
     """[(label, intro, items)] for every residual section, outside fences and
     tables, a quote marker read as plain text. A list item that opens with the
     label holds itself alone - its rest and its deeper lines. A markdown heading
-    holds every line up to the next heading of its level or above. Any other
-    label line holds its rest and the lines under it, up to the next heading,
-    the next label at its depth, or prose after a blank line once it holds
-    something. The list entries at the shallowest depth are the items, and
-    what comes before the first is the intro; with no list, everything is one
-    item. A fenced block belongs to the item it follows, list-shaped lines
-    inside it included."""
+    holds the lines up to the next heading of its level or above, or prose after
+    a blank line once it holds something. Any other label line holds its rest
+    and the lines under it, up to the next heading, the next label at its
+    depth, or that prose. The list entries at the shallowest depth are the
+    items, and what comes before the first is the intro; with no list,
+    everything is one item. A fenced block belongs to the item it follows,
+    list-shaped lines inside it included."""
     lines = [QUOTE_MARK.sub(r"\1", ln) for ln in str(text or "").split("\n")]
     out, i, inside = [], 0, False
     while i < len(lines):
@@ -5125,10 +5160,6 @@ def _sections(text):
             nxt = lines[i]
             if FENCE.match(nxt):
                 fenced = not fenced
-            elif not fenced and level:
-                if HEADING.match(nxt) and (len(nxt.strip())
-                                           - len(nxt.strip().lstrip("#"))) <= level:
-                    break
             elif not fenced:
                 if not nxt.strip():
                     blank = True
@@ -5138,8 +5169,14 @@ def _sections(text):
                 if own and not deeper:
                     break
                 held = rest or any(b.strip() for b in body)
-                if not deeper and (HEADING.match(nxt) or (
-                        not LIST_MARK.match(nxt) and ((blank and held) or _label(nxt)))):
+                prose_after = (not deeper and not LIST_MARK.match(nxt)
+                               and blank and held)
+                head = HEADING.match(nxt) and len(nxt.strip()) - len(nxt.strip().lstrip("#"))
+                if level:
+                    if (head and head <= level) or (not head and prose_after):
+                        break
+                elif not deeper and (head or prose_after or (
+                        not LIST_MARK.match(nxt) and _label(nxt))):
                     break
             body.append(nxt)
             i += 1
@@ -5176,11 +5213,12 @@ def residual_sections(text):
 
 
 def residual_text(text):
-    """The residual sections of `text` written back out - label, intro, one
-    `- ` line per item - so a store that keeps only part of a reply (Cursor's
-    head and tail) still hands the Stop rule what the cut would drop. Reads back
+    """The residual sections of `text` written back out - each as a heading,
+    which holds a label of any length and its code, then its intro and one `- `
+    line per item - so a store that keeps only part of a reply (Cursor's head
+    and tail) still hands the Stop rule what the cut would drop. Reads back
     through `_sections` as the same sections."""
-    return "".join("%s: %s\n%s\n\n" % (label, intro, "\n".join(
+    return "".join("## %s\n%s%s\n\n" % (label, intro + "\n" if intro else "", "\n".join(
         "- " + item.replace("\n", "\n  ") for item in items))
         for label, intro, items in _sections(text))
 

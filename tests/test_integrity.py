@@ -3577,6 +3577,76 @@ class ResidualWork(unittest.TestCase):
         self.assertEqual((counts["claims"], counts["false_completion"]), (2, 1))
         self.assertEqual(counts["blocked_claims"], {"residual work": 1, "no verify_ok": 1})
 
+    # ---- review round 2 (plan 080): the delta's own defects, failing first --
+    def test_a_done_statement_a_risk_or_a_finding_is_no_residual_label(self):
+        # N1: two lead words and an adjective "kalan" opened sections on done
+        # statements, risks and findings (labels from the owner's transcripts)
+        for text in ("Hepsi kapandı.\n\n## Tamamlanan açık maddeler\n\n| Madde | Durum |\n|---|---|\n| README | Kapandı |",
+                     "Main eşitlendi.\n\nKalan riskler:\n- GitHub eski commitler",
+                     "- Künyede kalan tek zaman alanı: `Test Tarihleri: Eylül 2026`.",
+                     "- **Ayakta kalan tek şey tavanın kırılması:** ölçüldü.",
+                     "1. **Kalan `scan.chat` faultu doğru davranış**: tasarım bu.",
+                     "**Yapısal eksik kapandı:** parser artık boş satırı okuyor.",
+                     "**Önceki eksik kapandı:** README güncellendi.",
+                     "Düzeltilen eksik: README satırı.", "Kalan süre: 3 dakika",
+                     "Kalan kota: 120 istek", "Doğrulanmayan kalmadı:\n- hepsi geçti"):
+            with self.subTest(text=text):
+                self.assertEqual(self.left(text), [])
+        # the controls: "kalan" as the work left still opens one
+        for text in ("Kalan:\n- README", "Kalan iş: README", "Kalan tek şey: README"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
+    def test_a_failed_screen_check_is_the_attempt_the_screen_class_asks_for(self):
+        # N2: the refusal's own repair - name the failed screen check - ended no turn
+        ui = {"kind": "edit", "detail": "app/components/Button.tsx", "changed": True}
+        e2e = {"kind": "verify_fail", "exit": 1,
+               "detail": "npx playwright test " + ti.FAILED_MARK}
+        self.assertIsNone(self.verdict(
+            "Butonu değiştirdim. Doğrulanmadı: `npx playwright test` Executable doesnt exist.",
+            [ui, e2e]))
+        # a failed unit check is still no attempt at the screen
+        self.assertEqual(self.verdict("Butonu değiştirdim, doğrulanmadı.",
+                                      [ui, self.FAIL]), "no ui_ok")
+        # with the screen proven, the component's design check is the attempt
+        seen = {"kind": "verify_ok", "exit": 0, "out_bytes": 40, "detail": "npx playwright test"}
+        design = {"kind": "verify_fail", "exit": 1,
+                  "detail": "tezgah-design check --contract c.md " + ti.FAILED_MARK}
+        self.assertIsNone(self.verdict(
+            "Butonu değiştirdim. Doğrulanmadı: `tezgah-design check` 2 ihlal.", [ui, seen, design]))
+        self.assertEqual(self.verdict("Butonu değiştirdim, doğrulanmadı.",
+                                      [ui, seen, self.FAIL]), "no ui_ok")
+
+    def test_a_heading_section_ends_where_its_prose_does(self):
+        # N3: prose after "Yok." was glued onto the item
+        self.assertEqual(self.left("Parser yazıldı.\n\n## Açık kalanlar\n\nYok.\n\n"
+                                   "Tüm testler geçti: `pytest -q` 12 passed."), [])
+        self.assertEqual(self.left("Açık kalan: hiç."), [])
+
+    def test_the_kept_sections_read_back_whole(self):
+        # N4: a label over six words, or with code, did not survive the rewrite
+        for text in ("## Açık kalanlar ve bu turda bilerek yapılmayan işler\n- README güncellenmedi",
+                     "**Açık kalanlar (`docs/` altı)**\n- README güncellenmedi",
+                     "**Açık kalanlar:** hepsi KARAR\n- A mı B mi\n- C mi D mi"):
+            with self.subTest(text=text):
+                self.assertEqual([item for _l, item in self.left(ti.residual_text(text))],
+                                 [item for _l, item in self.left(text)])
+
+    def test_next_steps_with_words_after_them_are_a_label(self):
+        # N6
+        for text in ("Next steps for you:\n- update README",
+                     "**Next steps to ship:**\n- update README", "Next action items:\n- README"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
+    def test_a_yok_inside_a_longer_label_or_a_softer_negation(self):
+        # round 2 residue of labels C2 and blockers D2-F4
+        for text in ("**Doğrulanmadı, kanıt yok:**\n- E2E akışı",
+                     "Test edilemeyen, tarayıcı yok:\n- login e2e",
+                     "Açık kalanlar:\n- README güncellenmedi (KARAR gerekmez)"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text))
+
 
 
 class PromptTurn(TempHome):

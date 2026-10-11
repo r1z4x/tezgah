@@ -391,9 +391,12 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    marker or an emoji may lead it. Examples are "Açık kalanlar", "Doğrulanmadı:", "Sıradaki
    adım", "Bekleyen tek iş", "Kapsam dışı", "TODO" and "Next steps".
    `hooks/tezgah_integrity.py::RESIDUAL_LABEL` holds the words, and
-   `hooks/tezgah_integrity.py::residual_sections` reads them. A heading holds everything up to the
-   next heading of its level. A label whose own words close the list ("Eksikler giderildi") or
-   say nothing is left ("Eksik yok") starts none. The class refuses an item that nothing accounts
+   `hooks/tezgah_integrity.py::residual_sections` reads them. "Kalan" is also an adjective, as in
+   "Kalan riskler". It opens a list only as the first word, on the work it names: "Kalan:", "Kalan
+   iş", "Kalan adımlar" (`hooks/tezgah_integrity.py::RESIDUAL_FIRST`). A heading holds the lines up
+   to the next heading of its level, or up to prose after a blank line. Some labels start no list.
+   Their own words close it ("Düzeltilen eksik", "Doğrulanmayan kalmadı"), or a few words say that
+   nothing is left ("Eksik yok"). "Doğrulanmadı, kanıt yok" still starts one. The class refuses an item that nothing accounts
    for (`hooks/tezgah_integrity.py::unblocked_items`). Two things do. One is a capitalised KARAR or
    GERİ ALINAMAZ token outside code, a Turkish suffix allowed and a negation not: a choice or a
    consent leaves no row to check. The other is a quote of a command that failed in the turn, in
@@ -473,7 +476,11 @@ Writing it was cheaper than verifying. The word is read on the reply's prose, so
 in code is no admission. After it clears the failure, the fold runs again without the failed
 checks. A screen or design proof the turn still owes comes back as `no ui_ok`, and an external
 claim with no read comes back as `no external read`. Otherwise a failed unit check would end a
-turn that its passing twin cannot. The selector refuses `evidence tampered` first, because the
+turn that its passing twin cannot. One failure is that proof's own attempt. When the check that
+failed is the one that sees the screen, after the newest UI write, the word clears `no ui_ok` too
+(`hooks/tezgah_integrity.py::_proof_attempt_failed`). That covers the design check as well, which
+measures the screen that did not render. A failed design check does the same for a component with
+a proven screen. The selector refuses `evidence tampered` first, because the
 admission now rests on the ledger's own rows. The block text is the string the
 refusing branch returns; it names the failed
 command (`hooks/tezgah_integrity.py::_failed_check`) and tells the model to report the failure with its exact error
@@ -696,9 +703,10 @@ Each key, as both readers produce it:
 - `tool_error_rate` — non-zero `exit` values over every row carrying an `exit` (`hooks/tezgah_integrity.py::_counts`);
   a host reporting no outcome contributes to neither half, so every row with an `exit` counts.
 - `claims` and `false_completion` — the `claim` rows, which are replies in the claim vocabulary,
-  and those whose detail starts with `blocked` (`hooks/tezgah_integrity.py::_counts`). A shape class (`SHAPE_BLOCKS`) is
-  the exception. A reply refused for its list or its language made no false claim, so it counts
-  as `shape_blocked` instead.
+  and those whose detail starts with `blocked` (`hooks/tezgah_integrity.py::_counts`). Two classes
+  are the exception. A shape class (`SHAPE_BLOCKS`) refuses a reply for its list or its language,
+  which made no false claim, so it counts as `shape_blocked` instead. `residual work`
+  (`LIST_BLOCKS`) refuses a reply for the work it leaves, not for its claim.
 - `refusals` — the `refusal` rows: refused replies that claimed nothing, work-only or shape. A
   shape one also counts in `shape_blocked`. Before row version 3 these were `claim` rows, so a
   corpus folded across the boundary counts them in `claims`.
