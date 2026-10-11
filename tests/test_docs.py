@@ -360,14 +360,15 @@ class Inventories(unittest.TestCase):
         failures = module.judge_caller_failures(page)
         self.assertTrue(any("bin/tezgah-taste" in f for f in failures), failures)
 
-    def test_the_switches_code_reads_are_the_core_names_plus_the_open_four(self):
-        # ADR 007 leaves these four unclassified: two `off()` names no CORE
+    def test_the_switches_code_reads_are_the_core_names_plus_the_open_five(self):
+        # ADR 007 leaves these five unclassified: three `off()` names no CORE
         # paragraph lists and two opt-in markers read with `armed()`. Until the
-        # owner classifies them they are this explicit set, and a fifth name
+        # owner classifies them they are this explicit set, and a sixth name
         # outside CORE fails the check instead of joining it silently.
         module = docs_module()
         self.assertEqual(module.UNCLASSIFIED_SWITCHES, frozenset((
-            "agents-off", "update-check-off", "taste-on", "skill-suggest-on")))
+            "agents-off", "update-check-off", "slices-off", "taste-on",
+            "skill-suggest-on")))
         self.assertEqual(len(module.core_switches()), 16)
         self.assertEqual(module.switch_failures(), [])
         failures = module.switch_failures(core=module.core_switches() - {"lang-off"})

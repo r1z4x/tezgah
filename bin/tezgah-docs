@@ -536,12 +536,13 @@ CONTRACT_SKILL = os.path.join(HERE, "skills", "tezgah-contract", "SKILL.md")
 SETUP = os.path.join(HERE, "bin", "tezgah-setup")
 NUMBERS = ("zero", "one", "two", "three", "four", "five", "six", "seven",
            "eight", "nine", "ten")
-# ADR 007 (2026-10-05) leaves these unclassified: two `off()` names the CORE
-# kill-switch paragraph does not list and two opt-in markers read with
-# `armed()`. Until the owner decides whether they are rule switches the check
-# pins CORE against the code and carries these as the one explicit exception.
+# ADR 007 (2026-10-05) leaves these unclassified: three `off()` names the CORE
+# kill-switch paragraph does not list (`slices-off` joined on 2026-10-11 with
+# the slice journal) and two opt-in markers read with `armed()`. Until the owner
+# decides whether they are rule switches the check pins CORE against the code
+# and carries these as the one explicit exception.
 UNCLASSIFIED_SWITCHES = frozenset((
-    "agents-off", "update-check-off", "taste-on", "skill-suggest-on"))
+    "agents-off", "update-check-off", "slices-off", "taste-on", "skill-suggest-on"))
 
 
 def rule_sites(text=None):
