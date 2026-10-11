@@ -75,6 +75,8 @@ answered a limit leaves every chain until its reset (`funded_families`,
 `hooks/tezgah_models.py::down_families`). The record is `model-health.json`
 in the cache dir. The reset comes from the provider's own answer. That is a
 named `reset at` time or a `retry-after-ms`, else six hours (`limit_until`).
+A named reset already past also holds six hours, since the provider's time zone
+is not stated.
 `tezgah-route --health` probes each other family with a credential. OpenRouter
 answers through its key endpoint, which costs no tokens. A family omp runs gets
 one short prompt on its cheap row (`probe_family`). The command then records the
@@ -82,7 +84,10 @@ downs and re-applies omp's chain. Session start and each prompt start it in the
 background when it is due (`health_due`, `start_health`). It is due when it was
 never checked, when it is six hours old, or when a recorded reset has passed. The mode's own family is never
 probed, since it leads the chain anyway. `tezgah-route --fallback any` lets a
-chain fall back to another vendor's family, such as zai, once it is up.
+chain fall back to another vendor's family once it is up. A family omp runs on
+an account, such as zai, comes before OpenRouter, which bills per token
+(`hooks/tezgah_models.py::_chain`). The probe uses the consult argv, so it loads
+no tools, rules, skills or extensions.
 Measured 2026-10-11: zai answered `429 Weekly/Monthly Limit Exhausted. Your limit
 will reset at 2026-10-12 02:02:35`, so it stays out of the chain until then.
 

@@ -335,6 +335,11 @@ def limit_until(text, now=None):
     if until is None:
         ms = _RETRY_MS.search(text)
         until = now + int(ms.group(1)) / 1000.0 if ms else now + HEALTH_DOWN
+    if until <= now:
+        # a named reset already past is a clock we misread (the provider's zone
+        # is not stated): a minute's hold re-probed every prompt, so hold it like
+        # a limit that names none
+        until = now + HEALTH_DOWN
     return min(max(until, now + 60), now + HEALTH_DOWN_MAX)
 
 
@@ -379,8 +384,11 @@ def probe_family(family, timeout=60):
         return None, "omp not found"
     env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
     try:
-        proc = subprocess.run([exe, "-p", "--no-session", "--model", _selector(family, "cheap"),
-                               "--max-time=%d" % timeout, "Reply with exactly: OK"],
+        # the consult argv: no tools, rules, skills, extensions or title call, so
+        # the probe is one short request and fires no nested tezgah hooks
+        argv = [exe] + tp.CONSULT_CLIS["omp"][0][1:]
+        proc = subprocess.run(argv + ["--model", _selector(family, "cheap"),
+                                      "--max-time=%d" % timeout, "Reply with exactly: OK"],
                               capture_output=True, text=True, timeout=timeout + 15,
                               env=env, cwd=tp.HOME)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -520,11 +528,14 @@ def _chain(mode, slot, funded, agent=""):
     because a session on Opus that ran its subagents on GPT and GLM after one
     Anthropic 429 is the failure the owner reported (2026-10-07). `none`: the
     mode's selector alone. `any`: every other funded family, each on that
-    slot's own row, rotated by the agent's own name (`agent`): identical chains
-    for every agent meant one family's 429 moved all of them onto the same next
-    family in the same moment, which is the cascade the chain exists to break
-    (independent review, 2026-10-01). The rotation is deterministic - the same
-    agent resolves the same order on every machine - so nothing here is random."""
+    slot's own row. The families omp runs on an account (zai) come before
+    OpenRouter, which bills per token - the owner's ask (2026-10-11) was to use
+    zai when it is up - and among those the order is rotated by the agent's own
+    name (`agent`): identical chains for every agent meant one family's 429
+    moved all of them onto the same next family in the same moment, which is the
+    cascade the chain exists to break (independent review, 2026-10-01). The
+    rotation is deterministic - the same agent resolves the same order on every
+    machine - so nothing here is random."""
     policy = tp.fallback_policy()
     families = [mode] + [f for f in OMP_FAMILIES if f != mode and f in funded]
     if policy == "none":
@@ -539,10 +550,11 @@ def _chain(mode, slot, funded, agent=""):
                 out.append("openrouter/" + OPENROUTER_ID[model]
                            + (":" + effort if effort else ""))
         return list(dict.fromkeys(out))
-    tail = families[1:]
+    tail = [f for f in families[1:] if f != "any"]
     if agent and len(tail) > 1:
         shift = sum(ord(c) for c in agent) % len(tail)
-        families = families[:1] + tail[shift:] + tail[:shift]
+        tail = tail[shift:] + tail[:shift]
+    families = families[:1] + tail + [f for f in families[1:] if f == "any"]
     return [_selector(family, slot) for family in families]
 
 
@@ -764,7 +776,11 @@ def apply_omp(remove=False):
     owns.update(owns_chains)
     merged_chains = dict(chains)
     for key in flat_chains:
-        role = key.split(".", 1)[1]
+        role = key.rsplit(".", 1)[1]
+        # an earlier release wrote the chain under `fallbackChains.<role>`, a key
+        # omp never reads (the `split(".", 1)` of the flat key); it is tezgah's
+        # own and goes
+        merged_chains.pop("fallbackChains." + role, None)
         value = new_chains.get(key)
         if value is None:
             merged_chains.pop(role, None)

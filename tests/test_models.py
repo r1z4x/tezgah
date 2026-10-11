@@ -486,16 +486,24 @@ class OmpOverrides(unittest.TestCase):
         self.assertIn("skipped", status)
         self.assertEqual(called, [], "nothing may be written when the tier cannot run")
 
-    def test_the_fallback_order_rotates_per_agent(self):
+    def test_the_fallback_order_rotates_per_agent_and_openrouter_comes_last(self):
         # identical chains moved every agent onto the same fallback at once, so a
-        # 429 there cascaded instead of falling through (review 2026-10-01)
+        # 429 there cascaded instead of falling through (review 2026-10-01); the
+        # account families rotate, and OpenRouter, billed per token, comes after
+        # them (owner, 2026-10-11: use zai when it is up)
         with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
-            out = self.overrides("anthropic", funded=("anthropic", "zai", "any"))
+            out = self.overrides("any", funded=("anthropic", "zai", "any"))
+            mine = self.overrides("anthropic", funded=("anthropic", "zai", "any"))
         orders = {a: tuple(out[a].split(",")[1:]) for a in out}
         self.assertGreater(len(set(orders.values())), 1, orders)
         for agent, chain in out.items():
-            self.assertTrue(chain.startswith("anthropic/"), agent)
+            self.assertTrue(chain.startswith("openrouter/"), agent)
             self.assertEqual(len(set(chain.split(","))), len(chain.split(",")), agent)
+        for agent, chain in mine.items():
+            parts = chain.split(",")
+            self.assertTrue(parts[0].startswith("anthropic/"), agent)
+            self.assertTrue(parts[1].startswith("zai/"), agent)
+            self.assertTrue(parts[2].startswith("openrouter/"), agent)
 
     def test_the_default_chain_never_leaves_the_session_vendor(self):
         # a session on Opus with GLM and OpenRouter keys beside it ran its
@@ -758,6 +766,93 @@ class ProviderHealth(unittest.TestCase):
         self.assertIs(up, False)
         self.assertIn("exhausted", reason)
 
+    def test_a_named_reset_already_past_holds_like_one_with_no_reset(self):
+        # a misread zone puts the reset in the past: a minute's hold would make
+        # every prompt start a probe
+        now = 2_000_000_000.0
+        self.assertEqual(tm.limit_until("429 limit, reset at 2001-01-01 00:00:00",
+                                        now=now), now + tm.HEALTH_DOWN)
+
+    def test_the_omp_probe_is_one_bare_request_on_the_cheap_row(self):
+        runs = []
+
+        def run(argv, **kw):
+            runs.append(argv)
+            return subprocess.CompletedProcess(argv, 1, "", "429 Weekly/Monthly Limit "
+                                               "Exhausted. Your limit will reset at "
+                                               "2030-01-01 00:00:00")
+        with mock.patch.object(tm.tp, "omp_bin", return_value="/x/omp"), \
+                mock.patch.object(tm.subprocess, "run", side_effect=run):
+            up, reason = tm.probe_family("zai")
+        self.assertIs(up, False)
+        self.assertIn("reset at 2030-01-01", reason)
+        argv = runs[0]
+        for flag in ("-p", "--no-session", "--no-tools", "--no-rules", "--no-skills",
+                     "--no-extensions", "--no-title"):
+            self.assertIn(flag, argv)
+        self.assertEqual(argv[argv.index("--model") + 1], tm._selector("zai", "cheap"))
+        with mock.patch.object(tm.tp, "omp_bin", return_value="/x/omp"), \
+                mock.patch.object(tm.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 1, "", "segfault")):
+            self.assertIsNone(tm.probe_family("zai")[0])
+
+    def test_the_probe_is_stamped_before_it_starts_so_prompts_start_one(self):
+        started = []
+        with mock.patch.object(tm.subprocess, "Popen",
+                               side_effect=lambda *a, **k: started.append(a)), \
+                mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            self.assertTrue(tm.health_due())
+            self.assertTrue(tm.start_health())
+            self.assertFalse(tm.health_due())
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0][0][-1], "--health")
+
+    def test_the_role_chain_lands_under_the_key_omp_reads(self):
+        # an earlier release wrote `fallbackChains.plan`, which omp never reads
+        written = {}
+        store = {"task.agentModelOverrides": {},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5"},
+                 "retry.fallbackChains": {"fallbackChains.plan": ["old"],
+                                          "default": ["mine"]}}
+
+        def get(key):
+            return dict(store[key])
+
+        def put(key, value):
+            written[key] = value
+            return True
+        state = {}
+        with mock.patch.object(tm, "omp_get", side_effect=get), \
+                mock.patch.object(tm, "_omp_set", side_effect=put), \
+                mock.patch.object(tm, "funded_families", return_value=["anthropic", "any"]), \
+                mock.patch.object(tm.tp, "fallback_policy", return_value="vendor"), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            tm.apply_omp()
+        chains = written["retry.fallbackChains"]
+        self.assertEqual(chains["plan"], ["openrouter/anthropic/claude-opus-5.5:high"])
+        self.assertNotIn("fallbackChains.plan", chains)
+        self.assertEqual(chains["default"], ["mine"])
+
+    def test_route_fallback_refuses_a_config_it_cannot_parse(self):
+        home = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, home, True)
+        cfg = os.path.join(home, ".config", "tezgah", "config.json")
+        os.makedirs(os.path.dirname(cfg))
+        with open(cfg, "w") as fh:
+            fh.write("{not json")
+        route = os.path.join(support.REPO, "bin", "tezgah-route")
+        proc = subprocess.run([sys.executable, route, "--fallback", "any"],
+                              env=support.base_env(home), capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        with open(cfg) as fh:
+            self.assertEqual(fh.read(), "{not json")
+        os.remove(cfg)
+        proc = subprocess.run([sys.executable, route, "--fallback", "none"],
+                              env=support.base_env(home), capture_output=True, text=True)
+        with open(cfg) as fh:
+            self.assertEqual(json.load(fh)["fallback"], "none")
 
 
 class Refresh(unittest.TestCase):
