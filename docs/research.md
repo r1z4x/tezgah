@@ -712,24 +712,30 @@ no line that names `piloted` with the number of ideas that reached it. The same
 holds for `promoted`. A number followed by a full stop counts, as in "reached
 piloted: 2.". `board` prints both numbers on its `tested:` line.
 
-### The dedup threshold (fixture calibration)
+### The dedup threshold (two label sets)
 
 Si et al. called two seed ideas duplicates at cosine 0.8 on MiniLM. That number
-does not carry to another similarity. Plan 087's calibration experiment labelled
-40 pairs by hand, 20 of them duplicates. These are fixture numbers, not
-measurements of a live campaign. The acceptance runner records each sweep as a
-fixture-scoped experiment. `dedup-calibration` holds the BM25 sweep.
-`dedup-calibration-embed` holds the embed-mrl sweep when the pinned model is
-present. Copies stay in the private workspace under
-`.tezgah/scratch/calibration/`.
+does not carry to another similarity. Two label sets measured it here.
 
-The results:
+- The fixture: 40 idea-statement pairs, 20 of them duplicates. The author of the
+  code labelled them. The acceptance runner records the sweeps as fixture-scoped
+  experiments: `dedup-calibration` (BM25) and `dedup-calibration-embed`
+  (embed-mrl). Copies stay under `.tezgah/scratch/calibration/`.
+- MRPC: 400 pairs of the Microsoft Research Paraphrase Corpus test set, 200
+  paraphrases and 200 not, sampled with seed 87. Human annotators labelled them.
+  The pairs are news sentences, and the negatives share many words. At BM25 0.30
+  the sample kept every paraphrase and 95% of the negatives. The script and its
+  output are `.tezgah/scratch/calib2/run.py` and `out.txt`.
 
-- embed-mrl: 0.8 caught 9 of the 20 duplicates. The F1-best threshold is 0.60
-  (F1 0.93).
-- BM25: 0.8 caught 1 of the 20. The default is 0.35 (F1 0.78). That is the
-  highest threshold within 0.01 F1 of the best. A threshold of 0.20 scored 0.784,
-  but in the campaign fixture it merged mutations into their parents.
+| Backend | F1 at 0.8 (fixture / MRPC) | Default | F1 at the default (fixture / MRPC) |
+|---|---|---|---|
+| embed-mrl | 0.62 / 0.64 | 0.65 | 0.90 / 0.705 |
+| BM25 | 0.09 / 0.41 | 0.40 | 0.70 / 0.69 |
+
+The default is the threshold, in steps of 0.05, whose worse F1 over the two sets
+is highest. Neither the author's labels nor the news domain picks it alone. On
+MRPC the best F1 beats the always-duplicate baseline (0.667) by about 0.04. The
+defaults are a coarse filter for a session to review, not a judge.
 
 `DEDUP_THRESHOLDS` (`hooks/tezgah_research.py::DEDUP_THRESHOLDS`) holds the two
 values. Any other backend keeps `DEDUP_THRESHOLD`

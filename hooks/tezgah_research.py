@@ -5434,15 +5434,15 @@ IDEA_ID = re.compile(r"I[1-9][0-9]*")
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 NEAREST_MIN = 3
 # Si et al. (arXiv 2409.04109) called two seed ideas duplicates at cosine 0.8 on
-# MiniLM. That number does not carry to another similarity: on 40 hand-labelled
-# fixture pairs (plan 087's calibration experiment, docs/research.md) 0.8 caught 9
-# of 20 duplicates with embed-mrl and 1 of 20 with BM25. Each measured backend
-# takes the highest threshold within 0.01 F1 of its best: embed-mrl 0.60 (F1 0.93),
-# BM25 0.35 (F1 0.78; 0.20 scored 0.784 and merged mutations into their parents in
-# the campaign fixture). Any other backend keeps Si et al.'s, named as
-# uncalibrated. `--threshold` wins.
+# MiniLM. That number does not carry to another similarity, on either of two label
+# sets: 40 idea-statement pairs labelled by the author (fixture, 20 duplicates) and
+# 400 human-labelled MRPC test pairs (200 paraphrases; docs/research.md). At 0.8,
+# F1 was 0.62 and 0.64 for embed-mrl and 0.09 and 0.41 for BM25. Each measured
+# backend takes the threshold whose worse F1 over the two sets is highest: embed-mrl
+# 0.65 (fixture 0.90, MRPC 0.705), BM25 0.40 (fixture 0.70, MRPC 0.69). Any other
+# backend keeps Si et al.'s, named as uncalibrated. `--threshold` wins.
 DEDUP_THRESHOLD = 0.8
-DEDUP_THRESHOLDS = {"bm25": 0.35, "embed:embed-mrl": 0.60}
+DEDUP_THRESHOLDS = {"bm25": 0.40, "embed:embed-mrl": 0.65}
 # The share of the next campaign's operator draws kept uniform, so a move that
 # has not paid off yet is still tried (`operator_weights`).
 EXPLORE_SHARE = 0.2
@@ -6399,7 +6399,7 @@ def dedup(repo, slug, threshold=None):
     source = "--threshold"
     if threshold is None:
         threshold = DEDUP_THRESHOLDS.get(backend, DEDUP_THRESHOLD)
-        source = ("calibrated for %s on 40 hand-labelled fixture pairs" % backend
+        source = ("calibrated for %s on 40 fixture and 400 MRPC pairs" % backend
                   if backend in DEDUP_THRESHOLDS
                   else "uncalibrated: Si et al.'s cosine 0.8 on MiniLM")
     parent = list(range(len(live)))
