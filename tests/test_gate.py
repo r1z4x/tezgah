@@ -549,6 +549,7 @@ class Gate(TempHome):
         self.assertIsNone(tg.race_reason(
             {"file_path": "agent://Main"}, "mine"))
         self.assertIsNone(tg.race_reason({"file_path": "xd://gate_check"}, "mine"))
+        self.assertIsNone(tg.race_reason({"path": "conflict://2"}, "mine"))
 
     def wrote(self, session, path, cwd):
         """One write as the PostToolUse writer records it, from `cwd`."""
@@ -1919,6 +1920,63 @@ class TaskGate(TempHome):
                         "echo x >> ../outside.py"):
             reason = self.decide({"command": command}, tool="Bash")
             self.assertIn("outside the paths", reason or "", command)
+
+    def test_a_uri_target_is_no_repo_file_the_task_rule_holds(self):
+        # ServisTek session 01a12a4c: `write xd://mcp__codegraph_explore` and
+        # edits to `conflict://2` were refused as outside the allowlist, and an
+        # omp agent message (`write agent://X`) the same way - a tool device, a
+        # conflict resolution and a message are not files in the checkout
+        self.plan(phase="implementation", allowed=("app/**",))
+        for tool, target in (("write", "xd://mcp__codegraph_explore"),
+                             ("edit", "conflict://2"), ("write", "conflict://2"),
+                             ("write", "agent://X"), ("write", "local://y.md")):
+            self.assertIsNone(self.decide({"path": target, "content": "{}"},
+                                          tool=tool), target)
+        self.plan(phase="discovery", allowed=("app/**",))
+        self.assertIsNone(self.decide({"path": "agent://X", "content": "hi"},
+                                      tool="write"))
+        # the regression: a relative repo path outside the allowlist still is
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.assertIn("outside the paths", self.decide(
+            {"path": "src/x.py", "content": "x"}, tool="write") or "")
+
+    def test_a_shell_target_variable_is_resolved_or_left_unnamed(self):
+        # ServisTek: `git diff > $B/$n.tracked.patch` was refused under the
+        # literal name `$B/$n.tracked.patch`, a file that exists nowhere
+        self.plan(phase="implementation", allowed=("app/**",))
+        self.envv.pop("OUT", None)
+        for command in ("B=/tmp/run; git diff > $B/$n.tracked.patch",
+                        "git diff > $OUT/x.patch", "git diff > ${OUT}/x",
+                        "D=$(mktemp -d); git diff > $D/x.patch",
+                        "B=app; git diff > $B/x.patch"):
+            self.assertIsNone(self.decide({"command": command}, tool="Bash"),
+                              command)
+        # an assignment on the same line names the file, and it is held
+        for command in ("B=src; git diff > $B/x.patch",
+                        'B="src"; git diff > ${B}/x.patch',
+                        "git diff > src/x.patch"):
+            reason = self.decide({"command": command}, tool="Bash")
+            self.assertIn("outside the paths", reason or "", command)
+        self.assertEqual(tg.write_paths(
+            {"command": "B=/tmp/run; git diff > $B/$n.tracked.patch"}),
+            ["/tmp/run/$n.tracked.patch"])
+        # a write tool's `$` is part of a real file name, never a variable
+        self.assertIn("outside the paths", self.write_path("src/Outer$Inner.java")
+                      or "")
+
+    def test_the_tezgah_workspace_is_not_the_plans_scope(self):
+        # observed in plan 083: `write .tezgah/research/.../INDEX.jsonl` refused
+        # as outside the allowlist; `.tezgah/` is tezgah's own gitignored
+        # workspace, while the active record there stays refused
+        self.plan(phase="implementation", allowed=("app/**",))
+        for rel in (".tezgah/research/done/check-loop-cost/literature/INDEX.jsonl",
+                    ".tezgah/lessons.md", ".tezgah/analysis/a.md",
+                    ".tezgah/decisions/d.md", ".tezgah/slices/s.json",
+                    ".tezgah/briefs/b.md"):
+            self.assertIsNone(self.write_path(os.path.join(self.repo, rel)), rel)
+            self.assertIsNone(self.write_path(rel), rel)
+        reason = self.write_path(".tezgah/plans/open/017-gate-rule.md")
+        self.assertIn("own record", reason or "")
 
     def test_a_shell_write_into_the_record_is_refused(self):
         # the record's other file route: a redirect or `tee` into it moves the
