@@ -668,6 +668,98 @@ class OmpOverrides(unittest.TestCase):
             self.assertIsNone(tm.apply_omp())
 
 
+class ProviderHealth(unittest.TestCase):
+    """Plan 082: a family whose provider answered a limit leaves the chain until
+    its reset, and the probe re-checks the other families."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        patch = mock.patch.object(tm.tp, "cache_dir", return_value=self.tmp)
+        patch.start()
+        self.addCleanup(patch.stop)
+        stored = mock.patch.object(tm, "_omp_stored_providers",
+                                   return_value={"anthropic", "zai"})
+        stored.start()
+        self.addCleanup(stored.stop)
+        ready = mock.patch.object(tm, "openrouter_ready", return_value=True)
+        ready.start()
+        self.addCleanup(ready.stop)
+
+    def test_a_limit_answer_names_its_reset_and_anything_else_names_none(self):
+        now = 1_000_000.0
+        zai = ("429 Weekly/Monthly Limit Exhausted. Your limit will reset at "
+               "2026-10-12 02:02:35 (type=1310)")
+        import time
+        self.assertEqual(tm.limit_until(zai, now=time.mktime(
+            time.strptime("2026-10-11 20:00:00", "%Y-%m-%d %H:%M:%S"))),
+            time.mktime(time.strptime("2026-10-12 02:02:35", "%Y-%m-%d %H:%M:%S")))
+        self.assertEqual(tm.limit_until("429 ... retry-after-ms=120000", now=now),
+                         now + 120)
+        self.assertEqual(tm.limit_until("403 Key limit exceeded (total limit)", now=now),
+                         now + tm.HEALTH_DOWN)
+        # a reset a year out is capped; a crash is no limit answer at all
+        self.assertEqual(tm.limit_until("429 limit, reset at 2027-10-12 02:02:35",
+                                        now=now), now + tm.HEALTH_DOWN_MAX)
+        self.assertIsNone(tm.limit_until("connection reset by peer", now=now))
+
+    def test_a_down_family_leaves_the_chain_until_its_reset(self):
+        import time
+        self.assertEqual(tm.funded_families(), ["anthropic", "zai", "any"])
+        tm.write_health({"checked": time.time(), "down": {
+            "any": {"until": time.time() + 3600, "reason": "403 key limit"},
+            "zai": {"until": time.time() - 1, "reason": "reset passed"}}})
+        self.assertEqual(tm.funded_families(), ["anthropic", "zai"])
+        self.assertEqual(tm.funded_families(live=False), ["anthropic", "zai", "any"])
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
+            self.assertEqual(tm._chain("anthropic", "standard", tm.funded_families()),
+                             ["anthropic/claude-opus-5-5:medium", "zai/glm-5.3"])
+
+    def test_the_probe_records_downs_and_lifts_them(self):
+        answers = {"zai": (False, "429 Weekly/Monthly Limit Exhausted. Your limit "
+                                  "will reset at 2030-01-01 00:00:00"),
+                   "any": (True, "OpenRouter key has room")}
+        asked = []
+
+        def probe(family):
+            asked.append(family)
+            return answers[family]
+        data = tm.refresh_health("anthropic", probe=probe)
+        # the mode's own family is never probed
+        self.assertEqual(sorted(asked), ["any", "zai"])
+        self.assertEqual(set(data["down"]), {"zai"})
+        self.assertEqual(tm.funded_families(), ["anthropic", "any"])
+        answers["zai"] = (True, "answered")
+        answers["any"] = (None, "timed out")  # cannot tell: keeps its state
+        tm.refresh_health("anthropic", probe=probe)
+        self.assertEqual(tm.funded_families(), ["anthropic", "zai", "any"])
+
+    def test_due_after_the_window_or_a_passed_reset_and_never_under_the_switch(self):
+        now = 1_000_000.0
+        fresh = {"checked": now - 60, "down": {}}
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "1"}):
+            self.assertTrue(tm.health_due({"checked": None, "down": {}}, now=now))
+            self.assertFalse(tm.health_due(fresh, now=now))
+            self.assertTrue(tm.health_due({"checked": now - tm.HEALTH_EVERY, "down": {}},
+                                          now=now))
+            passed = {"checked": now - 60, "down": {"zai": {"until": now - 1}}}
+            self.assertTrue(tm.health_due(passed, now=now))
+        with mock.patch.dict(os.environ, {"TEZGAH_HEALTH_CHECK": "0"}):
+            self.assertFalse(tm.health_due({"checked": None, "down": {}}, now=now))
+
+    def test_an_exhausted_openrouter_key_is_down_without_a_model_call(self):
+        body = json.dumps({"data": {"limit": 30, "usage": 30.03,
+                                    "limit_remaining": -0.03}}).encode()
+        resp = mock.MagicMock()
+        resp.__enter__.return_value.read.return_value = body
+        with mock.patch.object(tm, "_openrouter_key", return_value="k"), \
+                mock.patch.object(tm.urllib.request, "urlopen", return_value=resp):
+            up, reason = tm.probe_family("any")
+        self.assertIs(up, False)
+        self.assertIn("exhausted", reason)
+
+
+
 class Refresh(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

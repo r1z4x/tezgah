@@ -2158,6 +2158,15 @@ def context_for(event, cwd, payload=None, with_core=True):
         pending = slice_lines(root)
         if pending:
             parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
+        # a long session outlives a provider's reset: the same due check as
+        # session start (one small JSON read), so a family rejoins omp's chain
+        # without waiting for the next session
+        try:
+            import tezgah_models
+            if tezgah_models.health_due():
+                tezgah_models.start_health()
+        except Exception:
+            pass
         stale = index_notice(cwd)
         if stale:
             parts.append(("index", stale))
@@ -2233,6 +2242,15 @@ def context_for(event, cwd, payload=None, with_core=True):
         if note:
             parts.append(("subagents",
                           "Subagents (this repo, generated): %s" % note))
+        # the provider health behind omp's subagent chains: re-probed in the
+        # background at most every few hours or once a recorded reset passes, so
+        # a family at its limit leaves the chain and rejoins it after the reset
+        try:
+            import tezgah_models
+            if tezgah_models.health_due():
+                tezgah_models.start_health()
+        except Exception:
+            pass
         # orchestrate-off says "do not delegate", so no line may name delegates
         steer = (None if off("orchestrate-off")
                  else steering(root, (payload or {}).get("host")))

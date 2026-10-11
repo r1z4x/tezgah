@@ -70,6 +70,22 @@ The orchestrator agent keeps `model: inherit`: it is the main thread's own agent
 
 omp's bundled agents are routed through the same record (omp's own docs: `omp://task-agent-discovery.md`, *Bundled agents*): `scout` on the explore slot, `sonic` on the cheap slot, `task` on the standard slot, and `reviewer`/`security-reviewer` left to inherit, because a review is frontier work. A user's own value for any of them wins (see the ownership rule above). Those two are the gap this leaves: the record carries no entry for them, so a session on a cheap model reviews on that model - routing them is one more `BUNDLED` entry, not decided here.
 
+A credential is not a balance, so the chain is live. A family whose provider
+answered a limit leaves every chain until its reset (`funded_families`,
+`hooks/tezgah_models.py::down_families`). The record is `model-health.json`
+in the cache dir. The reset comes from the provider's own answer. That is a
+named `reset at` time or a `retry-after-ms`, else six hours (`limit_until`).
+`tezgah-route --health` probes each other family with a credential. OpenRouter
+answers through its key endpoint, which costs no tokens. A family omp runs gets
+one short prompt on its cheap row (`probe_family`). The command then records the
+downs and re-applies omp's chain. Session start and each prompt start it in the
+background when it is due (`health_due`, `start_health`). It is due when it was
+never checked, when it is six hours old, or when a recorded reset has passed. The mode's own family is never
+probed, since it leads the chain anyway. `tezgah-route --fallback any` lets a
+chain fall back to another vendor's family, such as zai, once it is up.
+Measured 2026-10-11: zai answered `429 Weekly/Monthly Limit Exhausted. Your limit
+will reset at 2026-10-12 02:02:35`, so it stays out of the chain until then.
+
 ## What is not routed yet
 
 - **Claude Code's built-in subagents** (Explore, general-purpose, Plan) run on the session model. `CLAUDE_CODE_SUBAGENT_MODEL` and a settings `env` block exist but carry no effort, and whether a project agent with a built-in's name replaces it is not stated where it can be cited - so nothing is generated on a guess. What would close it: a documented per-agent effort for built-ins, or a confirmed name-collision rule.

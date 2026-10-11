@@ -232,18 +232,230 @@ def _omp_stored_providers():
     return {row[0] for row in rows}
 
 
-def funded_families():
+def funded_families(live=True):
     """The `OMP_FAMILIES` with a credential this machine shows: an omp auth-store
-    entry, an env key omp reads, or (for `any`) `openrouter_ready`.
+    entry, an env key omp reads, or (for `any`) `openrouter_ready` - minus, with
+    `live`, the families the health record holds as down (`down_families`).
 
     A credential is not a balance - a funded-looking key can still answer 402 -
-    which is why each agent gets a chain rather than one more pin. A family whose
-    credential cannot be detected is left out, never guessed in."""
+    which is why each agent gets a chain rather than one more pin, and why a
+    family whose provider answered a limit leaves the chain until its reset. A
+    family whose credential cannot be detected is left out, never guessed in."""
     stored = _omp_stored_providers()
+    down = down_families() if live else set()
     return [family for family in OMP_FAMILIES
-            if OMP_AUTH[family][0] in stored
-            or any(os.environ.get(env, "").strip() for env in OMP_AUTH[family][1])
-            or (family == "any" and openrouter_ready())]
+            if family not in down
+            and (OMP_AUTH[family][0] in stored
+                 or any(os.environ.get(env, "").strip() for env in OMP_AUTH[family][1])
+                 or (family == "any" and openrouter_ready()))]
+
+
+# ------------------------------------------------------------ provider health
+#
+# A family with a credential can still be spent: on 2026-10-11 every subagent
+# chain read `anthropic, openrouter`, one Anthropic 429 moved the subagents onto
+# an OpenRouter key past its limit (403), and they died; zai, funded in omp's
+# store, answered `429 Weekly/Monthly Limit Exhausted. Your limit will reset at
+# 2026-10-12 02:02:35`. The record below holds which family is down and until
+# when; `funded_families` leaves those out, and `tezgah-route --health` - started
+# in the background at session start when due - probes the non-mode families
+# and re-applies omp's chain, so a family rejoins it once its reset has passed.
+HEALTH_FILE = "model-health.json"
+HEALTH_EVERY = 6 * 3600       # re-probe at most this often, unless a reset passed
+HEALTH_DOWN = 6 * 3600        # how long a limit with no reset time keeps a family out
+HEALTH_DOWN_MAX = 7 * 86400   # the longest a named reset is believed
+OPENROUTER_KEY = "https://openrouter.ai/api/v1/key"
+_RESET_AT = re.compile(r"reset[s]? (?:at|on) (\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})")
+_RETRY_MS = re.compile(r"retry-after-ms=(\d+)")
+_LIMITED = re.compile(r"\b(?:429|402|403)\b|rate[ _-]?limit|quota|limit exhausted|"
+                      r"key limit exceeded|usage limit|insufficient (?:credit|balance)",
+                      re.I)
+
+
+def _health_path():
+    return os.path.join(tp.cache_dir(), HEALTH_FILE)
+
+
+def read_health():
+    """{"checked": epoch or None, "down": {family: {"until": epoch, "reason": str}}};
+    an unreadable record reads as empty - nothing known down."""
+    try:
+        with open(_health_path(), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    down = data.get("down") if isinstance(data.get("down"), dict) else {}
+    return {"checked": data.get("checked"), "down": down}
+
+
+def write_health(data):
+    """Write the record atomically; False when the cache dir cannot be written."""
+    path = _health_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = "%s.%d.tmp" % (path, os.getpid())
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=1, sort_keys=True)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def down_families(now=None, data=None):
+    """The families the record holds as down whose reset has not passed yet."""
+    import time
+    now = time.time() if now is None else now
+    data = read_health() if data is None else data
+    return {family for family, row in data["down"].items()
+            if isinstance(row, dict) and isinstance(row.get("until"), (int, float))
+            and row["until"] > now}
+
+
+def limit_until(text, now=None):
+    """When a provider's limit answer says it lifts, as an epoch, or None when the
+    text is no limit answer at all. A named reset (`reset at 2026-10-12 02:02:35`,
+    read as local time) or a `retry-after-ms` wins; else HEALTH_DOWN from now. A
+    reset further than HEALTH_DOWN_MAX away is capped: a wrong year must not lock a
+    family out for good."""
+    import time
+    now = time.time() if now is None else now
+    text = str(text or "")
+    if not _LIMITED.search(text):
+        return None
+    until = None
+    hit = _RESET_AT.search(text)
+    if hit:
+        try:
+            until = time.mktime(time.strptime("%s %s" % hit.groups(), "%Y-%m-%d %H:%M:%S"))
+        except (ValueError, OverflowError):
+            until = None
+    if until is None:
+        ms = _RETRY_MS.search(text)
+        until = now + int(ms.group(1)) / 1000.0 if ms else now + HEALTH_DOWN
+    return min(max(until, now + 60), now + HEALTH_DOWN_MAX)
+
+
+def _openrouter_key():
+    env, home = tp.PROVIDER_KEYS["openrouter"]
+    key = os.environ.get(env, "").strip()
+    if key:
+        return key
+    try:
+        with open(os.path.join(tp.HOME, home), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def probe_family(family, timeout=60):
+    """(up, reason) for one family: None for up when the probe could not tell.
+
+    `any` asks OpenRouter's key endpoint, which costs no tokens: a key whose
+    `limit_remaining` is 0 or less is down. A family omp runs is asked one short
+    prompt on that family's cheap row through `omp -p --no-session`; exit 0 is
+    up, a limit answer is down (its reset in `reason`), anything else is unknown."""
+    if family == "any":
+        key = _openrouter_key()
+        if not key:
+            return None, "no OpenRouter key"
+        req = urllib.request.Request(OPENROUTER_KEY,
+                                     headers={"Authorization": "Bearer " + key})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                info = (json.loads(resp.read().decode("utf-8")) or {}).get("data") or {}
+        except Exception as exc:  # noqa: BLE001 - any network failure is "cannot tell"
+            text = str(exc)
+            return (False, text) if _LIMITED.search(text) else (None, text)
+        left = info.get("limit_remaining")
+        if isinstance(left, (int, float)) and left <= 0:
+            return False, "OpenRouter key limit exhausted (limit %s, usage %s)" % (
+                info.get("limit"), info.get("usage"))
+        return True, "OpenRouter key has room"
+    exe = tp.omp_bin()
+    if not exe:
+        return None, "omp not found"
+    env = dict(os.environ, PI_CODING_AGENT_DIR=OMP_AGENT)
+    try:
+        proc = subprocess.run([exe, "-p", "--no-session", "--model", _selector(family, "cheap"),
+                               "--max-time=%d" % timeout, "Reply with exactly: OK"],
+                              capture_output=True, text=True, timeout=timeout + 15,
+                              env=env, cwd=tp.HOME)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, str(exc)
+    text = (proc.stdout or "") + (proc.stderr or "")
+    if proc.returncode == 0:
+        return True, "answered"
+    tail = " ".join(text.split())[-200:]
+    return (False, tail) if _LIMITED.search(text) else (None, tail)
+
+
+def refresh_health(mode=None, probe=probe_family, now=None):
+    """Probe every family with a credential except the mode's own (it leads the
+    chain whatever its state, and the session is running on it), record the
+    downs with their resets, and return the record. A family the probe cannot
+    judge keeps the state it had."""
+    import time
+    now = time.time() if now is None else now
+    mode = mode or omp_mode()
+    data = read_health()
+    down = dict(data["down"])
+    for family in funded_families(live=False):
+        if family == mode:
+            continue
+        up, reason = probe(family)
+        if up is True:
+            down.pop(family, None)
+        elif up is False:
+            down[family] = {"until": limit_until(reason, now) or now + HEALTH_DOWN,
+                            "reason": reason[:200]}
+    data = {"checked": now, "down": {f: r for f, r in down.items()
+                                     if isinstance(r, dict) and r.get("until", 0) > now}}
+    write_health(data)
+    return data
+
+
+def health_due(data=None, now=None):
+    """True when the record was never checked, is older than HEALTH_EVERY, or
+    holds a down family whose reset has passed since it was checked. Never with
+    TEZGAH_HEALTH_CHECK=0 (the test suite's switch, like TEZGAH_UPDATE_CHECK)."""
+    import time
+    if os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
+        return False
+    now = time.time() if now is None else now
+    data = read_health() if data is None else data
+    checked = data.get("checked")
+    if not isinstance(checked, (int, float)) or now - checked >= HEALTH_EVERY:
+        return True
+    return any(isinstance(row, dict) and checked < row.get("until", 0) <= now
+               for row in data["down"].values())
+
+
+def start_health():
+    """Stamp the record, then start one detached `tezgah-route --health`, so the
+    session starts that follow read a fresh stamp and start nothing. False when
+    nothing started."""
+    import sys
+    import time
+    data = read_health()
+    data["checked"] = time.time()
+    if not write_health(data):
+        return False
+    route = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
+                         "bin", "tezgah-route")
+    kwargs = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL, "close_fds": True}
+    if os.name == "posix":
+        kwargs["start_new_session"] = True
+    else:  # pragma: no cover - Windows: no console, outlives its parent
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+    try:
+        subprocess.Popen([sys.executable, route, "--health"], **kwargs)
+        return True
+    except OSError:
+        return False
 
 
 def omp_mode(default_selector=None):

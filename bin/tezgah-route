@@ -6,6 +6,11 @@
   tezgah-route --refresh                        re-read prices/ids (OpenRouter),
                                                 resolve opencode selectors
   tezgah-route --mode auto|anthropic|any        omp's family, then re-apply omp
+  tezgah-route --health                         probe the other funded families;
+                                                one at a limit leaves the chain
+                                                until its reset; re-apply omp
+  tezgah-route --fallback vendor|any|none       what a chain falls back to, then
+                                                re-apply omp
   tezgah-route --report                         each route's first check, by tier
 
 A brief naming stored data, a migration, credentials, the gate or security goes to
@@ -39,12 +44,14 @@ import argparse
 import json
 import os
 import sys
+import time
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_judge  # noqa: E402
 import tezgah_models as tm  # noqa: E402
+import tezgah_paths as tp  # noqa: E402
 
 
 def main(argv):
@@ -62,6 +69,12 @@ def main(argv):
     parser.add_argument("--refresh", action="store_true",
                         help="re-read prices and ids, resolve opencode selectors")
     parser.add_argument("--mode", choices=tm.MODES, help="omp's family, then re-apply")
+    parser.add_argument("--health", action="store_true",
+                        help="probe the other funded families, record the ones at a "
+                             "limit until their reset, then re-apply omp's chain")
+    parser.add_argument("--fallback", choices=tp.FALLBACKS,
+                        help="which families a chain falls back to (config.json "
+                             "`fallback`), then re-apply")
     parser.add_argument("--report", action="store_true",
                         help="every ledger's routes joined to the first check after each")
     args = parser.parse_args(argv[1:])
@@ -89,6 +102,40 @@ def main(argv):
             print(line("%s %s" % (via, tier), counts))
         print(line("jev-below-static", below))
         return 0
+    if args.fallback:
+        # config.json `fallback` has one other writer: none. A config that does not
+        # parse is refused, not replaced (like tezgah-setup --jev).
+        try:
+            with open(tp.CONFIG, encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        except FileNotFoundError:
+            cfg = {}
+        except (OSError, ValueError):
+            print("%s is not valid JSON; fallback not set" % tp.CONFIG, file=sys.stderr)
+            return 1
+        if cfg.get("fallback") != args.fallback:
+            cfg["fallback"] = args.fallback
+            os.makedirs(os.path.dirname(tp.CONFIG), exist_ok=True)
+            tmp = tp.CONFIG + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+            os.replace(tmp, tp.CONFIG)
+        print("fallback: %s (%s)" % (args.fallback, tp.CONFIG))
+        print(tm.apply_omp() or "omp not answering; the chain applies at the next setup")
+        return 0
+    if args.health:
+        mode = tm.omp_mode()
+        data = tm.refresh_health(mode)
+        for family in tm.funded_families(live=False):
+            row = data["down"].get(family)
+            state = ("the mode's own family, not probed" if family == mode else
+                     "down until %s - %s" % (time.strftime("%Y-%m-%d %H:%M",
+                                                         time.localtime(row["until"])),
+                                             row.get("reason", "")) if row else "up")
+            print("%s: %s" % (family, state))
+        print(tm.apply_omp() or "omp not answering; the chain applies at the next setup")
+        return 0
     if args.mode:
         data = tm.overlay()
         data.pop("mode", None)
@@ -102,7 +149,7 @@ def main(argv):
         return 0
     if not brief:
         print("usage: tezgah-route \"<brief>\" [--phase P] [--json] | --check | --refresh "
-              "| --mode M | --report", file=sys.stderr)
+              "| --mode M | --health | --fallback F | --report", file=sys.stderr)
         return 2
     ask = tezgah_judge.ask if tezgah_judge.available() else None
     out = tm.route(brief, args.phase, ask)
