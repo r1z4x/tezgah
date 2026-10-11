@@ -647,5 +647,49 @@ class Pure(unittest.TestCase):
         self.assertEqual(json.loads(proc.stdout), here)
 
 
+class ResidualTurns(TempHome):
+    """`residual_turns`: residual sections per top-level user turn, read with
+    the Stop rule's own detector, inside `(since, cutoff]`."""
+
+    def setUp(self):
+        super().setUp()
+        repo = self.make_repo("app")
+        left = "Bitti.\n\n**Açık kalanlar:**\n- README"
+        user = lambda text: {"type": "message", "message": {"role": "user", "content": text}}  # noqa: E731
+        text = lambda ts, body: assistant(ts, {"type": "text", "text": body})  # noqa: E731
+        edit = {"path": os.path.join(repo, "a.py"), "content": "x = 1\n", "i": "Writing"}
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions", "-app-")
+        jsonl(os.path.join(sessions, "s.jsonl"), [
+            {"type": "title"}, {"type": "session", "id": SID, "cwd": repo},
+            user("fix a.py"), assistant(T0 + 9, call("write", edit)), text(T0 + 10, left),
+            user("which one"), text(T0 + 20, "Hangisini seçelim?"),
+            user("run the tests"),
+            assistant(T0 + 25, call("bash", {"command": "python3 -m unittest", "i": "T"})),
+            user("<system-reminder>a harness prompt does not start a turn"),
+            text(T0 + 30, "Testler geçti."),
+            user("one more"), assistant(CUTOFF + 40, call("write", edit)),
+            text(CUTOFF + 50, left)])
+        # a subagent's reply is not user-facing: never counted
+        jsonl(os.path.join(sessions, "s", "worker.jsonl"), [
+            {"type": "title"}, {"type": "session", "id": CHILD, "cwd": repo},
+            user("work"), assistant(T0 + 11, call("write", edit)), text(T0 + 12, left)])
+
+    def run_at(self, cutoff=CUTOFF, since=None):
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"HOME": self.home}):
+            return tr.residual_turns(cutoff, since)
+
+    def test_counts_every_field_inside_the_window(self):
+        self.assertEqual(self.run_at(), {
+            "turns": 3, "work_turns": 2, "residual_turns": 1, "residual_work_turns": 1,
+            "sections": 1, "unblocked_work_turns": 1, "question_endings": 1,
+            "per_turn": 0.333})
+        self.assertEqual(self.run_at(since=T0 + 15), {
+            "turns": 2, "work_turns": 1, "residual_turns": 0, "residual_work_turns": 0,
+            "sections": 0, "unblocked_work_turns": 0, "question_endings": 1,
+            "per_turn": 0.0})
+        self.assertIsNone(self.run_at(cutoff=T0)["per_turn"], "no turn in the window")
+
+
 if __name__ == "__main__":
     unittest.main()

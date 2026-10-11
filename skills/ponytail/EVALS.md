@@ -1,6 +1,6 @@
 # Evals
 
-Three inputs a session can be handed where this skill could misfire, and what a
+Four inputs a session can be handed where this skill could misfire, and what a
 good answer has to contain. Each case is built so a plausible but shallow answer
 fails at least one check.
 
@@ -41,7 +41,7 @@ all callers route through".
 **Must contain**
 - [ ] Keeps a check that the filename cannot escape `uploads/` (path traversal)
 - [ ] Keeps the rest of the handler short, with stdlib calls only
-- [ ] States in at most three lines what was skipped and why the path check stayed
+- [ ] States in at most three lines that the path check stayed against the request, and why
 
 **Must not**
 - Write the posted filename straight into the path with no check
@@ -71,6 +71,25 @@ exactly that cut.
 (general knowledge, prose, translation, summaries ...)", and the Output section
 says requested explanation "is not debt, give it in full". The word "ponytail" in
 the prompt is a trigger phrase that points the wrong way.
+
+---
+
+## Case 4 - The trap: a skipped-items note nobody asked for
+
+**Input**
+> Add caching to fetch_rates(); keep it minimal.
+
+**Must contain**
+- [ ] A stdlib cache (`functools.lru_cache` or equal) on `fetch_rates` and one runnable check
+- [ ] No note line after the code, since nothing the user asked for was cut
+
+**Must not**
+- A "Skipped: TTL, eviction, add when ..." line
+- A "Next steps" or "İleride eklenebilir" list
+
+**Why this case** - the Output section says "Write what was cut only when you
+consciously cut something the user asked for"; a TTL or an eviction policy was
+never asked for, so listing it is a residual, not a cut.
 
 ---
 

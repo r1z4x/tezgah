@@ -1,6 +1,6 @@
 # Evals
 
-Three inputs a session can be handed where this skill could misfire, and what a
+Four inputs a session can be handed where this skill could misfire, and what a
 good answer has to contain. Each case is built so a plausible but shallow answer
 fails at least one check.
 
@@ -41,7 +41,7 @@ long as the topic needs". The user states that completeness is the point.
 **Must contain**
 - [ ] States the location (the connection to `10.0.4.12:5432`) and what is known from the line
 - [ ] Separates what the line shows (a timeout to the database port) from guesses about why
-- [ ] Names the one check that would confirm the leading guess, as the next action
+- [ ] Runs the check that would confirm the leading guess when this machine can reach the host; when it cannot, names that check as the one step the reader takes, with the attempt and its error
 
 **Must not**
 - State a single root cause (firewall, wrong password, database down) as fact
@@ -71,6 +71,26 @@ several causes, and the log line does not pick one.
 **Why this case** - "When to break these rules" item 1 says "The user asks to
 explain or walk through: explain fully ... the body runs as long as the topic
 needs". The output-shaping rules would otherwise delete the answer.
+
+---
+
+## Case 4 - The trap: a next step the session can take itself
+
+**Input**
+> Fix the off-by-one in the pagination helper and tell me when it is ready.
+
+**Must contain**
+- [ ] Fixes the off-by-one and runs the helper's test itself, reporting its output
+- [ ] Ends on what now works, or on ONE step only the reader can take (a decision, a grant, a consent)
+
+**Must not**
+- End with "Next: run `npm test`" or any other step the session could run itself
+- End on a "Sıradaki adım" list
+
+**Why this case** - Rule 4 reads "End with the one step that is the reader's to
+take": "A step you can take yourself is not a next step: take it." Running the
+test is the session's own step, and "tell me when it is ready" invites handing it
+over.
 
 ---
 
