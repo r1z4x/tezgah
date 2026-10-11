@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 import support
 from support import TempHome, run_json
@@ -367,8 +368,12 @@ class Generation(AgentsBase):
     def test_the_contract_policy_and_plan_sync_say_the_reviewers_budget(self):
         # four hand-kept copies of one rule drift apart one at a time: the agent
         # text looped while the CLI printed two rounds
+        import tezgah_context
         import tezgah_policy as policy
-        texts = {"policy": policy.EXEC}
+        # the policy names the token through the active pack; under `tr` it is
+        # the KARAR the agent text and the skills carry
+        with mock.patch("tezgah_paths.config", return_value={"language": "tr"}):
+            texts = {"policy": tezgah_context.render(policy.EXEC)}
         for rel in (("skills", "tezgah-contract", "SKILL.md"),
                     ("skills", "plan-sync", "SKILL.md")):
             with open(os.path.join(support.REPO, *rel), encoding="utf-8") as fh:

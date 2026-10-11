@@ -585,9 +585,9 @@ left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
-round, or recorded fix-later only when it waits on a user decision (DECISION);
+round, or recorded fix-later only when it waits on a user decision (KARAR);
 after round two what is left is fixed by the session and closed with
-`--resolved`, or recorded fix-later only with DECISION, never a third round.
+`--resolved`, or recorded fix-later only with KARAR, never a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -623,7 +623,7 @@ a fixture. There round one becomes a population:
    for a confirmed critical or major claim carries its failing-first test, and
    round two reads that fix's delta, the round-one hunks and the direct callers
    of what it touches. After round two what is left is fixed by the session and
-   closed with `--resolved`, or recorded fix-later only with DECISION, never a
+   closed with `--resolved`, or recorded fix-later only with KARAR, never a
    third round.
 
 Status: a tentative default, measured on two changes. E1

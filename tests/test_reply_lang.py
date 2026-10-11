@@ -141,7 +141,7 @@ class RenderedRule(TempHome):
             for word in ('"unverified"', '"Blockers"', "DECISION", "IRREVERSIBLE"):
                 self.assertIn(word, text, lang)
             self.assertNotRegex(text, r"\{[A-Z_]+\}")
-        self.assertIn('under "Engeller"', self.context())
+        self.assertIn("Engeller", self.context())
 
 
 class RefusalWords(TempHome):

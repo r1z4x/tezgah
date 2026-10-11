@@ -1422,7 +1422,8 @@ class CodexGlobalRules(SetupBase):
         text = self.read_text(rules)
         self.assertIn("keep this line", text)
         self.assertIn("<!-- tezgah:start", text)
-        self.assertIn("**Turkish, BLUF.**", text)
+        # the first label names the language the install took from LANG (C: en)
+        self.assertIn("**English, BLUF.**", text)
         # a second install replaces the block rather than stacking another
         self.setup("--install", "--hosts", "codex")
         self.assertEqual(self.read_text(rules).count("<!-- tezgah:start"), 1)
@@ -1463,7 +1464,7 @@ class ClaudeGlobalRules(SetupBase):
         first = self.read_text(self.rules())
         self.assertIn("keep this line", first)
         self.assertIn("<!-- tezgah:start", first)
-        self.assertIn("**Turkish, BLUF.**", first)
+        self.assertIn("**English, BLUF.**", first)
         # a second install replaces the block rather than stacking another, and
         # leaves the file byte-identical
         self.assertEqual(self.setup("--install", "--hosts", "claude").returncode, 0)
