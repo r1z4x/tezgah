@@ -3516,16 +3516,41 @@ class ResidualWork(unittest.TestCase):
                 "- Error: browserType.launch: Executable doesn't exist\n```")
         self.assertEqual(self.left(text, [self.EDIT, failed]), [])
 
-    def test_an_item_quoting_a_command_that_failed_in_the_turn_is_accounted_for(self):
-        # exits C1: the admission written as a section, quoting the failed check,
-        # is the evidence the request asks for
+    def test_an_item_needs_both_its_type_and_the_failed_command(self):
+        # exits C1, then the owner's call: the type and its evidence together -
+        # a quote of the failed check with no YETKİ/ORTAM is no blocker, and
+        # neither is the type with no quote
         fail = {"kind": "verify_fail", "id": "c2", "exit": 1,
                 "detail": "pytest tests/test_a.py " + ti.FAILED_MARK}
         for text in ("Doğrulanmadı:\n- `pytest tests/test_a.py` 2 hata: AssertionError at test_a.py:41",
                      "**Doğrulanmadı:** `pytest tests/test_a.py` AssertionError at test_a.py:41",
-                     "Not verified: `pytest tests/test_a.py` fails at test_a.py:41"):
+                     "Not verified: `pytest tests/test_a.py` fails at test_a.py:41",
+                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM: testler koşmadı, pytest kurulu değil"):
+            with self.subTest(text=text):
+                self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
+        for text in ("Doğrulanmadı:\n- ORTAM: `pytest tests/test_a.py` ModuleNotFoundError: yaml",
+                     "Doğrulanmadı.\n\n**Engeller:** YETKİ — `pytest tests/test_a.py` 401 — token gerekli",
+                     "Not verified (ENV): `pytest tests/test_a.py` no module named yaml"):
             with self.subTest(text=text):
                 self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
+        # a negated type is none; "yok"/"not" after YETKİ or ORTAM describe it
+        for text in ("Doğrulanmadı:\n- `pytest tests/test_a.py` düşüyor (ORTAM değil)",
+                     "Doğrulanmadı:\n- ORTAM gerekmiyor: `pytest tests/test_a.py` AssertionError",
+                     "Doğrulanmadı:\n- YETKİ istemiyor: `pytest tests/test_a.py` AssertionError"):
+            with self.subTest(text=text):
+                self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
+        for text in ("Doğrulanmadı.\n\nEngeller:\n- YETKİ yok: `pytest tests/test_a.py` HTTP 403",
+                     "Doğrulanmadı.\n\nEngeller:\n- ORTAM yok — `pytest tests/test_a.py` no yaml",
+                     "Not verified.\n\nBlockers:\n- ENV not set: `pytest tests/test_a.py` no DB_URL",
+                     "Not verified.\n\nBlockers:\n- ACCESS not granted: `pytest tests/test_a.py` 401",
+                     "Not verified.\n\nBlockers:\n- ENVIRONMENTS: `pytest tests/test_a.py` no yaml"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.verdict(text, [self.EDIT, fail]))
+        # an English word that merely opens on a stem is no type
+        for text in ("Doğrulanmadı:\n- ACCESSIBILITY: `pytest tests/test_a.py` 3 violations",
+                     "Doğrulanmadı:\n- ENVELOPE şeması: `pytest tests/test_a.py` AssertionError"):
+            with self.subTest(text=text):
+                self.assertEqual(self.verdict(text, [self.EDIT, fail]), "residual work")
 
     def test_a_quote_names_the_failed_command_not_a_fragment_of_it(self):
         # blockers D2-F2, D2-F3
@@ -3604,8 +3629,11 @@ class ResidualWork(unittest.TestCase):
         e2e = {"kind": "verify_fail", "exit": 1,
                "detail": "npx playwright test " + ti.FAILED_MARK}
         self.assertIsNone(self.verdict(
-            "Butonu değiştirdim. Doğrulanmadı: `npx playwright test` Executable doesnt exist.",
+            "Butonu değiştirdim.\n\nDoğrulanmadı: ORTAM — `npx playwright test` Executable doesnt exist.",
             [ui, e2e]))
+        self.assertEqual(self.verdict(
+            "Butonu değiştirdim.\n\nDoğrulanmadı: `npx playwright test` Executable doesnt exist.",
+            [ui, e2e]), "residual work")
         # a failed unit check is still no attempt at the screen
         self.assertEqual(self.verdict("Butonu değiştirdim, doğrulanmadı.",
                                       [ui, self.FAIL]), "no ui_ok")
@@ -3614,7 +3642,8 @@ class ResidualWork(unittest.TestCase):
         design = {"kind": "verify_fail", "exit": 1,
                   "detail": "tezgah-design check --contract c.md " + ti.FAILED_MARK}
         self.assertIsNone(self.verdict(
-            "Butonu değiştirdim. Doğrulanmadı: `tezgah-design check` 2 ihlal.", [ui, seen, design]))
+            "Butonu değiştirdim; `tezgah-design check` 2 ihlal verdi, doğrulanmadı.",
+            [ui, seen, design]))
         self.assertEqual(self.verdict("Butonu değiştirdim, doğrulanmadı.",
                                       [ui, seen, self.FAIL]), "no ui_ok")
 
