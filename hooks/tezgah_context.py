@@ -1649,7 +1649,8 @@ SCRATCH_CHARS = 120
 # while the tool hooks never run - an unloaded plugin, a matcher the host
 # renamed, a hook path that moved. The gate is then off and nothing says so.
 # What the prompt hook can observe is the host's own transcript (Claude and
-# Codex hand `transcript_path` to every hook) and this session's ledger: gated
+# Codex hand `transcript_path` to every hook, omp's bridge hands its session
+# file to the prompt hook) and this session's ledger: gated
 # tool calls in the transcript since the session's first turn marker, and not
 # one row from the gate over the same span, is a gate that is not running. Only
 # a bounded tail of the transcript is read, the ledger is scanned as bytes, and
@@ -1658,7 +1659,8 @@ GATE_TAIL = 262144
 GATE_MIN_CALLS = 3
 # The tool names whose every call leaves a PreToolUse row (`began`,
 # tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
-# Claude's write and shell tools and Codex's `exec_command`/`apply_patch`. A
+# Claude's write and shell tools, omp's `bash`/`edit`/`write` and Codex's
+# `exec_command`/`apply_patch`. A
 # tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
 # call) is not counted, so its absence from the ledger is never read as a
 # disarmed gate.
@@ -1698,11 +1700,13 @@ def _tail_lines(path):
 def _transcript_calls(path, since):
     """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
     after `since` (epoch seconds). Claude writes `{"timestamp", "message":
-    {"content": [{"type": "tool_use", "name"}]}}`, Codex `{"timestamp",
-    "payload": {"type": "function_call", "name"}}`; anything else counts 0."""
+    {"content": [{"type": "tool_use", "name"}]}}`, omp the same with
+    `"toolCall"` blocks, Codex `{"timestamp", "payload": {"type":
+    "function_call", "name"}}`. Anything else counts 0."""
     calls = 0
     for raw in _tail_lines(path):
-        if b"tool_use" not in raw and b"function_call" not in raw:
+        if (b"tool_use" not in raw and b"toolCall" not in raw
+                and b"function_call" not in raw):
             continue
         try:
             row = json.loads(raw)
@@ -1715,7 +1719,7 @@ def _transcript_calls(path, since):
         msg = row.get("message")
         if isinstance(msg, dict) and isinstance(msg.get("content"), list):
             names = [b.get("name") for b in msg["content"]
-                     if isinstance(b, dict) and b.get("type") == "tool_use"]
+                     if isinstance(b, dict) and b.get("type") in ("tool_use", "toolCall")]
         pay = row.get("payload")
         if isinstance(pay, dict) and pay.get("type") == "function_call":
             names.append(pay.get("name"))
@@ -1729,16 +1733,22 @@ INPUT_KEYS = ("input_tokens", "cache_creation_input_tokens",
               "cache_read_input_tokens", "input", "cacheRead", "cacheWrite")
 CONTEXT_NUDGE = (
     "Router context %dk tokens: push heavy reads and check output through a "
-    "slice that returns the exit code and the failing lines, and keep this "
-    "thread for decisions.")
+    "slice that returns the exit code and the failing lines. Hand the open "
+    "work to a slice or run `/compact` before the next heavy step.")
+# The row a compaction leaves: omp's `{"type": "compaction"}`, Claude's
+# `compact_boundary` system row. A step before it measured the old context.
+COMPACTED = re.compile(rb'"(?:type"\s*:\s*"compaction|subtype"\s*:\s*"compact_boundary)"')
 
 
 def context_tokens(path):
     """Input-side tokens of the newest main-thread assistant step in the
     transcript tail, or None. Claude and omp put `usage` on the assistant
     message (a Claude `isSidechain` row is a subagent's), Codex on a
-    `token_count` event's `last_token_usage`."""
+    `token_count` event's `last_token_usage`. A compaction row met first means
+    no step since the compaction, so None."""
     for raw in reversed(_tail_lines(path)):
+        if COMPACTED.search(raw):
+            return None
         if b"usage" not in raw:
             continue
         try:
@@ -1760,15 +1770,22 @@ def context_tokens(path):
     return None
 
 
-def context_nudge(payload):
-    """The one line asking the router to delegate heavy reading, or "" below
+def context_nudge(payload, session_id):
+    """The one line asking the router to delegate heavy reading, once per
+    session until a compaction clears the `nudged` mark. "" below
     CONTEXT_NUDGE_TOKENS, without a transcript, or under `orchestrate-off`."""
     path = payload.get("transcript_path") if isinstance(payload, dict) else None
-    if not path or off("orchestrate-off"):
+    key = "context:" + slug(str(session_id))
+    if not path or off("orchestrate-off") or tezgah_store.marked("nudged", key):
         return ""
     tokens = context_tokens(path)
-    return CONTEXT_NUDGE % (tokens // 1000) if (
-        tokens or 0) >= CONTEXT_NUDGE_TOKENS else ""
+    if (tokens or 0) < CONTEXT_NUDGE_TOKENS:
+        return ""
+    try:
+        tezgah_store.mark("nudged", key)
+    except tezgah_store.ERRORS:
+        pass  # fail open: an unwritable store shows the line again
+    return CONTEXT_NUDGE % (tokens // 1000)
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
@@ -2086,6 +2103,8 @@ def context_for(event, cwd, payload=None, with_core=True):
     if event == "post_compact" or (event == "session_start" and isinstance(
             payload, dict) and payload.get("source") == "compact"):
         forget_seen(session_of(payload))
+        # the context line may fire again on the compacted context
+        tezgah_store.drop("nudged", "context:" + slug(str(session_of(payload))))
     # The switch latch: every off() below answers for this session, and a
     # prompt's turn marker (with its `authorized` row) is written first, so a
     # switch the user's prompt names is honored from this very turn.
@@ -2219,7 +2238,7 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
         # The router's own context: above the threshold, one line asks it to
         # push heavy reading through a slice (orchestrator-flow-audit S2 F1).
-        heavy = context_nudge(payload)
+        heavy = context_nudge(payload, session_id)
         if heavy:
             parts.append(("context", heavy))
         # a long session outlives a provider's reset: the same due check as

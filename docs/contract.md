@@ -306,6 +306,16 @@ telling the model to load `tezgah-contract` for the deep detail
 (`hooks/tezgah_context.py::context_for`), whose two appendixes apply only on a machine
 missing the code graph or every consult option (`hooks/tezgah_policy.py::NO_GRAPH`, `hooks/tezgah_policy.py::NO_CONSULT`).
 
+The router's own context gets one line too (`hooks/tezgah_context.py::context_nudge`).
+The prompt hook reads the newest main-thread step's input-side tokens from the
+host transcript (`hooks/tezgah_context.py::context_tokens`). Claude and Codex
+hand that path to every hook. omp's bridge hands over its session file. The
+threshold is `CONTEXT_NUDGE_TOKENS` (`hooks/tezgah_paths.py::CONTEXT_NUDGE_TOKENS`),
+700 k, just under the measured p90 of 724 k. Above it, the line asks the router
+to push heavy reads through a slice, or to run `/compact`. It fires once per session. A
+compaction clears the `nudged` mark, and `orchestrate-off` silences it. A host
+with no transcript pays nothing.
+
 ## How a rule is disarmed
 
 A kill switch removes the rule's text, not just a status mark

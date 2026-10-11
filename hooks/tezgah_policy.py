@@ -300,6 +300,9 @@ The main thread is the ROUTER and it is the only thing that DECIDES. It keeps
 decomposition, decisions, verification and user reporting; it delegates
 execution. It never delegates a judgement call and never adopts a delegate's
 conclusion without checking it against something observed.
+Verification does not mean reading every log in the router: heavy check output
+(a suite run, a long diff, a transcript dump) goes through a reader slice, and
+the router reads the exit code plus the failing lines it returns.
 
 ### Tier 1 - host subagents
 For work needing tools, repo-wide judgement or adversarial reading: code
