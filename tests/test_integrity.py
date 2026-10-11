@@ -5267,5 +5267,174 @@ class OrphanPass(unittest.TestCase):
         self.assertEqual(ti._last_verify(ti.events("s", tail=5)), "ran")
 
 
+class SliceJournalWiring(unittest.TestCase):
+    """Plan 081: note_tool hands every spawn call to the slice journal with the
+    host and the outcome only a synchronous host knows, an omp background bash
+    opens a `job` record, and the Stop rule refuses a turn once while a slice
+    this session spawned sits stopped. The journal itself (tezgah_task) is
+    stubbed: these tests pin the wiring, not the records."""
+
+    PLAN = "Parser modülü tokenizer'ı çağırıyor."
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.addCleanup(setattr, ti, "_path", ti._path)
+        ti._path = lambda session: os.path.join(self.dir, "evidence", "s.jsonl")
+        self.repo = os.path.join(self.dir, "repo")
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.journal = mock.Mock(spec=["note_spawn", "open_slice", "pending"])
+        self.journal.pending.return_value = []
+        patch = mock.patch.object(ti, "_journal", return_value=self.journal)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def spawn_call(self):
+        self.assertEqual(self.journal.note_spawn.call_count, 1)
+        return self.journal.note_spawn.call_args
+
+    def test_an_omp_task_is_journalled_open_for_reconcile(self):
+        inp = {"tasks": [{"name": "W1", "agent": "task", "task": "do x"}],
+               "context": "goal"}
+        ti.note_tool("s", "task", inp, failed=False, cwd=self.repo, host="omp")
+        call = self.spawn_call()
+        self.assertEqual(call.args, (self.repo, "s", "omp", "task", inp))
+        # omp's task returns while its children may still run
+        self.assertEqual(call.kwargs, {"failed": None, "result_text": ""})
+        self.assertEqual(ti.events("s")[-1]["tool"], "task")
+
+    def test_a_synchronous_host_passes_the_outcome_and_the_error(self):
+        inp = {"description": "d", "prompt": "p", "subagent_type": "general"}
+        ti.note_tool("s", "Agent", inp, failed=True, error="429 rate_limit_error",
+                     cwd=self.repo, host="claude")
+        self.assertEqual(self.spawn_call().kwargs,
+                         {"failed": True, "result_text": "429 rate_limit_error"})
+        self.journal.reset_mock()
+        ti.note_tool("s", "Task", inp, failed=False, cwd=self.repo, host="cursor")
+        self.assertEqual(self.spawn_call().kwargs, {"failed": False, "result_text": ""})
+        self.journal.reset_mock()
+        # an interruption is a stopped slice, classed by the journal as aborted
+        ti.note_tool("s", "Agent", inp, failed=None, interrupted=True,
+                     cwd=self.repo, host="claude")
+        self.assertEqual(self.spawn_call().kwargs,
+                         {"failed": True, "result_text": "aborted"})
+        self.journal.reset_mock()
+        # dsh reports no outcome: the call returned, so the record closes done
+        ti.note_tool("s", "Agent", inp, failed=None, cwd=self.repo, host="dsh")
+        self.assertEqual(self.spawn_call().kwargs, {"failed": False, "result_text": ""})
+        self.journal.reset_mock()
+        # a Claude call sent to the background returns before its child ends
+        ti.note_tool("s", "Agent", dict(inp, run_in_background=True), failed=False,
+                     cwd=self.repo, host="claude")
+        self.assertIsNone(self.spawn_call().kwargs["failed"])
+
+    def test_codex_spawn_agent_is_parsed_by_its_own_name(self):
+        # the Codex hook maps spawn_agent onto Task before note_tool sees it
+        inp = {"message": "fix it", "agent_type": "worker"}
+        ti.note_tool("s", "Task", inp, failed=None, cwd=self.repo, host="codex")
+        call = self.spawn_call()
+        self.assertEqual(call.args[2:4], ("codex", "spawn_agent"))
+        self.assertIs(call.kwargs["failed"], False)
+
+    def test_the_host_is_read_off_the_hook_process_when_not_given(self):
+        inp = {"description": "d", "prompt": "p"}
+        with mock.patch("tezgah_guard._host", return_value="claude/dsh"), \
+                mock.patch.dict(os.environ, {"TEZGAH_CALL_OUTCOME": "none"}):
+            ti.note_tool("s", "Agent", inp, failed=None, cwd=self.repo)
+        self.assertEqual(self.spawn_call().args[2], "dsh")
+        self.journal.reset_mock()
+        with mock.patch("tezgah_guard._host", return_value="omp"):
+            ti.note_tool("s", "task", inp, failed=False, cwd=self.repo)
+        self.assertEqual(self.spawn_call().args[2], "omp")
+
+    def test_a_broken_journal_never_costs_the_row(self):
+        self.journal.note_spawn.side_effect = RuntimeError("boom")
+        ti.note_tool("s", "task", {"tasks": []}, failed=False, cwd=self.repo, host="omp")
+        self.assertEqual(ti.events("s")[-1]["tool"], "task")
+        # no cwd, no repository to journal in
+        self.journal.reset_mock()
+        ti.note_tool("s", "task", {"tasks": []}, failed=False, host="omp")
+        self.journal.note_spawn.assert_not_called()
+
+    def test_an_omp_background_bash_opens_a_job_record(self):
+        cmd = "python3 tests/impacted.py --all > /tmp/all.log 2>&1"
+        ti.note_tool("s", "bash", {"command": cmd, "async": True}, failed=None,
+                     cwd=self.repo, host="omp")
+        self.journal.open_slice.assert_called_once_with(
+            os.path.realpath(self.repo),
+            "job-" + hashlib.sha1(cmd.encode()).hexdigest()[:10],
+            kind="job", host="omp", brief=cmd, parent="s", cwd=self.repo)
+        self.journal.reset_mock()
+        # a foreground call, another host's bash, and the kill switch open none
+        ti.note_tool("s", "bash", {"command": cmd}, failed=False, cwd=self.repo,
+                     host="omp")
+        ti.note_tool("s", "bash", {"command": cmd, "async": True}, failed=None,
+                     cwd=self.repo, host="claude")
+        with mock.patch.object(ti, "off", side_effect=lambda n: n == "slices-off"):
+            ti.note_tool("s", "bash", {"command": cmd, "async": True}, failed=None,
+                         cwd=self.repo, host="omp")
+        self.journal.open_slice.assert_not_called()
+
+    def stopped(self, parent="s"):
+        self.journal.pending.return_value = [
+            {"id": "done-one", "status": "open", "parent": "s", "failure": ""},
+            {"id": "W1", "status": "stopped", "parent": parent, "failure": "quota"}]
+
+    def test_a_stopped_slice_of_this_session_refuses_the_turn_once(self):
+        self.stopped()
+        cls, reason = ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo)
+        self.assertEqual(cls, "stopped slice")
+        self.assertIn("W1", reason)
+        self.assertIn("(quota)", reason)
+        self.assertIn("`tezgah-task slice resume W1`", reason)
+        self.assertIn("`tezgah-task slice done W1`", reason)
+        self.journal.pending.assert_called_with(os.path.realpath(self.repo))
+        # the temporal spec shares the selector, so it agrees under the strict switch
+        with mock.patch.dict(os.environ, {"TEZGAH_STOPSPEC_STRICT": "1"}):
+            self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo)[0],
+                             "stopped slice")
+        # through stop_reason: a refusal row, then the reply after it is record-only
+        self.assertEqual(ti.stop_reason(self.PLAN, "s", cwd=self.repo), reason)
+        self.assertEqual([r["detail"] for r in ti.events("s") if r["kind"] == "refusal"],
+                         ["blocked: stopped slice"])
+        self.assertIsNone(ti.stop_reason(self.PLAN, "s", cwd=self.repo, record_only=True))
+        self.assertEqual([r["detail"] for r in ti.events("s")
+                          if r["kind"] == "after_block"], ["would block: stopped slice"])
+        self.assertIn("stopped slice", ti.LIST_BLOCKS)
+
+    def test_another_sessions_slice_the_switch_and_a_subagent_end_pass(self):
+        self.stopped(parent="other")
+        self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo),
+                         (None, None))
+        self.stopped()
+        with mock.patch.object(ti, "off", side_effect=lambda n: n == "slices-off"):
+            self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo),
+                             (None, None))
+        self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo,
+                                        shape=False), (None, None))
+        # a broken journal costs the class, never the Stop
+        self.journal.pending.side_effect = OSError("unreadable")
+        self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo),
+                         (None, None))
+
+    def test_another_class_keeps_the_turn_it_refused(self):
+        # residual work and the evidence fold are asked first; the slice class
+        # never takes their turn, and refuses a verified turn of its own
+        self.stopped()
+        rows = [{"kind": "edit", "detail": "app.py", "changed": True},
+                {"kind": "began", "id": "c1", "tool": "Bash", "check": 1},
+                {"kind": "verify_ok", "id": "c1", "exit": 0, "out_bytes": 9,
+                 "detail": "pytest -q"}]
+        done = "Parser eklendi, testler geçti."
+        listed = done + "\n\n**Açık kalanlar:**\n- README güncellemesi\n- CHANGELOG satırı"
+        with mock.patch.object(ti, "_turn_count", return_value=1):
+            self.assertEqual(ti._stop_block(listed, "s", rows=rows, cwd=self.repo)[0],
+                             "residual work")
+        self.assertEqual(ti._stop_block(done, "s", rows=rows[:1], cwd=self.repo)[0],
+                         "no verify_ok")
+        self.assertEqual(ti._stop_block(done, "s", rows=rows, cwd=self.repo)[0],
+                         "stopped slice")
+
+
 if __name__ == "__main__":
     unittest.main()
