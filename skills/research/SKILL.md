@@ -87,6 +87,7 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
 | `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `trace` (the in-scope item it answers, `S<n>`, required from rules 5), `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
+| `ideas.jsonl`, `stages.jsonl`, `tournament.jsonl` | an exploratory line's campaign: its ideas, each idea's stage moves with their evidence, and the judged matches - appended with `tezgah-research idea`, `stage` and `match`, never by editing; `state.json` `arena` is its lock (see "Exploratory lines") |
 | `experiments/<hypothesis>/` | `protocol.md`, `results.jsonl` (one JSON object per row, each carrying its `source`, its `scope` - what the numbers were measured on - and, when that scope is `fixture`, the `fixture` description of the input that was generated), `analysis.md`, and `raw/<runId>.log` for a run read back from the engine |
 | `literature/` | one file per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` - every file under it, at any depth and of any extension, is a source the index names |
 | `decisions/<id>/` | one comparison of the deliverable's variants: `criteria.json`, `variants.jsonl`, `comparison.jsonl` and `decision.md` - see "Variants" below |
@@ -434,6 +435,88 @@ Pick the move that matches the state you are in:
   confirm what is already known.
 - **Converge**: keep what is testable with a clear prediction inside the budget,
   drop the rest, and say in `log.md` what was dropped and why.
+
+## Exploratory lines
+
+When the ask is for new ideas, methods or approaches rather than an answer, the
+line is a campaign, not a question: `init --method exploratory` (rules 7). Every
+other line keeps the question lock above. Generating ideas is cheap and checking
+them is not: about 5% of 4,000 model-generated ideas were distinct, a quarter of
+"novel" model proposals were borrowed, a model's novelty score ran against later
+impact, and model ideas lost more than human ones once someone built them
+(docs/research.md, "Rules 7"). So the campaign over-generates cheaply, kills
+early, and spends runs only on what survived the cheaper stages.
+
+**The arena is the lock.** `--arena "<the problem, verbatim>"`, `--in`/`--out`,
+`--budget "<ideas, pilots, full runs, wall time>"` and, when a number can judge a
+candidate, `--evaluator <path> --metric "<what it returns>"` (its sha256 is
+recorded). Commit it (`tezgah-research commit <slug> "arena"`) before the first
+idea: `check` refuses ideas or results that entered the history before the arena,
+an arena changed after it, and every stage row while the evaluator no longer
+hashes as locked - the candidate never edits its judge. An arena with no evaluator
+is judged by review only and no idea of it reaches `confirmed`. One campaign is one
+line, so the one-open-line rule holds as it is.
+
+**Ideas are rows** (`tezgah-research idea <slug>`, one JSON object on stdin): `id`
+(`I1`, `I2`, ...), `statement` (two sentences at most), `mechanism`, `trace` (the
+`S<n>` it serves), `operator`, `generator` (`{"family", "model"}` as the host reports
+them), `parents` (required for `mutation` and `crossover`), `kill` (the result that
+would kill it, written now) and `date`. An idea outside the arena is one line
+under Open questions, never a row. Draw from more than one model family when the
+host offers them - one model's ideas collapse into one cluster - and pick each
+idea's move on purpose:
+
+| Operator | Move | Library entry |
+|---|---|---|
+| `tension` | where two results, papers or constraints contradict | brainstorming §3 |
+| `hidden-constraint` | name an unstated constraint and drop it | creative-thinking framework 4 |
+| `analogy` | take a neighbouring field's mechanism, structurally | brainstorming §4, creative-thinking framework 3 |
+| `bisociation` | combine two known things, then ask what it predicts | creative-thinking framework 1 |
+| `inversion` | negate the approach or the goal | creative-thinking framework 5 |
+| `ablate-sota` | take the best method apart, piece by piece | brainstorming §9 |
+| `scale-shift` | move the problem up or down a scale | brainstorming §2, creative-thinking framework 6 |
+| `failure-mining` | read the cases the best method fails on | brainstorming §6 |
+| `replicate-extend` | reproduce a result, then extend it from there | creative-thinking framework 7 |
+| `literature-bridge` | concepts two literatures share that cite each other nowhere | brainstorming §4 |
+| `mutation`, `crossover` | vary one idea, or join two (`parents`) | - |
+| `user` | an idea the person brought | - |
+
+The entries are `skills/ai-research/21-research-ideation/brainstorming-research-ideas/SKILL.md`
+and `.../creative-thinking-for-research/SKILL.md`. A closed line's dead ends
+(`done/`) are the first filter for a new idea.
+
+**The funnel** (`tezgah-research stage <slug> <idea> <stage> --evidence ...`); an
+idea moves forward only, or to `killed --reason` from anywhere, and its stage is
+its newest row:
+
+1. `dedup` clusters the proposed statements and writes nothing; it names its
+   backend and threshold. Mark the members that repeat a cluster's first idea
+   `duplicate` with the similarity it printed, then kill them.
+2. `prior-art`: at least three nearest works, each a note indexed in
+   `literature/INDEX.jsonl` (not agent summaries only), a verdict `novel`,
+   `incremental` or `known`, and one sentence on what the idea does differently.
+   `known` takes `--reason` and is killed in the same append; it stays on record.
+3. `screened`: judged in `tezgah-research match <slug>` rows - pairs shown in both
+   orders, two judges or more, of a model family that generated neither idea (else
+   both generators' families). `board` fits a Bradley-Terry score: a prior for
+   ordering the pilots, never a verdict, and `check` only warns about the judging.
+4. `piloted`: a cheap experiment whose `protocol.md` names the idea and repeats
+   its kill criterion, committed before the run.
+5. `promoted`: the full experiment, the ordinary loop above - protocol first,
+   repeats, the arena's evaluator.
+6. `confirmed`: a fresh run, not the promoting one, on a held-out set or seeds
+   whose first `held_out_log.jsonl` look is this idea's own.
+
+Budget discipline: spend pilots only on screened ideas and full runs only on
+piloted ones, never let a ranking stand in for a pilot, and stop at the budget
+the arena names. The report says how many ideas reached piloted and promoted -
+`check` warns when it does not - because fifty ideas tested at the 5% level yield
+about 2.5 winners by chance. After a crash, `tezgah-research board <slug>` is the
+whole state: every idea's stage, score and next action, and any torn append to
+re-run. Before the next campaign, `tezgah-research yield` counts per operator and
+family how far ideas got, and prints the operator weights the next campaign draws
+with: uniform until something is promoted, then 80% in proportion to promoted /
+proposed and 20% kept uniform.
 
 ## Review before reporting
 

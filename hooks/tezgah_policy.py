@@ -475,6 +475,15 @@ vendor's own documentation - each finding citing the source it rests on and
 stating its confidence (high, medium or low, and why); a summary of summaries is
 not an answer.
 
+**New ideas are an exploratory line.** When the user asks for new ideas, methods
+or approaches rather than an answer, open `{RESEARCH_BIN} init --method
+exploratory` with its arena - `--arena` (the problem, verbatim), `--in`, `--out`,
+`--budget`, and `--evaluator` with `--metric` when a number can judge a candidate -
+committed before the first idea; every other line keeps the question lock above.
+Ideas, stage moves and judged matches are rows (`idea`, `stage`, `match`), a
+ranking is a prior and never a verdict, and `{RESEARCH_BIN} board <slug>` names
+each idea's next step.
+
 When the task is research and the OpenResearch CLI (`{ORX_BIN}`) is installed,
 drive it through that CLI instead of ad-hoc local scripting. Load the operating
 manual first: the `orx` skill if the host has it, otherwise run
@@ -893,7 +902,9 @@ opens until it is closed or `{RESEARCH_BIN} close <slug> --limit "<reason>"` rec
 what is left. `{RESEARCH_BIN} init` refuses on that rule and names each open line;
 `--allow-open "<reason>"` passes it (never beside a line `check` fails) and logs why.
 A design or plan the user will choose between is >= 3 variants compared under
-criteria committed first (`decisions/`); an analysis answers its question once.{OPEN_LINES}
+criteria committed first (`decisions/`); an analysis answers its question once.
+An ask for new ideas or approaches rather than an answer is a campaign instead:
+`--method exploratory` (the `research` skill's "Exploratory lines").{OPEN_LINES}
 If the CLI is not installed, say the research tooling is unavailable and fall
 back to a host subagent briefed with the question verbatim, its in/out scope and
 its method. Off: `research-off`.

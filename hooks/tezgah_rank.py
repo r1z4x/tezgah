@@ -48,17 +48,14 @@ STOPWORDS = frozenset((
 MIN_CAP_TEXTS = 10
 
 
-def rank(query, texts, k, max_df=None):
-    """Indices of the `k` texts that score highest for `query`, best first.
-
-    Only a text sharing at least one term with the query is returned (score > 0),
-    so an unrelated query gets [] rather than an arbitrary order. `max_df` (a
-    fraction) drops STOPWORDS and, on MIN_CAP_TEXTS or more texts, every query
-    term found in more than that share of them."""
+def scores(query, texts, max_df=None):
+    """Every text's BM25 score for `query`, in input order; 0.0 for a text that
+    shares no term with it. `rank` orders these; the research dedup reads them as
+    numbers (`tezgah_research.pair_similarity`)."""
     docs = [Counter(words(t)) for t in texts]
     terms = set(words(query))
     if not docs or not terms:
-        return []
+        return [0.0] * len(docs)
     avg = sum(sum(d.values()) for d in docs) / len(docs) or 1.0
     df = {t: sum(1 for d in docs if t in d) for t in terms}
     if max_df is not None:
@@ -66,12 +63,21 @@ def rank(query, texts, k, max_df=None):
                  if len(docs) < MIN_CAP_TEXTS or df[t] <= max_df * len(docs)}
     idf = {t: math.log(1 + (len(docs) - df[t] + 0.5) / (df[t] + 0.5))
            for t in terms}
-    scored = []
-    for i, d in enumerate(docs):
+    out = []
+    for d in docs:
         size = sum(d.values())
-        score = sum(idf[t] * d[t] * (K1 + 1)
-                    / (d[t] + K1 * (1 - B + B * size / avg))
-                    for t in terms if t in d)
-        if score > 0:
-            scored.append((-score, i))
+        out.append(sum(idf[t] * d[t] * (K1 + 1)
+                       / (d[t] + K1 * (1 - B + B * size / avg))
+                       for t in terms if t in d))
+    return out
+
+
+def rank(query, texts, k, max_df=None):
+    """Indices of the `k` texts that score highest for `query`, best first.
+
+    Only a text sharing at least one term with the query is returned (score > 0),
+    so an unrelated query gets [] rather than an arbitrary order. `max_df` (a
+    fraction) drops STOPWORDS and, on MIN_CAP_TEXTS or more texts, every query
+    term found in more than that share of them."""
+    scored = [(-s, i) for i, s in enumerate(scores(query, texts, max_df)) if s > 0]
     return [i for _s, i in sorted(scored)[:k]]

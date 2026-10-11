@@ -1163,7 +1163,7 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.HOLDOUT_RULES)
+        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
@@ -5718,6 +5718,363 @@ class SelectionDiscipline(Workspace):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertTrue(hit(self.NO_BAND, [proc.stdout + proc.stderr]))
         self.assertTrue(hit(self.CONSULTED, [proc.stdout + proc.stderr]))
+
+
+GEN_A = {"family": "alpha", "model": "alpha-1"}
+GEN_B = {"family": "beta", "model": "beta-1"}
+JUDGE_C = {"family": "gamma", "model": "gamma-1"}
+JUDGE_D = {"family": "delta", "model": "delta-1"}
+KILL = "the score stays below -5 on the pilot"
+NEAREST = ["n1.md", "n2.md", "n3.md"]
+
+
+class Exploratory(Workspace):
+    """Rules 7 (plan 087): an exploratory line is a campaign over an arena locked
+    before its first idea. Ideas, stages and tournament matches are append-only
+    rows, each row type judged by one function the writer and the checker share;
+    the stage an idea is in is read from its newest row, and the board, the
+    dedup and the yield reports are reports, never gates."""
+
+    def campaign(self, repo, evaluator=True, commit=True):
+        self.write(os.path.join(repo, "eval", "score.py"), "print(1)\n")
+        arena = tr.arena_record(repo, "pick integers whose sum scores best",
+                                "8 ideas, 2 pilots, 1 full run",
+                                "eval/score.py" if evaluator else "",
+                                "score" if evaluator else "")
+        tr.init(repo, "camp", question="new ways to hit 100", created="2026-01-01",
+                ask="new ways to hit 100", method="exploratory",
+                scope_in=["integer lists"], scope_out=["floats"], arena=arena)
+        base = tr.line_dir(repo, "camp")
+        for name, cls in (("n1.md", "formal"), ("n2.md", "formal"),
+                          ("n3.md", "grey"), ("a1.md", "agent-report"),
+                          ("a2.md", "agent-report"), ("a3.md", "agent-report")):
+            self.write(os.path.join(base, "literature", name), "# %s\n" % name)
+        self.write(os.path.join(base, "literature", "INDEX.jsonl"), "".join(
+            json.dumps({"id": n, "note": n, "class": c, "source": "https://arxiv.org/x",
+                        "inclusion": "nearest", "quality": "ok"}) + "\n"
+            for n, c in (("n1.md", "formal"), ("n2.md", "formal"), ("n3.md", "grey"),
+                         ("a1.md", "agent-report"), ("a2.md", "agent-report"),
+                         ("a3.md", "agent-report"))))
+        if commit:
+            self.commit(repo, "arena", when=BEFORE)
+        return base
+
+    def idea(self, n, op="tension", gen=GEN_A, **fields):
+        row = {"id": "I%d" % n, "statement": "Idea %d moves the sum." % n,
+               "mechanism": "the sum reaches 100", "trace": "S1", "operator": op,
+               "generator": gen, "kill": KILL, "date": "2026-01-02"}
+        row.update(fields)
+        return {k: v for k, v in row.items() if v is not None}
+
+    def rows(self, base, name, *rows):
+        self.write(os.path.join(base, name), "".join(json.dumps(r) + "\n" for r in rows))
+
+    def stage(self, idea, stage, evidence=None, **fields):
+        row = {"idea": idea, "stage": stage, "evidence": evidence, "date": "2026-01-03"}
+        row.update(fields)
+        return {k: v for k, v in row.items() if v is not None}
+
+    def match(self, a, b, order="ab", winner="a", judge=JUDGE_C, **fields):
+        row = {"a": a, "b": b, "judge": judge, "order": order, "winner": winner,
+               "rationale": "fewer elements"}
+        row.update(fields)
+        return {k: v for k, v in row.items() if v is not None}
+
+    def at(self, repo, label):
+        return [e for e in self.errors(repo, slug="camp", git=False) if e.startswith(label)]
+
+    def prior_art(self, verdict="novel", nearest=NEAREST):
+        return {"verdict": verdict, "nearest": nearest,
+                "delta": "It repairs the last element."}
+
+    def experiment(self, base, h, idea, kill=KILL):
+        d = os.path.join(base, "experiments", h)
+        self.write(os.path.join(d, "protocol.md"),
+                   "idea: %s\nkill: %s\nprediction: it scores\nfalsifier: %s\n"
+                   "headroom: 10 points\nmetric: score\nunit: points\n" % (idea, kill, kill))
+        self.write(os.path.join(d, "results.jsonl"),
+                   json.dumps({"score": 1, "source": "eval", "scope": "fixture",
+                               "fixture": "toy"}) + "\n")
+        self.write(os.path.join(d, "analysis.md"), "# a\n")
+
+    def test_init_locks_the_arena_on_rules_7_only(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        state = tr.line_state(repo, "camp")
+        self.assertEqual(state["rules"], tr.RULES)
+        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        self.assertEqual(state["arena"]["evaluator_sha256"],
+                         tr._digest(os.path.join(repo, "eval", "score.py")))
+        self.assertEqual(tr.scope_problems(state), [])
+        state["rules"] = tr.HOLDOUT_RULES
+        self.assertTrue(hit("method", tr.scope_problems(state)))
+        self.assertTrue(base)
+
+    def test_writer_and_checker_agree_on_every_idea_row(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        first = self.idea(1)
+        cases = {
+            "valid": self.idea(2), "no kill": self.idea(2, kill=None),
+            "unknown operator": self.idea(2, op="vibes"),
+            "mutation, no parents": self.idea(2, op="mutation"),
+            "parents naming no idea": self.idea(2, op="mutation", parents=["I9"]),
+            "crossover of one": self.idea(2, op="crossover", parents=["I1"]),
+            "outside the arena": self.idea(2, trace="S9"),
+            "three sentences": self.idea(2, statement="One. Two. Three."),
+            "same id": self.idea(1), "generator without model": self.idea(
+                2, gen={"family": "alpha"}), "bad id": self.idea(2, id="idea-2"),
+            "no date": self.idea(2, date=None)}
+        for label, row in cases.items():
+            self.rows(base, "ideas.jsonl", first)
+            _iid, written = tr.append_idea(repo, "camp", row)
+            self.rows(base, "ideas.jsonl", first, row)
+            checked = self.at(repo, "ideas.jsonl:2")
+            self.assertEqual(bool(written), bool(checked), (label, written, checked))
+            self.assertEqual(bool(written), label != "valid", (label, written))
+
+    def test_writer_and_checker_agree_on_every_stage_row(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2), self.idea(3))
+        self.rows(base, "tournament.jsonl", self.match("I1", "I2"))
+        cases = {
+            "valid prior-art": self.stage("I1", "prior-art", self.prior_art()),
+            "two nearest": self.stage("I1", "prior-art", self.prior_art(
+                nearest=NEAREST[:2])),
+            "agent-report only": self.stage("I1", "prior-art", self.prior_art(
+                nearest=["a1.md", "a2.md", "a3.md"])),
+            "unindexed note": self.stage("I1", "prior-art", self.prior_art(
+                nearest=NEAREST[:2] + ["gone.md"])),
+            "bad verdict": self.stage("I1", "prior-art", self.prior_art("maybe")),
+            "proposed row": self.stage("I1", "proposed", "ideas.jsonl"),
+            "valid screened": self.stage("I1", "screened", "tournament.jsonl"),
+            "screened, never matched": self.stage("I3", "screened", "tournament.jsonl"),
+            "valid duplicate": self.stage("I2", "duplicate", {"of": "I1",
+                                                              "similarity": 0.9}),
+            "duplicate of itself": self.stage("I2", "duplicate", {"of": "I2",
+                                                                  "similarity": 0.9}),
+            "similarity above 1": self.stage("I2", "duplicate", {"of": "I1",
+                                                                 "similarity": 1.5}),
+            "valid kill": self.stage("I1", "killed", reason="score too low"),
+            "kill with no reason": self.stage("I1", "killed"),
+            "unknown idea": self.stage("I9", "killed", reason="x"),
+            "unknown stage": self.stage("I1", "shipped", "x"),
+            "pilot naming no experiment": self.stage("I1", "piloted", "nope"),
+            "confirmed with no promotion": self.stage(
+                "I1", "confirmed", {"experiment": "nope", "set": "s"})}
+        for label, row in cases.items():
+            self.write(os.path.join(base, "stages.jsonl"), "")
+            written = tr.append_stage(repo, "camp", row)
+            self.rows(base, "stages.jsonl", row)
+            checked = self.at(repo, "stages.jsonl:1")
+            self.assertEqual(bool(written), bool(checked), (label, written, checked))
+            self.assertEqual(bool(written), not label.startswith("valid"),
+                             (label, written))
+
+    def test_writer_and_checker_agree_on_every_match_row(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2, gen=GEN_B))
+        cases = {"valid": self.match("I1", "I2"), "self": self.match("I1", "I1"),
+                 "unknown idea": self.match("I1", "I7"),
+                 "bad winner": self.match("I1", "I2", winner="c"),
+                 "bad order": self.match("I1", "I2", order="xy"),
+                 "judge without model": self.match("I1", "I2", judge={"family": "g"}),
+                 "no rationale": self.match("I1", "I2", rationale="")}
+        for label, row in cases.items():
+            self.write(os.path.join(base, "tournament.jsonl"), "")
+            written = tr.append_match(repo, "camp", row)
+            self.rows(base, "tournament.jsonl", row)
+            checked = self.at(repo, "tournament.jsonl:1")
+            self.assertEqual(bool(written), bool(checked), (label, written, checked))
+            self.assertEqual(bool(written), label != "valid", (label, written))
+
+    def test_forward_moves_only_and_killed_is_terminal(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        self.assertEqual(tr.append_stage(repo, "camp", self.stage(
+            "I1", "prior-art", self.prior_art())), [])
+        self.assertTrue(hit("forward", tr.append_stage(repo, "camp", self.stage(
+            "I1", "duplicate", {"of": "I1", "similarity": 0.9}))))
+        self.assertEqual(tr.append_stage(repo, "camp", self.stage(
+            "I1", "killed", reason="dropped")), [])
+        self.assertTrue(hit("killed", tr.append_stage(repo, "camp", self.stage(
+            "I1", "killed", reason="again"))))
+        self.assertEqual(tr.campaign_stages(base)["I1"], "killed")
+
+    def test_a_rules_6_line_reads_no_exploratory_rule(self):
+        repo = self.repo()
+        base = self.line(repo, phase="inner", rules=tr.HOLDOUT_RULES)
+        before = tr.check_line(repo, "q", git=False)
+        self.write(os.path.join(base, "ideas.jsonl"), "not json\n")
+        self.write(os.path.join(base, "stages.jsonl"), '{"idea": "I9"}\n')
+        self.write(os.path.join(base, "tournament.jsonl"), "[]\n")
+        self.assertEqual(tr.check_line(repo, "q", git=False), before)
+        state = json.loads(read(os.path.join(base, "state.json")))
+        state["method"] = "exploratory"
+        self.write(os.path.join(base, "state.json"), json.dumps(state))
+        self.assertTrue(hit("method", self.errors(repo, git=False)))
+
+    def test_ideas_committed_with_the_arena_are_refused(self):
+        repo = self.repo()
+        base = self.campaign(repo, commit=False)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        self.commit(repo, "arena and ideas", when=BEFORE)
+        self.assertTrue(hit("before the arena was locked",
+                            self.errors(repo, slug="camp")))
+        repo2 = self.repo("repo2")
+        base2 = self.campaign(repo2)
+        self.rows(base2, "ideas.jsonl", self.idea(1))
+        self.commit(repo2, "ideas", when=AFTER)
+        self.assertFalse(hit("arena", self.errors(repo2, slug="camp")))
+        state = json.loads(read(os.path.join(base2, "state.json")))
+        state["arena"]["budget"] = "80 ideas"
+        self.write(os.path.join(base2, "state.json"), json.dumps(state))
+        self.assertTrue(hit("arena changed after the lock",
+                            self.errors(repo2, slug="camp")))
+
+    def test_a_changed_evaluator_refuses_every_stage_row(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        row = self.stage("I1", "prior-art", self.prior_art())
+        self.write(os.path.join(repo, "eval", "score.py"), "print(2)\n")
+        self.assertTrue(hit("evaluator", tr.append_stage(repo, "camp", row)))
+        self.rows(base, "stages.jsonl", row)
+        self.assertTrue(hit("evaluator", self.at(repo, "stages.jsonl:1")))
+        self.write(os.path.join(repo, "eval", "score.py"), "print(1)\n")
+        self.assertFalse(self.at(repo, "stages.jsonl:1"))
+
+    def test_known_prior_art_is_killed_in_the_same_append(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        known = self.stage("I1", "prior-art", self.prior_art("known"))
+        self.assertTrue(hit("--reason", tr.append_stage(repo, "camp", known)))
+        self.assertFalse(os.path.exists(os.path.join(base, "stages.jsonl")))
+        self.assertEqual(tr.append_stage(repo, "camp", known,
+                                         kill_reason="subset-sum already does it"), [])
+        self.assertEqual(tr.campaign_stages(base)["I1"], "killed")
+        self.rows(base, "stages.jsonl", known)
+        self.assertTrue(hit("followed by killed", self.errors(repo, slug="camp",
+                                                              git=False)))
+
+    def test_a_confirmation_on_the_promoting_run_is_refused(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        for h in ("p1", "f1", "c1"):
+            self.experiment(base, h, "I1")
+        self.commit(repo, "experiments", when=AFTER)
+        self.rows(base, "stages.jsonl", self.stage("I1", "piloted", "p1"),
+                  self.stage("I1", "promoted", "f1"))
+        self.write(os.path.join(base, "held_out_log.jsonl"), json.dumps(
+            {"set": "s900", "candidate": "I1", "date": "2026-01-04", "result": 1}) + "\n")
+        same = self.stage("I1", "confirmed", {"experiment": "f1", "set": "s900"})
+        self.assertTrue(hit("promoted", tr.append_stage(repo, "camp", same)))
+        other = self.stage("I1", "confirmed", {"experiment": "c1", "set": "s900"})
+        self.assertEqual(tr.append_stage(repo, "camp", other), [])
+        log = os.path.join(base, "held_out_log.jsonl")
+        self.write(log, json.dumps({"set": "s900", "candidate": "I2", "date": "x",
+                                    "result": 0}) + "\n" + read(log))
+        self.assertTrue(hit("looked at", self.at(repo, "stages.jsonl:3")))
+
+    def test_an_arena_with_no_evaluator_never_reaches_confirmed(self):
+        repo = self.repo()
+        base = self.campaign(repo, evaluator=False)
+        self.rows(base, "ideas.jsonl", self.idea(1))
+        self.experiment(base, "c1", "I1")
+        self.rows(base, "stages.jsonl", self.stage("I1", "promoted", "c1"))
+        row = self.stage("I1", "confirmed", {"experiment": "c1", "set": "s"})
+        self.assertTrue(hit("no evaluator", tr.append_stage(repo, "camp", row)))
+
+    def test_the_board_is_independent_of_tournament_row_order(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", *[self.idea(n, gen=GEN_A if n % 2 else GEN_B)
+                                         for n in range(1, 5)])
+        matches = [self.match("I1", "I2"), self.match("I1", "I2", "ba", "b", JUDGE_D),
+                   self.match("I3", "I4", winner="tie"), self.match("I2", "I3"),
+                   self.match("I4", "I1", winner="b"), self.match("I3", "I1", "ba")]
+        boards = []
+        for order in (matches, matches[::-1], matches[2:] + matches[:2]):
+            self.rows(base, "tournament.jsonl", *order)
+            boards.append(json.dumps(tr.board(repo, "camp"), sort_keys=True))
+        self.assertEqual(len(set(boards)), 1)
+        scores = {i["id"]: i["score"] for i in tr.board(repo, "camp")["ideas"]}
+        self.assertGreater(scores["I1"], scores["I4"])
+
+    def test_a_torn_append_resumes_at_every_file(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        appends = (("ideas.jsonl", tr.append_idea, self.idea(1), self.idea(2)),
+                   ("tournament.jsonl", tr.append_match, self.match("I1", "I2"),
+                    self.match("I1", "I2", "ba")),
+                   ("stages.jsonl", tr.append_stage,
+                    self.stage("I1", "prior-art", self.prior_art()),
+                    self.stage("I2", "killed", reason="weak")))
+        for name, append, first, second in appends:
+            result = append(repo, "camp", first)
+            self.assertFalse(result[1] if isinstance(result, tuple) else result, name)
+            with open(os.path.join(base, name), "a") as fh:
+                fh.write('{"half": ')
+            self.assertFalse(self.errors(repo, slug="camp", git=False), name)
+            board = tr.board(repo, "camp")
+            self.assertTrue(board["files"][name]["fragment"], name)
+            result = append(repo, "camp", second)
+            self.assertFalse(result[1] if isinstance(result, tuple) else result, name)
+            lines = read(os.path.join(base, name)).splitlines()
+            self.assertEqual([json.loads(line) for line in lines][-1], second, name)
+        self.assertFalse(self.errors(repo, slug="camp", git=False))
+
+    def test_dedup_with_embed_off_uses_bm25_and_says_so(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        # embed off: the in-process reader is the developer's own config otherwise
+        import tezgah_embed
+        saved = tezgah_embed.reader
+        tezgah_embed.reader = lambda: None
+        self.addCleanup(setattr, tezgah_embed, "reader", saved)
+        self.rows(base, "ideas.jsonl",
+                  self.idea(1, statement="Use one large number near 100 and pad with ones."),
+                  self.idea(2, statement="Use one large number near 100 and pad with ones too."),
+                  self.idea(3, statement="Borrow subset-sum dynamic programming."))
+        report = tr.dedup(repo, "camp", 0.8)
+        self.assertEqual(report["backend"], "bm25")
+        groups = [c["members"] for c in report["clusters"]]
+        self.assertIn(["I1", "I2"], groups)
+        self.assertIn(["I3"], groups)
+        proc = self.cli(repo, "dedup", "camp")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("backend: bm25", proc.stdout)
+        self.assertEqual(read(os.path.join(base, "ideas.jsonl")).count("\n"), 3)
+
+    def test_the_report_owes_the_number_of_ideas_tested(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2))
+        self.experiment(base, "p1", "I1")
+        self.rows(base, "stages.jsonl", self.stage("I1", "piloted", "p1"))
+        report = os.path.join(base, "to_human", "report.md")
+        self.write(report, "# Report\n\nnothing counted.\n")
+        self.assertTrue(hit("reached piloted", self.warnings(repo, slug="camp", git=False)))
+        self.write(report, "# Report\n\n- 1 idea reached piloted.\n- 0 reached promoted.\n")
+        self.assertFalse(hit("reached", self.warnings(repo, slug="camp", git=False)))
+
+    def test_a_pair_judged_by_its_own_generator_family_warns(self):
+        repo = self.repo()
+        base = self.campaign(repo)
+        self.rows(base, "ideas.jsonl", self.idea(1), self.idea(2, gen=GEN_B))
+        self.rows(base, "tournament.jsonl", self.match("I1", "I2", judge=GEN_A))
+        warnings = self.warnings(repo, slug="camp", git=False)
+        for needle in ("generator", "one order", "fewer than 2 judges"):
+            self.assertTrue(hit(needle, warnings), (needle, warnings))
+        self.rows(base, "tournament.jsonl", self.match("I1", "I2", judge=JUDGE_C),
+                  self.match("I1", "I2", "ba", judge=JUDGE_D))
+        self.assertFalse(hit(("generator", "one order", "judges"),
+                             self.warnings(repo, slug="camp", git=False)))
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ here nor appended beside as one.
 """
 import fnmatch
 import json
+import math
 import os
 import re
 import subprocess
@@ -139,19 +140,25 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # 4 the protocol sections (`_check_protocol_sections`), 5 the scope lock
 # (`scope_problems`, `trace_problem`, the method-gated evaluation and the analysis
 # that owes no variants), 6 the selection warnings (`_check_selection`: the
-# held-out set, repeats per arm, the noise band). A `rules` above `RULES` is
+# held-out set, repeats per arm, the noise band), 7 the exploratory method (an
+# arena locked before the first idea, the idea/stage/tournament rows and their
+# rules, `_check_exploratory`). A `rules` above `RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
 PROTOCOL_RULES = 4
 SCOPE_RULES = 5
 HOLDOUT_RULES = 6
-RULES = HOLDOUT_RULES
+EXPLORE_RULES = 7
+RULES = EXPLORE_RULES
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
-# metric table is the metric-first drift this field exists against.
-METHODS = ("qualitative", "measured")
+# metric table is the metric-first drift this field exists against. `exploratory`
+# (rules 7 only) is a campaign that generates and stages ideas over a locked arena
+# instead of answering one question: the ask is for new ideas, methods or
+# approaches, not for an answer.
+METHODS = ("qualitative", "measured", "exploratory")
 
 # What a line delivers, and how many compared variants that takes. `finding` is a
 # line whose deliverable is its claims; the other four are an artifact a reader
@@ -1023,7 +1030,8 @@ def _check_evaluation(state, errors, warnings, strict):
     is written where a session reads it (`skills/research/SKILL.md`,
     `docs/research.md`); what it cannot catch is a tolerance its own author sets
     so wide that every candidate passes it."""
-    if _qualitative(state):
+    if _qualitative(state) or _exploratory(state):
+        # an exploratory line's lock is its arena (`arena_problems`), not one metric
         return
     phase = state.get("phase")
     locked = phase != "bootstrap"
@@ -1070,6 +1078,10 @@ def _qualitative(state):
     return _rules(state) >= SCOPE_RULES and state.get("method") == "qualitative"
 
 
+def _exploratory(state):
+    return _rules(state) >= EXPLORE_RULES and state.get("method") == "exploratory"
+
+
 def _scope_items(state):
     scope = state.get("scope")
     items = scope.get("in") if isinstance(scope, dict) else None
@@ -1090,11 +1102,14 @@ def scope_problems(state):
                 i for i in items if isinstance(i, str) and i.strip()]:
             problems.append("state.json scope.%s names nothing: list %s, from the "
                             "user's own question" % (side, what))
-    if state.get("method") not in METHODS:
+    # `exploratory` is a rules-7 method: on an older line it is as unknown as any
+    # other word, and the message names the two that line can take
+    methods = METHODS if _rules(state) >= EXPLORE_RULES else METHODS[:2]
+    if state.get("method") not in methods:
         problems.append("state.json method %r is not one of %s: the question picks "
                         "it - a source or reference question is qualitative and "
-                        "owes no metric" % (state.get("method"), ", ".join(METHODS)))
-    return problems
+                        "owes no metric" % (state.get("method"), ", ".join(methods)))
+    return problems + arena_problems(state)
 
 
 def trace_problem(cid, claim, state):
@@ -2879,6 +2894,10 @@ def _check_evaluation_order(repo, base, state, errors, warnings, strict):
     commit the history holds. `_check_evaluation` reads that the fields are filled;
     this reads when: a metric and a baseline committed after the results are the
     criterion the results were measured against after the fact."""
+    if _exploratory(state):
+        # the arena is an exploratory line's lock, and `_check_arena_order` orders
+        # every results.jsonl against it the way this orders them against a metric
+        return
     hard = strict or _rules(state) >= STANDARDS_RULES
     evaluation = state.get("evaluation")
     if not isinstance(evaluation, dict):
@@ -3409,6 +3428,8 @@ def _check_standards(repo, slug, base, errors, warnings, strict, git):
         _check_evaluation_order(repo, base, state, errors, warnings, strict)
         _check_results_append_only(repo, base, state, errors, warnings, strict)
     _check_selection(base, state, warnings)
+    if _exploratory(state):
+        _check_exploratory(repo, base, state, errors, warnings, strict, git)
 
 
 # A protocol that states its repeats: `k: 3`, `repeats = 5`, `repeat: 2`.
@@ -4869,7 +4890,7 @@ def verdict_problems(state, rows):
 
 
 def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFAULT_TIER,
-         method="", scope_in=(), scope_out=()):
+         method="", scope_in=(), scope_out=(), arena=None):
     """Scaffold a research line. Returns the paths created (never overwrites).
 
     Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
@@ -4895,6 +4916,11 @@ def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFA
         state["tier"] = tier
     if supersedes:
         state["supersedes"] = supersedes
+    if arena is not None:
+        # an exploratory line's lock (`arena_record`); absent on every other line.
+        # The campaign delivers its staged portfolio as findings, never variants.
+        state["arena"] = arena
+        state["deliverable"] = {"kind": "finding"}
     files = {
         "state.json": json.dumps(state, indent=2) + "\n",
         "findings.md": FINDINGS_TEMPLATE,
@@ -5356,4 +5382,1107 @@ def components_text(report):
     if report["unlabeled"]:
         out.append(header("(no components)", None, report["unlabeled"]))
         out.extend(row_line(row) for row in report["unlabeled"])
+    return out
+
+
+# --- exploratory lines (rules 7) ----------------------------------------------
+# Every other line answers one question. An exploratory line generates: a
+# campaign over an arena locked before its first idea, whose ideas pass a funnel
+# where each stage costs more than the one before - dedup, prior art, a judged
+# tournament, a pilot, a full run, a confirmation on data the selection never saw.
+# The literature it is built on (docs/research.md, "Rules 7") says generation is
+# cheap and verification is the bottleneck: about 5% of 4,000 generated ideas were
+# non-duplicates (arXiv 2409.04109), AI ideas lost more than human ones once
+# executed (2506.20803), 24% of "novel" AI proposals were borrowed (2502.16487),
+# an LLM's novelty score ran against realised impact (2603.15164), and a
+# self-improving loop removed its own detection markers (2505.22954). So a
+# ranking is a prior and never a verdict, a run under the locked evaluator is the
+# judge, prior art is checked per idea, and the number of ideas tested is said.
+#
+# Three append-only files hold the campaign, each row type judged by one function
+# the writer and the checker share (`idea_problems`, `stage_problems`,
+# `match_problems`); the stage an idea is in is its newest stages.jsonl row, and
+# nothing stores a status. A line under rules 1-6, or a line whose method is not
+# `exploratory`, reads none of it.
+IDEAS_FILE = "ideas.jsonl"
+STAGES_FILE = "stages.jsonl"
+TOURNAMENT_FILE = "tournament.jsonl"
+CAMPAIGN_FILES = (IDEAS_FILE, STAGES_FILE, TOURNAMENT_FILE)
+# The move that produced an idea, closed so the yield report can count per move;
+# `user` is an idea the person asked for, and `mutation`/`crossover` derive from
+# earlier ideas (`PARENT_OPERATORS`: how many parents each takes at least).
+OPERATORS = ("tension", "hidden-constraint", "analogy", "bisociation", "inversion",
+             "ablate-sota", "scale-shift", "failure-mining", "replicate-extend",
+             "literature-bridge", "mutation", "crossover", "user")
+PARENT_OPERATORS = {"mutation": 1, "crossover": 2}
+IDEA_FIELDS = ("id", "statement", "mechanism", "trace", "operator", "generator",
+               "kill", "date")
+# In funnel order; an idea moves forward only, or to `killed` from anywhere, and
+# `killed` is final. The idea row is its `proposed` stage, so no stage row says it.
+STAGES = ("proposed", "duplicate", "prior-art", "screened", "piloted", "promoted",
+          "confirmed", "killed")
+PRIOR_ART_VERDICTS = ("novel", "incremental", "known")
+MATCH_ORDERS = ("ab", "ba")
+MATCH_WINNERS = ("a", "b", "tie")
+IDEA_ID = re.compile(r"I[1-9][0-9]*")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+NEAREST_MIN = 3
+# Si et al. (arXiv 2409.04109) called two seed ideas duplicates at cosine 0.8 on
+# MiniLM. That number does not carry to another similarity: on 40 hand-labelled
+# fixture pairs (plan 087's calibration experiment, docs/research.md) 0.8 caught 9
+# of 20 duplicates with embed-mrl and 1 of 20 with BM25. Each measured backend
+# takes the highest threshold within 0.01 F1 of its best: embed-mrl 0.60 (F1 0.93),
+# BM25 0.35 (F1 0.78; 0.20 scored 0.784 and merged mutations into their parents in
+# the campaign fixture). Any other backend keeps Si et al.'s, named as
+# uncalibrated. `--threshold` wins.
+DEDUP_THRESHOLD = 0.8
+DEDUP_THRESHOLDS = {"bm25": 0.35, "embed:embed-mrl": 0.60}
+# The share of the next campaign's operator draws kept uniform, so a move that
+# has not paid off yet is still tried (`operator_weights`).
+EXPLORE_SHARE = 0.2
+
+
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _sentences(text):
+    return len([s for s in re.split(r"(?<=[.!?])\s+", str(text).strip()) if s])
+
+
+def _norm(text):
+    return " ".join(str(text or "").lower().split())
+
+
+def _who_problem(value):
+    """None when `value` names a model as the host reports it - `{family, model}`
+    - else what it is missing."""
+    if not isinstance(value, dict):
+        return "is %s, not the object {family, model}" % type(value).__name__
+    missing = [k for k in ("family", "model") if not _text(value.get(k))]
+    return "names no %s" % " or ".join(missing) if missing else None
+
+
+def _family(value):
+    return value["family"].strip() if isinstance(value, dict) \
+        and _text(value.get("family")) else None
+
+
+def _idea_number(iid):
+    """The sort key of an idea id: I2 before I10, and anything else last."""
+    return (int(iid[1:]), iid) if isinstance(iid, str) and IDEA_ID.fullmatch(iid) \
+        else (10 ** 9, str(iid))
+
+
+def arena_record(repo, problem, budget, evaluator="", metric=""):
+    """The `state.json` `arena` an exploratory line locks before its first idea: the
+    problem in the user's words and the budget, and for a measurable arena the
+    evaluator's repository path, the sha256 of its bytes now and the metric it
+    returns. Raises OSError when the evaluator cannot be read."""
+    arena = {"problem": problem, "budget": budget}
+    if evaluator:
+        arena.update({"evaluator": evaluator,
+                      "evaluator_sha256": _digest(os.path.join(repo, evaluator)),
+                      "metric": metric})
+    return arena
+
+
+def arena_problems(state):
+    """What an exploratory line's arena is missing; [] when it is locked, and []
+    for every other line. Read through `scope_problems`, so it is refused past
+    `bootstrap` and warned at it like the rest of the lock."""
+    if not _exploratory(state):
+        return []
+    arena = state.get("arena")
+    if not isinstance(arena, dict):
+        return ["state.json arena is %s, not the object that locks the problem, the "
+                "budget and the evaluator before the first idea"
+                % ("absent" if arena is None else type(arena).__name__)]
+    problems = []
+    for key, what in (("problem", "the problem in the user's words"),
+                      ("budget", "the ideas, pilots, full runs and wall time it may "
+                                 "spend")):
+        if not _text(arena.get(key)):
+            problems.append("state.json arena names no %s: write %s before the first "
+                            "idea" % (key, what))
+    evaluator = arena.get("evaluator")
+    if evaluator not in (None, ""):
+        if not _text(evaluator):
+            problems.append("state.json arena evaluator %r is not a path" % (evaluator,))
+        if not SHA256_HEX.fullmatch(str(arena.get("evaluator_sha256") or "")):
+            problems.append("state.json arena evaluator %s carries no evaluator_sha256: "
+                            "the hash is what locks it" % (evaluator,))
+        if not _text(arena.get("metric")):
+            problems.append("state.json arena evaluator %s names no metric: say what "
+                            "number it returns" % (evaluator,))
+    return problems
+
+
+def evaluator_problem(repo, state):
+    """The refusal every stage row takes while the arena's evaluator no longer
+    hashes as locked, or None (also for an arena with no evaluator). The candidate
+    a campaign judges must not be able to move the judge: the Darwin Godel Machine
+    removed its own detection markers when nothing pinned them."""
+    arena = state.get("arena") if isinstance(state.get("arena"), dict) else {}
+    path = arena.get("evaluator")
+    if not _text(path):
+        return None
+    try:
+        now = _digest(os.path.join(repo, path))
+    except OSError:
+        now = None
+    locked = str(arena.get("evaluator_sha256") or "")
+    if now == locked:
+        return None
+    return ("the arena evaluator %s %s since the arena was locked (sha256 %s): a stage "
+            "judged by another evaluator is not this campaign's - restore it, or close "
+            "the line and lock a new arena"
+            % (path, "is gone" if now is None else "changed (now %s)" % now[:12],
+               locked[:12] or "none"))
+
+
+def _campaign_rows(path, label):
+    """(rows, problems, fragment) of one campaign file: [(line number, object)] up to
+    the committed boundary, a problem per terminated line that does not parse or is
+    not an object, and the bytes past the boundary a killed writer left (the next
+    append truncates them). An absent file is no rows and no problem."""
+    if not os.path.exists(path):
+        return [], [], 0
+    text, exc = _committed_text(path)
+    if exc:
+        return [], ["%s cannot be read (%s)" % (label, exc)], 0
+    rows, problems = [], []
+    for n, raw in enumerate(text.splitlines(), 1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError as err:
+            problems.append("%s:%d does not parse (%s)" % (label, n, err))
+            continue
+        if not isinstance(row, dict):
+            problems.append("%s:%d is a %s, not the object a row is"
+                            % (label, n, type(row).__name__))
+            continue
+        rows.append((n, row))
+    try:
+        fragment = os.path.getsize(path) - len(text.encode("utf-8"))
+    except OSError:
+        fragment = 0
+    return rows, problems, fragment
+
+
+def _rows_of(base, name):
+    return [row for _n, row in _campaign_rows(os.path.join(base, name), name)[0]]
+
+
+def _handle_rows(handle):
+    """The objects of an open campaign file up to its committed boundary: what an
+    append judges against, read from the descriptor it holds the lock on."""
+    size = committed_size(handle)
+    handle.seek(0)
+    out = []
+    for raw in handle.read(size).decode("utf-8", "replace").splitlines():
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def _in_scope(entry, state):
+    entry = entry.strip()
+    return any(entry in ("S%d" % n, item.strip())
+               for n, item in enumerate(_scope_items(state), 1))
+
+
+def idea_problems(row, state, held):
+    """The reasons one idea row cannot stand; [] when it can. `held` is the idea rows
+    before it in ideas.jsonl. The writer (`append_idea`, under the lock) and `check`
+    both call it, so one row gets one verdict."""
+    if not isinstance(row, dict):
+        return ["an idea row is a JSON object, not a %s" % type(row).__name__]
+    iid = row["id"] if _text(row.get("id")) else "(no id)"
+    problems = []
+    arena = arena_problems(state)
+    if arena:
+        problems.append("idea %s: no arena is locked (%s) - the arena is written and "
+                        "committed before the first idea" % (iid, arena[0]))
+    problems.extend("idea %s carries no %s" % (iid, key) for key in IDEA_FIELDS
+                    if key != "generator" and not _text(row.get(key)))
+    who = _who_problem(row.get("generator"))
+    if who:
+        problems.append("idea %s generator %s: name the family and the model id as "
+                        "the host reports it" % (iid, who))
+    ids = [r.get("id") for r in held]
+    if _text(row.get("id")):
+        if not IDEA_ID.fullmatch(row["id"]):
+            problems.append("idea id %r is not I<n>" % row["id"])
+        elif row["id"] in ids:
+            problems.append("idea %s is already in ideas.jsonl: a new idea takes a new "
+                            "id" % iid)
+    op = row.get("operator")
+    if _text(op) and op not in OPERATORS:
+        problems.append("idea %s operator %r is not one of %s"
+                        % (iid, op, ", ".join(OPERATORS)))
+    parents = row.get("parents")
+    if parents is not None and (not isinstance(parents, list)
+                                or not all(_text(p) for p in parents)):
+        problems.append("idea %s parents is not a list of idea ids" % iid)
+        parents = []
+    problems.extend("idea %s names parent %s, and no earlier idea carries that id"
+                    % (iid, p) for p in parents or [] if p not in ids)
+    need = PARENT_OPERATORS.get(op)
+    if need and len(set(parents or [])) < need:
+        problems.append("idea %s is a %s and names %d parent(s): it takes at least %d"
+                        % (iid, op, len(set(parents or [])), need))
+    if _text(row.get("statement")) and _sentences(row["statement"]) > 2:
+        problems.append("idea %s is stated in %d sentences: two at most - an idea that "
+                        "does not fit in two is not one idea yet"
+                        % (iid, _sentences(row["statement"])))
+    if _text(row.get("date")) and not ISO_DATE.fullmatch(row["date"].strip()):
+        problems.append("idea %s date %r is not YYYY-MM-DD" % (iid, row["date"]))
+    if _text(row.get("trace")) and not _in_scope(row["trace"], state):
+        problems.append("idea %s traces to no in-scope item (%s): an idea outside the "
+                        "arena is one line under Open questions in findings.md, never "
+                        "a row" % (iid, row["trace"]))
+    return problems
+
+
+def _verdict(row):
+    evidence = row.get("evidence")
+    return evidence.get("verdict") if isinstance(evidence, dict) else None
+
+
+def _experiment_ref(value):
+    """The experiment directory name a stage's evidence names: `h` or
+    `experiments/h`; None for anything else."""
+    if not _text(value):
+        return None
+    name = value.strip().rstrip("/")
+    if name.startswith("experiments/"):
+        name = name[len("experiments/"):]
+    return None if not name or "/" in name or name.startswith(".") else name
+
+
+def _index_classes(base):
+    """{note: class} of the line's literature/INDEX.jsonl, at its committed boundary."""
+    text, exc = _committed_text(os.path.join(base, "literature", "INDEX.jsonl"))
+    out = {}
+    for raw in (text or "").splitlines() if not exc else []:
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and _text(row.get("note")):
+            out[row["note"].strip()] = row.get("class")
+    return out
+
+
+def _prior_art_problems(label, evidence, base):
+    if not isinstance(evidence, dict):
+        return ["%s: the evidence is {verdict, nearest, delta}" % label]
+    problems = []
+    if evidence.get("verdict") not in PRIOR_ART_VERDICTS:
+        problems.append("%s verdict %r is not one of %s" % (
+            label, evidence.get("verdict"), ", ".join(PRIOR_ART_VERDICTS)))
+    nearest = evidence.get("nearest")
+    notes = [n.strip()[len("literature/"):] if n.strip().startswith("literature/")
+             else n.strip() for n in nearest if _text(n)] \
+        if isinstance(nearest, list) else []
+    if len(set(notes)) < NEAREST_MIN:
+        problems.append("%s names %d nearest work(s): at least %d notes, each indexed "
+                        "in literature/INDEX.jsonl" % (label, len(set(notes)),
+                                                       NEAREST_MIN))
+    classes = _index_classes(base)
+    missing = [n for n in notes if n not in classes]
+    if missing:
+        problems.append("%s names %s, which literature/INDEX.jsonl does not index"
+                        % (label, ", ".join(missing)))
+    elif notes and all(classes[n] == "agent-report" for n in notes):
+        problems.append("%s rests on agent-report notes only: an agent's summary is not "
+                        "the work it summarises" % label)
+    if not _text(evidence.get("delta")) or _sentences(evidence["delta"]) > 1:
+        problems.append("%s: delta is one sentence saying what the idea does "
+                        "differently from the nearest work" % label)
+    return problems
+
+
+def _run_problems(label, h, base, repo, idea, git):
+    """A pilot, a full run or a confirmation: an experiment of the line with a
+    protocol and a results row, whose protocol is committed (`git`); a pilot's or a
+    full run's protocol names the idea and repeats its kill criterion (`idea`)."""
+    if h is None:
+        return ["%s names no experiment of this line" % label]
+    d = os.path.join(base, "experiments", h)
+    proto = os.path.join(d, "protocol.md")
+    if not os.path.isfile(proto):
+        return ["%s: experiments/%s has no protocol.md" % (label, h)]
+    problems = []
+    if not _rows(os.path.join(d, "results.jsonl")):
+        problems.append("%s: experiments/%s recorded no results row, so nothing ran"
+                        % (label, h))
+    if idea is not None:
+        text = _note_text(proto)
+        if not _mentions(str(idea.get("id")), text):
+            problems.append("%s: experiments/%s/protocol.md does not name %s"
+                            % (label, h, idea.get("id")))
+        if _norm(idea.get("kill")) not in _norm(text):
+            problems.append("%s: experiments/%s/protocol.md does not repeat %s's kill "
+                            "criterion (%s)" % (label, h, idea.get("id"),
+                                                idea.get("kill")))
+    if git:
+        adds, err = _oldest_adds(repo, proto)
+        if not err and not any(adds.values()):
+            problems.append("%s: experiments/%s/protocol.md is not committed, so it "
+                            "cannot show the plan came before the run" % (label, h))
+    return problems
+
+
+def _confirm_problems(label, row, base, repo, state, history, git):
+    evidence = row.get("evidence")
+    if not isinstance(evidence, dict):
+        return ["%s: the evidence is {experiment, set}: the run, and the held-out set "
+                "held_out_log.jsonl shows nothing looked at first" % label]
+    iid, problems = row["idea"], []
+    arena = state.get("arena") if isinstance(state.get("arena"), dict) else {}
+    if not _text(arena.get("evaluator")):
+        problems.append("%s: the arena has no evaluator, so it is judged by review only "
+                        "and no idea reaches confirmed" % label)
+    h = _experiment_ref(evidence.get("experiment"))
+    promoted = [_experiment_ref(r.get("evidence")) for r in history
+                if r.get("stage") == "promoted"]
+    if not promoted:
+        problems.append("%s: %s was never promoted, so there is no selection to confirm"
+                        % (label, iid))
+    elif h in promoted:
+        problems.append("%s: experiment %s is the run that promoted %s - a confirmation "
+                        "runs on data the selection never saw" % (label, h, iid))
+    problems.extend(_run_problems(label, h, base, repo, None, git))
+    held = evidence.get("set")
+    if not _text(held):
+        problems.append("%s names no held-out set" % label)
+        return problems
+    first = next((r for r in _row_objects(os.path.join(base, "held_out_log.jsonl"))
+                  if str(r.get("set")) == held), None)
+    if first is None:
+        problems.append("%s: held_out_log.jsonl records no look at set %s - log the "
+                        "confirmation's look before the stage" % (label, held))
+    elif str(first.get("candidate")) != iid:
+        problems.append("%s: held_out_log.jsonl shows %s looked at set %s first, so the "
+                        "set was looked at during selection"
+                        % (label, first.get("candidate"), held))
+    return problems
+
+
+def stage_problems(row, base, repo, state, ideas, history, matches, evaluator=None,
+                   git=True):
+    """The reasons one stage row cannot stand; [] when it can. `ideas` maps each id
+    to its idea row, `history` is that idea's earlier stage rows in file order,
+    `matches` the tournament rows, `evaluator` what `evaluator_problem` says now,
+    and `git` whether the order half is asked (the session note does not pay for
+    it). The writer (`append_stage`, under the lock) and `check` both call it."""
+    if not isinstance(row, dict):
+        return ["a stage row is a JSON object, not a %s" % type(row).__name__]
+    iid, stage = row.get("idea"), row.get("stage")
+    label = "stage %s %s" % (iid if _text(iid) else "(no idea)",
+                             stage if _text(stage) else "(no stage)")
+    problems = ["%s: %s" % (label, evaluator)] if evaluator else []
+    if not _text(iid) or iid not in ideas:
+        return problems + ["%s names no idea ideas.jsonl carries" % label]
+    if stage not in STAGES:
+        return problems + ["%s: %r is not one of %s" % (label, stage, ", ".join(STAGES))]
+    if not (_text(row.get("date")) and ISO_DATE.fullmatch(row["date"].strip())):
+        problems.append("%s carries no YYYY-MM-DD date" % label)
+    current = history[-1].get("stage") if history else "proposed"
+    if stage == "proposed":
+        return problems + ["%s: an idea is proposed by its ideas.jsonl row, so no stage "
+                           "row says it" % label]
+    if current == "killed":
+        return problems + ["%s: %s is already killed, and killed is final - a revived "
+                           "idea is a new idea naming this one as its parent"
+                           % (label, iid)]
+    if current == "prior-art" and _verdict(history[-1]) == "known" and stage != "killed":
+        return problems + ["%s: %s's prior art is known, so the only row after it is "
+                           "killed" % (label, iid)]
+    if stage == "killed":
+        if not _text(row.get("reason")):
+            problems.append("%s carries no reason: a kill says what killed it" % label)
+        return problems
+    if current in STAGES and STAGES.index(stage) <= STAGES.index(current):
+        return problems + ["%s: %s is at %s, and a stage moves forward only (or to "
+                           "killed)" % (label, iid, current)]
+    evidence = row.get("evidence")
+    if stage == "duplicate":
+        if not isinstance(evidence, dict):
+            return problems + ["%s: the evidence is {of, similarity}: the idea it "
+                               "duplicates and the similarity measured" % label]
+        if evidence.get("of") not in ideas or evidence.get("of") == iid:
+            problems.append("%s duplicates %r, which is not another idea of this line"
+                            % (label, evidence.get("of")))
+        sim = evidence.get("similarity")
+        if not (_count(sim) and 0 <= sim <= 1):
+            problems.append("%s similarity %r is not a number in 0..1" % (label, sim))
+    elif stage == "prior-art":
+        problems.extend(_prior_art_problems(label, evidence, base))
+    elif stage == "screened":
+        if not any(iid in (m.get("a"), m.get("b")) for m in matches):
+            problems.append("%s: tournament.jsonl holds no match naming %s, so nothing "
+                            "screened it" % (label, iid))
+    elif stage in ("piloted", "promoted"):
+        problems.extend(_run_problems(label, _experiment_ref(evidence), base, repo,
+                                      ideas[iid], git))
+    else:
+        problems.extend(_confirm_problems(label, row, base, repo, state, history, git))
+    return problems
+
+
+def match_problems(row, ideas):
+    """The reasons one tournament row cannot stand; [] when it can. The writer
+    (`append_match`) and `check` both call it. What the judge saw is the row's own
+    business; which judges a pair still needs is a warning (`_tournament_warnings`),
+    because a ranking is a prior and never a gate."""
+    if not isinstance(row, dict):
+        return ["a match row is a JSON object, not a %s" % type(row).__name__]
+    a, b = row.get("a"), row.get("b")
+    label = "match %s v %s" % (a, b)
+    problems = ["%s: %s names %r, which is not an idea of this line" % (label, side, row.get(side))
+                for side in ("a", "b") if row.get(side) not in ideas]
+    if a == b and a in ideas:
+        problems.append("%s matches an idea against itself" % label)
+    who = _who_problem(row.get("judge"))
+    if who:
+        problems.append("%s judge %s" % (label, who))
+    if row.get("order") not in MATCH_ORDERS:
+        problems.append("%s order %r is not one of %s" % (label, row.get("order"),
+                                                          ", ".join(MATCH_ORDERS)))
+    if row.get("winner") not in MATCH_WINNERS:
+        problems.append("%s winner %r is not one of %s" % (label, row.get("winner"),
+                                                           ", ".join(MATCH_WINNERS)))
+    if not _text(row.get("rationale")):
+        problems.append("%s carries no rationale" % label)
+    return problems
+
+
+def _campaign_line(repo, slug):
+    """(base, state, refusal) for the exploratory line a campaign row goes to.
+    Raises FileNotFoundError when the line does not exist."""
+    if not valid_slug(slug):
+        return None, {}, "not a research slug: %r" % slug
+    base = line_dir(repo, slug)
+    if not os.path.isdir(base):
+        raise FileNotFoundError(base)
+    state = _state(base)
+    refusal = newer_rules(state)
+    if refusal is None and not _exploratory(state):
+        refusal = ("%s is not an exploratory line (method %r, rules %d): ideas, stages "
+                   "and matches are rows of an exploratory campaign"
+                   % (slug, state.get("method"), _rules(state)))
+    return base, state, refusal
+
+
+def _append_campaign(path, label, judge):
+    """[] once the rows `judge` returned were appended, else the problems. `judge`
+    takes the rows already in the file, read from the descriptor holding the lock,
+    and returns (problems, rows to append): the judgement and the append meet at
+    one instant and at the committed boundary, as every append here does. A refused
+    append leaves no empty file behind."""
+    created = not os.path.isfile(path)
+    with open(path, "a+b") as handle:
+        problem = _locked(handle, label)
+        if problem:
+            return [problem]
+        problems, rows = judge(_handle_rows(handle))
+        if problems:
+            if created and os.path.getsize(path) == 0:
+                os.remove(path)
+            return problems
+        truncate_to_committed(handle)
+        handle.write(b"".join(json.dumps(r).encode("utf-8") + b"\n" for r in rows))
+    return []
+
+
+def append_idea(repo, slug, row):
+    """(id, problems): one idea appended to ideas.jsonl, judged under the lock by
+    `idea_problems`; problems is [] exactly when it was written."""
+    rid = row.get("id") if isinstance(row, dict) else None
+    base, state, refusal = _campaign_line(repo, slug)
+    if refusal:
+        return rid, [refusal]
+    return rid, _append_campaign(os.path.join(base, IDEAS_FILE), IDEAS_FILE,
+                                 lambda held: (idea_problems(row, state, held), [row]))
+
+
+def append_stage(repo, slug, row, kill_reason=None, git=True):
+    """Problems, [] exactly when the stage row was written. A `prior-art` row whose
+    verdict is `known` is appended with the `killed` row it owes, under the same
+    lock and judged in sequence, so no file state ever holds a known idea alive;
+    without `kill_reason` it is refused."""
+    base, state, refusal = _campaign_line(repo, slug)
+    if refusal:
+        return [refusal]
+    if not isinstance(row, dict):
+        return stage_problems(row, base, repo, state, {}, [], [])
+    ideas = {r.get("id"): r for r in _rows_of(base, IDEAS_FILE)}
+    matches = _rows_of(base, TOURNAMENT_FILE)
+    evaluator = evaluator_problem(repo, state)
+
+    def judge(rows):
+        history = [r for r in rows if r.get("idea") == row.get("idea")]
+        problems = stage_problems(row, base, repo, state, ideas, history, matches,
+                                  evaluator, git)
+        if problems or row.get("stage") != "prior-art" or _verdict(row) != "known":
+            return problems, [row]
+        if not _text(kill_reason):
+            return ["stage %s prior-art: a known idea is killed in the same append - "
+                    "pass --reason with what already does it" % row.get("idea")], []
+        kill = {"idea": row["idea"], "stage": "killed", "reason": kill_reason,
+                "evidence": "prior-art known", "date": row.get("date")}
+        return stage_problems(kill, base, repo, state, ideas, history + [row], matches,
+                              evaluator, git), [row, kill]
+
+    return _append_campaign(os.path.join(base, STAGES_FILE), STAGES_FILE, judge)
+
+
+def append_match(repo, slug, row):
+    """Problems, [] exactly when the tournament row was written (`match_problems`)."""
+    base, _state_, refusal = _campaign_line(repo, slug)
+    if refusal:
+        return [refusal]
+    ideas = {r.get("id"): r for r in _rows_of(base, IDEAS_FILE)}
+    return _append_campaign(os.path.join(base, TOURNAMENT_FILE), TOURNAMENT_FILE,
+                            lambda _rows: (match_problems(row, ideas), [row]))
+
+
+def _stage_histories(rows):
+    out = {}
+    for row in rows:
+        out.setdefault(row.get("idea"), []).append(row)
+    return out
+
+
+def _current(history):
+    stage = history[-1].get("stage") if history else "proposed"
+    return stage if stage in STAGES else "proposed"
+
+
+def campaign_stages(base):
+    """{idea id: the stage its newest stages.jsonl row says, `proposed` with none}."""
+    histories = _stage_histories(_rows_of(base, STAGES_FILE))
+    return {r.get("id"): _current(histories.get(r.get("id"), []))
+            for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
+
+
+def _reached(history, stage):
+    """True when an idea's history went at least as far as `stage` in the funnel
+    (`duplicate` and `killed` are exits: read by presence)."""
+    if stage == "proposed":
+        return True
+    if stage in ("duplicate", "killed"):
+        return any(r.get("stage") == stage for r in history)
+    return any(r.get("stage") in STAGES[:-1]
+               and STAGES.index(r["stage"]) >= STAGES.index(stage) for r in history)
+
+
+def _tournament_warnings(ideas, matches):
+    """The judging a pair or an idea still owes: a judge family that generated
+    neither idea (else both generators' families), both presentation orders, and
+    two judges per idea. Warnings, never refusals: the tournament is a prior."""
+    pairs, judges = {}, {}
+    for m in matches:
+        a, b = m.get("a"), m.get("b")
+        if a not in ideas or b not in ideas or a == b:
+            continue
+        pairs.setdefault(tuple(sorted((a, b), key=_idea_number)), []).append(m)
+        who = (_family(m.get("judge")), str((m.get("judge") or {}).get("model")))
+        for x in (a, b):
+            judges.setdefault(x, set()).add(who)
+    out = []
+    for (a, b), rows in sorted(pairs.items(), key=lambda p: (_idea_number(p[0][0]),
+                                                            _idea_number(p[0][1]))):
+        fa, fb = _family(ideas[a].get("generator")), _family(ideas[b].get("generator"))
+        families = {_family(m.get("judge")) for m in rows} - {None}
+        if not families - {fa, fb} and (fa == fb or not {fa, fb} <= families):
+            out.append("tournament.jsonl: %s v %s was judged only by a family that "
+                       "generated one of them (%s): prefer a family that generated "
+                       "neither, else have the other generator's family judge it too"
+                       % (a, b, ", ".join(sorted(families))))
+        orders = {m.get("order") for m in rows}
+        if len(orders & set(MATCH_ORDERS)) < 2:
+            out.append("tournament.jsonl: %s v %s was judged in one order only: a "
+                       "position bias shows only when both orders are judged" % (a, b))
+    for x in sorted(judges, key=_idea_number):
+        if len(judges[x]) < 2:
+            out.append("tournament.jsonl: %s has fewer than 2 judges (%d): one judge's "
+                       "ranking is one opinion" % (x, len(judges[x])))
+    return out
+
+
+def _check_tested(base, histories, warnings):
+    """Rules 7's disclosure: an exploratory report says how many ideas reached
+    piloted and promoted, because fifty ideas tested at the 5% level yield about
+    2.5 winners by chance and a reader cannot discount what is not counted."""
+    report = os.path.join(base, "to_human", "report.md")
+    if not os.path.isfile(report):
+        return
+    lines = [line for line in _note_text(report).splitlines()]
+    for stage in ("piloted", "promoted"):
+        n = sum(1 for history in histories.values() if _reached(history, stage))
+        number = re.compile(r"(?<![\w.])%d(?![\w.])" % n)
+        if not any(stage in line.lower() and number.search(line) for line in lines):
+            warnings.append("to_human/report.md does not state how many ideas reached "
+                            "%s (%d): an exploratory line discloses how many ideas it "
+                            "tested - fifty ideas tested at the 5%% level yield about "
+                            "2.5 winners by chance" % (stage, n))
+
+
+def _arena_of(text):
+    try:
+        state = json.loads(text)
+    except ValueError:
+        return None
+    arena = state.get("arena") if isinstance(state, dict) else None
+    return arena if isinstance(arena, dict) and _text(arena.get("problem")) \
+        and _text(arena.get("budget")) else None
+
+
+def _check_arena_order(repo, base, state, errors, warnings, strict):
+    """The arena lock is the first commit, along HEAD, whose state.json holds an
+    arena with a problem and a budget. ideas.jsonl has to enter the history after
+    it - the evaluation lock's ancestry rule (`_answers`) - and the arena may not
+    change after it, or a re-written `evaluator_sha256` would re-lock a moved
+    evaluator."""
+    path = os.path.join(base, "state.json")
+    firsts, locked = {}, None
+    for top, rel in _histories(repo, path):
+        firsts[top] = None
+        for sha, text in _versions(top, rel):
+            arena = _arena_of(text)
+            if arena is not None:
+                firsts[top] = sha
+                locked = locked if locked is not None else arena
+                break
+    if locked is not None and state.get("arena") != locked:
+        errors.append("state.json arena changed after the lock: the problem, the budget "
+                      "and the evaluator are fixed before the first idea - a new arena "
+                      "is a new line")
+    targets = [(IDEAS_FILE, os.path.join(base, IDEAS_FILE))] + [
+        ("experiments/%s/results.jsonl" % h,
+         os.path.join(base, "experiments", h, "results.jsonl"))
+        for h in _experiment_names(base)]
+    for label, target in targets:
+        added, err = _oldest_adds(repo, target)
+        if err or not any(added.values()):
+            continue
+        answers = _answers(repo, firsts, added)
+        if False in answers.values():
+            errors.append("%s entered the history before the arena was locked: commit "
+                          "state.json's arena first, then the campaign's rows in later "
+                          "commits" % label)
+        elif None in answers.values():
+            _soft(errors, warnings, strict,
+                  "git could not order %s against the arena lock" % label)
+
+
+def _check_exploratory(repo, base, state, errors, warnings, strict, git):
+    """Every rules-7 rule over the campaign files: each row by its row type's one
+    judgement, a known prior art with no kill after it, the tournament's judging
+    warnings, the report's count of ideas tested, and with git the arena lock's
+    order and the three files left append-only."""
+    found = {name: _campaign_rows(os.path.join(base, name), name)
+             for name in CAMPAIGN_FILES}
+    for name in CAMPAIGN_FILES:
+        errors.extend(found[name][1])
+    held = []
+    for n, row in found[IDEAS_FILE][0]:
+        errors.extend("%s:%d %s" % (IDEAS_FILE, n, p)
+                      for p in idea_problems(row, state, held))
+        held.append(row)
+    ideas = {r.get("id"): r for r in held if _text(r.get("id"))}
+    matches = [row for _n, row in found[TOURNAMENT_FILE][0]]
+    evaluator = evaluator_problem(repo, state)
+    histories = {}
+    for n, row in found[STAGES_FILE][0]:
+        history = histories.setdefault(row.get("idea"), [])
+        errors.extend("%s:%d %s" % (STAGES_FILE, n, p) for p in stage_problems(
+            row, base, repo, state, ideas, list(history), matches, evaluator, git))
+        history.append(row)
+    for iid in sorted((i for i in histories if isinstance(i, str)), key=_idea_number):
+        last = histories[iid][-1]
+        if last.get("stage") == "prior-art" and _verdict(last) == "known":
+            errors.append("%s: %s's prior art is known and was not followed by killed: "
+                          "a known idea is killed in the same append (`stage ... "
+                          "prior-art --reason`)" % (STAGES_FILE, iid))
+    for n, row in found[TOURNAMENT_FILE][0]:
+        errors.extend("%s:%d %s" % (TOURNAMENT_FILE, n, p)
+                      for p in match_problems(row, ideas))
+    warnings.extend(_tournament_warnings(ideas, matches))
+    _check_tested(base, histories, warnings)
+    if git:
+        _check_arena_order(repo, base, state, errors, warnings, strict)
+        for name in CAMPAIGN_FILES:
+            path = os.path.join(base, name)
+            if os.path.isfile(path):
+                _check_append_only(repo, name, path, errors, warnings, True)
+
+
+def bradley_terry(ids, matches):
+    """{idea id: log strength} from the tournament rows, by the MM algorithm
+    (Hunter 2004). Each idea also holds one virtual tie against a fixed reference of
+    strength 1, so an idea that never won keeps a finite score. A tie is half a win
+    to each side. The counts are summed before any iteration and every sum runs in
+    id order, so the fit is the same under any order of the rows."""
+    ids = sorted(set(i for i in ids if _text(i)), key=_idea_number)
+    wins = {i: 0.5 for i in ids}
+    games = {}
+    for m in matches:
+        a, b, winner = m.get("a"), m.get("b"), m.get("winner")
+        if a not in wins or b not in wins or a == b or winner not in MATCH_WINNERS:
+            continue
+        for x, y in ((a, b), (b, a)):
+            games.setdefault(x, {})
+            games[x][y] = games[x].get(y, 0) + 1
+        if winner == "tie":
+            wins[a] += 0.5
+            wins[b] += 0.5
+        else:
+            wins[a if winner == "a" else b] += 1
+    opponents = {i: sorted(games.get(i, {}).items(), key=lambda kv: _idea_number(kv[0]))
+                 for i in ids}
+    strength = {i: 1.0 for i in ids}
+    for _round in range(10000):
+        new = {i: wins[i] / (1.0 / (strength[i] + 1.0) + sum(
+            n / (strength[i] + strength[j]) for j, n in opponents[i])) for i in ids}
+        moved = max((abs(math.log(new[i] / strength[i])) for i in ids), default=0.0)
+        strength = new
+        if moved < 1e-12:
+            break
+    return {i: round(math.log(strength[i]), 6) for i in ids}
+
+
+def _next_action(slug, iid, stage, history, record, arena):
+    """The one action an idea is owed next, as the command that does it."""
+    cmd = "tezgah-research stage %s %s" % (slug, iid)
+    if stage == "proposed":
+        return ("dedup (`tezgah-research dedup %s`), then `%s prior-art --evidence "
+                "'{\"verdict\": \"novel|incremental|known\", \"nearest\": [3 indexed "
+                "notes], \"delta\": \"<one sentence>\"}'`" % (slug, cmd))
+    if stage == "duplicate":
+        return "`%s killed --reason \"duplicate of %s\"`" % (
+            cmd, (history[-1].get("evidence") or {}).get("of", "?"))
+    if stage == "prior-art":
+        if record["judges"] >= 2 and record["orders"] >= 2:
+            return "`%s screened --evidence tournament.jsonl`" % cmd
+        return ("judge it: `tezgah-research match %s` (2+ judges of a family that "
+                "generated neither idea, both orders)" % slug)
+    if stage == "screened":
+        return ("pilot: commit experiments/<h>/protocol.md naming %s and its kill "
+                "criterion, run it, then `%s piloted --evidence <h>`" % (iid, cmd))
+    if stage == "piloted":
+        return ("full run under the arena's evaluator, then `%s promoted --evidence "
+                "<h>`, or `%s killed --reason \"...\"`" % (cmd, cmd))
+    if stage == "promoted":
+        if not _text(arena.get("evaluator")):
+            return "none: the arena has no evaluator - judged by review, never confirmed"
+        return ("confirm on a held-out set nothing looked at: log the look in "
+                "held_out_log.jsonl, run it, then `%s confirmed --evidence "
+                "'{\"experiment\": \"<h>\", \"set\": \"<set>\"}'`" % cmd)
+    if stage == "confirmed":
+        return "none: confirmed"
+    return "none: killed (%s)" % (history[-1].get("reason") if history else "")
+
+
+def board(repo, slug):
+    """The campaign as files show it: the arena, each file's rows and torn tail,
+    every idea's stage, Bradley-Terry score, match record and next action, the
+    number of ideas tested, and the campaign's next step. A report a fresh session
+    resumes from - nothing in it is stored anywhere else - and never a gate."""
+    base = line_dir(repo, slug)
+    state = _state(base)
+    arena = state.get("arena") if isinstance(state.get("arena"), dict) else {}
+    files, rows = {}, {}
+    for name in CAMPAIGN_FILES:
+        found, problems, fragment = _campaign_rows(os.path.join(base, name), name)
+        rows[name] = [row for _n, row in found]
+        files[name] = {"rows": len(found), "fragment": fragment, "problems": problems}
+    ideas = {r["id"]: r for r in rows[IDEAS_FILE] if _text(r.get("id"))}
+    histories = _stage_histories(rows[STAGES_FILE])
+    matches = [m for m in rows[TOURNAMENT_FILE]
+               if m.get("a") in ideas and m.get("b") in ideas and m.get("a") != m.get("b")]
+    scores = bradley_terry(list(ideas), matches)
+    entries = []
+    for iid, idea in ideas.items():
+        mine = [m for m in matches if iid in (m.get("a"), m.get("b"))]
+        side = lambda m: "a" if m.get("a") == iid else "b"  # noqa: E731
+        record = {"matches": len(mine),
+                  "wins": sum(1 for m in mine if m.get("winner") == side(m)),
+                  "ties": sum(1 for m in mine if m.get("winner") == "tie"),
+                  "judges": len({(_family(m.get("judge")),
+                                  str((m.get("judge") or {}).get("model"))) for m in mine}),
+                  "orders": len({m.get("order") for m in mine} & set(MATCH_ORDERS))}
+        history = histories.get(iid, [])
+        stage = _current(history)
+        entries.append(dict(record, id=iid, stage=stage, score=scores.get(iid, 0.0),
+                            operator=idea.get("operator"),
+                            family=_family(idea.get("generator")),
+                            next=_next_action(slug, iid, stage, history, record, arena)))
+    entries.sort(key=lambda e: (-e["score"], _idea_number(e["id"])))
+    for rank, entry in enumerate(entries, 1):
+        entry["rank"] = rank
+    counts = {s: sum(1 for e in entries if e["stage"] == s) for s in STAGES}
+    tested = {s: sum(1 for i in ideas if _reached(histories.get(i, []), s))
+              for s in ("piloted", "promoted", "confirmed")}
+    resume = ["%s ends in a %d-byte fragment a killed writer left: the next append "
+              "drops it, so re-run the append that crashed" % (name, files[name]["fragment"])
+              for name in CAMPAIGN_FILES if files[name]["fragment"]]
+    live = [e for e in entries if e["stage"] not in ("confirmed", "killed")]
+    live.sort(key=lambda e: (-STAGES.index(e["stage"]), -e["score"], _idea_number(e["id"])))
+    nxt = ("%s - %s" % (live[0]["id"], live[0]["next"]) if live else
+           ("record ideas: `tezgah-research idea %s`" % slug) if not ideas else
+           "nothing left: every idea is confirmed or killed - write the report")
+    evaluator = ("none (review only)" if not _text(arena.get("evaluator")) else
+                 "%s %s" % (arena["evaluator"], "changed" if evaluator_problem(repo, state)
+                            else "locked"))
+    return {"slug": slug, "arena": arena, "evaluator": evaluator, "files": files,
+            "stages": counts, "ideas": entries, "tested": tested, "resume": resume,
+            "next": nxt}
+
+
+def board_text(report):
+    """The lines `tezgah-research board` prints, from `board`'s report."""
+    arena = report["arena"]
+    out = ["board %s: %s" % (report["slug"], arena.get("problem") or "(no arena)"),
+           "budget: %s | evaluator: %s | metric: %s"
+           % (arena.get("budget") or "-", report["evaluator"], arena.get("metric") or "-"),
+           "files: " + ", ".join("%s %d row(s)" % (name, f["rows"])
+                                 for name, f in report["files"].items())]
+    out.extend("resume: %s" % line for line in report["resume"])
+    out.extend("problem: %s" % p for f in report["files"].values() for p in f["problems"])
+    out.append("stages: " + ", ".join("%s %d" % (s, n) for s, n in report["stages"].items()))
+    out.append("%-4s %-4s %-10s %8s %-9s %-18s %-8s %s"
+               % ("rank", "id", "stage", "score", "w-t-n", "operator", "family", "next"))
+    for e in report["ideas"]:
+        out.append("%-4d %-4s %-10s %+8.3f %-9s %-18s %-8s %s" % (
+            e["rank"], e["id"], e["stage"], e["score"],
+            "%d-%d-%d" % (e["wins"], e["ties"], e["matches"]), e["operator"] or "-",
+            e["family"] or "-", e["next"]))
+    tested = report["tested"]
+    out.append("tested: %d piloted, %d promoted, %d confirmed of %d idea(s) - the "
+               "score is a prior from judged matches, never a verdict"
+               % (tested["piloted"], tested["promoted"], tested["confirmed"],
+                  len(report["ideas"])))
+    out.append("next: %s" % report["next"])
+    return out
+
+
+def _embed_backend():
+    """("embed:<model>", reader) when the opt-in static embedding is selected and
+    pinned (`tezgah_embed.reader`), else None: the dedup then ranks by words."""
+    try:
+        import tezgah_apps
+        import tezgah_embed
+        model = tezgah_embed.reader()
+        if model is None:
+            return None
+        ident = next((i for i in tezgah_apps.selected_ids(tp.config().get("features"))
+                      if i in tezgah_embed.MODELS and tezgah_embed.valid(i)), "model")
+        return "embed:%s" % ident, model
+    except Exception:  # fail-open: BM25 below
+        return None
+
+
+def similarity_matrix(texts):
+    """(backend, matrix): every pair's similarity in 0..1, 1.0 on the diagonal. The
+    cosine of the static embedding when it is selected and pinned; else BM25 read
+    as a similarity - the mean of each text's score for the other over its score for
+    itself, over the corpus `texts` (`tezgah_rank.scores`)."""
+    n = len(texts)
+    found = _embed_backend()
+    if found is not None:
+        name, model = found
+        try:
+            import tezgah_embed
+            vecs = [model.embed(t) for t in texts]
+            return name, [[1.0 if i == j else max(0.0, min(1.0, tezgah_embed.cosine(
+                vecs[i], vecs[j]))) for j in range(n)] for i in range(n)]
+        except Exception:  # fail-open: BM25 below
+            pass
+    import tezgah_rank
+    raw = [tezgah_rank.scores(t, texts) for t in texts]
+    rel = [[raw[i][j] / raw[i][i] if raw[i][i] > 0 else 0.0 for j in range(n)]
+           for i in range(n)]
+    return "bm25", [[1.0 if i == j else max(0.0, min(1.0, (rel[i][j] + rel[j][i]) / 2))
+                     for j in range(n)] for i in range(n)]
+
+
+def dedup(repo, slug, threshold=None):
+    """The proposed ideas clustered by statement: single linkage at `threshold`
+    (None: the backend's calibrated one, `DEDUP_THRESHOLDS`, else Si et al.'s), each
+    cluster's representative its lowest id and every member's similarity to it.
+    Writes nothing; the report names the backend and where its threshold came from."""
+    base = line_dir(repo, slug)
+    stages = campaign_stages(base)
+    live = sorted((r for r in _rows_of(base, IDEAS_FILE)
+                   if _text(r.get("id")) and stages.get(r["id"]) == "proposed"),
+                  key=lambda r: _idea_number(r["id"]))
+    backend, matrix = similarity_matrix([str(r.get("statement") or "") for r in live])
+    source = "--threshold"
+    if threshold is None:
+        threshold = DEDUP_THRESHOLDS.get(backend, DEDUP_THRESHOLD)
+        source = ("calibrated for %s on 40 hand-labelled fixture pairs" % backend
+                  if backend in DEDUP_THRESHOLDS
+                  else "uncalibrated: Si et al.'s cosine 0.8 on MiniLM")
+    parent = list(range(len(live)))
+
+    def find(i):
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    for i in range(len(live)):
+        for j in range(i + 1, len(live)):
+            if matrix[i][j] >= threshold:
+                parent[max(find(i), find(j))] = min(find(i), find(j))
+    groups = {}
+    for i in range(len(live)):
+        groups.setdefault(find(i), []).append(i)
+    clusters = [{"members": [live[i]["id"] for i in members],
+                 "similarity": {live[i]["id"]: round(matrix[members[0]][i], 4)
+                                for i in members}}
+                for _root, members in sorted(groups.items())]
+    return {"backend": backend, "threshold": threshold, "threshold_source": source,
+            "ideas": len(live), "clusters": clusters}
+
+
+def dedup_text(report, slug):
+    out = ["dedup %s: %d proposed idea(s), backend: %s, threshold %.2f (%s)"
+           % (slug, report["ideas"], report["backend"], report["threshold"],
+              report["threshold_source"])]
+    for c in report["clusters"]:
+        if len(c["members"]) < 2:
+            continue
+        rep = c["members"][0]
+        out.append("cluster %s: %s" % (rep, ", ".join(
+            "%s (%.2f)" % (m, c["similarity"][m]) for m in c["members"][1:])))
+        out.extend("  tezgah-research stage %s %s duplicate --evidence '%s'"
+                   % (slug, m, json.dumps({"of": rep, "similarity": c["similarity"][m],
+                                           "backend": report["backend"]}))
+                   for m in c["members"][1:])
+    singles = sum(1 for c in report["clusters"] if len(c["members"]) == 1)
+    out.append("%d idea(s) stand alone; nothing was written" % singles)
+    return out
+
+
+def _ranks(values):
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2.0 + 1
+        i = j + 1
+    return ranks
+
+
+def spearman(pairs):
+    """Spearman's rho over (x, y) pairs with average ranks for ties; None below 3
+    pairs or when either side does not vary."""
+    if len(pairs) < 3:
+        return None
+    rx, ry = _ranks([p[0] for p in pairs]), _ranks([p[1] for p in pairs])
+    mx, my = sum(rx) / len(rx), sum(ry) / len(ry)
+    sxy = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    sxx = sum((a - mx) ** 2 for a in rx)
+    syy = sum((b - my) ** 2 for b in ry)
+    return round(sxy / math.sqrt(sxx * syy), 4) if sxx and syy else None
+
+
+def _pilot_outcome(history):
+    """An idea's result once piloted: 2 confirmed, 1 promoted, 0 killed after its
+    pilot; None before a pilot or while it is still at piloted."""
+    if not _reached(history, "piloted"):
+        return None
+    if _reached(history, "confirmed"):
+        return 2
+    if _reached(history, "promoted"):
+        return 1
+    return 0 if _reached(history, "killed") else None
+
+
+def operator_weights(operators):
+    """The next campaign's draw per operator: uniform while nothing was promoted,
+    then EXPLORE_SHARE spread evenly and the rest in proportion to each operator's
+    promoted / proposed. `user` is not a move a session draws."""
+    moves = [op for op in OPERATORS if op != "user"]
+    rates = {op: (operators.get(op, {}).get("promoted", 0)
+                  / operators[op]["proposed"]) if operators.get(op, {}).get("proposed")
+             else 0.0 for op in moves}
+    total = sum(rates.values())
+    if not total:
+        return {op: round(1.0 / len(moves), 4) for op in moves}
+    return {op: round(EXPLORE_SHARE / len(moves) + (1 - EXPLORE_SHARE) * rates[op] / total,
+                      4) for op in moves}
+
+
+def yield_report(repo, all_lines=False):
+    """Per operator and per generator family, how many ideas reached each stage;
+    the kill reasons; Spearman's rho between the board score and the pilot outcome;
+    and the next campaign's operator weights. The open exploratory lines, or every
+    one with `all_lines`. A report, never a gate."""
+    names = [s for s in slugs(repo) if (all_lines or not sealed(repo, s))
+             and _exploratory(line_state(repo, s))]
+    zero = {s: 0 for s in STAGES}
+    operators, families, reasons, pairs, total = {}, {}, {}, [], 0
+    for slug in names:
+        base = line_dir(repo, slug)
+        ideas = {r["id"]: r for r in _rows_of(base, IDEAS_FILE) if _text(r.get("id"))}
+        histories = _stage_histories(_rows_of(base, STAGES_FILE))
+        scores = bradley_terry(list(ideas), _rows_of(base, TOURNAMENT_FILE))
+        for iid, idea in sorted(ideas.items(), key=lambda kv: _idea_number(kv[0])):
+            total += 1
+            history = histories.get(iid, [])
+            for key, table in ((str(idea.get("operator")), operators),
+                               (_family(idea.get("generator")) or "(none)", families)):
+                bucket = table.setdefault(key, dict(zero))
+                for stage in STAGES:
+                    bucket[stage] += 1 if _reached(history, stage) else 0
+            kills = [r for r in history if r.get("stage") == "killed"]
+            if kills:
+                reason = str(kills[-1].get("reason") or "(none)").strip()
+                reasons[reason] = reasons.get(reason, 0) + 1
+            outcome = _pilot_outcome(history)
+            if outcome is not None:
+                pairs.append((scores.get(iid, 0.0), outcome))
+    return {"lines": names, "ideas": total, "operators": operators, "families": families,
+            "kill_reasons": reasons,
+            "spearman": {"n": len(pairs), "rho": spearman(pairs)},
+            "weights": operator_weights(operators)}
+
+
+def yield_text(report):
+    out = ["yield: %d exploratory line(s)%s, %d idea(s)"
+           % (len(report["lines"]), " (%s)" % ", ".join(report["lines"])
+              if report["lines"] else "", report["ideas"])]
+    head = "%-20s" + "".join(" %9s" % s for s in STAGES)
+    for title, table in (("operator", report["operators"]),
+                         ("generator family", report["families"])):
+        out.append(head % title)
+        for key in sorted(table):
+            out.append("%-20s" % key + "".join(" %9d" % table[key][s] for s in STAGES))
+    if report["kill_reasons"]:
+        out.append("kill reasons: " + "; ".join(
+            "%dx %s" % (n, r) for r, n in sorted(report["kill_reasons"].items(),
+                                                 key=lambda kv: (-kv[1], kv[0]))))
+    rho = report["spearman"]
+    out.append("board score vs pilot outcome: n=%d, Spearman rho %s"
+               % (rho["n"], "n too small or constant (needs 3 that vary)"
+                  if rho["rho"] is None else "%+.3f" % rho["rho"]))
+    out.append("next-campaign operator weights (%d%% kept uniform for exploration): %s"
+               % (EXPLORE_SHARE * 100, ", ".join("%s %.3f" % kv
+                                                for kv in report["weights"].items())))
     return out

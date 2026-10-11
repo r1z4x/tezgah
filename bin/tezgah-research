@@ -2,8 +2,10 @@
 """tezgah-research - the research workspace CLI.
 
   tezgah-research init <slug> --ask "<the user's words>" [--question "..."]
-                       [--method qualitative|measured] [--in "<covered>"]... [--out "<left alone>"]...
-                       [--allow-open "<why>"] [--supersedes <slug>]   scaffold a line
+                       [--method qualitative|measured|exploratory] [--in "<covered>"]...
+                       [--out "<left alone>"]... [--allow-open "<why>"] [--supersedes <slug>]
+                       [--arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<m>"]]
+                                                   scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
   tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
                                                    the discipline checks
@@ -27,6 +29,14 @@
                                                    bring lines from another checkout, with history
   tezgah-research next --topic <t> [--flow metric-dashboard|feature] [--json]
                                                    the product-flow steps of a topic and the next one
+  tezgah-research idea <slug>                      record one idea of an exploratory line from stdin
+  tezgah-research stage <slug> <idea> <stage> [--evidence "<ref or JSON>"] [--reason "<why>"]
+                                                   move an idea to its next stage
+  tezgah-research match <slug>                     record one judged tournament match from stdin
+  tezgah-research board <slug> [--json]            each idea's stage, score and next action
+  tezgah-research dedup <slug> [--threshold <0..1>] [--json]
+                                                   cluster the proposed ideas, write nothing
+  tezgah-research yield [--json] [--all-lines]     how far ideas got, per operator and family
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -95,6 +105,14 @@ without it is refused. `compare` appends one cell to
 `check` prints the same list of open lines after the per-line report, and so does
 `status`, so neither state has to be discovered by being refused.
 
+`init --method exploratory` (rules 7) opens a campaign instead of a question:
+`--arena` and `--budget` (and, for a measurable arena, `--evaluator` with its
+`--metric`, whose sha256 `init` records) are the lock committed before the
+first idea. `idea`, `stage` and `match` append the campaign's rows under the
+lock, each judged by the one function `check` applies to it; a `prior-art`
+stage whose verdict is `known` takes `--reason` and is killed in the same
+append. `board`, `dedup` and `yield` are reports: they write nothing and exit 0.
+
 Exit codes: 0 clean, 1 problems found - a broken line for `check`, a refused
 claim for `claim`, a refused row for `predict`, which writes nothing and prints
 one reason per problem, or a new line refused for `init` over unfinished ones - 2
@@ -145,6 +163,7 @@ def cmd_init(args):
                       "and dashes" % args[0])
     question, allow, supersedes = "", None, None
     ask, tier, method, scope_in, scope_out = "", str(tr.DEFAULT_TIER), "", [], []
+    arena = {}
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
@@ -164,11 +183,34 @@ def cmd_init(args):
             allow = rest.pop(0)
         elif flag == "--supersedes" and rest:
             supersedes = rest.pop(0)
+        elif flag in ("--arena", "--budget", "--evaluator", "--metric") and rest \
+                and flag not in arena:
+            arena[flag] = rest.pop(0)
         else:
             return misuse('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
-                          ' [--method qualitative|measured] [--in "<covered>"]...'
+                          ' [--method qualitative|measured|exploratory] [--in "<covered>"]...'
                           ' [--out "<left alone>"]... [--question "..."]'
-                          ' [--allow-open "<reason>"] [--supersedes <slug>]')
+                          ' [--allow-open "<reason>"] [--supersedes <slug>]'
+                          ' [--arena "<problem>" --budget "<budget>"'
+                          ' [--evaluator <path> --metric "<metric>"]]')
+    if method == "exploratory":
+        # The arena is the lock an exploratory line commits before its first idea,
+        # so a line without one is a call that cannot work, not a line to repair.
+        if not all(arena.get(f, "").strip() for f in ("--arena", "--budget")):
+            return misuse('--method exploratory needs --arena "<the problem, verbatim>" '
+                          'and --budget "<ideas, pilots, full runs, wall time>"')
+        if bool(arena.get("--evaluator", "").strip()) != bool(
+                arena.get("--metric", "").strip()):
+            return misuse("--evaluator and --metric go together: the file that scores a "
+                          "candidate and the number it returns")
+        evaluator = arena.get("--evaluator", "").strip()
+        if evaluator and (os.path.isabs(evaluator) or ".." in evaluator.split("/")
+                          or not os.path.isfile(os.path.join(repo_root(os.getcwd()),
+                                                             evaluator))):
+            return misuse("--evaluator %r is not a file under the repository" % evaluator)
+    elif arena:
+        return misuse("--arena, --budget, --evaluator and --metric belong to "
+                      "--method exploratory")
     problems = tr.ask_problems(ask, tier)
     if problems:
         for problem in problems:
@@ -211,9 +253,14 @@ def cmd_init(args):
               "init %s --supersedes %s" % (", ".join(twins), slug, twins[0]))
         return 1
     created = time.strftime("%Y-%m-%d")
+    record = None
+    if method == "exploratory":
+        record = tr.arena_record(repo, arena["--arena"], arena["--budget"],
+                                 arena.get("--evaluator", "").strip(),
+                                 arena.get("--metric", "").strip())
     made = tr.init(repo, slug, question=question, created=created,
                    supersedes=supersedes, ask=ask, tier=tier, method=method,
-                   scope_in=scope_in, scope_out=scope_out)
+                   scope_in=scope_in, scope_out=scope_out, arena=record)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -224,7 +271,14 @@ def cmd_init(args):
         print("  wrote %s" % path)
     for problem in tr.scope_problems(tr.line_state(repo, slug)):
         print("  owed: %s" % problem)
-    if method == "qualitative":
+    if method == "exploratory":
+        print("\nnext: commit the arena now, before any idea - `tezgah-research commit "
+              "%s \"arena\"`; an idea committed with it or before it is refused. Then "
+              "record ideas (`tezgah-research idea %s`, one JSON row on stdin, each "
+              "naming its operator, generator and kill result), commit them, and "
+              "follow `tezgah-research board %s`: dedup, prior art, matches, pilots, a "
+              "full run, a confirmation on unseen data." % (slug, slug, slug))
+    elif method == "qualitative":
         print("\nnext: read the primary sources for each state.json scope.in item "
               "(`orx discover`, `orx paper`), save each to literature/ as you read "
               "it, and record every claim with a `trace` naming the S<n> it answers "
@@ -589,6 +643,170 @@ def cmd_compare(args):
     return 0
 
 
+def _campaign_slug(args, usage, count=1):
+    """(repo, slug, None) for a campaign command's line, or (None, None, exit code)."""
+    if len(args) < count:
+        return None, None, misuse(usage)
+    repo = repo_root(os.getcwd())
+    known = tr.slugs(repo)
+    if args[0] not in known:
+        return None, None, misuse("no such research line (have: %s)"
+                                  % (", ".join(known) or "none"))
+    return repo, args[0], None
+
+
+def _stdin_row(what):
+    """(row, None) for the one JSON object on stdin, or (None, exit code)."""
+    try:
+        body = sys.stdin.buffer.read().decode("utf-8")
+        row = json.loads(body)
+    except (UnicodeDecodeError, ValueError):
+        return None, misuse("%s needs one JSON object on stdin" % what)
+    if not isinstance(row, dict):
+        return None, misuse("%s needs one JSON object on stdin" % what)
+    return row, None
+
+
+def _refused(slug, problems):
+    for problem in problems:
+        print("FAIL %s: %s" % (slug, problem))
+    return 1 if problems else 0
+
+
+def cmd_idea(args):
+    """Record one idea of an exploratory line from stdin (`append_idea`)."""
+    repo, slug, code = _campaign_slug(args, "idea <slug>")
+    if code is not None or len(args) != 1:
+        return code if code is not None else misuse("idea <slug>")
+    row, code = _stdin_row("idea")
+    if code is not None:
+        return code
+    try:
+        iid, problems = tr.append_idea(repo, slug, row)
+    except OSError as exc:
+        iid, problems = row.get("id"), ["cannot append to ideas.jsonl: %s" % exc]
+    if _refused(slug, problems):
+        return 1
+    print("idea %s recorded" % iid)
+    return 0
+
+
+def cmd_stage(args):
+    """Move one idea to a stage, with the evidence that stage takes (a path or a
+    JSON object) and the reason a kill - or a known prior art - owes."""
+    usage = ('stage <slug> <idea> <stage> [--evidence "<ref or JSON>"] '
+             '[--reason "<why>"]')
+    repo, slug, code = _campaign_slug(args, usage, 3)
+    if code is not None:
+        return code
+    row = {"idea": args[1], "stage": args[2]}
+    reason, rest = None, args[3:]
+    while rest:
+        flag = rest.pop(0)
+        if flag == "--evidence" and rest and "evidence" not in row:
+            text = rest.pop(0)
+            try:
+                row["evidence"] = json.loads(text) if text.lstrip()[:1] in "{[" \
+                    and text.strip() else text
+            except ValueError:
+                return misuse("--evidence starts like JSON and does not parse")
+        elif flag == "--reason" and rest and reason is None:
+            reason = rest.pop(0)
+        else:
+            return misuse(usage)
+    row["date"] = time.strftime("%Y-%m-%d")
+    kill_reason = None
+    if row["stage"] == "killed":
+        row["reason"] = reason
+    else:
+        kill_reason = reason
+    try:
+        problems = tr.append_stage(repo, slug, {k: v for k, v in row.items()
+                                                if v is not None}, kill_reason)
+    except OSError as exc:
+        problems = ["cannot append to stages.jsonl: %s" % exc]
+    if _refused(slug, problems):
+        return 1
+    print("%s: %s recorded%s" % (row["idea"], row["stage"],
+                                 " and killed (%s)" % kill_reason
+                                 if kill_reason and row["stage"] == "prior-art" else ""))
+    return 0
+
+
+def cmd_match(args):
+    """Record one judged tournament match from stdin (`append_match`)."""
+    repo, slug, code = _campaign_slug(args, "match <slug>")
+    if code is not None or len(args) != 1:
+        return code if code is not None else misuse("match <slug>")
+    row, code = _stdin_row("match")
+    if code is not None:
+        return code
+    try:
+        problems = tr.append_match(repo, slug, row)
+    except OSError as exc:
+        problems = ["cannot append to tournament.jsonl: %s" % exc]
+    if _refused(slug, problems):
+        return 1
+    print("match %s v %s recorded" % (row.get("a"), row.get("b")))
+    return 0
+
+
+def cmd_board(args):
+    """The campaign's board: a report a fresh session resumes from, exit 0."""
+    flags = [a for a in args if a != "--json"]
+    repo, slug, code = _campaign_slug(flags, "board <slug> [--json]")
+    if code is not None or len(flags) != 1:
+        return code if code is not None else misuse("board <slug> [--json]")
+    report = tr.board(repo, slug)
+    if "--json" in args:
+        print(json.dumps(report, indent=2))
+        return 0
+    for line in tr.board_text(report):
+        print(line)
+    return 0
+
+
+def cmd_dedup(args):
+    """Cluster the proposed ideas by statement; writes nothing, exit 0."""
+    usage = "dedup <slug> [--threshold <0..1>] [--json]"
+    rest, threshold, as_json = list(args), None, False
+    if "--json" in rest:
+        rest.remove("--json")
+        as_json = True
+    if "--threshold" in rest:
+        i = rest.index("--threshold")
+        try:
+            threshold = float(rest[i + 1])
+        except (IndexError, ValueError):
+            return misuse(usage)
+        if not 0 < threshold <= 1:
+            return misuse("--threshold is a similarity in (0, 1]")
+        rest = rest[:i] + rest[i + 2:]
+    repo, slug, code = _campaign_slug(rest, usage)
+    if code is not None or len(rest) != 1:
+        return code if code is not None else misuse(usage)
+    report = tr.dedup(repo, slug, threshold)
+    if as_json:
+        print(json.dumps(report, indent=2))
+        return 0
+    for line in tr.dedup_text(report, slug):
+        print(line)
+    return 0
+
+
+def cmd_yield(args):
+    """Per operator and generator family, how far the ideas got; exit 0."""
+    if [a for a in args if a not in ("--json", "--all-lines")]:
+        return misuse("yield [--json] [--all-lines]")
+    report = tr.yield_report(repo_root(os.getcwd()), all_lines="--all-lines" in args)
+    if "--json" in args:
+        print(json.dumps(report, indent=2))
+        return 0
+    for line in tr.yield_text(report):
+        print(line)
+    return 0
+
+
 def cmd_next(args):
     """The product-flow steps of one topic with their status, then the first
     missing or due step's skill and command; a report, so exit 0."""
@@ -830,9 +1048,13 @@ def main(argv):
         return cmd_seal(rest)
     if cmd == "import":
         return cmd_import(rest)
+    campaign = {"idea": cmd_idea, "stage": cmd_stage, "match": cmd_match,
+                "board": cmd_board, "dedup": cmd_dedup, "yield": cmd_yield}
+    if cmd in campaign:
+        return campaign[cmd](rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
                   "components, migrate, source, compare, verdict, conclude, migrate-layout, "
-                  "close, seal, import, next)" % cmd)
+                  "close, seal, import, next, idea, stage, match, board, dedup, yield)" % cmd)
 
 
 if __name__ == "__main__":

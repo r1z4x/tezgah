@@ -732,6 +732,15 @@ vendor's own documentation - each finding citing the source it rests on and
 stating its confidence (high, medium or low, and why); a summary of summaries is
 not an answer.
 
+**New ideas are an exploratory line.** When the user asks for new ideas, methods
+or approaches rather than an answer, open `tezgah-research init --method
+exploratory` with its arena - `--arena` (the problem, verbatim), `--in`, `--out`,
+`--budget`, and `--evaluator` with `--metric` when a number can judge a candidate -
+committed before the first idea; every other line keeps the question lock above.
+Ideas, stage moves and judged matches are rows (`idea`, `stage`, `match`), a
+ranking is a prior and never a verdict, and `tezgah-research board <slug>` names
+each idea's next step.
+
 When the task is research and the OpenResearch CLI is installed, drive it
 through that CLI instead of ad-hoc local scripting. Resolve it as `orx` on PATH,
 else `~/.cargo/bin/orx` (the installer's location, which a non-interactive shell
