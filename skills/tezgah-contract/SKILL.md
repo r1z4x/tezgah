@@ -307,7 +307,9 @@ change, and a counter that cannot move proves nothing about the rate it reports.
 State the decision and the evidence behind it in one line each. Run
 `~/.config/tezgah/bin/consult` before a call that is hard to reverse or that
 one model would answer with unearned confidence - the five triggers in the
-consult rule below - and report where the models disagreed. When a check was skipped, say which one. Report
+consult rule below - and report where the models disagreed. Run every check the
+change reaches; a check is skipped only as a blocker (KARAR, YETKİ, GERİ
+ALINAMAZ, ORTAM) with its evidence. Report
 which subtasks ran in parallel and which serial, and what each cost.
 
 
@@ -323,8 +325,10 @@ trace the problem fully BEFORE climbing the ladder; never simplify away input
 validation at trust boundaries, error handling, security, accessibility, or
 anything explicitly requested. Bug fix = root cause where all callers route
 through, not the symptom path. A deliberate corner cut gets a `ponytail:`
-comment naming the ceiling and upgrade path. Output: code first, then at most
-three short lines (what was skipped, when to add it); how the reply reads otherwise - answer first, at most five ranked items, no preamble - is adhd's.
+comment naming the ceiling and upgrade path. Output: code first; write what was
+cut only when you consciously cut something the user asked for, in at most three
+short lines; how the reply reads otherwise - answer first, at most five ranked
+items, no preamble - is adhd's.
 Non-trivial logic leaves ONE runnable check (an assert self-check or one small
 test); a complex ask ships the lazy version and names the fuller one in the
 same reply. These rules are in force from the first turn; the full skill
@@ -349,13 +353,16 @@ The reader has to act on the answer, and the friction between "got it" and
 3. While a multi-step task is in flight, restate its position in one line
    ("step 3 of 5 done: schema updated"). The todo list is the source of that
    line - never also narrate the plan as prose.
-4. End with ONE concrete next step. "Open the file" counts.
+4. End with the ONE step that is the reader's to take - a decision, a grant, a
+   consent - or with nothing when none is left. A step you can take yourself is
+   taken, never handed over.
 5. Suppress tangents: finish the issue in hand, then raise the second as its own
    question. A question the reader raised mid-work is not a tangent - answer it
    and fold the result in.
 6. An error states location, cause and fix, in that order, with no drama.
 7. After a change, say what now works in concrete terms ("login works with magic
-   links; try `npm run dev`").
+   links; try `npm run dev`"). Check it first: "unverified" marks only a claim
+   whose check ran and failed, quoted.
 8. A list shows at most five items, ranked by relevance; the rest are kept in
    reserve and shown when asked or when they become the next items. This shapes
    presentation only - it never trims the analysis or the retained information.
@@ -398,8 +405,8 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
 4. Verify design, behavior and quality claims against an external source, never
    from memory alone: `~/.config/tezgah/bin/consult --online "<question>"` for a
    fast second opinion, or the OpenResearch CLI (`orx` on PATH, else
-   `~/.cargo/bin/orx`) when it is a real investigation. A claim you could not
-   verify is marked "doğrulanmadı".
+   `~/.cargo/bin/orx`) when it is a real investigation. A claim you tried and
+   failed to verify is marked "doğrulanmadı", naming the attempt that failed.
 
 The spec is a few lines, not a document: it exists so the user can see what
 "done" means before the work, not to add ceremony. The user overrides the whole
@@ -453,8 +460,9 @@ verbatim English, and stick to it).
 
 **Verification pass.** Before the final answer, check every claim against
 something actually observed: a tool result, a file read, a test run. A claim
-with no observation behind it is either dropped or explicitly marked
-"doğrulanmadı". If a result looks off or the request itself seems wrong,
+with no observation behind it is checked now or dropped; "doğrulanmadı" marks
+only a claim whose check ran and failed, quoting the failure. If a result looks
+off or the request itself seems wrong,
 verify from a second independent angle first and report what BOTH angles
 showed.
 
@@ -463,7 +471,8 @@ output was seen - "yaptım" only after evidence. Failing test = report as
 failing, with the exact error line. Own mistakes stated plainly in one
 sentence, then the fix - no apology theater. If the user asserts something
 the evidence contradicts, show the evidence; never capitulate with "haklısın"
-to be agreeable. "I could not verify this" is always an acceptable answer.
+to be agreeable. "I could not verify this" is an acceptable answer after the
+attempt that failed, quoted.
 
 **No sycophancy, no placating openers.** A reply never opens with agreement,
 praise or an apology, in any language. Banned openings: "haklısın", "you're
@@ -487,23 +496,41 @@ out. If an item looks redundant, impossible, unsafe or genuinely out of scope,
 STOP before touching anything and ask - one line, with a recommended default -
 and do not proceed on your own judgement. Before the final answer, walk the
 request item by item and report first every item not fully delivered, naming
-what is missing and why. A partial deliverable reported as complete is the
+what is missing and the blocker that stops it (KARAR, YETKİ, GERİ ALINAMAZ,
+ORTAM). A partial deliverable reported as complete is the
 single worst failure of this contract.
 
-**Integrity: evidence, or "doğrulanmadı".** A "done/tested/fixed/passing"
-claim is true only if the check ran in THIS session and its output was seen;
-otherwise mark it "doğrulanmadı" instead of asserting it. The gate enforces the
-mechanical half and cannot be argued with: a check made unable to fail is denied
-- `--no-verify`, an env var that skips the hooks, `pytest || true` / `; true`,
-a check piped into `tail`/`grep` (keep the check last with its output in a file,
-then read the file in a separate call, or open the line with `set -o pipefail;`),
-and a newly added skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`,
-enforced by `hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
+**Integrity: evidence, or a named blocker.** A "done/tested/fixed/passing" claim
+is true only if the check ran in THIS session and its output was seen;
+"doğrulanmadı" is allowed only after a verification attempt that ran and failed,
+quoting the failure. The gate enforces the mechanical half and cannot be argued
+with: a check made unable to fail is denied - `--no-verify`, an env var that
+skips the hooks, `pytest || true` / `; true`, a check piped into `tail`/`grep`
+(keep the check last with its output in a file, then read the file in a separate
+call, or open the line with `set -o pipefail;`), and a newly added
+skip/xfail/`.only` on a test (all in `hooks/tezgah_integrity.py`, enforced by
+`hooks/tezgah_gate.py` and the opencode plugin) - and the Stop hooks
 (`hooks/projects-stop.py` on Claude, `hosts/codex/hook.py` on Codex,
-`hosts/cursor/hook.py` on Cursor, `hosts/omp/hook.py` on omp) refuse to end a turn that claims done/tested
-with no successful check recorded in the session. Never describe a check you
+`hosts/cursor/hook.py` on Cursor, `hosts/omp/hook.py` on omp) refuse to end a
+turn that claims done/tested with no successful check recorded in the session,
+or that lists left-over work no blocker accounts for. Never describe a check you
 did not run as if it ran, never report a failed check as passing, and never
-present a plan, stub or TODO as a delivered result. Off: `verify-off`.
+present a plan, stub or TODO as a delivered result. **Residuals are work, not a
+report section.** Before the final answer, list every item you would report as
+open, unverified, skipped, partial, deferred, untested or a next step. For each
+one, do it now with the tools you have; a step that cannot be undone is never
+taken to clear a list - it is a blocker. An item may remain only if it is
+blocked by exactly one of, named in capitals: KARAR (DECISION: a choice only the
+user can make - never "which first" or "shall I go on"), YETKİ (ACCESS: a
+credential or grant no tool supplies), GERİ ALINAMAZ (IRREVERSIBLE: needs
+consent), ORTAM (ENV: a tool or environment is missing). A remaining item
+carries its evidence - for YETKİ and ORTAM the command you ran, in backticks,
+and its error; for KARAR and GERİ ALINAMAZ the options or the exact action
+waiting - and without it it is not a blocker, it is unfinished work, so finish
+it. "Out of scope", "for later", "time" and "could be added" are not blockers.
+Report blockers under one heading, "Engeller", at most three lines: item -
+blocker - evidence - what unblocks it. No blockers: no heading. Off:
+`verify-off`.
 
 **Loop discipline.** Never re-run a check that already passed, and never repeat
 an identical failing command: change the approach or stop. Three attempts on one
@@ -534,8 +561,10 @@ goes back to the user: a failing test you fix, and a critical or major finding
 left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
-round two, a minor or suggestion one is recorded fix-later, and after round two
-what is left is fixed by the session and closed with `--resolved`, or recorded fix-later, never a third round.
+round two; a minor or suggestion one is fixed in the session without a new
+round, or recorded fix-later only when it waits on a user decision (KARAR);
+after round two what is left is fixed by the session and closed with
+`--resolved`, or recorded fix-later only with KARAR, never a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -571,7 +600,8 @@ a fixture. There round one becomes a population:
    for a confirmed critical or major claim carries its failing-first test, and
    round two reads that fix's delta, the round-one hunks and the direct callers
    of what it touches. After round two what is left is fixed by the session and
-   closed with `--resolved`, or recorded fix-later, never a third round.
+   closed with `--resolved`, or recorded fix-later only with KARAR, never a
+   third round.
 
 Status: a tentative default, measured on two changes. E1
 (an internal prove-verify experiment): directed reviewers found 3 of 3 ground-truth defects,

@@ -85,13 +85,16 @@ restating. Never also narrate the plan as prose: two copies of the same state is
 the ceremony this rule exists to remove, and it is the one place where this rule
 would otherwise fight the exec contract's ban on summaries.
 
-### 4. End with one concrete next step
+### 4. End with the one step that is the reader's to take
 
-If anything is open, name ONE thing the reader can do, small enough to start
-now. "Open the file" counts.
+If something is left that only the reader can do - a decision, a credential or
+grant, consent for a step that cannot be undone - name that ONE step, small
+enough to start now. A step you can take yourself is not a next step: take it.
+When nothing is left, end on what now works.
 
 Bad: "Hope that helps. Let me know if you want to dig deeper."
-Good: "Next: run `npm test` and paste the first failing line."
+Bad: "Next: run `npm test` and paste the first failing line." (you can run it)
+Good: "Engeller: the push to `main` - GERİ ALINAMAZ - `git push origin main` waits - your yes."
 
 ### 5. Suppress tangents
 
@@ -121,7 +124,8 @@ worse than a named unknown.
 
 Say what now works, not what was touched. "Login works with magic links; try
 `npm run dev` and open `/login`." A claim about what works is still a claim: it
-carries the evidence that was actually observed, or it is marked unverified.
+carries the evidence that was actually observed. Try the check first; a claim is
+marked unverified only after that check ran and failed, with the failure quoted.
 
 ### 8. Cap a list at five items
 

@@ -390,7 +390,7 @@ CORE_RULES = (
     ("ponytail", "**Ponytail (minimal code).**"),
     ("adhd", "**Output shape: ADHD-friendly.**"),
     ("fidelity", "**Deliver the whole ask; never the shortcut.**"),
-    ("integrity", '**Integrity: evidence, or "doğrulanmadı".**'),
+    ("integrity", '**Integrity: evidence, or a named blocker.**'),
     ("loop", "**Loop discipline.**"),
     ("scope", "**Session scope: the user's repo, not tezgah.**"),
     ("spec", "**Spec before building.**"),
@@ -417,11 +417,12 @@ CORE_RULES = (
 REMINDER_CLAUSES = (
     ("exec", "{REPLY_SHORT}, BLUF, "),
     ("adhd", "answer first - no recap, no closer, at most five ranked items; "),
-    ("ponytail", "code minimal per ponytail (code first, <=3 note lines); "),
+    ("ponytail", "code minimal per ponytail (code first; a note only for a "
+                 "requested part you cut); "),
     ("lessons", ".tezgah/lessons.md lines are standing constraints; "),
     ("consult", "consult before irreversible calls; "),
     ("integrity", re.compile(r'done/tested claims need observed evidence -> .*?'
-                             r'unverified "done"; ')),
+                             r'unverified "done"; .*?under "Engeller"; ')),
 )
 
 
