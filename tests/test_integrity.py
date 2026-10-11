@@ -3568,6 +3568,36 @@ class AskPolicy(unittest.TestCase):
                      "Öneri: evet.\n1. Başlayayım mı?"):
             self.assertIsNone(ti.needless_ask(text, self.NONE), text)
 
+    def test_an_ungranted_outward_question_waits_and_a_granted_one_does_not(self):
+        # review round 1: a process shape around an outward step is the one
+        # question the policy asks; only a grant for every class it names
+        # makes it needless
+        for text in ("Branch'i push edip PR açayım mı?", "Should I go ahead and push?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+        self.assertTrue(ti.needless_ask("Should I go ahead and push?", lambda: {"push"}))
+        self.assertIsNone(ti.needless_ask("Branch'i push edip PR açayım mı?",
+                                          lambda: {"push"}))
+        self.assertTrue(ti.needless_ask("Branch'i push edip PR açayım mı?",
+                                        lambda: {"push", "pr"}))
+
+    def test_a_forbidding_complaining_or_asking_sentence_grants_nothing(self):
+        # review round 1: the grant shape alone granted these; the polarity of
+        # the sentence around it decides, and a negated outward step lifts
+        import tezgah_context as tc
+        for text in ("bana sormadan hiçbir şey yapma", "bana sormadan main'e push etme",
+                     "bana sormadan pushlama", "sormadan yayınlama",
+                     "neden bana sormadan pushladın?", "Don't do anything without asking me",
+                     "Never tag without asking me", "bana sormadan pushlayayım mı?"):
+            self.assertEqual([t for _c, t in tc.user_grants(text)
+                              if not t.startswith("lift:")], [], text)
+        for text in ("Don't push.", "şimdilik push yapma", "bana sormadan pushlama"):
+            self.assertIn("lift:push", [t for _c, t in tc.user_grants(text)], text)
+        self.assertEqual([t for _c, t in tc.user_grants("Don't ask me again, just push.")],
+                         ["push"])
+        for text in ("he wrote 'bana sormadan pushla' there", "‘bana sormadan pushla’",
+                     "«bana sormadan pushla»"):
+            self.assertEqual(tc.user_grants(text), [], text)
+
     def test_a_granted_outward_step_is_not_asked_again(self):
         asked = "`main`'i push edeyim mi?"
         self.assertIsNone(ti.needless_ask(asked, self.NONE))

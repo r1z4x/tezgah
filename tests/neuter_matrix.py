@@ -52,6 +52,7 @@ INTEGRITY = "hooks/tezgah_integrity.py"
 GATE = "hooks/tezgah_gate.py"
 TASK = "hooks/tezgah_task.py"
 PLUGIN = "hosts/opencode/plugins/tezgah.js"
+CONTEXT = "hooks/tezgah_context.py"
 MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
            "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
            "test_omp_hook.py", "test_stop_after_block.py")
@@ -345,8 +346,27 @@ MUTANTS = (
               "False or DEFAULT_MARK.search("),
      "a never-default step (a spend over the cap) is asked, not refused"),
     ("needless-granted", INTEGRITY,
-     anchored("outward_classes(low) & set(granted())", "set()"),
+     anchored("return last if outward <= set(granted()) else None",
+              "return None"),
      "a question about a granted outward step is a needless ask"),
+    ("needless-process", INTEGRITY,
+     anchored("    if PROCESS_ASK.search(low):\n", "    if False:\n"),
+     "a process question at the end is a needless ask"),
+    ("needless-wired", INTEGRITY,
+     anchored("    asked = needless_ask(text, lambda: grants_in_force(session_id))\n",
+              "    asked = None\n"),
+     "the needless-ask class is asked at the Stop exit"),
+    ("grant-polarity", CONTEXT,
+     anchored("        if not lift and (text[stop:stop + 1] == \"?\" or GRANT_NOT.search(",
+              "        if False and (text[stop:stop + 1] == \"?\" or GRANT_NOT.search("),
+     "a sentence that forbids, complains or asks grants nothing"),
+    ("grant-lift", CONTEXT,
+     anchored("            out.append((clause, (\"lift:\" if lift else \"\") + cls))",
+              "            out.append((clause, cls))"),
+     "a lift shape lifts, it never grants"),
+    ("ask-granted", GATE,
+     anchored("    if granted and not never_default(text):", "    if False:"),
+     "an ask about a granted step is named as granted"),
     ("decision-options", INTEGRITY,
      anchored("IRREVERSIBLE_SAID.search(said) or OPTIONS_MARK.search(_tr_lower(said))",
               "True"),

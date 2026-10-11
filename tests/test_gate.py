@@ -3070,6 +3070,17 @@ class AskAdvice(TempHome):
         with open(support.OMP_EXTENSION, encoding="utf-8") as fh:
             self.assertRegex(fh.read(), r'const GATED = \[[^\]]*"ask"\]')
 
+    def test_a_subagent_prompt_grants_nothing(self):
+        # review round 1: a task prompt is the parent's brief, not the user
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"prompt": "bana sormadan pushla",
+                                          "session_id": "sub", "subagent": True}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r for r in self.rows("sub") if r.get("kind") == "grant"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

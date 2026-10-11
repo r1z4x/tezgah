@@ -1725,7 +1725,9 @@ def _shape(m):
 # log alone matched six clauses of another agent's reasoning. ponytail: a long
 # prompt the user did write loses its constraints - the cost of a length rule.
 CONSTRAINT_PROMPT_MAX = 12000
+# Single quotes count only off a word ("main'e" is no quote), with ‘…’ and «…».
 QUOTED = re.compile(r"```.*?```|`[^`\n]*`|\"[^\"\n]{0,200}\"|“[^”\n]{0,200}”"
+                    r"|(?<!\w)'[^'\n]{1,200}'(?!\w)|‘[^’\n]{0,200}’|«[^»\n]{0,200}»"
                     r"|^\s*>.*$", re.S | re.M)
 SENTENCE_END = re.compile(r"[.!?;:](?=\s|$)|\n")
 NEEDLE_STOP = frozenset(w for p in packs().values() for w in p["needle_stop"])
@@ -1771,28 +1773,43 @@ def user_constraints(prompt):
 # asks, it never licenses a force push, a delete or a spend over the cap.
 GRANT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "grant"))
 LIFT_SHAPES = re.compile(r"(?i)\b(?:%s)" % alts("constraint", "lift"))
+# A grant shape in a sentence that forbids, complains or asks is no grant:
+# "bana sormadan hiçbir şey yapma", "neden bana sormadan pushladın?", "Never
+# tag without asking me". Read on the sentence with the grant shape itself
+# blanked, so "don't ask me again" stays a grant. ponytail: a Turkish noun
+# ending in -ma/-me ("yapılandırma") also reads as a prohibition - a missed
+# grant costs one question, a false one an unasked push.
+GRANT_NOT = re.compile(r"(?i)(?:%s)|\b(?:%s)\b" % (alts("constraint", "grant_not"),
+                                                  alts("question_particle")))
 
 
 def user_grants(prompt):
     """[(clause, target)] for every grant and lift a prompt issues, in order:
     `target` is an OUTWARD class or `all`, `lift:` before it for a lift. A
     sentence is read whole for the class it names, since a Turkish grant often
-    names the step before "sormadan". Pasted material and an over-long prompt
-    are skipped as `user_constraints` skips them."""
+    names the step before "sormadan"; a grant in a sentence that ends in "?" or
+    carries a GRANT_NOT word is none, and a lift shape inside a grant shape
+    ("don't ask me again") is the grant's. Pasted material and an over-long
+    prompt are skipped as `user_constraints` skips them."""
     text = prompt or ""
     if len(text) > CONSTRAINT_PROMPT_MAX:
         return []
     quoted = [q.span() for q in QUOTED.finditer(text)]
-    found = []
-    for lift, shapes in ((False, GRANT_SHAPES), (True, LIFT_SHAPES)):
-        for m in shapes.finditer(text):
-            if not any(a <= m.start() < b for a, b in quoted):
-                found.append((m.start(), lift))
+    grants = [m.span() for m in GRANT_SHAPES.finditer(text)]
+    found = [(a, b, False) for a, b in grants]
+    found += [(m.start(), m.end(), True) for m in LIFT_SHAPES.finditer(text)
+              if not any(a <= m.start() < b for a, b in grants)]
     out = []
-    for at, lift in sorted(found):
+    for at, to, lift in sorted(found):
+        if any(a <= at < b for a, b in quoted):
+            continue
         start = max((e.end() for e in SENTENCE_END.finditer(text, 0, at)), default=0)
-        end = SENTENCE_END.search(text, at)
-        sentence = " ".join(text[start:end.start() if end else len(text)].split())
+        end = SENTENCE_END.search(text, to)
+        stop = end.start() if end else len(text)
+        if not lift and (text[stop:stop + 1] == "?" or GRANT_NOT.search(
+                text[start:at] + " " + text[to:stop])):
+            continue
+        sentence = " ".join(text[start:stop].split())
         clause = cut(redact(sentence.strip("-*• ")), CONSTRAINT_CHARS)
         for cls in sorted(outward_classes(sentence)) or ["all"]:
             out.append((clause, ("lift:" if lift else "") + cls))
@@ -1950,8 +1967,10 @@ def context_for(event, cwd, payload=None, with_core=True):
         gate = gate_inactive(session_id, payload)
         # The user's grants and lifts (`user_grants`), before the reminder
         # switch too: the Stop rule reads them whether or not this turn's text
-        # is shown.
-        for clause, target in user_grants(prompt):
+        # is shown. A subagent's prompt is its parent's brief, never the
+        # user's grant (omp's bridge sends `subagent`).
+        for clause, target in ([] if isinstance(payload, dict) and payload.get("subagent")
+                               else user_grants(prompt)):
             note(session_id, GRANT_KIND, clause, target=target)
         # per-turn nudge: openers decay over long sessions. Kept short because
         # it is paid every turn, and on Claude the output style already carries

@@ -193,7 +193,11 @@
    "without asking(?: me)?|no need to ask|(?:you have|you've got) my (?:approval|permission|go-ahead)|\\bi approve\\b|(?:you are|you're) (?:approved|cleared|authori[sz]ed) to|go ahead and (?:push|release|publish|tag|open)\\w*|don'?t ask (?:me )?(?:again|for (?:approval|permission))"
   ],
   "lift": [
-   "ask (?:me )?(?:again|first from now on)|from now on,? ask (?:me )?(?:first|before)|(?:revoke|withdraw)\\w* (?:my |the )?(?:approval|permission|grant)"
+   "ask (?:me )?(?:again|first from now on)|from now on,? ask (?:me )?(?:first|before)|(?:revoke|withdraw)\\w* (?:my |the )?(?:approval|permission|grant)",
+   "(?:don'?t|do not|stop|hold off(?: on)?|never)\\s+(?:\\w+\\s+){0,2}?(?:push|release|publish|tag|deploy|open (?:a |the )?pr)\\w*"
+  ],
+  "grant_not": [
+   "\\b(?:don'?t|do not|never|stop|didn'?t|did not|why did you)\\b"
   ]
  },
  "ask": {
@@ -309,6 +313,7 @@
   "ready_lead": "",
   "ask_lead": "",
   "approval_heading": "Approval questions",
-  "recommended": "Recommended"
+  "recommended": "Recommended",
+  "grant_examples": "\"push without asking\", \"I approve\""
  }
 }

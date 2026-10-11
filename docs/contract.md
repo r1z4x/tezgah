@@ -151,8 +151,12 @@ step without asking again. The shapes live in each language pack's
 reads the whole sentence for the class it names: `push`, `release`, `publish`,
 `pr`, or `all` when it names none. Each prompt's grants land as `grant` rows in
 the session's ledger. They come before the reminder switch, so `reminder-off`
-keeps them. A `constraint.lift` shape ("artık bana sor", "ask me again") lifts
-them. So does a later constraint that names the class, such as "don't push".
+keeps them. A `constraint.lift` shape ("artık bana sor", "ask me again",
+"Don't push.", "şimdilik push yapma") lifts them. So does a later constraint that
+names the class. A grant shape grants nothing in a sentence that ends in "?" or
+carries a pack's `constraint.grant_not` word: a prohibition ("yapma", "don't"), a
+complaint ("pushladın", "why did you") or a question particle
+(`hooks/tezgah_context.py::GRANT_NOT`). Quoted text and a subagent's prompt grant nothing.
 `grants_in_force` (`hooks/tezgah_integrity.py::grants_in_force`) folds the rows
 oldest first. The Stop rule's `needless ask` class and the ask-tool warning read
 that fold. A grant never covers a never-default step: a force push, a delete, a

@@ -507,7 +507,8 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    over `spend_cap`. The class then refuses a process question: the packs' `ask.process`
    shapes, such as "Başlayayım mı?", "shall I proceed?" and "which first?"
    (`hooks/tezgah_integrity.py::PROCESS_ASK`). It also refuses a question about an outward
-   step the user granted this session (`hooks/tezgah_integrity.py::grants_in_force`). The
+   step the user granted this session (`hooks/tezgah_integrity.py::grants_in_force`). A question
+   about an outward step the user has not granted is the one the policy asks, so it passes. The
    refusal says to take the step, or to move it into the approval batch with a default. Under
    `tr` it opens with "Bu soruyu sorma". `_residual_block` asks it after `residual work` and
    before `ready steps` (`hooks/tezgah_integrity.py::needless_ask`). Unlike those two, it needs

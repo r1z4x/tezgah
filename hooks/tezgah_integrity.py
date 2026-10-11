@@ -5883,9 +5883,10 @@ NEEDLESS_ASK = (
     "Work and process steps - the order, \"shall I go on\", a check, a local "
     "merge, a run parameter within the standing spend cap - are taken and "
     "stated in one line, and an outward step the user granted this session is "
-    "taken, not asked again. Do it now, or, when only the user can decide "
-    "it, put it under a \"{APPROVAL_HEADING}\" heading with a "
-    "\"{RECOMMENDED}:\" default and proceed on that default.")
+    "taken, not asked again. An outward step the user has not granted waits "
+    "for the answer and never proceeds on a default. Do it now, or, when only "
+    "the user can decide it, put it under a \"{APPROVAL_HEADING}\" heading with "
+    "a \"{RECOMMENDED}:\" default and proceed on that default.")
 
 
 def outward_classes(text):
@@ -5934,9 +5935,11 @@ def needless_ask(text, granted=frozenset):
 
     The last line asks (QUESTION_END), its paragraph carries no recommended
     default (DEFAULT_MARK) and it names no class-F step (`never_default`); it
-    is then needless when it asks a process question (PROCESS_ASK), or about an
-    outward step the user already granted (`granted()`, called only then, so a
-    reply that ends on no question reads no ledger)."""
+    is then needless when it names an outward step (OUTWARD) the user granted
+    this session, every one it names (`granted()`, called only then, so a reply
+    that ends on no question reads no ledger), or, naming none, when it asks a
+    process question (PROCESS_ASK). A question about an ungranted outward step
+    is the one the policy asks: "push edip PR açayım mı?" waits."""
     t = str(text or "").strip()
     lines = [ln.strip().rstrip("*_` ") for ln in t.splitlines() if ln.strip()]
     if not lines or not QUESTION_END.search(lines[-1]):
@@ -5945,7 +5948,10 @@ def needless_ask(text, granted=frozenset):
     if never_default(last) or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1])):
         return None
     low = _tr_lower(last)
-    if PROCESS_ASK.search(low) or outward_classes(low) & set(granted()):
+    outward = outward_classes(low)
+    if outward:
+        return last if outward <= set(granted()) else None
+    if PROCESS_ASK.search(low):
         return last
     return None
 

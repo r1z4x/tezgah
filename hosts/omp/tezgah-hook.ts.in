@@ -703,8 +703,10 @@ export default function tezgahOmp(pi: any): void {
     // again.
     const prompt = String(event?.prompt ?? "").trim();
     if (!prompt) return undefined;
+    // `subagent`: a task prompt is the parent's brief, never the user's grant
     const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
-                      session_id: session, transcript_path: sessionFileOf(ctx) });
+                      session_id: session, transcript_path: sessionFileOf(ctx),
+                      subagent: isSubagent(ctx) });
     if (hookError) return noticeMessage(ctx, session);
     if (!res.context) return undefined;
     // A hidden message, not a system-prompt rewrite: omp keeps per-request

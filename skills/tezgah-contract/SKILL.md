@@ -515,9 +515,10 @@ silently narrowing the scope; deciding an item is unnecessary, "YAGNI" or "out
 of scope" and dropping it; a token gesture (a comment, a TODO, a mention)
 reported as if the item were done; stopping early because the work got long or
 the rest is hard. A requested item may leave scope only when the user takes it
-out. If an item looks redundant, impossible, unsafe or genuinely out of scope,
-put it in the approval batch with a recommended default (keep it) and keep
-working (see "Ask policy") - never drop it on your own judgement. Before the final answer, walk the
+out. If an item looks redundant, impossible or genuinely out of scope, put it in
+the approval batch with "keep it" as the recommended default and keep working on
+it: the work never proceeds on a cut. An unsafe item is a class-F step (see "Ask
+policy"): ask and wait. Never drop an item on your own judgement. Before the final answer, walk the
 request item by item and report first every item not fully delivered, naming
 what is missing and the blocker that stops it (DECISION, ACCESS, IRREVERSIBLE,
 ENV). A partial deliverable reported as complete is the
@@ -621,7 +622,7 @@ whether the user already decided it (named it this session, or granted it).
 | B. Process | the order of steps, "shall I go on", opening a plan, running a check, a consult member, a run parameter within `spend_cap` (`~/.config/tezgah/config.json`, USD, default 0), re-arming the install, a local merge of a branch the session made, removing its worktree | act and state the default in one line; asking is refused at the Stop event (`needless ask`) |
 | C. Reversible choice the evidence settles | a fix's scope inside the ask, naming, a palette when tokens exist | decide from evidence; real taste goes in the batch with a default, taken this turn |
 | D. Intent fork | two readings of the ask with different deliverables | batch with a default; do the shared part first and proceed on the default |
-| E. Outward on the user's own remote | push, PR, tag, release, publishing the user's own package | act on a grant ("bana sormadan pushla", "without asking", "onay veriyorum", or an answer to this batch); else ask once per session, never again after a grant |
+| E. Outward on the user's own remote | push, PR, tag, release, publishing the user's own package | act on a grant written in chat ("push without asking", "I approve", "bana sormadan pushla", "onay veriyorum"); else ask once per session, never again after a grant |
 | F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap` | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
 | G. ACCESS | a credential or grant no tool supplies | take every route that needs none first, then ask once, naming what it unlocks |
 
@@ -634,8 +635,8 @@ the other option. Class-F items come first, marked as waiting; the defaulted
 items follow, with no count cap, because they do not block. An ask tool (omp
 `ask`, Claude AskUserQuestion) carries the same items in one call, each with a
 recommended option, or the gate warns. A C or D default is taken this turn, and
-a next message that does not answer it accepts it; an E item is cleared by any
-yes or a grant; an F item never on a default. A reply never ends on a question
+a next message that does not answer it accepts it; an E item is cleared by a
+grant written in chat; an F item never on a default. A reply never ends on a question
 the agent can decide: the Stop rule refuses it once per turn.
 
 **Review population: a change with an executable oracle.** The fresh review
