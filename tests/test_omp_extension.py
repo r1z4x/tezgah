@@ -437,9 +437,17 @@ class OmpExtension(TempHome):
         env = dict(self.env(), TEZGAH_SESSION="main-id")
         messages = [{"role": "user", "content": "go"},
                     {"role": "assistant", "content": [{"type": "text", "text": "Rapor"}]}]
+        # review N4: a grandchild's parent is the child, read from the child's
+        # own session header, not the main session's exported id
+        os.makedirs(root, exist_ok=True)
+        with open(root + "/Scout.jsonl", "w") as fh:
+            fh.write('{"type":"title","v":1,"title":""}\n'
+                     '{"type":"session","version":3,"id":"child-id"}\n')
         sent = {}
         for name, file, link, arg in (
                 ("child", root + "/Scout.jsonl", root + ".jsonl", {"messages": messages}),
+                ("grandchild", root + "/Scout/Deep.jsonl", root + "/Scout.jsonl",
+                 {"messages": messages}),
                 ("continuing", root + "/Scout.jsonl", root + ".jsonl",
                  {"messages": messages, "willContinue": True}),
                 ("main", root + ".jsonl", None, {"messages": messages})):
@@ -453,6 +461,8 @@ class OmpExtension(TempHome):
                 os.remove(log)
         self.assertEqual([(p["parent"], p["agent"], p["last_assistant_message"])
                           for p in sent["child"]], [("main-id", "Scout", "Rapor")])
+        self.assertEqual([(p["parent"], p["agent"]) for p in sent["grandchild"]],
+                         [("child-id", "Deep")])
         self.assertEqual((sent["continuing"], sent["main"]), ([], []))
 
     def test_a_skill_url_read_reaches_the_hook(self):

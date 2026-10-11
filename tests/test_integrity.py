@@ -3565,7 +3565,7 @@ class ResidualWork(unittest.TestCase):
         real = {"kind": "run", "exit": 1, "detail": "git push origin main " + ti.FAILED_MARK}
         self.assertEqual(self.left(push, [self.EDIT, real]), [])
         pytest = {"kind": "verify_fail", "exit": 1, "detail": "pytest -q " + ti.FAILED_MARK}
-        self.assertEqual(self.left("Engeller:\n- ORTAM: `pytest` modül yok", [self.EDIT, pytest]), [])
+        self.assertEqual(self.left("Engeller:\n- ORTAM: `pytest` modül bulunamadı", [self.EDIT, pytest]), [])
 
     def test_a_type_token_counts_outside_code_unnegated_and_inflected(self):
         # blockers D2-F4, D2-U1
@@ -3725,6 +3725,13 @@ class ResidualWork(unittest.TestCase):
         self.assertEqual(self.left(quota, [self.EDIT, spawn]), [])
         # a spawn that failed for its brief, not its provider, backs nothing
         self.assertTrue(self.left(quota, [self.EDIT, dict(spawn, fail_class="permanent")]))
+        # review N2: a failed spawn backs only an item about the spawn, and a
+        # bare "yok" is no error of the ORTAM type
+        timeout = dict(spawn, fail_class="transient")
+        for text in ("Engeller:\n- e2e testi — ORTAM — playwright yok",
+                     "Engeller:\n- README — YETKİ — izin yok"):
+            with self.subTest(text=text):
+                self.assertTrue(self.left(text, [self.EDIT, timeout]))
         self.assertTrue(self.left(
             "Engeller:\n- termal yazıcı — ORTAM — `No such device: /dev/rfcomm0`",
             [self.EDIT]))
@@ -3748,7 +3755,11 @@ class ResidualWork(unittest.TestCase):
         # did no work; any command not on the read lists still owes the check
         for cmd in ("git status --short", "tail -5 run.log",
                     "sqlite3 'file:a.db?mode=ro' 'select 1'", "ssh host ls",
-                    "ssh -p 22 host 'cat /etc/hosts'"):
+                    "ssh -p 22 host 'cat /etc/hosts'",
+                    # review N3: the plain readers, with no writing option
+                    "find . -name x", "jq . a.json", "sort a | uniq", "sed -n 1,5p a",
+                    "awk 1 a", "diff a b", "ps aux", "gh pr view 3", "curl -s https://x",
+                    "codegraph callers x", "head -3 a && wc -l a && stat a"):
             with self.subTest(cmd=cmd):
                 self.assertIsNone(self.verdict(
                     "Config okundu, sorgu 3 satır döndü.",
@@ -3760,7 +3771,16 @@ class ResidualWork(unittest.TestCase):
                     "find . -name '*.pyc' -delete", "git worktree add ../wt",
                     "Set-Content -Path a.txt -Value x", "sqlite3 a.db 'select 1'",
                     "sqlite3 'file:a.db?mode=ro' '.shell rm x'", "ssh host 'rm -rf x'",
-                    "ssh host"):
+                    "ssh host",
+                    "find . -name x -exec rm {} ;", "sort -o out a", "sort -ro out a",
+                    "sed -n 'w out' a", "sed -f s.sed a", "awk '{print > \"f\"}' a",
+                    "awk 'BEGIN{system(\"rm x\")}'", "uniq a b", "gh pr merge 3",
+                    "curl -so out https://x", "curl -X POST https://x",
+                    "codegraph index",
+                    # review N5: read-only only from the database URI or option
+                    "sqlite3 a.db \"select 'mode=ro'; delete from t\"",
+                    "sqlite3 'file:a.db?mode=ro' '.read x.sql'",
+                    "sqlite3 -init x.sql 'file:a.db?mode=ro' 'select 1'"):
             with self.subTest(cmd=cmd):
                 self.assertEqual(self.verdict(
                     "Config okundu, sorgu 3 satır döndü.",
@@ -3785,12 +3805,20 @@ class ResidualWork(unittest.TestCase):
                      "3. **Engel 2 – CLI:** `tezgah-task note` yoktu. Artık var."):
             with self.subTest(text=text):
                 self.assertEqual(self.left(text), [])
-        # the controls: work still open beside a fix, and a past report alone
+        # the controls: work still open beside a fix, a past report alone, and
+        # review N1's four open items, under a residual label or a blocker one
         for text in ("Açık kalanlar:\n- README güncellenmedi, testler artık geçiyor",
                      "Açık kalanlar:\n- E2E koşulmadı. Tarayıcı yoktu.",
                      "### Doğrulanmadı: kanıt yok\n- E2E akışı"):
             with self.subTest(text=text):
                 self.assertTrue(self.left(text))
+        for label in ("Açık kalanlar:", "Engeller:"):
+            for item in ("README güncellenmedi. Artık testler geçiyor.",
+                         "E2E koşulmadı. Artık tarayıcı var, sonraki turda koşulacak.",
+                         "Canlı çağrı yapılmadı. Artık anahtar mevcut ama çalıştırmadım.",
+                         "Şimdi bakılmalı. Artık sorun büyüyor."):
+                with self.subTest(label=label, item=item):
+                    self.assertTrue(self.left("%s\n- %s" % (label, item)))
 
     def test_s4_a_spent_quota_is_a_user_failure(self):
         # the spawn row's class backs a YETKİ item (review F2)

@@ -463,14 +463,22 @@ class AfterBlock(TempHome):
         self.turn("ship the parser")
         self.work()
         self.checked()
-        out, proc = run_json([support.OMP_HOOK], {
-            "event": "subagent_stop", "cwd": self.repo, "session_id": "s-s4-omp-child",
-            "parent": self.session, "agent": "Scout",
-            "last_assistant_message": report}, env=self.envv)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(out or {}, {})
+        def end(agent):
+            out, proc = run_json([support.OMP_HOOK], {
+                "event": "subagent_stop", "cwd": self.repo,
+                "session_id": "s-s4-omp-" + agent, "parent": self.session,
+                "agent": agent, "last_assistant_message": report}, env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(out or {}, {})
+        end("Scout")
         self.assertEqual([(r.get("residual"), r.get("agent"))
                           for r in self.rows("subagent_end")], [(1, "Scout")])
+        # review N4: the same child's end again is one row; a sibling with the
+        # same report is its own
+        end("Scout")
+        end("Scout2")
+        self.assertEqual([r.get("agent") for r in self.rows("subagent_end")],
+                         ["Scout", "Scout2"])
         out = self.stop("omp", text="Parser değişikliği yerinde, modülün testleri geçiyor.",
                         active=False)
         self.assertEqual(out.get("decision"), "block")

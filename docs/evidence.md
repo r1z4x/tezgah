@@ -419,17 +419,19 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    permission, a failed login or a 401/403. The item also quotes, in backticks or a fenced line, a
    command that failed in the turn. A quote cut with "…" counts when its words open that command.
    A grep alone that matched nothing and a failed write tool call are no failed command
-   (`hooks/tezgah_integrity.py::_failed_commands`). A failed spawn call can stand in for the
-   quote. Its row names a provider failure (`hooks/tezgah_integrity.py::_spawn_failed`). omp
-   sends a spawn's outcome as a
+   (`hooks/tezgah_integrity.py::_failed_commands`). For an item that names a subagent, an agent, a
+   provider or a model, a failed spawn call can stand in for the quote. Its row names a provider
+   failure (`hooks/tezgah_integrity.py::_spawn_failed`). omp sends a spawn's outcome as a
    flag with no text. So its row carries no class, and the rule refuses such an item there.
    Neither the type nor the quote counts alone. "Doğrulanmadı: `pytest` ..." with no type is still
    refused, and so is "ORTAM" with no quote. The rule refuses "ORTAM: `pytest` AssertionError" too,
    because an assertion is work, not a missing tool. "YETKİ yok" is the type, not its negation. Only
    "değil" negates it. A fragment of a command does not count. A type in the heading covers the
-   items under it. "Engeller: yok" and an empty "Engeller" heading hold no item. An item that
-   reports a blocker already gone holds none either: a sentence in the past, then a last sentence
-   that opens on "Artık" with a present verb ("… yoktu. Artık var."). The refusal opens with "Bu maddeleri şimdi yap
+   items under it. "Engeller: yok" and an empty "Engeller" heading hold no item. An item under a
+   blocker label that reports the blocker gone holds none either. It has a sentence in the past,
+   then a last sentence that opens on "Artık" with a present verb ("… yoktu. Artık var."). A
+   negative past ("güncellenmedi") or a last sentence with a residual word or a future keeps it
+   open (`hooks/tezgah_integrity.py::_now_closed`). The refusal opens with "Bu maddeleri şimdi yap
    veya engel türü ve kanıtla yaz." It also says that a step that cannot be undone never clears the
    list.
    `_stop_block` asks this class at every exit that would end the turn
@@ -438,8 +440,9 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    subagent's end is never refused (ADR 011). Its `subagent_end` row carries the count of its
    untyped items as `residual`. The parent's Stop then refuses a reply that types no item of its
    own. Claude and Cursor write that row from their subagent-stop events. omp fires none for a
-   task session. Its bridge sends the child's last reply from `agent_end`, and the row lands
-   in the parent's ledger. Codex, opencode and dsh write no such row. On omp the reply after a
+   task session. Its bridge sends the child's last reply from `agent_end`. The row lands in the
+   ledger of the session that spawned the child, read from the child's own session header, and
+   counts once per child. Codex, opencode and dsh write no such row. On omp the reply after a
    refusal sits in a turn of its own.
    `hooks/tezgah_integrity.py::_turn_refusals` hands the class the rows of every turn in that
    re-ask chain, so a failure quoted from the refused turn
@@ -482,7 +485,9 @@ whole session instead of the turn:
   after the work, where the turn fold saw nothing to judge (audit M-2, INT-01).
 - **A turn of reads.** The rule treats a turn of known reads as a turn with no work (plan 086,
   S4). Each command in it is a known read: a program in `READ_ONLY_PROGRAMS` or a git read in
-  `GIT_READS`. A `sqlite3` read-only open counts, and so does an `ssh` whose remote command is
+  `GIT_READS`, with no option in `WRITING_OPTIONS`. `sed`, `awk`, `uniq`, `gh` and `codegraph`
+  count with no writing script, one operand or a read verb. A `sqlite3` read-only open counts,
+  from the option or the database URI, and so does an `ssh` whose remote command is
   such a read (`hooks/tezgah_integrity.py::_bookkeeping_command`). Any other command, a commit included,
   keeps the turn worked and owes the check.
 - **A bookkeeping turn after a pass.** A turn whose only rows are read-only or VCS-bookkeeping

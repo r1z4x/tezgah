@@ -4364,10 +4364,12 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
                 raise
     # A refusal is skipped only as the same verdict on the same reply: the same
     # reply text refused for a new class is the turn's next refusal, and
-    # `_record_only` counts refusals by these rows.
+    # `_record_only` counts refusals by these rows. A row bound for a parent's
+    # ledger is looked up there, so one child's end is one row.
     if not any(entry.get("kind") == kind and entry.get("id") == key
                and (entry.get("detail") == detail or not reason)
-               for entry in rows):
+               and (not parent or entry.get("agent") == (str(agent) if agent else None))
+               for entry in (turn_rows(parent) if parent else rows)):
         if cls == "no verify_ok" and not record_only:
             shape = dict(shape, cause=_no_pass_cause(rows))
         if reason:
@@ -4434,7 +4436,8 @@ WORK_KINDS = frozenset(STEP_KINDS) - {"verify_ok"}
 # that writes would excuse an unverified change.
 READ_ONLY_PROGRAMS = frozenset((
     "ls", "cat", "head", "tail", "wc", "pwd", "echo", "printf", "which", "stat",
-    "du", "df", "date", "whoami", "grep", "rg", "cd", "true"))
+    "du", "df", "date", "whoami", "grep", "rg", "cd", "true", "find", "jq", "sort",
+    "diff", "ps", "curl"))
 GIT_BOOKKEEPING = frozenset((
     "status", "log", "diff", "show", "add", "commit", "push", "fetch", "branch",
     "tag", "remote", "rev-parse", "describe", "shortlog", "blame", "ls-files"))
@@ -4447,19 +4450,45 @@ GIT_READS = GIT_BOOKKEEPING - {"add", "commit", "push", "fetch", "branch", "tag"
 SSH_VALUE_OPTS = frozenset(("-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
                             "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S",
                             "-W", "-w"))
-# sqlite3 arguments that write a file even on a read-only open: a dot-command
-# that writes or runs one, a second database, a vacuum into a file
+# sqlite3 arguments that write a file or run a script even on a read-only open:
+# a dot-command that writes, runs or reads one, an init script, a second
+# database, a vacuum into a file
 SQLITE_WRITE = re.compile(r"^\s*\.(?:output|once|shell|system|save|backup|import|"
-                          r"excel|clone|log|trace|cd|open)\b|\battach\b|\bvacuum\b",
-                          re.I | re.M)
+                          r"excel|clone|log|trace|cd|open|read)\b|^-{1,2}init\b|"
+                          r"\battach\b|\bvacuum\b", re.I | re.M)
+# sqlite3's options that take the next word, so the database is read after them
+SQLITE_VALUE_OPTS = frozenset(("cmd", "init", "separator", "newline", "nullvalue",
+                               "vfs", "lookaside", "pagecache", "mmap", "heap",
+                               "maxsize", "escape"))
+# A script argument of sed or awk that writes a file or runs a command: sed's
+# `w`/`W`/`e` commands and flags, awk's redirect, pipe, system() and getline.
+SCRIPT_WRITE = {"sed": re.compile(r"(?:^|[;}/\n$\d])\s*[wWe]\b"),
+                "awk": re.compile(r"[>|]|\b(?:system|getline)\b"),
+                "gawk": re.compile(r"[>|]|\b(?:system|getline)\b")}
+# The read verbs of a program whose subcommand decides what it does
+SUBCOMMAND_READS = {"gh": (("pr", "view"), ("pr", "list"), ("issue", "view"),
+                           ("issue", "list")),
+                    "codegraph": (("explore",), ("callers",), ("callees",),
+                                  ("impact",), ("search",), ("node",), ("files",),
+                                  ("status",))}
 # The options that make an allowlisted program write a file or run one after
-# all (review F6): git's `--output` and external diff/textconv drivers,
-# ripgrep's `--pre`. A word that starts with one of these is not a read.
-# `tree` and `file` left the list instead of growing one here: tree writes
-# through clustered short options (`-fo out`) and `-R -H`, file through `-C`
-# (review N4).
-WRITING_OPTIONS = {"git": ("--output", "--ext-diff", "--textconv"),
-                   "rg": ("--pre",)}
+# all (review F6), as a pattern read at an argument's start: git's `--output`
+# and external diff/textconv drivers, ripgrep's `--pre`, find's actions, a
+# short-option cluster holding sort's `-o`, sed's `-i`/`-f`, awk's `-i`/`-f`,
+# and curl's writes to a file and non-GET requests. `tree` and `file` left the
+# list instead of growing one here: tree writes through clustered short options
+# (`-fo out`) and `-R -H`, file through `-C` (review N4).
+WRITING_OPTIONS = {
+    "git": re.compile(r"--(?:output|ext-diff|textconv)"),
+    "rg": re.compile(r"--pre"),
+    "find": re.compile(r"-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$"),
+    "sort": re.compile(r"-[^-]*o|--output"),
+    "sed": re.compile(r"-[^-]*[if]|--(?:in-place|file)"),
+    "awk": re.compile(r"-[^-]*[if]|--(?:include|file|load)"),
+    "gawk": re.compile(r"-[^-]*[if]|--(?:include|file|load|inplace)"),
+    "curl": re.compile(r"-[^-]*[oOdTFKXcD]|--(?:output|remote-name|data|upload-file|"
+                       r"form|json|request|config|cookie-jar|dump-header|trace|"
+                       r"stderr|libcurl|etag-save|hsts|alt-svc|create-dirs)")}
 # git global options that set configuration or the program path, and so can
 # name a program a read subcommand then runs (`git -c diff.external=./x diff`)
 GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
@@ -4547,9 +4576,12 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
     GIT_READS for a pure read). A redirect, a substitution, an env assignment
     in front of a program, a git config override and an option that makes a
     reader write (`WRITING_OPTIONS`) are never bookkeeping: each can write or
-    run something this reader does not follow. `sqlite3` reads with a
-    read-only open and no writing dot-command or stdin (`SQLITE_WRITE`), `ssh`
-    with a remote command that is itself one of these reads.
+    run something this reader does not follow. `sed` and `awk` read with no
+    writing script (`SCRIPT_WRITE`), `uniq` with one operand, `gh` and
+    `codegraph` with a read verb (`SUBCOMMAND_READS`). `sqlite3` reads with a
+    read-only open (the option, or `mode=ro` in the database URI) and no
+    writing dot-command or stdin (`SQLITE_WRITE`), `ssh` with a remote command
+    that is itself one of these reads.
 
     ponytail: `git commit` and `git push` run the repository's hooks, and a
     pre-commit autofixer can rewrite files the row never names. They stay on
@@ -4571,13 +4603,36 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
         if "/" in words[i]:
             return False
         program, args = words[i], words[i + 1:]
-        if any(a.startswith(WRITING_OPTIONS.get(program, ("\0",))) for a in args):
+        writes = WRITING_OPTIONS.get(program)
+        if writes and any(writes.match(a) for a in args):
             return False
         if program in READ_ONLY_PROGRAMS:
             continue
+        plain = [a for a in args if not a.startswith("-")]
+        if program in SCRIPT_WRITE:
+            if any(SCRIPT_WRITE[program].search(a) for a in plain):
+                return False
+            continue
+        if program == "uniq":
+            # `uniq IN OUT` writes its second operand
+            if len(plain) > 1:
+                return False
+            continue
+        if program in SUBCOMMAND_READS:
+            if not any(tuple(plain[:len(verb)]) == verb
+                       for verb in SUBCOMMAND_READS[program]):
+                return False
+            continue
         if program == "sqlite3":
-            if ("<" in raw or not any("mode=ro" in a or a == "-readonly" for a in args)
-                    or any(SQLITE_WRITE.search(a) for a in args)):
+            j, ro = 0, False
+            while j < len(args) and args[j].startswith("-"):
+                ro = ro or args[j].lstrip("-") == "readonly"
+                j += 2 if args[j].lstrip("-") in SQLITE_VALUE_OPTS else 1
+            db = args[j] if j < len(args) else ""
+            # read-only from the option or the database URI itself, never
+            # from words in the SQL
+            ro = ro or (db.startswith("file:") and "mode=ro" in db.partition("?")[2])
+            if "<" in raw or not ro or any(SQLITE_WRITE.search(a) for a in args):
                 return False
             continue
         if program == "ssh":
@@ -5318,7 +5373,7 @@ ENV_ERROR = re.compile(
     r"not found|no such|cannot find|can'?t find|could not find|does(?:n'?t| not) "
     r"exist|no module named|ModuleNotFound|not installed|not available|unavailable|missing|"
     r"not set|ENOENT|\b12[67]\b|bulunamad|kurulu değil|yüklü değil|mevcut değil|"
-    r"\byok\b|quota|limit exceeded|rate.?limit|\b429\b", re.I)
+    r"quota|limit exceeded|rate.?limit|\b429\b", re.I)
 ACCESS_ERROR = re.compile(
     USER_ERROR.pattern + r"|permission denied|access denied|not permitted|"
     r"EACCES|\b40[13]\b|quota|limit exceeded|rate.?limit|\b429\b|izin|reddedil|"
@@ -5326,6 +5381,9 @@ ACCESS_ERROR = re.compile(
 # A spawn call's failure classes that are the provider's, not the brief's: a
 # rate limit or a timeout (`transient`) and a quota or a credential (`user`).
 SPAWN_FAIL_CLASSES = frozenset(("transient", "user"))
+# The words that tie an item to a spawn call: only such an item borrows a
+# failed spawn's row as its evidence (`_tried_holds`).
+SPAWN_WORDS = re.compile(r"sub-?agent|\bagent|ajan|provider|sağlayıcı|\bmodel|spawn")
 # A search that matched nothing exits 1 and failed nothing (`_failed_commands`).
 NO_MATCH_PROGRAMS = frozenset(("grep", "egrep", "fgrep", "rg", "ag"))
 LIST_MARK = re.compile(r"\s*(?:\d+[.)]|[-*+])\s+")
@@ -5587,10 +5645,11 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     """True when a YETKİ or ORTAM item carries its evidence: the error its type
     names (ENV_ERROR for ORTAM/ENV, ACCESS_ERROR for YETKİ/ACCESS), read in the
     item outside the type token and the quoted command, beside a quote of a
-    command that failed (`_quotes_failure`), or in a turn whose spawn call
-    failed at the provider (`spawn_failed`). A failure of another kind - an
-    assertion, a typo, a grep that matched nothing - is doable work, whatever
-    it is typed."""
+    command that failed (`_quotes_failure`), or - for an item that names a
+    subagent, an agent, a provider or a model (SPAWN_WORDS) - in a turn whose
+    spawn call failed at the provider (`spawn_failed`). A failure of another
+    kind - an assertion, a typo, a grep that matched nothing - is doable work,
+    whatever it is typed."""
     kinds = {m.group(0)[0] for m in BLOCKER_TRIED.finditer(said)}
     rest = re.sub(BLOCKER_TRIED.pattern + r"(?:\s+yok\b)?", " ", item)
     rest = CODE_SPAN.sub(lambda m: " " if _quotes_failure(m.group(0), failed)
@@ -5598,28 +5657,38 @@ def _tried_holds(item, said, failed, spawn_failed=False):
     if not any((ENV_ERROR if k in "OE" else ACCESS_ERROR).search(rest)
                for k in kinds):
         return False
-    return spawn_failed or _quotes_failure(item, failed)
+    return bool(spawn_failed and SPAWN_WORDS.search(_tr_lower(item))) or \
+        _quotes_failure(item, failed)
 
 
-# An item that tells a blocker it already removed: an earlier sentence in the
-# past ("reddediyordu", "yoktu") and a last sentence that opens on "Artık" with a
-# present verb ("Artık var", "Artık reddedilmiyor", S4 finding 10). ponytail:
-# one adverb rule, not a tense reader.
-WAS = re.compile(r"\w+(?:yordu|[dt][ıiuü])\b")
+# An item under a blocker label that tells a blocker it already removed: an
+# earlier sentence in the past ("reddediyordu", "yoktu") and a last sentence
+# that opens on "Artık" with a present verb ("Artık var", "Artık
+# reddedilmiyor", S4 finding 10). A negative past ("güncellenmedi") reports work
+# not done, and "şimdi"/"kendi" only end like a past tense, so neither is WAS.
+# A last sentence that still names work left (a RESIDUAL_LABEL stem) or a
+# future ("koşulacak") keeps the item open. ponytail: one adverb rule, not a
+# tense reader.
+BLOCKER_LABEL = re.compile(r"\W*(?:engel|blocker)")
+WAS = re.compile(r"\b(?!(?:şimdi|kendi|ileri|geri)\b)\w+(?<!m[ae])(?:yordu|[dt][ıiuü])\b")
 NOW = re.compile(r"^artık\b.*(?:\bvar\b|\bmevcut\b|\w+yor\b)", re.S)
+FUTURE = re.compile(r"\w+(?:acak|ecek)")
 
 
-def _now_closed(item):
-    """True when `item` reports a blocker that is gone (WAS, then NOW)."""
+def _now_closed(item, label):
+    """True when `item`, under a blocker `label`, reports a blocker that is
+    gone (WAS, then NOW, with nothing left or due in the last sentence)."""
+    if not BLOCKER_LABEL.match(_tr_lower(label)):
+        return False
     sentences = re.split(r"(?<=[.!?])\s+", _tr_lower(_prose(item)).strip())
     last = sentences[-1].strip(" *_")
     return (len(sentences) > 1 and bool(NOW.search(last))
+            and not RESIDUAL_LABEL.search(last) and not FUTURE.search(last)
             and any(WAS.search(s) for s in sentences[:-1]))
 
 
 # A blocker heading with nothing under it lists no blocker ("## Engeller" last).
 BLOCKERS_ONLY = re.compile(r"\s*(?:engel(?:ler)?|blockers?)\s*")
-
 
 
 def unblocked_items(text, rows):
@@ -5636,7 +5705,7 @@ def unblocked_items(text, rows):
     out = []
     for label, intro, items in _sections(text):
         for item in items:
-            if (EMPTY_ITEM.fullmatch(item.strip()) or _now_closed(item) or (
+            if (EMPTY_ITEM.fullmatch(item.strip()) or _now_closed(item, label) or (
                     not item.strip() and BLOCKERS_ONLY.fullmatch(_tr_lower(label)))):
                 continue
             said = _prose(" ".join((label, intro, item)))
@@ -5665,8 +5734,10 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     if verdict[0] or not shape or os.environ.get("TEZGAH_NESTED"):
         return verdict
     left = []
-    handed = sum(int(r.get("residual") or 0) for r in rows
-                 if r.get("kind") == "subagent_end")
+    # the newest end of each child counts once (`agent`): a child that ended
+    # twice, or a re-sent end, is one hand-up
+    handed = sum({r.get("agent") or id(r): int(r.get("residual") or 0)
+                  for r in rows if r.get("kind") == "subagent_end"}.values())
     if handed or any(str(r.get("kind")) in STEP_KINDS for r in rows):
         left = unblocked_items(text, rows)
         if handed and not left and not any(
