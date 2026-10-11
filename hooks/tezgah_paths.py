@@ -70,7 +70,8 @@ OFF_DIRS = (CONFIG_DIR, os.path.join(HOME, ".claude"))
 # the opencode plugin's own `off()` and the gate's control rule all answer from
 # it, and tests/test_paths.py fails when any of them names a switch it lacks.
 # CORE_SWITCHES are the sixteen the always-on contract names. ADR 007 leaves
-# UNCLASSIFIED_SWITCHES open - two `off()` names CORE does not list and two
+# UNCLASSIFIED_SWITCHES open - three `off()` names CORE does not list (the
+# third, `slices-off`, stops the slice journal: hooks/tezgah_task.py) and two
 # opt-in markers read with `armed()` - and until the owner classifies them the
 # control rule protects them like the rest (bin/tezgah-docs carries the same
 # set for its inventory check; the test pins the two equal).
@@ -78,7 +79,7 @@ CORE_SWITCHES = ("adhd-off", "consult-off", "docs-judge-off", "exec-mode.off",
                  "judge-off", "lang-off", "orchestrate-off", "ponytail-auto.off",
                  "pretooluse-off", "reminder-off", "research-off", "spec-off",
                  "task-off", "triage-off", "verify-off", "workspace-off")
-UNCLASSIFIED_SWITCHES = ("agents-off", "skill-suggest-on", "taste-on",
+UNCLASSIFIED_SWITCHES = ("agents-off", "skill-suggest-on", "slices-off", "taste-on",
                          "update-check-off")
 SWITCHES = CORE_SWITCHES + UNCLASSIFIED_SWITCHES
 REPO_MARKS = (".no-adhd", ".no-graph", ".no-lessons", ".no-plan-gate",
