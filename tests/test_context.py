@@ -1916,16 +1916,23 @@ class ContextNudge(ChildCall):
         self.repo = self.make_repo("proj")
         self.transcript = os.path.join(self.home, "t.jsonl")
 
-    def prompt(self, rows=None, session="c1"):
+    def prompt(self, rows=None, session="c1", budget=None):
         payload = {"session_id": session, "prompt": "x"}
         if rows is not None:
             with open(self.transcript, "w") as fh:
                 fh.writelines(json.dumps(r) + "\n" for r in rows)
             payload["transcript_path"] = self.transcript
+        squeeze = ("tc.CONTEXT_BUDGET['user_prompt'] = %d\n" % budget
+                   if budget is not None else "")
         return self.child(
-            "import json, tezgah_context as tc\n"
+            "import json, tezgah_context as tc\n" + squeeze +
             "print(json.dumps(tc.context_for('user_prompt', %r, %r)))\n"
             % (self.repo, payload))
+
+    def test_a_line_the_budget_dropped_is_not_latched(self):
+        heavy = [self.omp(724380)]
+        self.assertNotIn(self.LINE, self.prompt(heavy, budget=1))
+        self.assertIn(self.LINE, self.prompt(heavy))
 
     def compact(self, session="c1"):
         self.child("import tezgah_context as tc\n"

@@ -1770,22 +1770,22 @@ def context_tokens(path):
     return None
 
 
+def context_key(session_id):
+    """The router-context line's key in the `nudged` mark store."""
+    return "context:" + slug(str(session_id))
+
+
 def context_nudge(payload, session_id):
-    """The one line asking the router to delegate heavy reading, once per
-    session until a compaction clears the `nudged` mark. "" below
-    CONTEXT_NUDGE_TOKENS, without a transcript, or under `orchestrate-off`."""
+    """The one line asking the router to delegate heavy reading, or "" below
+    CONTEXT_NUDGE_TOKENS, without a transcript, under `orchestrate-off`, or
+    once `context_for` latched it for this session (cleared by a compaction)."""
     path = payload.get("transcript_path") if isinstance(payload, dict) else None
-    key = "context:" + slug(str(session_id))
-    if not path or off("orchestrate-off") or tezgah_store.marked("nudged", key):
+    if not path or off("orchestrate-off") or tezgah_store.marked(
+            "nudged", context_key(session_id)):
         return ""
     tokens = context_tokens(path)
-    if (tokens or 0) < CONTEXT_NUDGE_TOKENS:
-        return ""
-    try:
-        tezgah_store.mark("nudged", key)
-    except tezgah_store.ERRORS:
-        pass  # fail open: an unwritable store shows the line again
-    return CONTEXT_NUDGE % (tokens // 1000)
+    return CONTEXT_NUDGE % (tokens // 1000) if (
+        tokens or 0) >= CONTEXT_NUDGE_TOKENS else ""
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
@@ -2104,7 +2104,7 @@ def context_for(event, cwd, payload=None, with_core=True):
             payload, dict) and payload.get("source") == "compact"):
         forget_seen(session_of(payload))
         # the context line may fire again on the compacted context
-        tezgah_store.drop("nudged", "context:" + slug(str(session_of(payload))))
+        tezgah_store.drop("nudged", context_key(session_of(payload)))
     # The switch latch: every off() below answers for this session, and a
     # prompt's turn marker (with its `authorized` row) is written first, so a
     # switch the user's prompt names is honored from this very turn.
@@ -2257,6 +2257,12 @@ def context_for(event, cwd, payload=None, with_core=True):
             parts.append(("offnote", "(off this session: %s)"
                           % ", ".join(disabled)))
         text = budgeted(event, parts)
+        # latched only when the budget kept it, so a dropped line comes back
+        if heavy and heavy in text:
+            try:
+                tezgah_store.mark("nudged", context_key(session_id))
+            except tezgah_store.ERRORS:
+                pass  # fail open: an unwritable store shows the line again
         items = [ln for ln in relevant.split("\n") if ln.startswith("- ")]
         shown = ([k for k, ln in zip(keys, items) if ln in text] if items
                  else keys if relevant and relevant in text else [])
