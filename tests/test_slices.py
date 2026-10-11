@@ -71,9 +71,11 @@ class Records(Journal):
         rec = tt.open_slice(self.repo, "SliceA", host="omp", agent="task",
                             brief="work only in %s please" % tree, parent="p1",
                             cwd=self.repo)
-        path = os.path.join(self.repo, ".tezgah", "slices", "SliceA.json")
-        with open(path) as fh:
-            self.assertEqual(json.load(fh), rec)
+        # one SQLite file holds the journal, not a file per record
+        folder = os.path.join(self.repo, ".tezgah", "slices")
+        self.assertEqual(self.record("SliceA"), rec)
+        self.assertEqual(sorted(n for n in os.listdir(folder) if not n.startswith(".")),
+                         ["slices.db"])
         self.assertEqual((rec["status"], rec["failure"], rec["attempts"], rec["kind"]),
                          ("open", "", 1, "agent"))
         self.assertEqual((rec["worktree"], rec["branch"]), (tree, "slice-a"))
@@ -113,11 +115,45 @@ class Records(Journal):
         with self.assertRaises(ValueError):
             tt.close_slice(self.repo, "s1", "open")
 
-    def test_an_unreadable_record_is_skipped(self):
+    def test_an_old_json_record_is_imported_once_and_removed(self):
+        # the one-file-per-record journal an earlier release wrote: each file
+        # goes into the table and is deleted; one that does not parse, or whose
+        # id is no string, stays put; the newer of a file and a row wins
         tt.open_slice(self.repo, "good")
-        with open(os.path.join(tt.slice_dir(self.repo), "bad.json"), "w") as fh:
-            fh.write("{not json")
-        self.assertEqual([r["id"] for r in tt.slices(self.repo)], ["good"])
+        tt.open_slice(self.repo, "later")
+        folder = tt.slice_dir(self.repo)
+        old = {"id": "Old", "status": "stopped", "parent": "S0", "failure": "quota",
+               "updated": "2026-10-10T00:00:00Z", "host": "omp"}
+        for name, body in (("Old.json", json.dumps(old)), ("bad.json", "{not json"),
+                           ("odd.json", json.dumps({"id": ["x"]})),
+                           ("good.json", json.dumps({"id": "good", "status": "done",
+                                                     "updated": "2000-01-01T00:00:00Z"})),
+                           ("later.json", json.dumps({"id": "later", "status": "stopped",
+                                                      "updated": "2999-01-01T00:00:00Z"}))):
+            with open(os.path.join(folder, name), "w") as fh:
+                fh.write(body)
+        self.assertEqual(sorted(r["id"] for r in tt.slices(self.repo)),
+                         ["Old", "good", "later"])
+        self.assertEqual(self.record("Old")["failure"], "quota")
+        self.assertEqual(self.record("good")["status"], "open")
+        self.assertEqual(self.record("later")["status"], "stopped")
+        self.assertEqual(sorted(n for n in os.listdir(folder) if n.endswith(".json")),
+                         ["bad.json", "odd.json"])
+
+    def test_a_damaged_journal_reads_as_empty_and_a_write_says_why(self):
+        # readers fail open (the Stop rule and the prompt read them); the CLI
+        # names the problem instead of a traceback
+        folder = tt.slice_dir(self.repo)
+        os.makedirs(folder)
+        with open(os.path.join(folder, tt.SLICE_DB), "w") as fh:
+            fh.write("this is no database" * 100)
+        self.assertEqual(tt.slices(self.repo), [])
+        self.assertEqual(tt.pending(self.repo), [])
+        self.assertEqual(tt.slice_lines(self.repo, session="S1", others=True), [])
+        proc = self.task("slice", "open", "--id", "X", "--brief", "b")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("cannot write the slice record", proc.stdout)
+        self.assertNotIn("Traceback", proc.stderr)
 
     def test_classify(self):
         for text, want in (("Error: 429 Too Many Requests", "rate_limit"),

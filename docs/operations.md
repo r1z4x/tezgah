@@ -622,8 +622,9 @@ A delegated slice can die with its parent. A crash, an omp `/clear`, a quota or
 worktree and commits stay, but no one remembers them. The slice journal is that
 memory, and it is host-neutral.
 
-Each spawned slice gets one JSON record at `<repo root>/.tezgah/slices/<id>.json`.
-The writer replaces the file atomically (a temp file, then `os.replace`).
+Each spawned slice gets one row in `<repo root>/.tezgah/slices/slices.db`, a SQLite
+file opened like the taste store (`hooks/tezgah_task.py::SLICE_SCHEMA`).
+An older release wrote one JSON file per record there. The first open imports each one and deletes it.
 `.gitignore` excludes `.tezgah/`, a private directory, so the journal never reaches a commit.
 The id is the host's own agent name: the omp task `name` or the Codex
 `task_name`. A Claude `Agent`/`Task` input may carry a `name` too. Otherwise the
