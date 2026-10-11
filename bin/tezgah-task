@@ -8,6 +8,8 @@
   tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
   tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
   tezgah-task close <NNN|path> done|discarded [--resolved TEXT] move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
+  tezgah-task tick <NNN|path> <n> [--undo]                   tick (or untick) Acceptance item n, counted from 1
+  tezgah-task note <NNN|path> state|next "<text>"            replace the body of `## State` (the newest one) or `## Next`
   tezgah-task slice open --id ID [--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]
                                                               record a delegated slice (a re-open counts one more attempt)
   tezgah-task slice done ID | slice stop ID [--class C]      close a slice record
@@ -23,6 +25,9 @@ and this CLI is the record's only writer: the gate refuses a write to the plan
 file, because the checks below are made here and a retyped frontmatter would
 skip them. `phase implementation` (or `verification`) is what lets a write
 through, so the phase changes when the work reaches that point and not before.
+`tick` and `note` are the record's body writers for the same reason: they write
+an Acceptance box or the State/Next text on any open plan, active or not, keep
+the frontmatter but `updated:`, and commit nothing.
 
 The allowlist is the plan's own: plan-add writes `allowed_paths:` when it
 creates the plan, and `start` without `--allow` keeps it. A writing phase with
@@ -601,6 +606,57 @@ def cmd_stop(args):
         return problems(bad)
     print("task %s stopped" % task["id"])
     return show(task["path"])
+
+
+def cmd_tick(args):
+    """Tick (or `--undo` untick) one Acceptance box: the plan's progress is the
+    session's to record, and the gate refuses a direct write to the record."""
+    undo = "--undo" in args
+    args = [a for a in args if a != "--undo"]
+    if len(args) != 2 or not args[1].isdigit():
+        return misuse("tick takes <NNN|path> <n> [--undo]")
+    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    if problem:
+        return problems([problem])
+    items = tt.acceptance_items(read(path))
+    n = int(args[1])
+    if not 1 <= n <= len(items):
+        return problems(["%s has %d Acceptance items, not an item %d"
+                         % (path, len(items), n)])
+    item = items[n - 1]
+    try:
+        tt.set_box(path, item["line"], not undo)
+    except OSError as exc:
+        return problems(["cannot write %s: %s" % (path, exc)])
+    bad = write_fields(path, updated=today())
+    if bad:
+        return problems(bad)
+    print("- [%s] %s" % (" " if undo else "x", item["text"]))
+    return 0
+
+
+NOTE_SECTIONS = {"state": "State", "next": "Next"}
+
+
+def cmd_note(args):
+    """Replace the plan's `## State` (the newest one) or `## Next` body."""
+    if len(args) != 3 or args[1] not in NOTE_SECTIONS or not args[2].strip():
+        return misuse('note takes <NNN|path> state|next "<text>"')
+    path, problem = plan_path(repo_root(os.getcwd()), args[0])
+    if problem:
+        return problems([problem])
+    heading = NOTE_SECTIONS[args[1]]
+    try:
+        found = tt.set_section(path, heading, args[2])
+    except OSError as exc:
+        return problems(["cannot write %s: %s" % (path, exc)])
+    if not found:
+        return problems(["%s has no `## %s` section" % (path, heading)])
+    bad = write_fields(path, updated=today())
+    if bad:
+        return problems(bad)
+    print("%s: ## %s updated" % (path, heading))
+    return 0
 
 
 def review_verdict(text):
@@ -1214,10 +1270,14 @@ def main(argv):
         return cmd_review(rest)
     if cmd == "close":
         return cmd_close(rest)
+    if cmd == "tick":
+        return cmd_tick(rest)
+    if cmd == "note":
+        return cmd_note(rest)
     if cmd == "slice":
         return cmd_slice(rest)
     return misuse("unknown command %r (start, phase, allow, stop, status, review, "
-                  "close, slice)" % cmd)
+                  "close, tick, note, slice)" % cmd)
 
 
 if __name__ == "__main__":

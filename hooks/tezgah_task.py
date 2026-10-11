@@ -618,6 +618,43 @@ def _field_lines(key, value):
     return ["%s: %s" % (key, value)]
 
 
+def _lines(path):
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read().split("\n")
+
+
+def _write_lines(path, lines):
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+
+def set_box(path, line, checked):
+    """Set the `- [ ]`/`- [x]` box on 1-based `line` (an acceptance item's
+    `line`). Raises OSError."""
+    lines = _lines(path)
+    lines[line - 1] = re.sub(r"- \[[ xX]\]", "- [x]" if checked else "- [ ]",
+                             lines[line - 1], count=1)
+    _write_lines(path, lines)
+
+
+def set_section(path, heading, body):
+    """Replace the body of the last `## <heading>` section - the newest, since
+    a plan appends a dated `## State (...)` - with `body` and one blank line.
+    Returns False, writing nothing, when the plan has no such section. Raises
+    OSError."""
+    lines = _lines(path)
+    heads = [i for i, line in enumerate(lines)
+             if re.match(r"## %s(\s|$)" % re.escape(heading), line.strip())]
+    if not heads:
+        return False
+    start = heads[-1] + 1
+    end = next((i for i in range(start, len(lines))
+                if lines[i].lstrip().startswith("## ")), len(lines))
+    lines[start:end] = body.strip("\n").split("\n") + [""]
+    _write_lines(path, lines)
+    return True
+
+
 # ---------------------------------------------------------------- slice journal
 #
 # One JSON record per delegated slice under `<main checkout>/.tezgah/slices/`,
