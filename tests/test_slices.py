@@ -255,10 +255,40 @@ class Pending(Journal):
                       brief="python3 tests/neuter_matrix.py")
         old = tt.open_slice(self.repo, "job-old", kind="job", host="omp", parent="P9",
                             brief="python3 tests/impacted.py --all")
-        old["opened"] = "2026-10-11T08:00:00Z"
+        old["opened"] = old["updated"] = "2026-10-11T08:00:00Z"
         tt._write_record(self.repo, old)
         self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["job-new"])
-        self.assertEqual(self.record("job-old")["status"], "done")
+        self.assertEqual(self.record("job-old")["status"], "stale")
+
+    def test_an_open_record_nothing_moved_goes_stale_and_never_refuses(self):
+        # a Codex child reports no end: after SLICE_IDLE_SECONDS it leaves the
+        # list as stale, read neither as done nor as stopped
+        rec = tt.open_slice(self.repo, "review", host="codex", brief="b")
+        rec["updated"] = "2026-10-10T00:00:00Z"
+        tt._write_record(self.repo, rec)
+        self.assertEqual(tt.pending(self.repo), [])
+        self.assertEqual((self.record("review")["status"],
+                          self.record("review")["failure"]), ("stale", ""))
+
+    def test_a_respawn_of_the_same_name_is_read_from_its_newest_transcript(self):
+        # omp writes a same-name re-dispatch to `<name>-2.jsonl`; the first
+        # run's end must not close the re-opened record
+        with unittest.mock.patch.dict(os.environ, {"HOME": self.home}):
+            self.transcript("P1", "Rev", [
+                _row("assistant", stopReason="error", errorMessage="429")])
+            tt.open_slice(self.repo, "Rev", host="omp", parent="P1", brief="b")
+            self.assertEqual(self.record("Rev")["status"], "open")
+            tt.pending(self.repo)
+            self.assertEqual(self.record("Rev")["status"], "stopped")
+            tt.open_slice(self.repo, "Rev", host="omp", parent="P1", brief="b")
+            self.transcript("P1", "Rev-2", [
+                _row("assistant", stopReason="toolUse"), _row("toolResult", toolName="bash")])
+            self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["Rev"])
+            self.assertEqual(self.record("Rev")["status"], "open")
+            self.transcript("P1", "Rev-2", [_row("toolResult", toolName="yield")])
+            tt.pending(self.repo)
+            self.assertEqual((self.record("Rev")["status"], self.record("Rev")["attempts"]),
+                             ("done", 2))
 
 
 class Cli(Journal):
@@ -293,6 +323,16 @@ class Cli(Journal):
         self.git("checkout", "-q", "unmerged")
         self.commit_file("u.txt")
         self.git("checkout", "-q", "main")
+        # landed by ancestry but never committed on: a slice not yet started
+        self.git("branch", "plan-next")
+        # landed and committed on, but tracking an upstream: long-lived
+        self.git("branch", "develop")
+        self.git("checkout", "-q", "develop")
+        self.commit_file("dev.txt")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--no-ff", "--no-edit", "develop")
+        self.git("config", "branch.develop.remote", ".")
+        self.git("config", "branch.develop.merge", "refs/heads/main")
         proc = self.task("slice", "reconcile", "--prune")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("worktree removed: %s (slice-done)" % tree, proc.stdout)
@@ -300,7 +340,7 @@ class Cli(Journal):
         self.assertIn("slice D done: slice-done landed", proc.stdout)
         self.assertIn("no open or stopped slice", proc.stdout)
         branches = self.git("for-each-ref", "--format=%(refname:short)", "refs/heads")
-        self.assertEqual(sorted(branches.split()), ["main", "unmerged"])
+        self.assertEqual(sorted(branches.split()), ["develop", "main", "plan-next", "unmerged"])
         self.assertEqual(self.record("D")["status"], "done")
 
     def test_reconcile_keeps_an_unstarted_slice_open(self):
@@ -343,13 +383,48 @@ class Cli(Journal):
         self.task("slice", "stop", "rev1", "--class", "quota")
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertEqual(refused.returncode, 1)
-        self.assertIn("FAIL review slice rev1 is stopped (quota): finish it, or "
+        self.assertIn("FAIL review slice rev1 is stopped (quota): let it finish, or "
                       "resume it with `tezgah-task slice resume rev1`", refused.stdout)
+        self.assertIn("`tezgah-task slice done rev1`", refused.stdout)
         self.assertEqual(self.task("review", "001", "rev1", "approve").returncode, 1)
         self.assertEqual(self.task("slice", "done", "rev1").returncode, 0)
         allowed = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertEqual(allowed.returncode, 0, allowed.stdout)
         self.assertIn("review recorded: tezgah-reviewer approve round 1", allowed.stdout)
+
+    def plan_at_head(self):
+        plans = os.path.join(self.repo, ".tezgah", "plans", "open")
+        os.makedirs(plans, exist_ok=True)
+        with open(os.path.join(plans, "001-a-plan.md"), "w") as fh:
+            fh.write(PLAN.replace("---\n", "---\ncheckpoint: %s\n"
+                                  % self.git("rev-parse", "HEAD"), 1))
+
+    def test_a_resumed_review_hands_the_guard_to_its_re_dispatch(self):
+        self.plan_at_head()
+        self.task("slice", "open", "--id", "rev1", "--agent", "tezgah-reviewer",
+                  "--host", "claude", "--brief", "review")
+        self.task("slice", "stop", "rev1", "--class", "quota")
+        self.assertEqual(self.task("slice", "resume", "rev1").returncode, 0)
+        # the re-dispatch has its own record, and it is still running
+        self.task("slice", "open", "--id", "rev2", "--agent", "tezgah-reviewer",
+                  "--host", "claude", "--brief", "review, resumed")
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertIn("review slice rev2 is open", refused.stdout)
+        self.assertNotIn("rev1", refused.stdout)
+        self.task("slice", "done", "rev2")
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                   "approve").returncode, 0)
+
+    def test_an_older_plans_dead_reviewer_blocks_nothing(self):
+        tt.open_slice(self.repo, "rev0", agent="tezgah-reviewer", host="claude",
+                      brief="an older review")
+        tt.close_slice(self.repo, "rev0", "stopped", "quota")
+        old = self.record("rev0")
+        old["updated"] = "2026-01-01T00:00:00Z"
+        tt._write_record(self.repo, old)
+        self.plan_at_head()
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                   "approve").returncode, 0)
 
     def test_stats_flags_a_signature_at_three_events(self):
         for n in range(26):

@@ -5328,13 +5328,14 @@ class SliceJournalWiring(unittest.TestCase):
                      cwd=self.repo, host="claude")
         self.assertIsNone(self.spawn_call().kwargs["failed"])
 
-    def test_codex_spawn_agent_is_parsed_by_its_own_name(self):
-        # the Codex hook maps spawn_agent onto Task before note_tool sees it
-        inp = {"message": "fix it", "agent_type": "worker"}
-        ti.note_tool("s", "Task", inp, failed=None, cwd=self.repo, host="codex")
+    def test_codex_spawn_agent_is_parsed_by_its_own_name_and_left_open(self):
+        # the Codex hook maps spawn_agent onto Task before note_tool sees it,
+        # and the call answers before the child ends: no outcome is the slice's
+        inp = {"task_name": "review", "message": "fix it", "agent_type": "worker"}
+        ti.note_tool("s", "Task", inp, failed=False, cwd=self.repo, host="codex")
         call = self.spawn_call()
         self.assertEqual(call.args[2:4], ("codex", "spawn_agent"))
-        self.assertIs(call.kwargs["failed"], False)
+        self.assertIsNone(call.kwargs["failed"])
 
     def test_the_host_is_read_off_the_hook_process_when_not_given(self):
         inp = {"description": "d", "prompt": "p"}

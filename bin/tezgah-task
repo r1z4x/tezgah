@@ -622,24 +622,29 @@ def budget_spent(path, ident):
             % (path, REVIEW_ROUNDS, ident, ident))
 
 
-def unfinished_review(root, reviewer):
+def unfinished_review(root, reviewer, since=0):
     """The refusal of an `approve` while a slice journal record whose id or agent
-    is `reviewer` is not done: a review slice that died on a provider limit had
-    its approve recorded anyway, and a NameError it would have caught reached
-    main (plan 078). The omp records are reconciled with their transcripts first
-    (`tt.pending`), so a review that has finished reads as done."""
+    is `reviewer` is still open or stopped: a review slice that died on a provider
+    limit had its approve recorded anyway, and a NameError it would have caught
+    reached main (plan 078). The omp records are reconciled with their
+    transcripts first (`tt.pending`), so a review that has finished reads as done.
+    Only records updated at or after `since` (epoch seconds; the plan's
+    checkpoint commit) count, so an older plan's dead reviewer blocks nothing; a
+    `resumed` record has handed its work to the re-dispatch, whose own record
+    is the one read."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
-    tt.pending(root)
-    return ["review slice %s is %s%s: finish it, or resume it with `tezgah-task "
-            "slice resume %s`, before recording approve - an approve from a "
-            "review that did not finish reads nothing"
+    return ["review slice %s is %s%s: let it finish, or resume it with `tezgah-task "
+            "slice resume %s` and wait for that run; if the review was finished "
+            "another way, record it with `tezgah-task slice done %s` - an approve "
+            "from a review that did not finish reads nothing"
             % (rec["id"], rec.get("status"),
-               (" (%s)" % rec["failure"]) if rec.get("failure") else "", rec["id"])
-            for rec in tt.slices(root)
+               (" (%s)" % rec["failure"]) if rec.get("failure") else "",
+               rec["id"], rec["id"])
+            for rec in tt.pending(root)
             if reviewer in (rec.get("id"), rec.get("agent"))
-            and rec.get("status") != "done"]
+            and (_stamp(rec.get("updated")) or 0) >= since]
 
 
 def cmd_review(args):
@@ -656,7 +661,12 @@ def cmd_review(args):
     # round's delta is `git diff <this>..HEAD` over the project
     root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
     if args[2] == "approve":
-        bad = unfinished_review(root, args[1])
+        # the plan's checkpoint commit (a sha, or `pending <sha>`) dates the work
+        # this review is about; with none, every record counts
+        mark = (fields.get("checkpoint") or "").split()
+        since = (git_out(root, "log", "-1", "--format=%ct", mark[-1])
+                 if mark and mark[-1] != tt.CHECKPOINT_PENDING else None)
+        bad = unfinished_review(root, args[1], int(since) if (since or "").isdigit() else 0)
         if bad:
             return problems(bad)
     sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]
@@ -960,13 +970,19 @@ def resume_text(root, rec):
              if not line[3:].startswith(".tezgah")]
     resume = ("Resume: last commit %s on %s; uncommitted: %s; continue from there, "
               "do not redo committed steps" % (last, branch, ", ".join(dirty) or "none"))
+    # a Claude record named by a 12-hex brief digest addresses no agent: no
+    # SendMessage line for it, only the re-dispatch
+    named = not re.fullmatch(r"[0-9a-f]{12}", sid)
     native = {"omp": "`write agent://%s` (while omp session %s still runs)"
                      % (sid, rec.get("parent") or "?"),
-              "claude": "`SendMessage` to %s" % sid}.get(rec.get("host"))
+              "claude": "`SendMessage` to %s" % sid if named else None}.get(rec.get("host"))
     if native:
         lines.append("  native: %s with: %s" % (native, resume))
-    lines.append("  %sre-dispatch on any host or model with this brief:"
-                 % ("else " if native else ""))
+    provider = (" on another provider (`tezgah-route` names the tier; the same "
+                "account's limit would stop it again)"
+                if rec.get("failure") in ("quota", "rate_limit") else
+                " on any host or model")
+    lines.append("  %sre-dispatch%s with this brief:" % ("else " if native else "", provider))
     lines.append(rec.get("brief") or "(no brief recorded)")
     lines.append(resume)
     return "\n".join(lines)
@@ -984,17 +1000,25 @@ def own_commits(root, rec):
 
 
 def prune_branches(root, bases):
-    """`git branch -d` every local branch whose work landed in `bases` and that no
-    worktree has checked out - never main, master or the current branch. One
-    line per branch it deletes or git refuses."""
+    """`git branch -d` every local branch whose work landed in `bases`, that no
+    worktree has checked out, that tracks no upstream (a long-lived branch such
+    as `develop` tracks one) and that carries a commit of its own (its reflog
+    names one, the guard `_keeps` applies to a worktree: a pre-created branch
+    nobody committed on is a slice not yet started) - never main, master or the
+    current branch. One line per branch it deletes or git refuses."""
     current = git_out(root, "symbolic-ref", "-q", "--short", "HEAD")
     held = {line[len("branch refs/heads/"):] for line in
             (git_out(root, "worktree", "list", "--porcelain") or "").splitlines()
             if line.startswith("branch refs/heads/")}
     out = []
-    for branch in (git_out(root, "for-each-ref", "--format=%(refname:short)",
-                           "refs/heads") or "").splitlines():
-        if branch in ("main", "master", current) or branch in held:
+    for row in (git_out(root, "for-each-ref", "--format=%(refname:short)\t%(upstream)",
+                        "refs/heads") or "").splitlines():
+        branch, _tab, upstream = row.partition("\t")
+        if branch in ("main", "master", current) or branch in held or upstream:
+            continue
+        log = git_out(root, "reflog", "show", "--format=%gs", "refs/heads/" + branch) or ""
+        if not any(entry.startswith(("commit:", "commit (amend):", "commit (initial):"))
+                   for entry in log.splitlines()):
             continue
         if not any(_landed(root, branch, b) for b in bases):
             continue

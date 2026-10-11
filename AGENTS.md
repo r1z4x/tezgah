@@ -37,8 +37,6 @@ python3 tests/e2e_packaged_install.py                     # install from the bui
 TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py        # the plan and decision rules, in a real project
 ```
 
-A check a subagent already passed on the same tree is not re-run by the parent.
-
 `tests/impacted.py --ref <branch>` maps whatever changed since that ref;
 `--list` prints the set without running. A helper under `tests/` (such as
 `tests/bash_vectors.py`) runs the test modules that `import` it. A file under

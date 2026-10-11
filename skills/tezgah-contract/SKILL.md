@@ -543,8 +543,7 @@ instead of attempting a fourth. A turn must either change the state or end the
 work. Check cadence: in a turn, run only the impacted tests of what changed plus
 compileall and ruff; the full suite, neuter, the docs audits and e2e run once,
 on the final tree, at the merge step and in CI - not again on the same revision
-after a merge or a scratch file outside the repo. A check a subagent already
-passed on the same tree is not re-run by the parent. Small asks of one kind (a
+after a merge or a scratch file outside the repo. Small asks of one kind (a
 color, an icon, a label) are batched into one change and one release.
 
 **No confusing / self-justifying sentences.** State facts plainly, never

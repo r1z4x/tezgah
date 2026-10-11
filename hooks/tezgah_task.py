@@ -46,8 +46,8 @@ names clears it by itself.
 The slice journal lives here too (`open_slice` ... `slice_lines`): one JSON
 record per delegated slice under `<main checkout>/.tezgah/slices/`, written by
 the post-tool path on a spawn call and by `tezgah-task slice`, so a parent
-crash, an omp `/clear`, a quota stop or a host switch loses no slice. Those
-functions shell out to git and read omp transcripts; the gate never calls them.
+crash, an omp `/clear`, a quota stop or a host switch loses no slice. They shell
+out to git and read omp transcripts; the Stop rule reads `pending` (fail open).
 """
 import os
 import re
@@ -631,8 +631,13 @@ def _field_lines(key, value):
 
 SLICE_KINDS = ("agent", "job")
 SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh")
-SLICE_STATUSES = ("open", "done", "stopped", "resumed")
-SLICE_CLOSED = ("done", "stopped", "resumed")
+# `stale`: no terminal status was observed within SLICE_IDLE_SECONDS - a host
+# that reports none (Codex `spawn_agent` returns at once and tezgah sees no child
+# event) or a child that died without writing its end. It leaves the pending
+# list without being read as finished or as failed.
+SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")
+SLICE_CLOSED = ("done", "stopped", "resumed", "stale")
+SLICE_IDLE_SECONDS = 6 * 3600
 FAILURES = ("quota", "rate_limit", "aborted", "timeout", "cut_off", "error")
 SLICE_BRIEF = 4000
 SLICE_LINE = 160
@@ -764,6 +769,10 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
                 rec[key] = value
     if brief or not rec.get("worktree"):
         rec["worktree"], rec["branch"] = _named_worktree(main, rec.get("brief"))
+    if rec.get("host") == "omp" and rec.get("parent") and not rec.get("transcript_dir"):
+        # one glob over every omp project at open, so `pending` - run on every
+        # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
+        rec["transcript_dir"] = _omp_session_dir(rec["parent"]) or ""
     rec.update(base=_git(main, "rev-parse", "HEAD") or "", status="open",
                failure="", updated=now)
     return _write_record(root, rec)
@@ -823,7 +832,8 @@ def spawned(tool, inp):
     omp `task` carries a batch ({tasks: [{name, agent, task}], context}, brief =
     context + task); Claude, dsh and Cursor `Agent`/`Task` and opencode `task`
     carry one ({description, prompt, subagent_type}); Codex `spawn_agent` carries
-    {message|prompt, agent_type|agent}."""
+    {task_name, message|prompt, agent_type|agent} - its `task_name` is the id the
+    user addresses the child by."""
     if not isinstance(inp, dict):
         return []
     name = str(tool or "").lower()
@@ -842,7 +852,7 @@ def spawned(tool, inp):
                     str(inp.get("subagent_type") or ""), brief))
     elif name == "spawn_agent":
         brief = str(inp.get("message") or inp.get("prompt") or "")
-        out.append((slice_id(inp.get("name"), brief),
+        out.append((slice_id(inp.get("task_name") or inp.get("name"), brief),
                     str(inp.get("agent_type") or inp.get("agent") or ""), brief))
     return [row for row in out if row[2]]
 
@@ -872,17 +882,41 @@ def note_spawn(cwd, session_id, host, tool, inp, failed=None, result_text=""):
     return out
 
 
-def _omp_transcript(parent, sid):
-    """The omp child transcript of slice `sid` under parent session `parent`:
-    the parent's session directory (`<project>/<stamp>_<parent>/`) holds one
-    `<agent id>.jsonl` per subagent. None when there is none."""
+def _omp_session_dir(parent):
+    """The omp session directory of parent session `parent`
+    (`~/.omp/agent/sessions/<project>/<stamp>_<parent>/`, one `<agent id>.jsonl`
+    per subagent), or None. One glob over every project, so it runs once per
+    record (`open_slice`), never per prompt."""
     import glob
-    if not parent or not sid or "/" in parent or os.sep in parent:
+    if not parent or "/" in parent or os.sep in parent:
         return None
     home = os.path.expanduser("~")
     hits = glob.glob(os.path.join(home, ".omp", "agent", "sessions", "*",
-                                  "*_" + glob.escape(parent), glob.escape(sid) + ".jsonl"))
+                                  "*_" + glob.escape(parent)))
     return hits[0] if hits else None
+
+
+def _omp_transcript(rec):
+    """The newest omp child transcript of the record: omp names a re-dispatch of
+    the same agent name in one session `<name>-2.jsonl`, `<name>-3.jsonl`, so the
+    highest suffix is the attempt the record now tracks - reading `<name>.jsonl`
+    would close a re-opened record with the first run's end. None when the
+    record names no session directory or the directory holds no such file."""
+    folder, sid = rec.get("transcript_dir"), rec.get("id")
+    if not folder or not sid:
+        return None
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return None
+    best, rank = None, -1
+    attempt = re.compile(re.escape(sid) + r"(?:-(\d+))?\.jsonl")
+    for name in names:
+        hit = attempt.fullmatch(name)
+        n = int(hit.group(1) or 1) if hit else -1
+        if n > rank:
+            best, rank = os.path.join(folder, name), n
+    return best
 
 
 def _transcript_end(path):
@@ -935,39 +969,60 @@ def _transcript_end(path):
 # How long a `job` record stays pending: omp clamps a background call's
 # deadline to 3600 s, so a job opened longer ago has ended either way and its
 # line would only repeat itself on every prompt. Its result stays in the parent
-# transcript the record names.
+# transcript the record names, so it closes `stale`, not done.
 SLICE_JOB_SECONDS = 3600
 
 
 def _age(rec):
-    """Seconds since the record was opened, or None when `opened` is unreadable."""
-    import datetime
+    """Seconds since the record last changed (`updated`, else `opened`), or None
+    when neither reads as a record time."""
+    import calendar
+    import time
+    stamp = str(rec.get("updated") or rec.get("opened") or "")
     try:
-        opened = datetime.datetime.strptime(str(rec.get("opened") or ""),
-                                            "%Y-%m-%dT%H:%M:%SZ")
+        then = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
     except ValueError:
         return None
-    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
-    return (now - opened).total_seconds()
+    return time.time() - then
 
 
 def pending(root):
     """The records still owed work - status open or stopped - newest first. An
     omp record still open whose child transcript has ended is closed first:
-    stopped with its failure class, or done when it ended normally; a `job`
-    record past SLICE_JOB_SECONDS is closed done. One stat and at most one
-    SLICE_TAIL read per open omp record."""
+    stopped with its failure class, or done when it ended normally. An open
+    record nothing has moved for SLICE_IDLE_SECONDS (an omp child's transcript
+    included) - or a `job` past SLICE_JOB_SECONDS - closes `stale`. One stat and
+    at most one SLICE_TAIL read per open omp record."""
     out = []
     for rec in slices(root):
-        if rec.get("status") == "open" and rec.get("kind") == "job":
-            age = _age(rec)
-            if age is not None and age > SLICE_JOB_SECONDS:
-                rec = close_slice(root, rec["id"], "done") or rec
-        elif rec.get("status") == "open" and rec.get("host") == "omp":
-            path = _omp_transcript(rec.get("parent"), rec.get("id"))
+        if rec.get("status") != "open":
+            if rec.get("status") == "stopped":
+                out.append(rec)
+            continue
+        idle, limit = _age(rec), SLICE_IDLE_SECONDS
+        if rec.get("kind") == "job":
+            limit = SLICE_JOB_SECONDS
+        elif rec.get("host") == "omp":
+            if not rec.get("transcript_dir") and idle is not None and idle < 600:
+                # the parent's directory did not exist yet when the record
+                # opened: one more glob while the record is young, then kept
+                found = _omp_session_dir(rec.get("parent"))
+                if found:
+                    rec["transcript_dir"] = found
+                    _write_record(root, rec)
+            path = _omp_transcript(rec)
             end = _transcript_end(path) if path else None
             if end:
                 rec = close_slice(root, rec["id"], *end) or rec
+            elif path:
+                try:
+                    import time
+                    idle = min(idle if idle is not None else 1e18,
+                               time.time() - os.stat(path).st_mtime)
+                except OSError:
+                    pass
+        if rec.get("status") == "open" and idle is not None and idle > limit:
+            rec = close_slice(root, rec["id"], "stale") or rec
         if rec.get("status") in ("open", "stopped"):
             out.append(rec)
     return out

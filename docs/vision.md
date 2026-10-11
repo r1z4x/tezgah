@@ -53,8 +53,7 @@ the workspace's own records; every number below names where it came from.
 | CI | the same, on the matrix in `.github/workflows/ci.yml` | unchanged |
 
 Nothing in the merge-step row runs inside a turn (`AGENTS.md`, "Checks, by
-tier", and `hooks/tezgah_policy.py::CORE`). A check a subagent already passed on the
-same tree is not re-run by the parent. The cut came from a replay of 522 turns
+tier", and `hooks/tezgah_policy.py::CORE`). The cut came from a replay of 522 turns
 (the check-loop-cost research line, variant D). It kept 0.5958 of the in-turn
 checks and lost no failure the status quo caught. A third of those failures
 surface at the merge step or in CI instead of in the turn.

@@ -3349,11 +3349,12 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
 
 
 # The hosts whose post event for a spawn call arrives once the child finished,
-# so the call's outcome is the slice's: Claude/dsh/Cursor `Agent`/`Task` and
-# Codex `spawn_agent` (mapped onto `Task` by its hook). omp's `task` returns
-# while its children may still run, so its records stay open for
-# `tezgah_task.pending` to reconcile from the child transcripts.
-SYNC_SPAWN_HOSTS = frozenset(("claude", "dsh", "cursor", "codex"))
+# so the call's outcome is the slice's: Claude/dsh/Cursor `Agent`/`Task`. omp's
+# `task` and Codex `spawn_agent` return while the child still runs (a Codex
+# rollout shows the call answered with its `task_name` alone), so their records
+# stay open: omp's for `tezgah_task.pending` to close from the child
+# transcripts, Codex's until `pending` closes them `stale`.
+SYNC_SPAWN_HOSTS = frozenset(("claude", "dsh", "cursor"))
 
 
 def _journal():
