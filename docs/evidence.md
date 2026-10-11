@@ -291,21 +291,22 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached
 (`hosts/codex/hook.py::main`), Cursor (`hosts/cursor/hook.py::dispatch`), omp
 (`hosts/omp/hook.py::handle`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
-(`hooks/projects-stop.py::main`). The reply after a block is judged again on every one of them.
+(`hooks/projects-stop.py::main`). Each of these hosts judges the reply after a block again.
 The re-ask budget is the core's (`_record_only`, `hooks/tezgah_integrity.py::_record_only`): at
-most `STOP_REASKS` = 2 refusals in one user turn, and never two for one reason class. The count is
-read from the turn's `blocked:` claim and refusal rows, not from the host's payload. omp hands a
-block back as a queued message, and its prompt hook writes that text as a new `turn` row. A
-refusal row stores the key of its text as `reask`, and a `turn` row with that key is no new user
-turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals`). omp caps
-continuations it starts itself, never a chain of blocks, so tezgah's count bounds that chain. So a reply that
-fixes the first class but adds a new one, such as a blocker list with no evidence, is refused once
-more. A reply after a block that is not refused writes one `after_block` row. A host that says a
-block came before (`stop_hook_active`, Cursor's `loop_count`) while the turn holds no refusal of
-this rule gets no refusal and no row, since another Stop hook may have blocked. The host's count
-rules only where the ledger cannot: a session with no `turn` row allows one refusal per chain, and
-a Cursor `loop_count` of 2 ends the chain. opencode has no Stop rule and so no budget: its plugin
-API has no end-of-turn hook with an output, and its `event` hook only observes (`hosts/opencode/plugins/tezgah.js:2852`). Eleven triggers, in order, each naming its reason class (`_stop_block`
+most `STOP_REASKS` = 2 refusals in one user turn, and never two for one reason class. The count
+comes from the turn's `blocked:` claim and refusal rows, not from the host's payload. The omp host
+hands a block back as a queued message. Its prompt hook writes that text as a new `turn` row. A
+refusal row stores the key of its text as `reask`. A `turn` row with that key starts no new user
+turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals`). The omp host
+caps the continuations it starts itself, but never a chain of blocks, so tezgah's count bounds that
+chain. So a reply that fixes the first class but adds a new one gets one more refusal. A blocker
+list with no evidence is such a new class. A reply after a block that is not refused writes one
+`after_block` row. A host may say a block came before (`stop_hook_active`, Cursor's `loop_count`)
+while the turn holds no refusal of this rule. That reply gets no refusal and no row, since another
+Stop hook may have blocked. The host's count rules only where the ledger cannot. A session with no
+`turn` row allows one refusal per chain. A Cursor `loop_count` of 2 ends the chain. The opencode
+host has no Stop rule and so no budget. Its plugin API has no end-of-turn hook with an output. The
+`event` hook of `hosts/opencode/plugins/tezgah.js` only observes. Eleven triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py::_stop_block`).
 The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_integrity.py::_shape_block`); the rest judge its evidence:
 
