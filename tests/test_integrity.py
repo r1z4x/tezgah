@@ -3589,7 +3589,8 @@ class ResidualWork(unittest.TestCase):
                      "**Yapısal eksik kapandı:** parser artık boş satırı okuyor.",
                      "**Önceki eksik kapandı:** README güncellendi.",
                      "Düzeltilen eksik: README satırı.", "Kalan süre: 3 dakika",
-                     "Kalan kota: 120 istek", "Doğrulanmayan kalmadı:\n- hepsi geçti"):
+                     "Kalan kota: 120 istek", "Doğrulanmayan kalmadı:\n- hepsi geçti",
+                     "**Eksik olan uçtan uca kanıt artık var:** 14/14 geçti."):
             with self.subTest(text=text):
                 self.assertEqual(self.left(text), [])
         # the controls: "kalan" as the work left still opens one

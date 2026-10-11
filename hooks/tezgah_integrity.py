@@ -5030,10 +5030,12 @@ RESIDUAL_AT = re.compile(r"(?:%s)|(?:[^\W\d][\w'’-]*\s+){0,2}(?:%s)"
                          % (RESIDUAL_FIRST, RESIDUAL_LABEL.pattern))
 # A label whose own words close the list: a claim word (`asserted_claims`), or
 # a completion verb or participle the claim vocabulary does not carry ("Eksik
-# kapandı", "Düzeltilen eksik", "Doğrulanmayan kalmadı"). "Kısmen ..." stays open.
+# kapandı", "Düzeltilen eksik", "Doğrulanmayan kalmadı", "Eksik olan kanıt artık
+# var"). "Kısmen ..." stays open.
 LABEL_DONE = re.compile(r"\b(?:giderildi|çözüldü|yazıldı|bitti|ölçüldü|yapıldı|"
                         r"halledildi|kapandı|kalmadı|tamamlanan|düzeltilen|"
-                        r"giderilen|kapatılan|çözülen|resolved|addressed|closed)\b")
+                        r"giderilen|kapatılan|çözülen|artık (?:var|mevcut)|"
+                        r"resolved|addressed|closed)\b")
 PARTIAL = re.compile(r"(?:kısmen|partially)\b")
 # A short label that says nothing is left - it ends on "yok"/"none" or opens on
 # "no"/"none" - is no list ("Eksik yok"); in a longer one, or after a comma, the
