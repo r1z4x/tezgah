@@ -1037,6 +1037,71 @@ class Cli(TempHome):
         self.assertEqual(tt.allowed_paths(read(path)), ["hooks/**"])
         self.assertEqual(tt.frontmatter(read(path))["id"], "001")
 
+    # ------------------------------------------------------------ tick and note
+
+    BODY = ("the goal\n## Acceptance\n- [ ] first, proof `make a`\n"
+            "- [x] second, proof\n  `make b`\n## State\nold one\n\n"
+            "## State (later)\nold two\n\n## Next\nold next\n")
+
+    def test_tick_and_undo_flip_one_box_and_keep_the_frontmatter(self):
+        path = self.plan("001-first.md", phase="implementation",
+                         allowed=["hooks/**"], body=self.BODY)
+        proc = self.task("tick", "001", "1")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("- [x] first, proof `make a`", proc.stdout)
+        proc = self.task("tick", "001", "2", "--undo")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("- [ ] second, proof `make b`", proc.stdout)
+        text = read(path)
+        self.assertEqual([i["checked"] for i in tt.acceptance_items(text)], [True, False])
+        self.assertEqual(tt.frontmatter(text)["phase"], "implementation")
+        self.assertEqual(tt.allowed_paths(text), ["hooks/**"])
+        self.assertNotEqual(tt.frontmatter(text)["updated"], "2026-01-01")
+
+    def test_tick_out_of_range_is_refused_and_writes_nothing(self):
+        self.plan("001-first.md", body=self.BODY)
+        before = self.snapshot()
+        proc = self.task("tick", "001", "3")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("has 2 Acceptance items, not an item 3", proc.stdout)
+        self.assertEqual(self.task("tick", "001", "0").returncode, 1)
+        self.assertEqual(self.task("tick", "001").returncode, 2)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_note_replaces_the_newest_state_and_the_next_body(self):
+        path = self.plan("001-first.md", body=self.BODY)
+        self.assertEqual(self.task("note", "001", "state", "new state").returncode, 0)
+        self.assertEqual(self.task("note", "001", "next", "new next").returncode, 0)
+        text = read(path)
+        self.assertIn("## State\nold one\n\n## State (later)\nnew state\n\n## Next\nnew next\n",
+                      text)
+        self.assertEqual(tt.frontmatter(text)["title"], "a plan")
+        self.assertNotEqual(tt.frontmatter(text)["updated"], "2026-01-01")
+
+    def test_note_without_the_section_or_with_a_bad_section_writes_nothing(self):
+        self.plan("001-first.md")
+        before = self.snapshot()
+        proc = self.task("note", "001", "state", "x")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("has no `## State` section", proc.stdout)
+        self.assertEqual(self.task("note", "001", "goal", "x").returncode, 2)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_tick_and_note_take_only_an_open_plan(self):
+        # they write past the gate, so any other markdown file is refused
+        # (review of plan 083, F4)
+        readme = os.path.join(self.repo, "README.md")
+        with open(readme, "w") as fh:
+            fh.write("# x\n## Acceptance\n- [ ] a\n## Next\nold\n")
+        before = read(readme)
+        for args in (("note", readme, "next", "x"), ("tick", readme, "1"),
+                     ("start", readme, "--phase", "discovery"),
+                     ("review", readme, "r", "approve")):
+            proc = self.task(*args)
+            self.assertEqual(proc.returncode, 1, args)
+            self.assertIn("is not an open plan", proc.stdout)
+        self.assertEqual(read(readme), before)
+
     # --------------------------------------------------------------- status
 
     def test_status_names_the_active_task_and_its_scope(self):

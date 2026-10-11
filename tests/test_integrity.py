@@ -2310,9 +2310,12 @@ class CommittedBoundary(unittest.TestCase):
         claims = [r for r in ti.events("s") if r.get("kind") == "claim"]
         self.assertEqual(claims[-1]["detail"], "blocked: evidence tampered")
         # the admission rests on the ledger's own rows since plan 080, so it
-        # never clears a ledger that cannot carry them
-        self.assertIn("Evidence tampered",
-                      ti.stop_reason("Done, doğrulanmadı.", "s") or "")
+        # never clears a ledger that cannot carry them; this turn already took
+        # its `evidence tampered` refusal, so the verdict is recorded (plan 083)
+        self.assertIsNone(ti.stop_reason("Done, doğrulanmadı.", "s"))
+        self.assertEqual([r["detail"] for r in ti.events("s")
+                          if r.get("kind") == "after_block"],
+                         ["would block: evidence tampered"])
 
     def test_a_unicode_line_separator_inside_a_row_is_one_row(self):
         # opencode's JSON.stringify leaves U+2028/U+2029 raw inside a string,
@@ -5398,7 +5401,7 @@ class SliceJournalWiring(unittest.TestCase):
         self.assertEqual(ti.stop_reason(self.PLAN, "s", cwd=self.repo), reason)
         self.assertEqual([r["detail"] for r in ti.events("s") if r["kind"] == "refusal"],
                          ["blocked: stopped slice"])
-        self.assertIsNone(ti.stop_reason(self.PLAN, "s", cwd=self.repo, record_only=True))
+        self.assertIsNone(ti.stop_reason(self.PLAN, "s", cwd=self.repo, after_block=True))
         self.assertEqual([r["detail"] for r in ti.events("s")
                           if r["kind"] == "after_block"], ["would block: stopped slice"])
         self.assertIn("stopped slice", ti.LIST_BLOCKS)

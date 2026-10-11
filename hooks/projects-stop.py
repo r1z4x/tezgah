@@ -8,13 +8,14 @@ what is left with an item no blocker accounts for (`residual work`). An explicit
 "doğrulanmadı" clears only a claim whose repair is a check, and only after a
 check that ran and failed since the newest change: the word alone used to clear
 every refusal, so writing it was cheaper than verifying (plan 080). With
-`stop_hook_active` set - the
-reply after a block - the reply is judged in record-only mode (an `after_block`
-row) and never blocked again, and Claude Code overrides the hook after its own
-consecutive-block cap, so this can never trap a session. A subagent's end
-(SubagentStop) is judged record-only too: one `subagent_end` row, never a
-block (ADR 011). Inert outside a tezgah root or under the `verify-off` kill
-switch.
+`stop_hook_active` set - the reply after a block - the reply is judged again:
+it is refused once more only for a reason class this turn was not refused for
+yet, at most two refusals per turn (`tezgah_integrity._record_only`, counted
+from the ledger), and otherwise recorded as an `after_block` row. Claude Code
+also overrides the hook after its own consecutive-block cap, so this can never
+trap a session. A subagent's end (SubagentStop) is judged record-only: one
+`subagent_end` row, never a block (ADR 011). Inert outside a tezgah root or
+under the `verify-off` kill switch.
 """
 import json
 import os
@@ -27,11 +28,6 @@ try:
     from tezgah_paths import off, root_for  # noqa: E402
 except Exception as exc:
     import_failed(exc)
-
-# How many times one stop chain may be refused: the one-nudge semantics is
-# deliberate, and raising it is owner decision 11. Claude says only whether a
-# block came before (`stop_hook_active`), so a chain has blocked 0 or 1 times.
-STOP_REASKS = 1
 
 
 def main():
@@ -52,11 +48,10 @@ def main():
         safe(session_id, stop_reason, p.get("last_assistant_message"),
              session_id, cwd=cwd, subagent=True, agent=p.get("agent_id"))
         return
-    blocked = 1 if p.get("stop_hook_active") else 0
     # a core that cannot answer has refused nothing, so the turn ends: the rule
     # never traps a session, and that holds for its own failure too
     reason = safe(session_id, stop_reason, p.get("last_assistant_message"),
-                  session_id, cwd=cwd, record_only=blocked >= STOP_REASKS)
+                  session_id, cwd=cwd, after_block=bool(p.get("stop_hook_active")))
     if reason:
         json.dump({"decision": "block", "reason": reason}, sys.stdout)
 

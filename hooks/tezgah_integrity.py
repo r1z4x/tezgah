@@ -499,6 +499,8 @@ PERMANENT_ERROR = re.compile(
 # made mid-session only when one of these rows names it. `inflight` marks a
 # `turn` row written while a call was still unanswered (`_in_flight`): it
 # slices the turn like any other, and it is no boundary for `_in_flight`.
+# `reask` is a Stop refusal row's `_prompt_key` of its own text: the key the
+# `turn` row carries when a host hands the refusal back as a prompt (plan 083).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -506,7 +508,8 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "summary_chars", "summary_hash",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
-                           "host", "switches", "harness", "authorized", "inflight"))
+                           "host", "switches", "harness", "authorized", "inflight",
+                           "reask"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -1234,6 +1237,11 @@ def writers_elsewhere(path, session_id, minutes=10, cwd=None):
     return sorted(found, key=lambda stem: -found[stem])
 
 
+def _prompt_key(text):
+    """The key a `turn` row stores for one prompt text (`note_turn`)."""
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
+
+
 def note_turn(session_id, prompt, workspace=None):
     """Write the user-turn marker the loop guard resets on, at most once per
     submission.
@@ -1263,7 +1271,7 @@ def note_turn(session_id, prompt, workspace=None):
     written in between, resets nothing - that direction can only deny too much,
     never too little."""
     text = str(prompt or "")
-    key = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:12]
+    key = _prompt_key(text)
     rows = events(session_id, tail=1)
     if rows and rows[-1].get("kind") == "turn" and rows[-1].get("detail") == key:
         return
@@ -4182,7 +4190,68 @@ def _shape_block(text, cwd):
     return (None, None)
 
 
-def stop_reason(text, session_id, cwd=None, record_only=False,
+# How many times the Stop rule may refuse inside one user turn (plan 083): the
+# reply after a block is judged again and refused once more only for a class
+# the turn has not been refused for. Counted from the ledger's own `blocked:`
+# rows (`_turn_refusals`, `_record_only`), so every host gets the same budget
+# whatever its payload says about earlier blocks.
+STOP_REASKS = 2
+
+
+def _blocked(entry):
+    """True for a Stop refusal row: a `blocked:` claim or refusal."""
+    return (entry.get("kind") in ("claim", "refusal")
+            and str(entry.get("detail", "")).startswith("blocked:"))
+
+
+def _turn_refusals(session_id, rows):
+    """This rule's refusal rows in the user turn `rows` belongs to.
+
+    omp hands a Stop block back to the model as a queued message, and its
+    prompt hook records that text as a new `turn` row (`note_turn`), so the
+    reply after a block sits in a turn of its own. Such a marker carries the
+    key of the refusal text (`_prompt_key`), which the refusal row stores as
+    `reask`: a marker equal to the `reask` of the refusal just before it is no
+    new user turn, and that turn's refusals count too. Read back no further
+    than STOP_REASKS refusals, and only the lines that carry a `reask` key are
+    parsed: the Stop path stays a read of the turn, not of the session
+    (StopReadBound)."""
+    refused = [entry for entry in rows if _blocked(entry)]
+    lines = _ledger_lines(_path(session_id))
+    end = _turn_line(lines)
+    while end and len(refused) < STOP_REASKS:
+        marker = _parse([lines[end - 1]])
+        start = _turn_line(lines[:end - 1])
+        before = [entry for entry in _parse([line for line in lines[start:end - 1]
+                                             if '"reask"' in line])
+                  if _blocked(entry)]
+        if not (marker and before
+                and before[-1].get("reask") == marker[0].get("detail")):
+            break
+        refused = before + refused
+        end = start
+    return refused
+
+
+def _record_only(refused, turns, after_block, cls):
+    """True when this reply is recorded and not refused (plan 083).
+
+    `refused` holds the classes this rule refused in the user turn so far. A
+    reply is refused only while there are fewer than STOP_REASKS of them and
+    none is its class, so a class is refused at most once per turn and a
+    third refusal cannot happen. `after_block` is the host's own count of the
+    blocks before this reply - 1 for Claude's, Codex's and omp's
+    `stop_hook_active`, Cursor's `loop_count` - and it rules only where the
+    ledger cannot: a session with no `turn` row has no turn to count in, so
+    there any earlier block makes the reply record-only (the one-nudge rule
+    before plan 083), and a host count at the budget is record-only too."""
+    if not turns:
+        return bool(after_block)
+    return (int(after_block or 0) >= STOP_REASKS or cls in refused
+            or len(refused) >= STOP_REASKS)
+
+
+def stop_reason(text, session_id, cwd=None, after_block=0,
                 subagent=False, agent=None):
     """Why this turn must not end yet, or None. Used by the Stop hooks (Claude,
     Codex, omp and Cursor, which share the payload fields and the block envelope).
@@ -4215,26 +4284,33 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
     list and language numbers the rule refuses on have a published rate over
     every reply, not only over the ones that made a claim.
 
-    `record_only` is the reply after a block (`stop_hook_active`): it is judged
-    the same way but never refused a second time, and its verdict goes to an
+    The reply after one of this rule's blocks - the turn already holds a
+    `blocked:` claim or refusal row, or, in a session with no `turn` row, the
+    host's `after_block` count says a block came before - is judged the same
+    way. `_record_only` decides whether it may be refused again: once more in
+    the turn, for a class not refused yet (plan 083). A refused one is a
+    refusal like the first, `shape` row included; every other one goes to an
     `after_block` row - `would block: <class>`, `ok` or `no claim`, one per
     reply - so what a block led to is on the record without counting as a
-    claim or as a second reply in the shape rate. Only a turn this rule
-    refused has one: the flag says some Stop hook blocked, not that this one
-    did. `subagent` is a subagent's end (ADR 011): judged the same way, never
-    refused, recorded as a `subagent_end` row with the same detail vocabulary,
-    the host's subagent id in `agent` when it sent one, and no turn
-    precondition. Both return None. A reply counts as claiming only with
-    `asserted_claims`: "Testler geçti mi?" leaves no `claim ok` row."""
+    claim or as a second reply in the shape rate. A host count with no refusal
+    of this rule in the turn writes nothing: the host says some Stop hook
+    blocked, not that this one did. `subagent` is a subagent's end (ADR 011):
+    judged the same way, never refused, recorded as a `subagent_end` row with
+    the same detail vocabulary, the host's subagent id in `agent` when it sent
+    one, and no turn precondition. Both return None. A reply counts as
+    claiming only with `asserted_claims`: "Testler geçti mi?" leaves no
+    `claim ok` row."""
     rows, turns = turn_rows(session_id, turns=True)
-    record_only = record_only or subagent
-    if record_only and not subagent and not any(
-            entry.get("kind") in ("claim", "refusal")
-            and str(entry.get("detail", "")).startswith("blocked:")
-            for entry in rows):
+    refused = [str(entry.get("detail"))[len("blocked: "):] for entry in
+               (_turn_refusals(session_id, rows) if turns
+                else filter(_blocked, rows))]
+    if after_block and not subagent and not refused:
         return None
     cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
                               shape=not subagent)
+    record_only = subagent or bool(
+        (refused if turns else after_block)
+        and (not reason or _record_only(refused, turns, after_block, cls)))
     key = _claim_key(text, turns)
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
@@ -4271,10 +4347,17 @@ def stop_reason(text, session_id, cwd=None, record_only=False,
         except Exception:
             if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
                 raise
+    # A refusal is skipped only as the same verdict on the same reply: the same
+    # reply text refused for a new class is the turn's next refusal, and
+    # `_record_only` counts refusals by these rows.
     if not any(entry.get("kind") == kind and entry.get("id") == key
+               and (entry.get("detail") == detail or not reason)
                for entry in rows):
         if cls == "no verify_ok" and not record_only:
             shape = dict(shape, cause=_no_pass_cause(rows))
+        if reason:
+            # the key omp's continuation turn will carry (`_turn_refusals`)
+            shape = dict(shape, reask=_prompt_key(str(reason).strip()))
         if subagent and agent:
             shape = dict(shape, agent=str(agent))
         if kind == "claim":
@@ -5413,7 +5496,7 @@ def _stopped_slice(session_id, cwd):
     forgotten the slice. Its own record only (`parent`), so a sibling
     session's stopped slice never refuses this one. Off under `slices-off`,
     and fail open: a broken journal costs the class, never the Stop. Refused
-    once per turn like every class (the hosts' STOP_REASKS)."""
+    once per turn like every class (`_record_only`)."""
     if not (session_id and cwd) or off("slices-off"):
         return None
     try:

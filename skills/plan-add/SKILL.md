@@ -87,9 +87,11 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    again and the sha is written. Move the phase yourself as the work reaches it
    (`tezgah-task phase implementation`, then `verification`); when a write is
    refused for its path and the plan's work genuinely reaches that file, widen
-   the scope with `tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the frontmatter:
-   the gate refuses a write to the record, because the CLI's checks would be
-   skipped. After the merge, `tezgah-task close NNN done` deactivates the plan,
+   the scope with `tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
+   the gate refuses a write to it, because the CLI's checks would be skipped.
+   Tick an Acceptance box with `tezgah-task tick NNN <n>` (`--undo` unticks),
+   and rewrite State or Next with `tezgah-task note NNN state|next "<text>"`.
+   After the merge, `tezgah-task close NNN done` deactivates the plan,
    moves it to done and removes every merged worktree.
 
 10. If the work settles a decision that is hard to reverse, spans components, or
