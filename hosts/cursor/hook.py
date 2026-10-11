@@ -59,12 +59,10 @@ try:
 except Exception as exc:
     import_failed(exc)
 
-# How many times one stop chain may be refused (hooks/projects-stop.py names the
-# same constant): one, deliberately; raising it is owner decision 11. Cursor's
-# `stop` payload carries `loop_count` (the follow-ups already sent in this chain)
-# and no `stop_hook_active` (cursor-agent 2026.10.01, captured 2026-10-07); the
-# flag is still read for a build that sends it.
-STOP_REASKS = 1
+# Cursor's `stop` payload carries `loop_count` (the follow-ups already sent in
+# this chain) and no `stop_hook_active` (cursor-agent 2026.10.01, captured
+# 2026-10-07); the flag is still read for a build that sends it. The count goes
+# to the core, which owns the re-ask budget (tezgah_integrity._record_only).
 
 
 def asked(payload):
@@ -424,10 +422,12 @@ def dispatch(payload):
         # Only a finished turn is nudged - an aborted or errored one has no claim
         # to check - and `loop_count` is the platform's own cap on follow-ups.
         out = {}
+        # The reply a follow-up started is judged again: the core refuses it at
+        # most once more, for a class this turn was not refused for yet.
         if (payload.get("status") in (None, "completed")
-                and asked(payload) < STOP_REASKS
                 and not off("verify-off") and under(cwd)):
-            reason = stop_reason(last_answer(session_id), session_id, cwd=cwd)
+            reason = stop_reason(last_answer(session_id), session_id, cwd=cwd,
+                                 after_block=asked(payload))
             if reason:
                 out = {"decision": "block", "reason": reason}
     elif event == "beforeSubmitPrompt":

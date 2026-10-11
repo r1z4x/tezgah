@@ -36,7 +36,7 @@ family lose theirs (`hooks/tezgah_integrity.py::REDACTIONS`; audit L-6, which fo
 (`hooks/tezgah_integrity.py::LEDGER_FIELDS`) — `id`, `exit`, `out_bytes`, `fail_class`, `workspace`, `source`, `hash`, `changed`, `tool`,
 `target`, plus the reply-shape names `lines`, `chars`, `items`, `longest_list`, `tr_share`, `answer_first` and the compaction
 row's `summary_chars`, `summary_hash`, `constraint_found`, `constraint_expected`, the `attest`
-row's `host` and `switches` and a `claim` row's `harness` — and
+row's `host` and `switches`, a `claim` row's `harness` and a Stop refusal row's `reask` (the key of its own text, which the `turn` row of omp's continuation carries, `hooks/tezgah_integrity.py::_turn_refusals`) — and
 a key outside that set is dropped, a `None` value left out, because every reader treats a missing key
 as `None` (`hooks/tezgah_integrity.py::note_path`). `tool` is the call's own name (`Bash`, `Write`, `mcp__codegen__status`),
 written by `note_tool` (`hooks/tezgah_integrity.py::note_tool`) because `classify` folds the name into
@@ -120,7 +120,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `began` | the gate's allow path for a write or shell call `hooks/tezgah_gate.py::decision`; on opencode the plugin's before-hook when the core was not asked (`hosts/opencode/plugins/tezgah.js:2549-2565`) | `hooks/tezgah_integrity.py::unanswered`, behind a claim in the Stop rule and in `counters.unanswered` |
 | `claim` | `hooks/tezgah_integrity.py::stop_reason`, only for a reply in the claim vocabulary - a completion or verification word (`DONE`/`VERIFIED`), blocked or allowed, or a refused claim about an external system's state (`_external_claim`) | `hooks/tezgah_integrity.py::counters` |
 | `refusal` | `stop_reason`, for a blocked reply that claimed nothing - a work-only or a shape refusal - with the same `blocked: <class>` detail (row version 3) | `counters.refusals`, and `shape_blocked` for a shape class; never a claim; `NOT_TOOL_HOOK` lists it |
-| `after_block` | `hooks/tezgah_integrity.py::stop_reason`, on the reply after this rule's own block (`stop_hook_active` in a turn holding a `blocked:` claim or refusal row) on Claude, Codex and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
+| `after_block` | `hooks/tezgah_integrity.py::stop_reason`, on a reply after this rule's own block (a turn holding a `blocked:` claim or refusal row) that is not refused again (`_record_only`) on Claude, Codex, Cursor and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
 | `subagent_end` | `stop_reason(..., subagent=True)`, from Claude's SubagentStop (`hooks/hooks.json`) and Cursor's subagentStop `summary`; the evidence half only, never a block (ADR 011); `detail` as `after_block`'s | nothing yet: the rows plan 055 replays before a subagent end may block; `NOT_TOOL_HOOK` lists it. On Claude a subagent's tool rows sit in the parent's ledger, so until the agent key (plan 050) lands the row judges the parent's turn |
 | `stop_spec` | `hooks/tezgah_stopspec.py::shadow`, from `stop_reason`, one per reply that leaves a claim or a refusal row, keyed like the claim row. The `detail` is `agree <where>: <class>`, `disagree <where>: <imperative> -> <spec>` (`ok` for an allow) or `error: <type>`. `<where>` is `fold` when the selector reached the fold and `selector` when it decided alone | `tests/stop_spec_eval.py --shadow-rows`, for plan 063's live agreement bar, read on the `fold` rows. It never feeds the verdict. `NOT_TOOL_HOOK` lists it |
 | `deny`, `nudge` | the [gate](gate.md)'s `hooks/tezgah_gate.py::_deny`, first-nudge `hooks/tezgah_gate.py::decision` | `hooks/tezgah_integrity.py::counters` |
@@ -291,10 +291,21 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached
 (`hosts/codex/hook.py::main`), Cursor (`hosts/cursor/hook.py::dispatch`), omp
 (`hosts/omp/hook.py::handle`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
-(`hooks/projects-stop.py::main`). On Claude, Codex and omp the rule judges the reply after a block
-(`stop_hook_active`) once more, in record-only mode. That reply writes one `after_block` row and
-never meets a second refusal. It writes nothing when the turn holds no refusal of this rule, since
-another Stop hook may have blocked. Cursor still skips it. Eleven triggers, in order, each naming its reason class (`_stop_block`
+(`hooks/projects-stop.py::main`). The reply after a block is judged again on every one of them.
+The re-ask budget is the core's (`_record_only`, `hooks/tezgah_integrity.py::_record_only`): at
+most `STOP_REASKS` = 2 refusals in one user turn, and never two for one reason class. The count is
+read from the turn's `blocked:` claim and refusal rows, not from the host's payload. omp hands a
+block back as a queued message, and its prompt hook writes that text as a new `turn` row. A
+refusal row stores the key of its text as `reask`, and a `turn` row with that key is no new user
+turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals`). omp caps
+continuations it starts itself, never a chain of blocks, so tezgah's count bounds that chain. So a reply that
+fixes the first class but adds a new one, such as a blocker list with no evidence, is refused once
+more. A reply after a block that is not refused writes one `after_block` row. A host that says a
+block came before (`stop_hook_active`, Cursor's `loop_count`) while the turn holds no refusal of
+this rule gets no refusal and no row, since another Stop hook may have blocked. The host's count
+rules only where the ledger cannot: a session with no `turn` row allows one refusal per chain, and
+a Cursor `loop_count` of 2 ends the chain. opencode has no Stop rule and so no budget: its plugin
+API has no end-of-turn hook with an output, and its `event` hook only observes (`hosts/opencode/plugins/tezgah.js:2852`). Eleven triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py::_stop_block`).
 The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_integrity.py::_shape_block`); the rest judge its evidence:
 

@@ -1,12 +1,12 @@
 """The reply after a Stop block, the refusal row and the subagent's end.
 
-A host re-runs its Stop hook with `stop_hook_active` set when the model answers
-a block. That reply used to be dropped unread, so the ledger could not say what a
-block led to - a fix, an admission or the same claim again (REPORT.md §4.2,
-evidence-03). Claude, Codex and omp now judge it in record-only mode: one
-`after_block` row per reply, no decision printed, and a core that raises still
-leaves the host its empty answer. Cursor's `stop` is not wired: no real payload
-was captured.
+A host re-runs its Stop hook with `stop_hook_active` set (Cursor: `loop_count`)
+when the model answers a block. That reply used to be dropped unread, so the
+ledger could not say what a block led to - a fix, an admission or the same claim
+again (REPORT.md §4.2, evidence-03). It is judged again on Claude, Codex, Cursor
+and omp: refused once more for a class the turn was not refused for, at most two
+refusals per turn (plan 083), else one `after_block` row with no decision
+printed, and a core that raises still leaves the host its empty answer.
 
 A refused reply that claimed nothing is a `refusal` row, not a `claim` (part h),
 and a subagent's end on Claude and Cursor leaves a record-only `subagent_end`
@@ -265,13 +265,125 @@ class AfterBlock(TempHome):
         for kind in (b"after_block", b"refusal", b"subagent_end"):
             self.assertIn(kind, tezgah_context.NOT_TOOL_HOOK)
 
-    def test_every_stop_adapter_re_asks_once(self):
-        # ADR 011: one re-ask per host, a per-host constant, value 1 everywhere
+    def test_no_adapter_keeps_its_own_re_ask_count(self):
+        # plan 083: the budget lives in the core, read off the turn's ledger
         for path in (support.STOP_HOOK, support.CODEX_HOOK, support.OMP_HOOK,
                      support.CURSOR_HOOK):
             with open(path, encoding="utf-8") as fh:
-                self.assertRegex(fh.read(), re.compile(r"^STOP_REASKS = 1$", re.M),
-                                 path)
+                self.assertNotRegex(fh.read(), re.compile(r"^STOP_REASKS = ", re.M),
+                                    path)
+
+    # The ServisTek shape (omp session 01a12a4c, 2026-10-11): a `no verify_ok`
+    # refusal, then a verified reply whose blocker list is the gate's own
+    # refusals, typed but quoting no failed command.
+    LISTED = ("Parser yazıldı, `pytest -q` geçti.\n\n**Engeller**\n"
+              "- `xd://mcp__codegraph_explore` — YETKİ — task gate izin vermedi\n"
+              "- Acceptance kutuları — ORTAM — CLI yok")
+
+    def reask(self, host, text, n):
+        """The `n`-th stop of one chain on `host` (0 = the first), as dict."""
+        if host == "cursor":
+            run_json([support.CURSOR_HOOK], {
+                "hook_event_name": "afterAgentResponse", "conversation_id": self.session,
+                "workspace_roots": [self.repo], "text": text}, env=self.envv)
+            out, proc = run_json([support.CURSOR_HOOK], {
+                "hook_event_name": "stop", "conversation_id": self.session,
+                "workspace_roots": [self.repo], "status": "completed",
+                "loop_count": n}, env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            out = out or {}
+        else:
+            out = self.stop(host, text=text, active=n > 0)
+        self.pending = out.get("reason") if host == "omp" else None
+        return out
+
+    def resume(self, check=True):
+        """What comes between a block and the next reply. omp hands the block
+        back as a queued message its prompt hook records as a `turn` row of the
+        refusal text (session 01a12a4c: each continuation message's sha1 is the
+        next `turn` row's key); then, with `check`, a passing check."""
+        if getattr(self, "pending", None):
+            run_json([support.OMP_HOOK], {
+                "event": "user_prompt", "cwd": self.repo, "session_id": self.session,
+                "prompt": self.pending.strip()}, env=self.envv)
+        if check:
+            run_json([support.PROBE_INTEGRITY],
+                     {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                      "input": {"command": "pytest -q"}, "failed": False},
+                     env=self.envv)
+
+    def test_a_new_class_after_a_block_is_refused_once_more(self):
+        for host in ("claude", "codex", "omp", "cursor"):
+            with self.subTest(host=host):
+                self.session = "s-reask-" + host
+                self.turn("ship the parser")
+                self.work()
+                self.assertEqual(self.reask(host, CLAIM, 0).get("decision"), "block")
+                self.resume()
+                out = self.reask(host, self.LISTED, 1)
+                self.assertEqual(out.get("decision"), "block")
+                self.assertIn("Engeller", out["reason"])
+                # the budget is spent: the same list again, and a new class, end
+                self.resume()
+                self.assertNotIn("decision", self.reask(host, self.LISTED, 2))
+                self.resume()
+                self.assertNotIn("decision", self.reask(host, "Haklısın, düzelttim.", 3))
+                self.assertEqual(
+                    [r["detail"] for r in self.rows("claim") + self.rows("refusal")],
+                    ["blocked: no verify_ok", "blocked: residual work"])
+                self.assertEqual([r["detail"] for r in self.rows("after_block")],
+                                 ["would block: residual work",
+                                  "would block: placating opener"])
+                if host == "omp":
+                    # two continuation turns on the ledger, and still one budget
+                    self.assertEqual(len(self.rows("turn")), 3)
+
+    def test_one_class_is_never_refused_twice_in_a_turn(self):
+        for host in ("claude", "omp"):
+            with self.subTest(host=host):
+                self.session = "s-same-" + host
+                self.turn("ship the parser")
+                self.work()
+                self.assertEqual(self.reask(host, CLAIM, 0).get("decision"), "block")
+                self.resume(check=False)
+                self.work()
+                # the host flag aside: the ledger alone says this class was refused
+                for active in (True, False):
+                    self.assertNotIn("decision", self.stop(
+                        host, text="Bitti, testler geçti.", active=active))
+                self.assertEqual([r["detail"] for r in self.rows("after_block")],
+                                 ["would block: no verify_ok"])
+
+    def test_a_prompt_the_user_typed_after_a_block_is_a_new_budget(self):
+        # only the refusal's own text continues the turn
+        self.turn("ship the parser")
+        self.work()
+        self.assertEqual(self.stop("omp", active=False).get("decision"), "block")
+        self.turn("devam et")
+        self.work()
+        self.assertEqual(self.stop("omp", active=False).get("decision"), "block")
+
+    def test_the_same_reply_refused_for_a_new_class_is_counted(self):
+        # one reply text, two classes: the second refusal leaves its own row, so
+        # a third class finds the budget spent
+        self.turn("ship the parser")
+        self.work()
+        self.assertEqual(self.stop("claude", active=False).get("decision"), "block")
+        run_json([support.PROBE_INTEGRITY],
+                 {"fn": "note_tool", "session": self.session, "tool": "Bash",
+                  "input": {"command": "pytest -q"}, "failed": True}, env=self.envv)
+        self.assertEqual(self.stop("claude").get("decision"), "block")
+        self.assertEqual([r["detail"] for r in self.rows("claim")],
+                         ["blocked: no verify_ok", "blocked: check failed"])
+        self.assertNotIn("decision", self.stop("claude", text="Haklısın. " + CLAIM))
+
+    def test_a_new_turn_has_a_new_budget(self):
+        self.turn("first")
+        self.work()
+        self.assertEqual(self.stop("claude", active=False).get("decision"), "block")
+        self.turn("second")
+        self.work()
+        self.assertEqual(self.stop("claude", active=False).get("decision"), "block")
 
     def test_a_raising_core_still_yields_an_empty_answer(self):
         for host in ("claude", "codex", "omp"):
