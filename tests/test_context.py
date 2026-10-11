@@ -1894,6 +1894,57 @@ class GateLiveness(ChildCall):
         self.assertNotIn("tezgah gate inactive", self.prompt())
 
 
+class ContextNudge(ChildCall):
+    """orchestrator-flow-audit S2 F1a: the router's context has no budget. Above
+    CONTEXT_NUDGE_TOKENS on its newest main-thread step, the prompt hook adds
+    one line asking it to delegate heavy reading - never below it, never for a
+    subagent's usage row, never without a transcript."""
+
+    LINE = "push heavy reads and check output through a slice"
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.transcript = os.path.join(self.home, "t.jsonl")
+
+    def prompt(self, rows=None):
+        payload = {"session_id": "c1", "prompt": "x"}
+        if rows is not None:
+            with open(self.transcript, "w") as fh:
+                fh.writelines(json.dumps(r) + "\n" for r in rows)
+            payload["transcript_path"] = self.transcript
+        return self.child(
+            "import json, tezgah_context as tc\n"
+            "print(json.dumps(tc.context_for('user_prompt', %r, %r)))\n"
+            % (self.repo, payload))
+
+    @staticmethod
+    def omp(tokens):
+        return {"type": "message", "message": {"role": "assistant", "usage": {
+            "input": 10, "cacheRead": tokens - 10, "cacheWrite": 0, "output": 5}}}
+
+    def test_above_the_threshold_the_line_names_the_size(self):
+        out = self.prompt([self.omp(400000), self.omp(724380)])
+        self.assertIn("Router context 724k tokens: " + self.LINE, out)
+
+    def test_below_the_threshold_or_without_a_transcript_no_line(self):
+        # the newest step counts, not the heaviest one before it
+        self.assertNotIn(self.LINE, self.prompt([self.omp(800000), self.omp(396366)]))
+        self.assertNotIn(self.LINE, self.prompt())
+
+    def test_claude_and_codex_shapes_and_a_subagent_row_is_skipped(self):
+        claude = {"type": "assistant", "message": {"role": "assistant", "usage": {
+            "input_tokens": 5, "cache_read_input_tokens": 750000,
+            "cache_creation_input_tokens": 0, "output_tokens": 9}}}
+        side = dict(claude, isSidechain=True, message={"role": "assistant", "usage": {
+            "input_tokens": 1000}})
+        self.assertIn("Router context 750k", self.prompt([claude, side]))
+        codex = {"type": "event_msg", "payload": {"type": "token_count", "info": {
+            "last_token_usage": {"input_tokens": 710000, "output_tokens": 3}}}}
+        self.assertIn("Router context 710k", self.prompt([codex]))
+
+
+
 class StateDelta(ChildCall):
     """C1: the standing constraints are re-stated every turn and a long turn
     re-states them again without being able to say what moved. The per-turn

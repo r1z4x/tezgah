@@ -29,7 +29,8 @@ from tezgah_lessons import (lesson_key, lines as lesson_lines,
 from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
                            PROMPT_REMINDER, REPLY_LANG_TEXT, open_lines_note,
                            pony_level_line)
-from tezgah_paths import (CACHE, REPO_MARKS, SWITCHES, ai_research_dir, armed,
+from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
+                          ai_research_dir, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, off,
                           orx_bin, pony_level, reply_lang, root_for, roots, tool,
@@ -1525,7 +1526,8 @@ DEFAULT_BUDGET = 13000
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate",
-              "index", "resume", "slices", "scratch", "task", "delta", "pointer")
+              "index", "resume", "slices", "context", "scratch", "task", "delta",
+              "pointer")
 
 
 def _first_item(text):
@@ -1677,24 +1679,29 @@ def _iso_epoch(value):
         return None
 
 
-def _transcript_calls(path, since):
-    """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
-    after `since` (epoch seconds). Claude writes `{"timestamp", "message":
-    {"content": [{"type": "tool_use", "name"}]}}`, Codex `{"timestamp",
-    "payload": {"type": "function_call", "name"}}`; anything else counts 0."""
+def _tail_lines(path):
+    """The raw lines of a `.jsonl` transcript's last GATE_TAIL bytes, the cut
+    first line dropped. [] for any other path or an unreadable file, so a host
+    that hands no transcript pays nothing."""
     if not isinstance(path, str) or not path.endswith(".jsonl"):
-        return 0
+        return []
     try:
         with open(path, "rb") as fh:
             size = fh.seek(0, 2)
             fh.seek(max(0, size - GATE_TAIL))
             lines = fh.read().split(b"\n")
     except OSError:
-        return 0
-    if size > GATE_TAIL:
-        lines = lines[1:]  # the first line is cut, not a row
+        return []
+    return lines[1:] if size > GATE_TAIL else lines
+
+
+def _transcript_calls(path, since):
+    """Gated tool calls in the transcript's last GATE_TAIL bytes stamped at or
+    after `since` (epoch seconds). Claude writes `{"timestamp", "message":
+    {"content": [{"type": "tool_use", "name"}]}}`, Codex `{"timestamp",
+    "payload": {"type": "function_call", "name"}}`; anything else counts 0."""
     calls = 0
-    for raw in lines:
+    for raw in _tail_lines(path):
         if b"tool_use" not in raw and b"function_call" not in raw:
             continue
         try:
@@ -1714,6 +1721,54 @@ def _transcript_calls(path, since):
             names.append(pay.get("name"))
         calls += sum(1 for n in names if isinstance(n, str) and GATED_TOOLS.match(n))
     return calls
+
+
+# The usage keys that make up one step's input side: Claude's names, then omp's.
+# Codex reports the cached share inside `input_tokens`.
+INPUT_KEYS = ("input_tokens", "cache_creation_input_tokens",
+              "cache_read_input_tokens", "input", "cacheRead", "cacheWrite")
+CONTEXT_NUDGE = (
+    "Router context %dk tokens: push heavy reads and check output through a "
+    "slice that returns the exit code and the failing lines, and keep this "
+    "thread for decisions.")
+
+
+def context_tokens(path):
+    """Input-side tokens of the newest main-thread assistant step in the
+    transcript tail, or None. Claude and omp put `usage` on the assistant
+    message (a Claude `isSidechain` row is a subagent's), Codex on a
+    `token_count` event's `last_token_usage`."""
+    for raw in reversed(_tail_lines(path)):
+        if b"usage" not in raw:
+            continue
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or row.get("isSidechain"):
+            continue
+        msg, pay = row.get("message"), row.get("payload")
+        usage = None
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            usage = msg.get("usage")
+        elif isinstance(pay, dict) and pay.get("type") == "token_count":
+            usage = (pay.get("info") or {}).get("last_token_usage")
+        if isinstance(usage, dict):
+            n = sum(v for k, v in usage.items() if k in INPUT_KEYS and isinstance(v, int))
+            if n:
+                return n
+    return None
+
+
+def context_nudge(payload):
+    """The one line asking the router to delegate heavy reading, or "" below
+    CONTEXT_NUDGE_TOKENS, without a transcript, or under `orchestrate-off`."""
+    path = payload.get("transcript_path") if isinstance(payload, dict) else None
+    if not path or off("orchestrate-off"):
+        return ""
+    tokens = context_tokens(path)
+    return CONTEXT_NUDGE % (tokens // 1000) if (
+        tokens or 0) >= CONTEXT_NUDGE_TOKENS else ""
 
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
@@ -2162,6 +2217,11 @@ def context_for(event, cwd, payload=None, with_core=True):
         pending = slice_lines(root, session_id)
         if pending:
             parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
+        # The router's own context: above the threshold, one line asks it to
+        # push heavy reading through a slice (orchestrator-flow-audit S2 F1).
+        heavy = context_nudge(payload)
+        if heavy:
+            parts.append(("context", heavy))
         # a long session outlives a provider's reset: the same due check as
         # session start (one small JSON read), so a family rejoins omp's chain
         # without waiting for the next session
