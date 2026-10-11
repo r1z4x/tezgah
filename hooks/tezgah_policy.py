@@ -335,8 +335,15 @@ full suite, neuter, the e2e scripts - is joined at merge. A turn ends only
 when no item is ready, never on a question about a step it can take. Fan out only when
 the subtasks share no mutable file and no interface: if two of them would edit
 the same file, or one's answer decides the other's, keep them in one context or
-sequence them. The shared artifact is the coordination channel, not chatter -
-naming a lead coordinates nothing by itself. Only a single item - one file, one
+sequence them. Every writing brief names its `Owns:` globs - the files only
+that slice writes - and declares its checkout on a `Worktree: <abs path>` line;
+the gate refuses a sibling's write into those globs and a slice's write into
+the main checkout when its brief declares a worktree. The integrator
+owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline)
+and merges in the order `tezgah-task slice merge-plan` prints. Siblings message
+each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface
+or ownership change; status goes to the parent, and `tezgah-task slice board`
+shows every sibling's lease. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
 each item is, and that holds at every phase: a plan's tasks, its acceptance
@@ -1000,7 +1007,10 @@ its own branch and checkout - inside Orca `orca worktree create --name <slug>
 --parent-worktree active --json`, else `git worktree add -b <branch> <absolute
 path>`; its brief names every read, edit and shell `cwd` as an absolute path
 under that checkout, never the main checkout, whose `git status --short` must
-not grow. Read-only slices need no worktree. Once a slice's branch is merged,
+not grow. Every writing brief names its `Owns:` globs and declares its
+checkout on a `Worktree: <abs path>` line, and siblings message
+each other only on an interface or ownership change. Read-only slices need no
+worktree. Once a slice's branch is merged,
 its worktree goes in the same turn - `tezgah-task close` removes every merged
 one, and outside a plan `orca worktree rm --worktree path:<p>` (else `git
 worktree remove <p>`) does it; never leave one for the user to find. Pick each agent by task class from

@@ -239,7 +239,7 @@ blocked on a running slice, `wait` and ending the turn are both fine: the host
 wakes it on the result. The per-turn checks of what changed still run in the
 turn, in the background when they share no state. Only the heavy tier - the
 full suite, neuter, the e2e scripts - is joined at merge. A turn ends only
-when no item is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. The shared artifact is the coordination channel, not chatter - naming a lead coordinates nothing by itself. Only a single item - one file, one
+when no item is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. Every writing brief names its `Owns:` globs - the files only that slice writes - and declares its checkout on a `Worktree: <abs path>` line; the gate refuses a sibling's write into those globs and a slice's write into the main checkout when its brief declares a worktree. The integrator owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline) and merges in the order `tezgah-task slice merge-plan` prints. Siblings message each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface or ownership change; status goes to the parent, and `tezgah-task slice board` shows every sibling's lease. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
 each item is, and that holds at every phase: a plan's tasks, its acceptance
@@ -585,9 +585,10 @@ left after round two you fix yourself, prove with a test and close with
 `tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
-round, or recorded fix-later only when it waits on a user decision (KARAR);
-after round two what is left is fixed by the session and closed with
-`--resolved`, or recorded fix-later only with KARAR, never a third round.
+round, or recorded fix-later only when it waits on a user decision (DECISION,
+tr: KARAR); after round two what is left is fixed by the session and closed
+with `--resolved`, or recorded fix-later only with DECISION (tr: KARAR), never
+a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
@@ -623,8 +624,8 @@ a fixture. There round one becomes a population:
    for a confirmed critical or major claim carries its failing-first test, and
    round two reads that fix's delta, the round-one hunks and the direct callers
    of what it touches. After round two what is left is fixed by the session and
-   closed with `--resolved`, or recorded fix-later only with KARAR, never a
-   third round.
+   closed with `--resolved`, or recorded fix-later only with DECISION (tr:
+   KARAR), never a third round.
 
 Status: a tentative default, measured on two changes. E1
 (an internal prove-verify experiment): directed reviewers found 3 of 3 ground-truth defects,

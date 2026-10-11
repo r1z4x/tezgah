@@ -902,6 +902,20 @@ class Cli(TempHome):
         self.assertTrue(fields["resolved"].startswith(
             "null check added; test_empty_input proves it "), fields)
 
+    def test_the_budget_refusal_names_the_configured_languages_token(self):
+        # S5 F4: the refusal told an `en` user to write KARAR
+        self.plan("001-first.md", allowed=["hooks/**"])
+        self.task("start", "001", "--phase", "verification")
+        for _ in range(2):
+            self.task("review", "001", "tezgah-reviewer", "changes")
+        self.assertIn("decision (KARAR)", self.task(
+            "review", "001", "tezgah-reviewer", "approve").stdout)
+        self.config({"roots": [self.roots], "language": "en"})
+        for args in (("review", "001", "tezgah-reviewer", "approve"), ("status",)):
+            out = self.task(*args).stdout
+            self.assertIn("decision (DECISION)", out, args)
+            self.assertNotIn("KARAR", out, args)
+
     def test_verification_names_the_fan_out_and_the_budget_per_round(self):
         self.plan("001-first.md", allowed=["hooks/**"])
         first = self.task("start", "001", "--phase", "verification").stdout

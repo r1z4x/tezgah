@@ -46,9 +46,10 @@ description: >
    round from here. One review per plan, over its whole diff in the verification
    phase; at most two rounds - only a confirmed critical or major finding opens
    round two; a minor or suggestion one is fixed in the session without a new
-   round, or recorded fix-later only when it waits on a user decision (KARAR);
-   after round two what is left is fixed by the session and closed with
-   `--resolved`, or recorded fix-later only with KARAR, never a third round. The fix is proven with a test and
+   round, or recorded fix-later only when it waits on a user decision (DECISION,
+   tr: KARAR); after round two what is left is fixed by the session and closed
+   with `--resolved`, or recorded fix-later only with DECISION (tr: KARAR),
+   never a third round. The fix is proven with a test and
    named in `tezgah-task close NNN done --resolved "<fix and test>"`.
 7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). No `--pr-info` here:

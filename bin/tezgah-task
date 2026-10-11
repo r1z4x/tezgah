@@ -16,6 +16,8 @@
   tezgah-task slice reconcile [--prune]                       every open or stopped slice with its resume brief; --prune also removes landed worktrees and branches
   tezgah-task slice resume ID                                 the native resume path, else a re-dispatch brief; marks the record resumed
   tezgah-task slice stats [--window DAYS] [--json]            counts per status, failure class and host, and the RSI lever candidates
+  tezgah-task slice board [--parent P]                        the open sibling slices: what each owns, its worktree, branch and last commit
+  tezgah-task slice merge-plan [--base REF]                   the done slice branches in merge order, with their forecast conflicts
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and at most one open plan carries a phase
@@ -85,7 +87,15 @@ and marks done each record whose branch landed with a commit of its own.
 the parent session lives, Claude `SendMessage`), then a brief any host or model
 can re-dispatch: the original brief plus the last commit, the branch and the
 uncommitted files. `stats` flags a `class+host` signature at 3 events, or at 5%
-of a window holding 20 or more slices, and names its lever from a closed set. `review ... approve`
+of a window holding 20 or more slices, and names its lever from a closed set.
+`board` lists the open slices one parent spawned - the session's own, or for a
+subagent its parent's - with the `Owns:` globs of each brief (the lease the
+gate holds siblings to), worktree, branch and last commit. `merge-plan` forecasts
+each done slice branch against `--base` (HEAD) and against the others with `git
+merge-tree`, leaves out a `merge=union` file such as CHANGELOG.md, and orders
+them with a branch touching MANIFEST or the citation baseline last, then fewest
+conflicts first; a branch merge-tree cannot forecast (git before 2.38, no shared
+history) is printed as `not judged` and the exit is 1. `review ... approve`
 is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
@@ -102,6 +112,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
+from tezgah_paths import say  # noqa: E402
 
 
 def repo_root(path):
@@ -413,8 +424,8 @@ def verification_steps(text, path):
               "third round. Fix a critical or major finding still confirmed "
               "yourself, prove it with a test and close with `--resolved`; fix a "
               "minor or suggestion one now, or record it fix-later under the "
-              "plan's ## State only when it waits on a user decision (KARAR)"
-              % REVIEW_ROUNDS)
+              "plan's ## State only when it waits on a user decision (%s)"
+              % (REVIEW_ROUNDS, say()["decision"]))
         return
     if rounds:
         print("  2. review round 2 (the last): each confirmed critical or major "
@@ -438,8 +449,8 @@ def verification_steps(text, path):
         print("     only a confirmed critical or major finding is `changes` and "
               "opens round 2; a minor or suggestion one is fixed in the session "
               "without a new round, or recorded fix-later under ## State only "
-              "when it waits on a user decision (KARAR), and the verdict is "
-              "`approve`")
+              "when it waits on a user decision (%s), and the verdict is "
+              "`approve`" % say()["decision"])
     print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
           " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))
@@ -687,8 +698,8 @@ def budget_spent(path, ident):
             "a test, then `tezgah-task close %s done --resolved \"<the fix and the "
             "test that proves it>\"`; fix a minor or suggestion one now, or record "
             "it fix-later under the plan's ## State only when it waits on a "
-            "user decision (KARAR); `close %s discarded` needs no review"
-            % (path, REVIEW_ROUNDS, ident, ident))
+            "user decision (%s); `close %s discarded` needs no review"
+            % (path, REVIEW_ROUNDS, ident, say()["decision"], ident))
 
 
 def unfinished_review(root, reviewer, plan="", since=0):
@@ -1160,15 +1171,121 @@ def _counts(counter):
     return ", ".join("%s %d" % kv for kv in sorted(counter.items())) or "none"
 
 
+# Files every slice appends to and only the integrator resolves (research
+# orchestrator-flow-audit S6, finding 8): a branch that touches one merges
+# after every branch that does not.
+HOTSPOTS = ("MANIFEST", "docs/citations-baseline.json")
+
+
+def merge_conflicts(root, ours, theirs):
+    """The files `git merge-tree` forecasts in conflict when `theirs` merges
+    into `ours`, minus the ones a `merge=union` attribute merges (CHANGELOG.md
+    here); None when git cannot answer (no such ref, git before 2.38)."""
+    try:
+        out = subprocess.run(["git", "-C", root, "merge-tree", "--write-tree",
+                              "--name-only", "--no-messages", ours, theirs],
+                             capture_output=True, text=True)
+    except OSError:
+        return None
+    if out.returncode not in (0, 1):
+        return None
+    files = sorted(set(out.stdout.split("\n\n")[0].splitlines()[1:]))
+    if not files:
+        return []
+    attrs = git_out(root, "check-attr", "merge", "--", *files) or ""
+    union = {line.rsplit(": merge: ", 1)[0] for line in attrs.splitlines()
+             if line.endswith(": merge: union")}
+    return [f for f in files if f not in union]
+
+
+def merge_plan(root, base):
+    """(lines, unjudged) for the done slices whose branch carries work `base`
+    lacks. The lines are the order to merge them: a branch touching no
+    HOTSPOTS first, then fewest forecast conflicts with `base`, then fewest
+    siblings it overlaps; each names its conflicting files and the siblings it
+    collides with. `unjudged` names each branch `git merge-tree` could not
+    forecast (git before 2.38, no shared history) instead of dropping it."""
+    branches = {}
+    for rec in tt.slices(root):
+        branch = rec.get("branch")
+        if (rec.get("status") == "done" and branch and branch not in branches
+                and own_commits(root, rec) and not _landed(root, branch, base)):
+            branches[branch] = rec
+    rows, unjudged = [], []
+    for branch, rec in branches.items():
+        mine = merge_conflicts(root, base, branch)
+        if mine is None:
+            unjudged.append("not judged: %s (slice %s): `git merge-tree --write-tree` "
+                            "could not forecast it against %s" % (branch, rec["id"], base))
+            continue
+        overlaps = {}
+        for other in branches:
+            files = merge_conflicts(root, other, branch) if other != branch else None
+            if files:
+                overlaps[other] = files
+        touched = (git_out(root, "diff", "--name-only", "%s...%s" % (base, branch))
+                   or "").splitlines()
+        hot = any(f in HOTSPOTS for f in touched)
+        rows.append(((hot, len(mine), len(overlaps), branch), rec, mine, overlaps))
+    rows.sort(key=lambda row: row[0])
+    out = []
+    for n, (key, rec, mine, overlaps) in enumerate(rows, 1):
+        line = "%d. %s (slice %s): %d conflict(s) with %s%s" % (
+            n, rec["branch"], rec["id"], len(mine), base,
+            ": " + ", ".join(mine) if mine else "")
+        for other, files in sorted(overlaps.items()):
+            line += "; overlaps %s on %s" % (other, ", ".join(files))
+        out.append(line + (" (touches a hotspot: the integrator merges it last)"
+                           if key[0] else ""))
+    return out, unjudged
+
+
+def board_parent():
+    """The parent whose slices `slice board` shows: the session in
+    TEZGAH_SESSION, or - read from a subagent - the parent that spawned it
+    (`tezgah_integrity.spawn_of`), so a slice sees its siblings; None, every
+    open slice, outside a session."""
+    session = os.environ.get("TEZGAH_SESSION")
+    if not session:
+        return None
+    try:
+        from tezgah_integrity import spawn_of
+        spawn = spawn_of(session)
+    except Exception:
+        spawn = None
+    return spawn[0] if spawn else session
+
+
 def cmd_slice(args):
-    usage = ("slice takes open|done|stop|reconcile|resume|stats (open --id ID "
-             "[--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] "
-             "[--parent P] [--cwd PATH]; done ID; stop ID [--class C]; reconcile "
-             "[--prune]; resume ID; stats [--window DAYS] [--json])")
+    usage = ("slice takes open|done|stop|reconcile|resume|stats|board|merge-plan "
+             "(open --id ID [--kind agent|job] [--host H] [--agent A] "
+             "[--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]; done ID; stop ID "
+             "[--class C]; reconcile [--prune]; resume ID; stats [--window DAYS] "
+             "[--json]; board [--parent P]; merge-plan [--base REF])")
     if not args:
         return misuse(usage)
     sub, rest = args[0], args[1:]
     root = repo_root(os.getcwd())
+    if sub == "board":
+        opts, pos, bad = parse_options(rest, ("--parent",))
+        if bad or pos:
+            return misuse(bad or "slice board takes [--parent P] and nothing else")
+        lines = tt.board(root, opts.get("--parent") or board_parent())
+        print("\n".join(lines) if lines else "no open slice")
+        return 0
+    if sub == "merge-plan":
+        opts, pos, bad = parse_options(rest, ("--base",))
+        if bad or pos:
+            return misuse(bad or "slice merge-plan takes [--base REF] and nothing else")
+        base = opts.get("--base", "HEAD")
+        if git_out(root, "rev-parse", "-q", "--verify", base) is None:
+            return problems(["no revision %s in %s" % (base, root)])
+        lines, unjudged = merge_plan(root, base)
+        if lines or not unjudged:
+            print("\n".join(lines) if lines else "no done slice branch to merge into %s" % base)
+        for line in unjudged:
+            print(line)
+        return 1 if unjudged else 0
     if sub == "open":
         opts, pos, bad = parse_options(rest, ("--id", "--kind", "--host", "--agent",
                                               "--brief", "--brief-file", "--parent",

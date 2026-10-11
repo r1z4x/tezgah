@@ -102,7 +102,7 @@ RACE_BAR_UNMEASURABLE = ("not measurable on this corpus: no race item is on the 
 # disk-state when the command reads a message file.
 STRATA = {"ledger": ("loop", "retry", "order", "drift", "race", "piped",
                      "attribution", "secret", "shortcut"),
-          "disk": ("task", "plan", "workspace", "explorer"),
+          "disk": ("task", "plan", "workspace", "explorer", "lease"),
           "disk_on_write": ("shortcut",),
           "disk_on_file": ("lang",)}
 MESSAGE_FILE = re.compile(r"(?:^|\s)(?:-F|--file)(?:\s|=|$)")

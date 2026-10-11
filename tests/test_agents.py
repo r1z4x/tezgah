@@ -337,13 +337,17 @@ class Generation(AgentsBase):
                 self.assertIn(self.FLOOR, " ".join(text.split()),
                               "%s on %s" % (role, host))
 
+    # the token is the configured language's (`say`): KARAR under the default
+    # `tr`, DECISION under `en`; the static skills name both spellings
     BUDGET = ("One review per plan, over its whole diff in the verification phase; "
               "at most two rounds - only a confirmed critical or major finding opens "
               "round two; a minor or suggestion one is fixed in the session without a "
               "new round, or recorded fix-later only when it waits on a user "
-              "decision (KARAR); after round two what is left is fixed by the "
+              "decision (%s); after round two what is left is fixed by the "
               "session and closed with `--resolved`, or recorded fix-later only "
-              "with KARAR, never a third round.")
+              "with %s, never a third round.")
+    TR_BUDGET = BUDGET % ("KARAR", "KARAR")
+    SKILL_BUDGET = BUDGET % ("DECISION, tr: KARAR", "DECISION (tr: KARAR)")
 
     def test_the_reviewer_names_the_two_round_budget_on_every_host(self):
         # "the review ends when a round ..." had no cap, and any minor finding
@@ -362,7 +366,7 @@ class Generation(AgentsBase):
             "omp": out["tezgah-reviewer.md"]}
         for host, text in texts.items():
             flat = " ".join(text.split())
-            self.assertIn(self.BUDGET, flat, host)
+            self.assertIn(self.TR_BUDGET, flat, host)
             self.assertNotIn("confirms none", flat, host)
 
     def test_the_contract_policy_and_plan_sync_say_the_reviewers_budget(self):
@@ -370,18 +374,41 @@ class Generation(AgentsBase):
         # text looped while the CLI printed two rounds
         import tezgah_context
         import tezgah_policy as policy
-        # the policy names the token through the active pack; under `tr` it is
-        # the KARAR the agent text and the skills carry
-        with mock.patch("tezgah_paths.config", return_value={"language": "tr"}):
-            texts = {"policy": tezgah_context.render(policy.EXEC)}
+        # the policy and the agent text name the token through the active pack
+        texts = {}
+        for lang, token in (("tr", "KARAR"), ("en", "DECISION")):
+            with mock.patch("tezgah_paths.config", return_value={"language": lang}):
+                texts["policy " + lang] = (tezgah_context.render(policy.EXEC),
+                                           self.BUDGET % (token, token))
+                texts["reviewer " + lang] = (tezgah_agents._reviewer_body("claude"),
+                                             self.BUDGET % (token, token))
         for rel in (("skills", "tezgah-contract", "SKILL.md"),
                     ("skills", "plan-sync", "SKILL.md")):
             with open(os.path.join(support.REPO, *rel), encoding="utf-8") as fh:
-                texts[rel[1]] = fh.read()
-        for name, text in texts.items():
+                texts[rel[1]] = (fh.read(), self.SKILL_BUDGET)
+        for name, (text, budget) in texts.items():
             flat = " ".join(text.split())
-            self.assertIn(self.BUDGET, flat, name)
+            self.assertIn(budget, flat, name)
             self.assertNotIn("confirms none", flat, name)
+
+    def test_an_en_agent_body_names_no_turkish_token(self):
+        """S5 F4: the reviewer and orchestrator bodies said KARAR, YETKİ, GERİ
+        ALINAMAZ and ORTAM to a user whose contract is English; `en` renders
+        the canonical tokens, `tr` keeps its own."""
+        tr_token = re.compile(r"[çğıöşüÇĞİÖŞÜ]|\b(?:KARAR|YETK|ORTAM|ALINAMAZ)")
+        bodies = {}
+        for lang in ("en", "any", "tr"):
+            with mock.patch("tezgah_paths.config", return_value={"language": lang}):
+                bodies[lang] = (tezgah_agents._reviewer_body("claude")
+                                + tezgah_agents._orch_body(["tezgah-reviewer"]))
+        for lang in ("en", "any"):
+            self.assertNotRegex(bodies[lang], tr_token, lang)
+            flat = " ".join(bodies[lang].split())
+            self.assertIn("(a slice id, DECISION, ACCESS, IRREVERSIBLE, ENV)", flat)
+            self.assertIn("decision (DECISION)", flat)
+        flat = " ".join(bodies["tr"].split())
+        self.assertIn("(a slice id, KARAR, YETKİ, GERİ ALINAMAZ, ORTAM)", flat)
+        self.assertIn(self.TR_BUDGET, flat)
 
     def test_a_tier_worker_may_not_widen_or_narrow_its_own_scope(self):
         # A delegate that answered a wider or narrower question than it was

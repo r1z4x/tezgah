@@ -11,6 +11,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Language packs.** The detection words now live in data files, one per language: `hooks/lang/en.json` and `hooks/lang/tr.json`. They cover claims, admissions, openers, closers, residual labels, blocker tokens, prompt hints, constraint shapes and ranking stopwords. Every reader compiles the union of the packs, so a third language is one file. On a corpus of 45,810 test, doc and transcript strings, the en and tr packs answer as the inlined regexes did.
 - **`language` and `--language`.** The reply-language setting is `language` in `config.json`. An older `reply_lang` is still read and never rewritten, and `--reply-lang` still works. A first install takes the locale (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`), and a locale with no pack gives English. An install over a config with neither key writes `tr`.
 - **A router context nudge.** The prompt hook reads the router's newest input-side token count from the transcript. This works on omp, Claude and Codex, and omp now hands its session file to the prompt hook for it. At 700 k or more it adds one line, once per session until a compaction. The line says to push heavy reads and check output through a slice, or to run `/compact`. The threshold sits just under the measured p90 of 724 k. `orchestrate-off` silences it. The contract skill now says heavy check output goes through a reader slice. The disarmed-gate check now reads omp's transcript too.
+- **An ownership lease on every delegated slice.** `Owns:` lines in a brief
+  name the globs only that slice writes. They sit on the line or as `- glob`
+  items under it. The journal stores them as `owns`. The gate refuses a
+  sibling's write into them while the owner runs. A brief may declare its
+  worktree on a `Worktree:`, `Checkout` or `Cwd:` line. The gate then refuses
+  that slice's write into the main checkout, the shape two wave-1 slices hit
+  with relative paths. A shell target resolves against the call's own `cwd`
+  and its `cd` or `pushd`. A path the brief only names declares nothing, so an
+  integrator that lists worktrees to remove still works in the main checkout.
+  The journal keeps that named worktree for reconcile, resume and the board.
+  The refusal names the owner, its globs, how to reach it - omp `write
+  agent://<name>`, Claude `SendMessage`, else the parent - and the
+  `tezgah-task slice done <id>` that frees it. `.tezgah/` and scratch stay
+  free. A closed owner frees its files. A reader agent holds no lease. omp
+  maps a writing session to its
+  record through its ledger's `spawned` row. A Claude background child maps
+  through the `agentId` its launch result names, and its SubagentStop closes
+  the record. Every other host fails open. `tezgah-task slice board` lists one
+  parent's open slices with their lease, worktree, branch and last commit.
+  `slice merge-plan` puts a branch touching MANIFEST or the citation baseline
+  last. It orders the rest by their forecast `git merge-tree` conflicts and
+  leaves CHANGELOG.md to its union driver. It names a branch it cannot
+  forecast and exits 1. A spawn whose writing slices name one worktree gets a
+  warning. The orchestration text now tells every writing brief to name
+  `Owns:` globs and declare its worktree. It gives the shared append points to
+  the integrator. Siblings message each other only on an interface or
+  ownership change. `orchestrate-off` and `slices-off` disarm it.
+
 - **`CHANGELOG.md` merges with the union driver.** A new `.gitattributes` keeps both branches' lines, so parallel slices no longer conflict on the `[Unreleased]` head.
 - **The todo list is the orchestrator's step queue.** The orchestration text, the fan-out rule and the orchestrator agent say to dispatch every ready step at once, mark each dispatched step blocked on its slice and never `wait` while a step is ready. Once every open step waits on a running slice, `wait` and ending the turn are both fine. The per-turn checks still run in the turn, and only the heavy tier joins at merge. Every host's todo call now leaves a `todo` ledger row with its open, ready and blocked counts and the ready heads: omp `todo` and `wait` are watched, Claude and dsh `TodoWrite` joined the PostToolUse matcher, opencode records `todowrite`, and Cursor `todo_write` and Codex `update_plan` arrive with no matcher. No pre-tool rule reads a todo call, so only omp's `wait` reaches the gate. A `ready steps` Stop class refuses, once per turn, a turn that did work and ends while the session's newest todo list holds a ready step the reply neither did nor named beside KARAR, YETKİ, GERİ ALINAMAZ or ORTAM. A step an open slice of the session works on is not ready, and a subagent's own list never counts. An omp `wait` right after a spawn, with ready steps open, gets a warning with its result, never a block.
 - **`tezgah-task tick` and `tezgah-task note`.** `tick NNN <n>` ticks Acceptance item n, and `--undo` unticks it. `note NNN state|next "<text>"` replaces the newest State body or the Next body. Both work on any open plan and commit nothing. The gate refuses a direct write to the active plan, so an agent used to report a box it could not tick as a blocker. The refusal now names both commands.
@@ -27,7 +55,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **An English install no longer asks for Turkish tokens.** The contract and the Stop refusals name the blocker heading, the admission word and the four blocker tokens in the configured language: `Blockers`, `unverified` and DECISION/ACCESS/IRREVERSIBLE/ENV under `en`. Under `tr` they stay "Engeller", `doğrulanmadı` and KARAR/YETKİ/GERİ ALINAMAZ/ORTAM. The Turkish first lines of the residual, ready-step and stopped-slice refusals now come only with `tr`. The Stop rule accepts both spellings.
+- **An English install no longer asks for Turkish tokens.** The contract and the Stop refusals name the blocker heading, the admission word and the four blocker tokens in the configured language: `Blockers`, `unverified` and DECISION/ACCESS/IRREVERSIBLE/ENV under `en`. Under `tr` they stay "Engeller", `doğrulanmadı` and KARAR/YETKİ/GERİ ALINAMAZ/ORTAM. The Turkish first lines of the residual, ready-step and stopped-slice refusals now come only with `tr`. The reviewer and orchestrator agents and `tezgah-task`'s review lines take the token from the same pack. The contract, plan-sync and i-have-adhd skills name both spellings. opencode's todo reader takes its tokens from the packs. The Stop rule accepts both spellings.
 - **Spanish, French and Dutch prose no longer passes as Turkish.** The reply-language markers dropped de, da, en, ne, ya, her and mi. Those replies now score 0. No Turkish reply in the 4,003 judged corpus texts changed sides.
 - **Another session no longer takes over a stopped slice.** The journal keyed a slice record by the agent name alone. A second session that spawned an unrelated `Fixer` re-opened the first session's stopped `Fixer`, which then left that session's resume line and its Stop rule. A same-named spawn under another brief now gets its own record, `Fixer-<sha1[:6]>`. The same brief from another session still re-opens the record. `slice done|stop|resume` takes an exact id from any session, so a crashed session's slice stays reachable. A bare spawned name answers only for this session under `TEZGAH_SESSION`. The review guard counts this session's records by id, agent or name, and its refusal prints the exact id. A slice whose brief works in another repository names it as `repo`, and its line says `(in <name>)`.
 - **The race rule knows a session's own subagent and its fork.** A subagent stopped on a quota error. The rule then refused its parent's takeover for ten minutes. A subagent whose slice record closed after its last write of the file is now no race. A live one still is. The refusal now names how each writer relates to this session, such as your subagent or an omp fork. It used to print a bare ledger id. The omp hook records a fork's parent at its start.
