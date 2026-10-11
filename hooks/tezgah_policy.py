@@ -1029,13 +1029,15 @@ POINTERS = """
 PROMPT_REMINDER = """
 <harness-reminder>Tezgah still in force: {REPLY_SHORT}, BLUF, answer first -
 no recap, no closer, at most five ranked items; code minimal per ponytail
-(code first; a note only for a requested part you cut); deliver the whole ask - no cheaper
-stand-in, no silent scope cut, no partial reported as done, ask before dropping
-any item; no placating openers ("haklısın"), own a mistake in one line;
-.tezgah/lessons.md lines are standing constraints; consult before irreversible
-calls; done/tested claims need observed
+(code first; a note only for a requested part you cut); deliver the whole ask -
+no cheaper stand-in, no silent scope cut, no partial reported as done, ask
+before dropping any item; no placating openers ("haklısın"), own a mistake in
+one line; .tezgah/lessons.md lines are standing constraints; consult before
+irreversible calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
-test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified "done"; leftover work is done now, not listed - only a KARAR/YETKİ/GERİ ALINAMAZ/ORTAM blocker with its evidence goes under "Engeller"; no
+test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified
+"done"; leftover work is done now, not listed - only a KARAR/YETKİ/GERİ
+ALINAMAZ/ORTAM blocker with its evidence goes under "Engeller"; no
 AI/model attribution in any persisted or published artifact. Full
 detail: the tezgah-contract skill.{PONY_LEVEL} Kill switches under ~/.config/tezgah/.
 </harness-reminder>

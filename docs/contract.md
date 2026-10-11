@@ -425,16 +425,20 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 
 ## When the injected text grows too large
 
-Each event has a byte budget: `session_start` and `post_compact` 13000,
-`user_prompt` 6000, `subagent_start` 5500, anything else 13000
+Each event has a byte budget: `session_start` and `post_compact` 14500,
+`user_prompt` 6500, `subagent_start` 5500, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
 builds 9842 B before the ponytail and ADHD rules went inline and 10884 B after
 (+1042 B). The fan-out pointer adds 112 B and the `tezgah-skill` sentence
-113 B, so the always-on band is 10499 B (`tests/test_setup.py`). The healthy
-fixture with a lesson and a plan then built 12059 B. At the old 12000 B budget
-it lost its lessons and sibling checkouts to pay for core rules, so the budget
-moved to 13000 B. The subagent brief and the reminder stay the same size.
+113 B. The healthy fixture with a lesson and a plan then built 12059 B. At the
+old 12000 B budget it lost its lessons and sibling checkouts to pay for core
+rules, so the budget moved to 13000 B. The residual rule (plan 080) added
+1473 B to the core and 151 B to the reminder, so the always-on band is
+11972 B (`tests/test_setup.py`). At 13000 B the healthy fixture gave up its
+lessons, plans and steer blocks, and the busiest prompt turn its active-task
+line, so the session budgets moved to 14500 B and the prompt budget to 6500 B.
+The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A
 `user_prompt` that arms all five conditional rules

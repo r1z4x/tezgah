@@ -1459,11 +1459,17 @@ def session_of(payload):
 # ADHD rules inline from the first turn (+1042 B), the fan-out pointer (+112 B)
 # and the `tezgah-skill` line (+113 B) took the healthy fixture's session_start
 # from 10579 B to 12059 B, so at 12000 B a healthy repo gave up its lessons
-# and sibling checkouts to pay for core rules; 13000 B restores the headroom. A
+# and sibling checkouts to pay for core rules; 13000 B restores the headroom.
+# Moved again on 2026-10-11 (plan 080): the integrity paragraph carries the
+# residual rule (the four blockers and the "Engeller" format) and the reminder
+# its one-line form, +1473 B of core and +151 B of reminder; at 13000 B the
+# healthy fixture gave up its lessons, plans, subagents and steer blocks (1002
+# B), and at 6000 B the busiest prompt turn its active-task line (255 B), so
+# the session budgets move to 14500 B and the prompt budget to 6500 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 13000, "post_compact": 13000,
-                  "subagent_start": 5500, "user_prompt": 6000}
+CONTEXT_BUDGET = {"session_start": 14500, "post_compact": 14500,
+                  "subagent_start": 5500, "user_prompt": 6500}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table lives in the
