@@ -1532,6 +1532,30 @@ class ResumeBlock(ChildCall):
         self.assertEqual("", self.block(repo))
         self.assertNotIn("## Session so far", self.session(repo))
 
+    def test_the_journal_lines_ride_the_resume_block_and_every_prompt(self):
+        # Plan 081: an omp `/clear` fires no session_start, so the stopped or
+        # open slices reach the next turn through the prompt's `slices` part
+        # as well as the resume block; slices-off and a raising journal drop them.
+        repo = self.full_repo()
+        line = "- slice W1 (omp/task) stopped quota attempts 1: tezgah-task slice resume W1"
+        stub = ("import json, types, tezgah_context as tc\n"
+                "tc.tezgah_task = types.SimpleNamespace(\n"
+                "    slice_lines=lambda root, limit=3: [%r] * 5)\n" % line)
+        out = self.child(stub + "print(json.dumps(tc.resume_state(%r, 's1')))\n" % repo)
+        self.assertEqual(out.count("slice W1"), 3, out)
+        prompt = self.child(stub + "print(json.dumps(tc.context_for('user_prompt', %r,"
+                            " {'session_id': 's1', 'prompt': 'devam'})))\n" % repo)
+        self.assertIn("Slices left stopped or open", prompt)
+        self.assertIn("tezgah-task slice resume W1", prompt)
+        off = self.child(stub + "tc.off = lambda name: name == 'slices-off'\n"
+                         "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
+        self.assertEqual(json.loads(off), [])
+        broken = self.child("import json, types, tezgah_context as tc\n"
+                            "def boom(root, limit=3): raise OSError('x')\n"
+                            "tc.tezgah_task = types.SimpleNamespace(slice_lines=boom)\n"
+                            "print(json.dumps(tc.slice_lines(%r)))\n" % repo)
+        self.assertEqual(json.loads(broken), [])
+
     def test_a_damaged_ledger_line_costs_the_line_and_not_the_block(self):
         # A line that is terminated but does not parse used to make `_parse`
         # raise, and the guarded reads behind the resume block then dropped both

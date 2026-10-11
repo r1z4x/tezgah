@@ -932,14 +932,38 @@ def _transcript_end(path):
     return ("done", "") if yielded or exited else None
 
 
+# How long a `job` record stays pending: omp clamps a background call's
+# deadline to 3600 s, so a job opened longer ago has ended either way and its
+# line would only repeat itself on every prompt. Its result stays in the parent
+# transcript the record names.
+SLICE_JOB_SECONDS = 3600
+
+
+def _age(rec):
+    """Seconds since the record was opened, or None when `opened` is unreadable."""
+    import datetime
+    try:
+        opened = datetime.datetime.strptime(str(rec.get("opened") or ""),
+                                            "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return None
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    return (now - opened).total_seconds()
+
+
 def pending(root):
     """The records still owed work - status open or stopped - newest first. An
     omp record still open whose child transcript has ended is closed first:
-    stopped with its failure class, or done when it ended normally. One stat and
-    at most one SLICE_TAIL read per open omp record."""
+    stopped with its failure class, or done when it ended normally; a `job`
+    record past SLICE_JOB_SECONDS is closed done. One stat and at most one
+    SLICE_TAIL read per open omp record."""
     out = []
     for rec in slices(root):
-        if rec.get("status") == "open" and rec.get("host") == "omp":
+        if rec.get("status") == "open" and rec.get("kind") == "job":
+            age = _age(rec)
+            if age is not None and age > SLICE_JOB_SECONDS:
+                rec = close_slice(root, rec["id"], "done") or rec
+        elif rec.get("status") == "open" and rec.get("host") == "omp":
             path = _omp_transcript(rec.get("parent"), rec.get("id"))
             end = _transcript_end(path) if path else None
             if end:

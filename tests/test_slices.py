@@ -249,6 +249,17 @@ class Pending(Journal):
                          "2>&1 (parent session P9) - read its result there before "
                          "re-running")
 
+    def test_a_job_past_the_background_deadline_leaves_the_pending_list(self):
+        # the bg_5 pointer outlives a /clear, but not omp's 3600 s deadline
+        tt.open_slice(self.repo, "job-new", kind="job", host="omp", parent="P9",
+                      brief="python3 tests/neuter_matrix.py")
+        old = tt.open_slice(self.repo, "job-old", kind="job", host="omp", parent="P9",
+                            brief="python3 tests/impacted.py --all")
+        old["opened"] = "2026-10-11T08:00:00Z"
+        tt._write_record(self.repo, old)
+        self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["job-new"])
+        self.assertEqual(self.record("job-old")["status"], "done")
+
 
 class Cli(Journal):
 
