@@ -8,6 +8,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A `residual work` Stop class.** A turn that did work can no longer end on a list of what is left, such as "Açık kalanlar", "Doğrulanmadı:", "Sıradaki adım", "TODO" or "Next steps". The Stop rule refuses it once with "Bu maddeleri şimdi yap veya engel türü ve kanıtla yaz." An item may stay only as one of four blockers named in capitals: KARAR, YETKİ, GERİ ALINAMAZ or ORTAM. A YETKİ or ORTAM item has to quote a command that failed in the turn. A turn with no work, a subagent's end and a nested session stay unjudged. Before the class, 503 of 1876 final replies carried such a label, 467 of them in turns with work.
+- **Trap cases for doable work listed as open.** The EVALS of tezgah-contract, i-have-adhd and ponytail each gained one.
 - **Held-out, repeat and noise-band warnings (rules 6).** A measured line may name `evaluation.held_out` and log each look at it in `held_out_log.jsonl`. It may also declare `evaluation.noise_band`. `check` warns when a decision picks and reports a variant on the same cells. It warns when one candidate looks at the held-out set twice. It warns when an armed experiment runs once per arm. It warns when `capability_tolerance` has no measured band, or a wider one. None of these refuses, `--strict` included.
 - **`tezgah-gate replay --split search|holdout`.** A stable hash of the session id picks the side. Tune a gate threshold on one side and report it on the other. The report names its side.
 - **A `lesson_changed` ledger row.** Rewriting or removing a `.tezgah/lessons.md` line now leaves one row per line. The row holds the old line's key and its redacted text. Taint does not matter, and it never refuses.
@@ -22,6 +24,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **"doğrulanmadı" no longer ends a turn by itself.** The admission used to clear every Stop refusal, so writing it cost less than verifying. It now clears only a class whose repair is a check: check failed, partial failure, stale evidence and no verify_ok. It needs a check that ran and failed after the turn's newest change. It never clears no ui_ok, no external read or evidence tampered, and the tamper check now runs first.
+- **Residuals are work, not a report section.** The Integrity paragraph carries this rule. Its label reads "Integrity: evidence, or a named blocker." It asks for every open item to be done now. An item that cannot be done stays as one of the four blockers, with its evidence, under one "Engeller" heading of at most three lines. The per-turn reminder carries the short form. Ponytail notes only a requested part the session cut. A reply ends on the one step only the reader can take, or on nothing. The decision-quality line no longer asks to name a skipped check: it asks to run every check the change reaches. The session fixes a minor review finding, and fix-later needs a user decision (KARAR).
+- **The session budgets move with the core.** The residual rule added 1473 B to the core and 151 B to the reminder. `session_start` and `post_compact` go from 13000 to 14500 B, and `user_prompt` from 6000 to 6500 B.
 - **Judge figures name their provider.** Each judge figure in `docs/judge.md` and `docs/models.md` now names its provider and model. Where the record does not say, the page says so. A figure does not carry over to another default.
 
 ## [1.6.0] - 2026-10-10
