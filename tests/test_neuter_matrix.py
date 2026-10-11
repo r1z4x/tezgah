@@ -25,8 +25,8 @@ def gate_text():
 class GeneratedGateMutants(unittest.TestCase):
     def test_one_row_per_gate_rule(self):
         rows = neuter_matrix.gate_mutants(gate_text())
-        self.assertEqual(len(rows), 15)
-        self.assertEqual(len({r[0] for r in rows}), 15)
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(len({r[0] for r in rows}), 16)
         self.assertTrue(all(r[1] == neuter_matrix.GATE for r in rows))
         self.assertIn("gate-task", {r[0] for r in rows})
         self.assertIn("gate-control", {r[0] for r in rows})

@@ -14,8 +14,10 @@ yet, at most two refusals per turn (`tezgah_integrity._record_only`, counted
 from the ledger), and otherwise recorded as an `after_block` row. Claude Code
 also overrides the hook after its own consecutive-block cap, so this can never
 trap a session. A subagent's end (SubagentStop) is judged record-only: one
-`subagent_end` row, never a block (ADR 011). Inert outside a tezgah root or
-under the `verify-off` kill switch.
+`subagent_end` row, never a block (ADR 011); it also closes the slice record
+of a background child that ended (`tezgah_task.close_child`), so its lease
+goes with it. Inert outside a tezgah root or under the `verify-off` kill
+switch (the record close only under `slices-off`).
 """
 import json
 import os
@@ -30,6 +32,14 @@ except Exception as exc:
     import_failed(exc)
 
 
+def close_child(cwd, session_id, agent_id):
+    """The background child's record closes when its SubagentStop arrives:
+    Claude sends no other end for a `run_in_background` launch."""
+    import tezgah_task
+    root = tezgah_task.main_repo(cwd)
+    return root and tezgah_task.close_child(root, session_id, agent_id)
+
+
 def main():
     try:
         p = json.load(sys.stdin)
@@ -39,9 +49,12 @@ def main():
         return
     session_id = p.get("session_id")
     safe(session_id, bind_session, session_id)  # the switch latch (tezgah_paths.off)
+    cwd = p.get("cwd") or os.getcwd()
+    if p.get("hook_event_name") == "SubagentStop" and p.get("agent_id") \
+            and root_for(cwd) and not off("slices-off"):
+        safe(session_id, close_child, cwd, session_id, p.get("agent_id"))
     if off("verify-off"):
         return
-    cwd = p.get("cwd") or os.getcwd()
     if not root_for(cwd):
         return
     if p.get("hook_event_name") == "SubagentStop":

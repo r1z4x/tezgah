@@ -164,6 +164,18 @@ Standing (`RACE_REFUSE = True` `hooks/tezgah_gate.py::RACE_REFUSE`) — a notice
 
 A write into another repository than cwd's gets one notice per session and target repository, never a refusal (`hooks/tezgah_gate.py::cross_project_note`). It says that repository's plans, lessons and slice journal do not apply to this session. A worktree counts as its main checkout, and a repository's own `.tezgah` as that repository. Claude, dsh, Codex, Cursor and omp carry it on their post-tool channel. opencode does not.
 
+### Lease — a sibling slice owns this file
+
+Trigger: a write into a file an open sibling slice owns, or into the main checkout while the writer's own brief declares a worktree (`hooks/tezgah_gate.py::lease_reason`).
+A brief's `Owns:` line holds the globs, split on commas and spaces, or lists them as `- glob` items under it. The slice record stores them as `owns` (`hooks/tezgah_task.py::owned_globs`, `hooks/tezgah_task.py::open_slice`). The owner is the open record whose globs match (`hooks/tezgah_task.py::owner_of`). A reader, an agent named for a read-only role such as a reviewer, holds no lease.
+The main-checkout refusal reads the worktree a `Worktree:`, `Checkout` or `Cwd:` line declares, the slice's own task first (`hooks/tezgah_task.py::_declared_in`). A path the brief only names declares nothing, and a declared main checkout means the slice works there. The journal still keeps the named worktree for reconcile, resume and the board.
+A shell target resolves against the call's own `cwd` and every `cd` or `pushd` before it (`hooks/tezgah_gate.py::_shell_dir`). A redirect to `/dev/*` or a descriptor writes no file.
+A slice may write a path its own `Owns:` names. The `.tezgah` directory and scratch stay free, and a closed owner frees its files.
+On omp, the ledger's `spawned` row maps the writing session to its record (`hooks/tezgah_integrity.py::spawn_of`, `hooks/tezgah_task.py::slice_of`). A Claude background child maps through the `agent_id` its calls carry, which the spawn's result named (`hooks/projects-posttooluse.py`). Its SubagentStop closes the record (`hooks/tezgah_task.py::close_child`). Everything else fails open. A Claude foreground agent, dsh, Cursor and opencode open the record only once the child has ended, and Codex writes no `spawned` row.
+Told: the owner, its globs, how to reach it - omp `write agent://<name>`, Claude `SendMessage`, else the parent - and the `tezgah-task slice done <id>` that frees it (`hooks/tezgah_gate.py::LEASE_DENY`, `hooks/tezgah_gate.py::MAIN_CHECKOUT_DENY`). Standing while the owner's record runs.
+Off: `orchestrate-off`, whose fan-out rule it backs, and `slices-off`, which keeps no record to read (`hooks/tezgah_gate.py::decision`).
+A spawn whose writing slices name one worktree gets a warning, never a refusal, since a reviewer panel shares a checkout freely (`hooks/tezgah_gate.py::spawn_advice`, `hooks/tezgah_task.py::worktree_clash`). The warning covers two slices in the call and one beside an open sibling. Omp, Claude and dsh carry it with the spawn's result.
+
 ### Task — the active plan's phase and path allowlist
 
 Trigger: a write tool, or a shell command that writes a file, while an active task is set — a plan file under `.tezgah/plans/open` whose frontmatter carries a valid
@@ -365,6 +377,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 | `attribution` | E7c: the same 3 of 25 runs, a credit written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_attribution_denies_a_credit_written_by_the_shell` |
 | `lang` | a plan branch was created as `plan/004-admin-durum-onarimi`, and its slug is in the public history for good | `hooks/tezgah_gate.py:355-364` | `tests/test_gate.py::test_a_turkish_branch_name_is_refused` |
 | `race` | two sessions on one file - a parent and its subagent, or two worktrees - landing on a stale read | `hooks/tezgah_gate.py:752-759` | `tests/test_gate.py::test_a_write_to_a_file_another_session_wrote_is_refused` |
+| `lease` | plan 086 wave 1: two slices wrote into the main checkout through relative paths; 24 sibling race refusals in real transcripts, all in a shared worktree, tree or record | the Lease section above | `tests/test_gate.py::test_a_sibling_slices_lease_refuses_its_file_and_frees_the_owner` |
 | `task` | E7: with the unlocking command printed, an armed arm removed or disabled the gate in 25 of 25 runs; E7b: the heredoc redirect in 3 of 25 | the Task section above (the checkpoint refusal) | `tests/test_gate.py::test_a_reading_phase_refuses_a_write_inside_the_allowlist` |
 | `secret` | E7c: the same 3 of 25 runs, a key written through a heredoc | an internal benchmark (block E7, not published) | `tests/test_gate.py::test_a_credential_written_by_a_heredoc_is_denied` |
 | `workspace` | sessions wrote root `plans/`, `research/` and `analysis/` (observed across several unrelated projects on one machine) | `hooks/tezgah_gate.py:1204-1208` | `tests/test_gate.py::test_untracked_root_kinds_are_refused_for_tools_and_redirects` |

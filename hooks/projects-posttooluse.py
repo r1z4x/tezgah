@@ -151,7 +151,12 @@ def main():
          # the Bash result's own stdout/stderr, read on a bounded tail for the
          # empty-run contract (tezgah_integrity.EMPTY_RUN)
          empty_run=ran_nothing(result),
-         agent=agent)
+         agent=agent,
+         # a background spawn's result names its child (`agentId`), the
+         # `agent_id` that child's own calls carry: its slice record keeps it
+         # (hooks/tezgah_gate.py::lease_reason)
+         child=(result.get("agentId") if isinstance(result, dict)
+                and result.get("status") == "async_launched" else None))
     # the opt-in taste note: the learnings in scope for the first write to this
     # file type in the session (hooks/tezgah_taste.write_note), and the
     # cross-project write notice (hooks/tezgah_gate.py::cross_project_note),

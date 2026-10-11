@@ -50,6 +50,7 @@ import tempfile
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 INTEGRITY = "hooks/tezgah_integrity.py"
 GATE = "hooks/tezgah_gate.py"
+TASK = "hooks/tezgah_task.py"
 PLUGIN = "hosts/opencode/plugins/tezgah.js"
 MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
            "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
@@ -219,6 +220,30 @@ MUTANTS = (
     ("ready-wait-switch", GATE,
      anchored("    if off(\"orchestrate-off\"):\n        return None\n", ""),
      "orchestrate-off turns the idle-wait warning off"),
+    ("lease-switch", GATE,
+     anchored("    if writes and not off(\"orchestrate-off\") and not off(\"slices-off\"):\n",
+              "    if writes:\n"),
+     "orchestrate-off turns the lease rule off"),
+    ("lease-main-checkout", GATE,
+     anchored("            if not top and tree and tree != repo and os.path.isdir(tree):\n",
+              "            if False:\n"),
+     "a slice whose record names a worktree writing into the main checkout"),
+    ("lease-claude", GATE,
+     anchored("    spawn = spawn_of(session_id) or ((session_id, agent) if agent else None)\n",
+              "    spawn = spawn_of(session_id)\n"),
+     "a Claude background child mapped to its slice by its agent_id"),
+    ("lease-closed-owner", TASK,
+     anchored("                     and r.get(\"status\") == \"open\" and r[\"id\"] != me\n",
+              "                     and r[\"id\"] != me\n"),
+     "a closed owner frees the files it leased"),
+    ("lease-own-closed", GATE,
+     anchored("            if not me or me.get(\"status\") != \"open\":\n",
+              "            if not me:\n"),
+     "a slice whose own record closed is no longer held to the lease"),
+    ("lease-tezgah", GATE,
+     anchored("            if rel.startswith((\".tezgah/\", \"../\")) or rel == \".tezgah\":\n",
+              "            if rel.startswith(\"../\"):\n"),
+     "the main checkout's .tezgah stays free for a slice"),
     ("residual-said", INTEGRITY,
      anchored("            if BLOCKER_SAID.search(said):\n",
               "            if False:\n"),
