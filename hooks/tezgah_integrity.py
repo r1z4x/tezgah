@@ -38,7 +38,7 @@ except ImportError:  # not POSIX: a legacy JSONL ledger was appended unlocked
     fcntl = None
 
 from tezgah_paths import (SWITCHES, _toplevel, alts, cache_dir, language, latch,
-                          off, pack_values, packs, root_for, say)
+                          off, pack_values, packs, root_for, say, spend_cap)
 import tezgah_store as ts
 
 # A command that actually checks the change, as opposed to one that merely runs.
@@ -368,10 +368,11 @@ PREAMBLE = re.compile(r"(?i)^\s*(?:%s)" % alts("preamble"))
 SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
                           "reply language"))
 # The Stop classes that refuse the work a reply left, not its claim: a backed
-# "testler geçti" beside "Açık kalanlar" or a stopped slice is no false
-# completion. Counted in `blocked_claims` under their own class, kept out of
-# `false_completion`.
-LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice"))
+# "testler geçti" beside "Açık kalanlar", a stopped slice or a question the
+# agent could decide is no false completion. Counted in `blocked_claims` under
+# their own class, kept out of `false_completion`.
+LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice",
+                         "needless ask"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
@@ -486,6 +487,11 @@ PERMANENT_ERROR = re.compile(
 # `detail` holds the same heads, one per line, under the row's cut.
 # `residual` is a `subagent_end` row's count of residual items no blocker type
 # accounts for (`unblocked_items`): the parent's Stop owes them (S4 finding 2).
+# `questions` and `defaults` are an `ask` row's counts (`note_ask`): the
+# questions an ask-tool call put to the user and how many carried a
+# recommended option. A `grant` row's `target` is the outward class a user's
+# grant covers (`all`, or an OUTWARD key), or `lift:<class>` when a prompt took
+# it back (`grants_in_force`).
 LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "source", "hash", "changed", "tool", "target",
                            "lines", "chars", "items", "longest_list",
@@ -494,7 +500,8 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "constraint_found", "constraint_expected", "parent", "agent",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
-                           "reask", "open", "ready", "blocked", "heads", "residual"))
+                           "reask", "open", "ready", "blocked", "heads", "residual",
+                           "questions", "defaults"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -5470,6 +5477,8 @@ def _tokens(kind):
 BLOCKER_NOT = r"(?!\s+(?:%s))" % alts("blockers", "said_not")
 BLOCKER_SAID = re.compile(r"\b(?:%s|%s)[A-ZÇĞİIÖŞÜ]*\b"
                           % (_tokens("decision"), _tokens("irreversible")) + BLOCKER_NOT)
+# BLOCKER_SAID's consent half: a GERİ ALINAMAZ item needs no options.
+IRREVERSIBLE_SAID = re.compile(BLOCKER_SAID.pattern.replace(_tokens("decision") + "|", "", 1))
 # After the access or env token, "yok" and "not" describe the blocker ("YETKİ
 # yok", "ENV not set"), so only a pack's `tried_not` words negate them; the
 # suffix is read on the stems a pack spells with one, so ACCESSIBILITY or
@@ -5502,11 +5511,15 @@ COMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
 RESIDUAL_WORK = (
     "{RESIDUAL_LEAD}The reply lists "
     "work that is left (%s) at the end of a turn that did work. Do each item "
-    "now with the tools you have; a step that cannot be undone (a push, a "
-    "merge, a delete, a release) is never taken to clear this list - it is "
-    "{IRREVERSIBLE}, and you ask. An item may stay only as one of four "
-    "blockers, named in capitals: {DECISION} (a choice only the user can make - "
-    "never \"which first\" or \"shall I go on\"), {ACCESS} (a credential or grant "
+    "now with the tools you have: a local merge of a branch this session made "
+    "and the removal of its worktree are such steps. A step that is outward or "
+    "cannot be undone (a push or a release with no grant from the user this "
+    "session, a force push, a delete of what the session did not make) is never "
+    "taken to clear this list - it is {IRREVERSIBLE}, and you ask. An item may "
+    "stay only as one of four "
+    "blockers, named in capitals: {DECISION} (a choice only the user can make, "
+    "with its options and a \"{RECOMMENDED}:\" default - never \"which first\" or "
+    "\"shall I go on\"), {ACCESS} (a credential or grant "
     "no tool supplies), {IRREVERSIBLE} (needs consent), {ENV} (a tool or "
     "environment is missing); a {ACCESS} or {ENV} item quotes, in backticks, the "
     "command that failed in this turn and its error - a quote with no type, "
@@ -5838,14 +5851,140 @@ def _now_closed(item, label):
             and any(WAS.search(s) for s in sentences[:-1]))
 
 
+# The ask policy (plan 086, S3; the CORE integrity paragraph's "Ask policy").
+# Its vocabulary is the packs' `ask` map: the process-question shapes
+# (PROCESS_ASK: "Başlayayım mı?", "shall I proceed?", "which first?"), the
+# never-default class (NEVER_DEFAULT, and SPEND over `spend_cap`), a
+# recommended default (DEFAULT_MARK), a decision's options (OPTIONS_MARK), a
+# bare approval (CHEAP_ANSWER) and the outward classes a grant covers
+# (OUTWARD). QUESTION_END is a last line asking the user (`?`, or a pack's
+# question particle). ponytail: word lists read on the last line, not a reader
+# of what the question means; `tezgah-gate replay` counts what it refuses
+# (`process_questions`) to measure its precision.
+QUESTION_END = re.compile(r"(?:\?|\b(?:%s)[.!]?)$" % alts("question_end"))
+PROCESS_ASK = re.compile(alts("ask", "process"), re.I)
+NEVER_DEFAULT = re.compile(alts("ask", "never_default"), re.I)
+SPEND = re.compile(alts("ask", "spend"), re.I)
+AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?(?:\$|usd\b|dolar)", re.I)
+DEFAULT_MARK = re.compile(alts("ask", "default_mark"), re.I)
+OPTIONS_MARK = re.compile(alts("ask", "options"), re.I)
+CHEAP_ANSWER = re.compile(r"\W*(?:%s)\W*" % alts("ask", "cheap_answer"), re.I)
+OUTWARD = {cls: re.compile("|".join(
+    p for out in pack_values("ask", "outward") for c, p in out.items() if c == cls), re.I)
+    for cls in dict.fromkeys(c for out in pack_values("ask", "outward") for c in out)}
+GRANT_KIND = "grant"
+GRANT_ROW = re.compile(r'"kind"\s*:\s*"%s"' % GRANT_KIND)
+ASK_TOOLS = ("ask", "askuserquestion")
+# Filled with the question the reply ends on. No grant shape in it ("without
+# asking"): omp hands a refusal back as a prompt, and the prompt hook reads
+# grants off every prompt (`tezgah_context.user_grants`).
+NEEDLESS_ASK = (
+    "{ASK_LEAD}The reply ends on a question the agent can decide (\"%s\"). "
+    "Work and process steps - the order, \"shall I go on\", a check, a local "
+    "merge, a run parameter within the standing spend cap - are taken and "
+    "stated in one line, and an outward step the user granted this session is "
+    "taken, not asked again. An outward step the user has not granted waits "
+    "for the answer and never proceeds on a default. Do it now, or, when only "
+    "the user can decide it, put it under a \"{APPROVAL_HEADING}\" heading with "
+    "a \"{RECOMMENDED}:\" default and proceed on that default.")
+
+
+def outward_classes(text):
+    """The OUTWARD classes `text` names (push, release, publish, pr)."""
+    low = _tr_lower(str(text or ""))
+    return {cls for cls, rx in OUTWARD.items() if rx.search(low)}
+
+
+def never_default(text):
+    """True when `text` names a class-F step - one no default may take: a
+    force push, a delete of what the session did not make, production, a
+    credential or an account, a send to a third party (NEVER_DEFAULT), or a
+    spend (SPEND) with no amount or one over `spend_cap`."""
+    low = _tr_lower(str(text or ""))
+    if NEVER_DEFAULT.search(low):
+        return True
+    if not SPEND.search(low):
+        return False
+    amounts = [float(a or b) for a, b in AMOUNT.findall(low)]
+    return not amounts or max(amounts) > spend_cap()
+
+
+def grants_in_force(session_id):
+    """The OUTWARD classes the user granted this session and has not lifted,
+    folded oldest first over the session's `grant` rows (`target`: a class,
+    `all`, or `lift:<class|all>`). Only the lines in the row's serialized shape
+    are parsed, as `ready_left` reads `todo` rows."""
+    granted = set()
+    lines = [line for line in _ledger_lines(_path(session_id)) if GRANT_ROW.search(line)] \
+        if session_id else []
+    for row in _parse(lines):
+        target = str(row.get("target") or "")
+        if target == "all":
+            granted = set(OUTWARD)
+        elif target == "lift:all":
+            granted = set()
+        elif target.startswith("lift:"):
+            granted.discard(target[len("lift:"):])
+        elif target in OUTWARD:
+            granted.add(target)
+    return granted
+
+
+def needless_ask(text, granted=frozenset):
+    """The question the reply ends on when the agent can decide it, else None.
+
+    The last line asks (QUESTION_END), its paragraph carries no recommended
+    default (DEFAULT_MARK) and it names no class-F step (`never_default`); it
+    is then needless when it names an outward step (OUTWARD) the user granted
+    this session, every one it names (`granted()`, called only then, so a reply
+    that ends on no question reads no ledger), or, naming none, when it asks a
+    process question (PROCESS_ASK). A question about an ungranted outward step
+    is the one the policy asks: "push edip PR açayım mı?" waits."""
+    t = str(text or "").strip()
+    lines = [ln.strip().rstrip("*_` ") for ln in t.splitlines() if ln.strip()]
+    if not lines or not QUESTION_END.search(lines[-1]):
+        return None
+    last = lines[-1]
+    if never_default(last) or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1])):
+        return None
+    low = _tr_lower(last)
+    outward = outward_classes(low)
+    if outward:
+        return last if outward <= set(granted()) else None
+    if PROCESS_ASK.search(low):
+        return last
+    return None
+
+
+def undefaulted(inp):
+    """(questions, with a default) of an ask-tool payload: omp's `ask` marks
+    the default with a question's `recommended` index, Claude's
+    AskUserQuestion with an option label or description that names it
+    (DEFAULT_MARK: "(Recommended)", "(önerilen)")."""
+    inp = inp if isinstance(inp, dict) else {}
+    qs = inp.get("questions") if isinstance(inp.get("questions"), list) else [inp]
+    qs = [q for q in qs if isinstance(q, dict) and q.get("question")]
+
+    def has_default(q):
+        if isinstance(q.get("recommended"), int) and not isinstance(q.get("recommended"), bool):
+            return True
+        return any(isinstance(o, dict) and DEFAULT_MARK.search(_tr_lower(
+            "%s %s" % (o.get("label") or "", o.get("description") or "")))
+            for o in q.get("options") or ())
+    return len(qs), sum(1 for q in qs if has_default(q))
+
+
 # A blocker heading with nothing under it lists no blocker ("## Engeller" last).
 BLOCKERS_ONLY = re.compile(r"\s*(?:%s)\s*" % alts("blockers_only"))
 
 
 def unblocked_items(text, rows):
-    """[(label, item)] for every residual item nothing accounts for. A KARAR or
-    GERİ ALINAMAZ token in the label, the intro or the item accounts for it
-    (`BLOCKER_SAID`, on the prose); a YETKİ or ORTAM token does only with its
+    """[(label, item)] for every residual item nothing accounts for. A GERİ
+    ALINAMAZ token in the label, the intro or the item accounts for it, and so
+    does a KARAR token beside the decision's options or a recommended default
+    (`BLOCKER_SAID`, OPTIONS_MARK, DEFAULT_MARK, on the prose): a choice with
+    neither is one the agent can make (the ask policy). A YETKİ or ORTAM token
+    does only with its
     evidence (`_tried_holds`: the error of its type and its ledger evidence) -
     the type and its evidence, never one of the two. An empty blocker list
     (BLOCKERS_ONLY), an item that says nothing is left and one that reports a
@@ -5860,7 +5999,9 @@ def unblocked_items(text, rows):
                     not item.strip() and BLOCKERS_ONLY.fullmatch(_tr_lower(label)))):
                 continue
             said = _prose(" ".join((label, intro, item)))
-            if BLOCKER_SAID.search(said):
+            if BLOCKER_SAID.search(said) and (
+                    IRREVERSIBLE_SAID.search(said) or OPTIONS_MARK.search(_tr_lower(said))
+                    or DEFAULT_MARK.search(_tr_lower(said))):
                 continue
             if BLOCKER_TRIED.search(said) and _tried_holds(item, said, failed,
                                                            spawn_failed):
@@ -5875,7 +6016,10 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     row), the `residual work` class when `unblocked_items` names one, or when a
     subagent ended in the turn handing up items no type accounts for (the
     `residual` count on its `subagent_end` row) and this reply types none; else
-    the `ready steps` class when `ready_left` names one; else the
+    the `needless ask` class when `needless_ask` names the question the reply
+    ends on (any turn, worked or not: the plan proposal that ends "Başlayayım
+    mı?" is its measured case); else the `ready steps` class when `ready_left`
+    names one; else the
     `stopped slice` class when `_stopped_slice` finds one; else `verdict`. Not
     asked for a subagent's end (`shape` false) or a nested session: both
     replies are read by code, not by the user (`_shape_block`). Residual work
@@ -5906,6 +6050,9 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
         move = next(filter(None, (_limit_move(item, failed, spawn_failed)
                                   for _label, item in left)), None)
         return ("residual work", RESIDUAL_WORK % named + (LIMIT_MOVE % move if move else ""))
+    asked = needless_ask(text, lambda: grants_in_force(session_id))
+    if asked:
+        return ("needless ask", NEEDLESS_ASK % cut(asked, 80))
     ready = ready_left(text, rows, session_id, cwd)
     if ready:
         return ("ready steps", READY_STEPS % (

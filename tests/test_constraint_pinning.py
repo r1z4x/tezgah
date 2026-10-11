@@ -66,6 +66,25 @@ class Recogniser(unittest.TestCase):
                        "> never push to main\nship it"):
             self.assertEqual(tc.user_constraints(quoted), [], quoted)
 
+    def test_grants_and_lifts_are_read_with_their_class(self):
+        # plan 086 (S3): the owner's own grant phrases (S3 finding 5), each
+        # scoped to the outward class its sentence names; a prohibition of the
+        # same shape is no grant, and lifts the class it names
+        cases = {
+            "bana sormadan pushla": ["push"],
+            "evet devam et bana sormadan hepsini tamamla.": ["all"],
+            "tüm süreci bitir, izin veriyorum.": ["all"],
+            "go ahead and push it without asking": ["push"],
+            "versiyonla pushla bana sormadan": ["push", "release"],
+            "bana sormadan push etme": ["lift:push"],
+            "artık bana sor": ["lift:all"],
+            "ask me again before anything": ["lift:all"],
+            "fix the parser": [],
+            "he wrote `bana sormadan pushla` there": [],
+        }
+        for prompt, want in cases.items():
+            self.assertEqual([t for _c, t in tc.user_grants(prompt)], want, prompt)
+
 
 class PinnedAcrossCompaction(TempHome):
     def call(self, event, payload, read_ledger=False):

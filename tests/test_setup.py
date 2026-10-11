@@ -3128,8 +3128,14 @@ class VersionPrefixIsNotContract(SetupBase):
         # the session can take itself (+1473 B). Re-pinned 2026-10-11: the
         # loop-discipline check cadence keeps compileall, ruff and the impacted
         # tests in the turn and moves the full suite, neuter, the docs audits and
-        # e2e to the merge step and CI (+69 B).
-        self.assertEqual(12041, band, "the always-on band moved")
+        # e2e to the merge step and CI (+69 B). Re-pinned 2026-10-12 (plan 086,
+        # S3): the integrity paragraph carries the Ask policy - what is never
+        # asked, what runs on a grant, what waits, and the approval batch - and
+        # the output-shape, deliver and residual clauses point at it instead of
+        # asking one question each (+913 B); review round 1: a cut's default is
+        # "keep it", an unsafe item waits, and the grant examples come from the
+        # pack (+38 B).
+        self.assertEqual(12992, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 

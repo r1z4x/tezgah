@@ -227,7 +227,52 @@
   ],
   "ask": [
    "(?:bana\\s+)?sormadan\\s+(?P<ask>\\w+)\\s+(?:etme|yapma)\\w*"
+  ],
+  "grant": [
+   "(?:bana\\s+)?sormadan(?!\\s+(?:\\w+\\s+)?(?:etme|yapma|ilerleme|gitme)\\w*)|onay(?:ı|ımı)?\\s+ver(?:iyorum|dim)|izin\\s+ver(?:iyorum|dim)|onaylıyorum|sormana gerek yok"
+  ],
+  "lift": [
+   "(?:artık|bundan sonra|tekrar|yine)\\s+(?:bana\\s+)?sor\\b|onay\\w*\\s+geri\\s+al\\w*|izn\\w*\\s+geri\\s+al\\w*"
+  ],
+  "lift_outward": [
+   "(?:pr\\b|push\\w*|release\\w*|yayınla\\w*|yayımla\\w*|sürüm\\b|versiyonla\\w*|etiketle\\w*|tag\\w*)(?:\\s+\\S+){0,2}?\\s+(?:et|yap|çıkar)(?:ma|me)(?:y[ıi]n\\w*)?\\b",
+   "(?:push|yay[ıi]nla|yayımla|etiketle|versiyonla|tag)(?:la|le)?m[ae](?:y[ıi]n\\w*)?\\b"
+  ],
+  "grant_not": [
+   "\\b(?!bütün\\b)\\w+[dt][ıiuü]n(?:[ıi]z)?\\b|\\bneden\\b|\\bniye\\b"
+  ],
+  "grant_not_verb": [
+   "\\w{2,}m[ae](?:y[ıi]n(?:[ıi]z)?)?"
+  ],
+  "grant_not_soft": [
+   "durma|bekleme|sorma|unutma"
   ]
+ },
+ "ask": {
+  "process": [
+   "\\b(?:başlayayım|devam edeyim|ilerleyeyim|geçeyim|sürdüreyim|uygulayayım|yapayım|açayım|kapatayım|birleştireyim|merge edeyim|commit(?:le)?(?:yeyim|eyim| atayım)|koşayım|çalıştırayım)\\b|\\b(?:devam etmemi|başlamamı|ilerlememi|commit atmamı|merge etmemi|uygulamamı|yapmamı) ister mis\\w*|\\bhangisi(?:nden|yle|ni)? (?:önce|ile başla|başla\\w*)|\\bnereden başla\\w*"
+  ],
+  "never_default": [
+   "zorla|geçmiş\\w* (?:yeniden yaz|değiştir)\\w*|\\bsil\\w*|kaldır\\w*|yok et\\w*|üretim\\w*|\\bcanlı\\w*|\\bprod\\w*|göç\\w*|kimlik bilgi\\w*|şifre\\w*|parola\\w*|\\bhesa[bp]\\w*|e-?posta\\w*|gönder\\w*"
+  ],
+  "spend": [
+   "ücret\\w*|ödeme\\w*|harca\\w*|bütçe\\w*|maliyet\\w*|\\bpara\\b|dolar\\w*|\\$\\s?\\d"
+  ],
+  "default_mark": [
+   "öneri\\w*|önerilen|önerim|varsayılan\\w*|tavsiye\\w*"
+  ],
+  "options": [
+   "\\bveya\\b|\\bya da\\b|\\byoksa\\b|seçenek\\w*|alternatif\\w*|\\bm[ıiuü]\\b.+\\bm[ıiuü]\\b|\\b(?:a|1)\\)?\\s.+?,\\s*(?:b|2)\\)?\\s"
+  ],
+  "cheap_answer": [
+   "evet|tamam|olur|devam(?: et)?|yap|başla|ilerle|okey|onay(?:lıyorum)?"
+  ],
+  "outward": {
+   "push": "\\bpush\\w*",
+   "release": "versiyon\\w*|sürüm\\w*|\\brelease\\w*|etiket\\w*",
+   "publish": "yayınla\\w*|yayımla\\w*|\\bnpm\\b|homebrew",
+   "pr": "\\bpr\\b|pull request"
+  }
  },
  "needle_stop": [
   "ve",
@@ -290,6 +335,10 @@
   "opener_ban": "never \"haklısın\" / \"you're right\" / \"detaylı bakmadım\" / an apology",
   "residual_lead": "Bu maddeleri şimdi yap veya engel türü ve kanıtla yaz. ",
   "slice_lead": "Durmuş bir dilim var. ",
-  "ready_lead": "Hazır adımlar bekliyor. "
+  "ready_lead": "Hazır adımlar bekliyor. ",
+  "ask_lead": "Bu soruyu sorma: kararı ver ya da önerili onay sorusuna çevir. ",
+  "approval_heading": "Onay için sorular",
+  "recommended": "Öneri",
+  "grant_examples": "\"bana sormadan pushla\", \"onay veriyorum\""
  }
 }

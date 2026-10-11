@@ -3004,5 +3004,83 @@ class GraphAdvice(TempHome):
         self.assertIn("mcp__codegraph__codegraph_explore", out["additionalContext"])
 
 
+class AskAdvice(TempHome):
+    """Plan 086 (S3): an ask-tool question with no recommended option gets a
+    warning beside the call, never a deny, and every such call leaves an `ask`
+    row with its counts; a question about a granted outward step gets a line
+    saying it is taken, not asked again. Before the rule the call passed with
+    nothing said and nothing recorded."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+
+    def claude(self, inp, session="ask"):
+        payload = {"tool_name": "AskUserQuestion", "tool_input": inp,
+                   "cwd": self.repo, "session_id": session}
+        out, proc = run_json([support.PRETOOLUSE], payload, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return (out or {}).get("hookSpecificOutput") or {}
+
+    def rows(self, session="ask"):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": session}, env=self.env())
+        return out or []
+
+    def test_a_question_without_a_recommended_option_is_warned_and_recorded(self):
+        bare = {"questions": [{"question": "Hangi yol?", "header": "Yol",
+                               "options": [{"label": "A"}, {"label": "B"}]}]}
+        out = self.claude(bare)
+        self.assertNotIn("permissionDecision", out)
+        self.assertIn("1 of 1 question(s)", out["additionalContext"])
+        asks = [r for r in self.rows() if r.get("kind") == "ask"]
+        self.assertEqual([(r.get("questions"), r.get("defaults")) for r in asks], [(1, 0)])
+        # a recommended option is the policy: no line, still a row
+        good = {"questions": [{"question": "Hangi yol?", "options": [
+            {"label": "A (önerilen)"}, {"label": "B"}]}]}
+        self.assertEqual(self.claude(good), {})
+        asks = [r for r in self.rows() if r.get("kind") == "ask"]
+        self.assertEqual([(r.get("questions"), r.get("defaults")) for r in asks],
+                         [(1, 0), (1, 1)])
+
+    def test_a_question_about_a_granted_push_is_named_as_granted(self):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"prompt": "bana sormadan pushla",
+                                          "session_id": "gr"}}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([(r.get("kind"), r.get("target")) for r in self.rows("gr")
+                          if r.get("kind") == "grant"], [("grant", "push")])
+        out = self.claude({"questions": [{"question": "main'i push edeyim mi?",
+                                          "options": [{"label": "Evet (önerilen)"}]}]},
+                          session="gr")
+        self.assertIn("already granted push", out["additionalContext"])
+
+    def test_omp_ask_is_routed_and_warned(self):
+        out, proc = run_json([support.OMP_HOOK],
+                             {"event": "pre_tool_use", "cwd": self.repo, "tool": "ask",
+                              "session_id": "omp-ask",
+                              "input": {"questions": [{"id": "q", "question": "Hangi?",
+                                                       "options": [{"label": "x"}]}]}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("deny", out)
+        self.assertIn("recommended option", out["advice"])
+        with open(support.OMP_EXTENSION, encoding="utf-8") as fh:
+            self.assertRegex(fh.read(), r'const GATED = \[[^\]]*"ask"\]')
+
+    def test_a_subagent_prompt_grants_nothing(self):
+        # review round 1: a task prompt is the parent's brief, not the user
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": self.repo,
+                              "payload": {"prompt": "bana sormadan pushla",
+                                          "session_id": "sub", "subagent": True}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual([r for r in self.rows("sub") if r.get("kind") == "grant"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

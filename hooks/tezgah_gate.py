@@ -3342,3 +3342,50 @@ DENY_RULES = {"control": None, "explorer": None, "shortcut": "verify-off",
               "task": "task-off", "workspace": "workspace-off", "secret": None,
               "plan": None, "order": "verify-off", "loop": "verify-off",
               "retry": "verify-off", "drift": "reminder-off"}
+
+
+# --- ask: an ask-tool question with no recommended option (plan 086, S3) -----
+# The ask policy's structured half: omp's `ask` and Claude's AskUserQuestion
+# carry their questions as data, so the check needs no word list for the
+# question itself. 7 of 51 distinct `ask` questions in the owner's omp
+# transcripts carried no `recommended` option (research orchestrator-flow-audit
+# S3, finding 4). A warning, never a deny (the owner's 2026-09-26 decision
+# removed the per-command consent gate): the line rides back with the call's
+# result, as the graph line does (`graph_advice`). Every such call leaves an
+# `ask` row, the counts `tezgah-gate replay` and the ledger read.
+ASK_NO_DEFAULT = (
+    "tezgah: %d of %d question(s) in this %s call carry no "
+    "recommended option. Each question put to the user names a recommended "
+    "default (omp `ask`: `recommended`; AskUserQuestion: a \"({RECOMMENDED})\" "
+    "option), and the work proceeds on it unless the step waits on the user's "
+    "answer by nature (a force push, a delete of what the session did not "
+    "make, production, a credential, a spend over the cap). ")
+ASK_GRANTED = (
+    "tezgah: the user already granted %s this session; that step is taken, "
+    "not asked again.")
+
+
+def ask_advice(tool, inp, session_id, cwd=None):
+    """The ask-policy warning for an ask-tool call, else None: a question with
+    no recommended option (`tezgah_integrity.undefaulted`), or one about an
+    outward step the user granted this session (`grants_in_force`). Records
+    one `ask` row per call with the counts. Off under `verify-off`, whose Stop
+    rule the policy's other half rides, and `pretooluse-off`."""
+    from tezgah_integrity import (ASK_TOOLS, _said as said, grants_in_force,
+                                  never_default, outward_classes, undefaulted)
+    name = str(tool or "").lower()
+    if name not in ASK_TOOLS or not session_id or not (cwd and root_for(cwd)) \
+            or off("pretooluse-off") or off("verify-off"):
+        return None
+    asked, defaulted = undefaulted(inp)
+    if not asked:
+        return None
+    qs = inp.get("questions") if isinstance(inp.get("questions"), list) else [inp]
+    text = " ".join(str(q.get("question") or "") for q in qs if isinstance(q, dict))
+    note(session_id, "ask", cut(" ".join(text.split()), 120), tool=str(tool),
+         questions=asked, defaults=defaulted)
+    out = ASK_NO_DEFAULT % (asked - defaulted, asked, tool) if defaulted < asked else ""
+    granted = outward_classes(text) & grants_in_force(session_id)
+    if granted and not never_default(text):
+        out += ASK_GRANTED % ", ".join(sorted(granted))
+    return said(out.strip()) if out else None

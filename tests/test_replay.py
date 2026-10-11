@@ -679,15 +679,19 @@ class ResidualTurns(TempHome):
         with mock.patch.dict(os.environ, {"HOME": self.home}):
             return tr.residual_turns(cutoff, since)
 
+    # the ask policy's four counts (plan 086, S3), zero in the base fixture
+    ASK0 = {"process_questions": 0, "cheap_answers": 0, "asks_without_default": 0,
+            "outward_without_grant": 0}
+
     def test_counts_every_field_inside_the_window(self):
-        self.assertEqual(self.run_at(), {
+        self.assertEqual(self.run_at(), dict(self.ASK0, **{
             "turns": 3, "work_turns": 2, "residual_turns": 1, "residual_work_turns": 1,
             "sections": 1, "unblocked_work_turns": 1, "question_endings": 1,
-            "per_turn": 0.333})
-        self.assertEqual(self.run_at(since=T0 + 15), {
+            "per_turn": 0.333}))
+        self.assertEqual(self.run_at(since=T0 + 15), dict(self.ASK0, **{
             "turns": 2, "work_turns": 1, "residual_turns": 0, "residual_work_turns": 0,
             "sections": 0, "unblocked_work_turns": 0, "question_endings": 1,
-            "per_turn": 0.0})
+            "per_turn": 0.0}))
         self.assertIsNone(self.run_at(cutoff=T0)["per_turn"], "no turn in the window")
 
     def test_a_probe_session_and_a_stop_refusal_are_no_user_turns(self):
@@ -709,10 +713,35 @@ class ResidualTurns(TempHome):
             user("add the flag"), assistant(T0 + 40, call("write", edit)), text(T0 + 41, left),
             user("Stop hook feedback:\nBu maddeleri şimdi yap veya engel türü ve kanıtla yaz."),
             assistant(T0 + 44, call("write", edit)), text(T0 + 45, "README güncellendi.")])
-        self.assertEqual(self.run_at(), {
+        self.assertEqual(self.run_at(), dict(self.ASK0, **{
             "turns": 4, "work_turns": 3, "residual_turns": 1, "residual_work_turns": 1,
             "sections": 1, "unblocked_work_turns": 1, "question_endings": 1,
-            "per_turn": 0.25})
+            "per_turn": 0.25}))
+
+    def test_the_ask_policy_counts_its_four_classes(self):
+        # plan 086 S3: a process question, a bare "devam" after it, an `ask`
+        # question with no `recommended`, and a push no prompt granted; the
+        # push after "bana sormadan pushla" and the defaulted question are not
+        # counted. Before the counters the replay printed none of them.
+        user = lambda text: {"type": "message", "message": {"role": "user", "content": text}}  # noqa: E731
+        text = lambda ts, body: assistant(ts, {"type": "text", "text": body})  # noqa: E731
+        repo = self.make_repo("ask")
+        push = {"command": "git push origin main", "i": "Pushing"}
+        ask = {"questions": [
+            {"id": "a", "question": "Hangi isim?", "options": [{"label": "x"}],
+             "recommended": 0},
+            {"id": "b", "question": "Hangi renk?", "options": [{"label": "y"}]}]}
+        jsonl(os.path.join(self.home, ".omp", "agent", "sessions", "-ask-", "a.jsonl"), [
+            {"type": "title"}, {"type": "session", "id": "ask-1", "cwd": repo},
+            user("planla"), text(T0 + 50, "Plan hazır.\n\nBaşlayayım mı?"),
+            user("devam"), assistant(T0 + 51, call("ask", ask)),
+            assistant(T0 + 52, call("bash", push)), text(T0 + 53, "Gönderildi."),
+            user("bana sormadan pushla"), assistant(T0 + 54, call("bash", push)),
+            text(T0 + 55, "Gönderildi.")])
+        got = self.run_at(since=T0 + 45)
+        self.assertEqual({k: got[k] for k in self.ASK0}, {
+            "process_questions": 1, "cheap_answers": 1, "asks_without_default": 1,
+            "outward_without_grant": 1})
 
 
 if __name__ == "__main__":

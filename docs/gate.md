@@ -282,6 +282,18 @@ Trigger: 25 work rows (`hooks/tezgah_gate.py::DRIFT_STEPS`) in the current user 
 `hooks/tezgah_gate.py::effectful`). An MCP call of any verb class counts as an effectful call too. Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged and carry on" (`hooks/tezgah_gate.py::DRIFT_DENY`,
 `hooks/tezgah_gate.py::drift_reason`). A refusal, last in `decision` after every other rule, and its only delivery: no host's PostToolUse side carries it, and opencode gets it from the core through `bin/tezgah-gate` on its write path. Once per turn: the `drift` mark is written *before* the refusal, so the identical call passes on the next attempt, and the count behind it is the turn's own — a bounded read (`hooks/tezgah_gate.py::DRIFT_TAIL`) falls back to the turn's own start (`hooks/tezgah_integrity.py::turn_rows`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py::drift_reason`).
 
+### Ask — an ask-tool question with no recommended option
+
+Not a rule of `decision`: the hosts ask for this warning after `decision` lets the call through, as they ask for the graph line.
+Trigger: an omp `ask` call or a Claude AskUserQuestion call inside a root (`hooks/tezgah_gate.py::ask_advice`).
+The gate counts the questions and the ones that carry a recommended option (`hooks/tezgah_integrity.py::undefaulted`).
+omp marks one with a question's `recommended` index. Claude marks one with an option label such as "(Recommended)" or "(önerilen)".
+Told: how many questions carry no default, and that each question names one, unless the step waits on the user by nature (`hooks/tezgah_gate.py::ASK_NO_DEFAULT`).
+A question about a step the user granted this session gets a second line: take the step, do not ask again (`hooks/tezgah_gate.py::ASK_GRANTED`).
+A warning, never a deny: the line rides back with the call's result, as the graph line does. Every such call leaves an `ask` row with `questions` and `defaults`.
+Claude routes the tool through its PreToolUse matcher (`hooks/hooks.json`), and omp through its `GATED` list (`hosts/omp/tezgah-hook.ts.in`).
+Off under `verify-off` and `pretooluse-off`. The rest of the ask policy is the Stop rule's `needless ask` class ([evidence.md](evidence.md#the-stop-rule-end-to-end)).
+
 ## What the gate deliberately does not catch
 
 Read this before filing a security-ish issue; each is a decision, not an oversight.
@@ -291,6 +303,8 @@ Read this before filing a security-ish issue; each is a decision, not an oversig
   front of every server-side command cost a round-trip per effect, the user's chat approval could not lift it (only the deleted `bin/tezgah-consent` CLI
   could), and the sessions it actually gated were the user's own deploys. The untrusted-read half went with it: a turn that read web content may now run an
   outbound effect carrying only the taint notice, with no refusal in between. The notice itself stays (`hooks/tezgah_untrusted.py`).
+  The ask policy replaced it (plan 086, S3). It is a class table in the contract, the Stop rule's `needless ask` class and the ask-tool warning above.
+  A grant the user writes in chat ("bana sormadan pushla") lifts the ask for its class. Outward commands still run with no refusal.
 - A write inside the root after a fetch: left to the taint notice that `hooks/tezgah_untrusted.py` rides the first effect with, because it is recoverable from
   the snapshot.
 - `grep -A 3 foo`: a flag with its own value shifts the token, so the search passes unnudged (`hooks/tezgah_gate.py:166-167`).
@@ -395,6 +409,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 | `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py::_external_read_row` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` |
 | `residual work` | the owner's report (2026-10-11): turns end on "Açık kalanlar / Doğrulanmadı / Sıradaki adım" instead of the work; measured 503 of 1876 final replies with such a label at a line start, 467 in turns that called a non-read tool | `hooks/tezgah_integrity.py::_residual_block` | `tests/test_integrity.py::test_a_residual_list_is_refused_once_and_the_reply_after_it_recorded` |
 | `ready steps` | measured 2026-10-11 (research line `orchestrator-flow-audit`): 13.1% of 451 omp user turns were a bare "devam", and 192 of 281 spawns were followed by `wait` with no other call between, at 82 of them with four or more todo items open | `hooks/tezgah_integrity.py::ready_left` | `tests/test_integrity.py::test_a_ready_todo_step_left_is_refused_once` |
+| `needless ask` | research line `orchestrator-flow-audit` S3: 33 of 48 final replies that ended on a question in the owner's omp transcripts were process questions ("Başlayayım mı?"), and 9 of 47 next prompts were a bare "devam" or "evet" | `hooks/tezgah_integrity.py::needless_ask` | `tests/test_integrity.py::test_a_process_question_at_the_end_is_refused_once` |
 | `stopped slice` | measured 2026-10-11 (research line `subagent-resume-orchestration`): 118 of 1413 omp subagent runs ended stopped, and in the newest 20 the parent absorbed the work inline 16 times instead of resuming it | `hooks/tezgah_integrity.py::_stopped_slice` | `tests/test_integrity.py::test_a_stopped_slice_of_this_session_refuses_the_turn_once` |
 | `placating opener` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_sycophantic_opener_blocks` |
 | `forbidden closer` | designed | output rule 10 read at the Stop event; no incident recorded | `tests/test_integrity.py::test_a_closer_from_the_skills_own_list_blocks` |

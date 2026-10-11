@@ -268,10 +268,11 @@ function skillRead(tool: string, args: any): boolean {
 // checks (bash), the test-skip check (the edit/write names), and the code-graph
 // nudge on omp's search tools (grep, find, search, ast_grep). An MCP tool is
 // consulted when its name carries an effect verb (MCP_EFFECT, see `tool_call`).
-// `wait` gets the idle-wait warning (tezgah_gate.ready_advice), never a block.
+// `wait` gets the idle-wait warning (tezgah_gate.ready_advice) and `ask` the
+// ask-policy warning (tezgah_gate.ask_advice), never a block.
 const GATED = ["grep", "find", "search", "ast_grep", "bash", "shell", "command",
   "task", "agent", "edit", "write", "multiedit", "notebookedit", "apply_patch",
-  "edit_file", "write_file", "search_replace", "powershell", "pwsh", "wait"];
+  "edit_file", "write_file", "search_replace", "powershell", "pwsh", "wait", "ask"];
 
 // The gate's non-blocking graph line (tezgah_gate.graph_advice), held from the
 // call to its result: `tool_call` can only block, `tool_result` can hand the
@@ -702,8 +703,10 @@ export default function tezgahOmp(pi: any): void {
     // again.
     const prompt = String(event?.prompt ?? "").trim();
     if (!prompt) return undefined;
+    // `subagent`: a task prompt is the parent's brief, never the user's grant
     const res = ask({ event: "user_prompt", cwd: cwdOf(ctx), prompt,
-                      session_id: session, transcript_path: sessionFileOf(ctx) });
+                      session_id: session, transcript_path: sessionFileOf(ctx),
+                      subagent: isSubagent(ctx) });
     if (hookError) return noticeMessage(ctx, session);
     if (!res.context) return undefined;
     // A hidden message, not a system-prompt rewrite: omp keeps per-request

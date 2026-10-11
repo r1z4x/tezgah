@@ -119,6 +119,8 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `external`, `unknown` | `hooks/tezgah_integrity.py::note_tool` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
 | `todo` | `hooks/tezgah_integrity.py::note_todo`, from `note_tool` for a todo call: omp `todo` (the bridge sends the list from the result's `details`), Claude and dsh `TodoWrite` (their PostToolUse matcher), opencode `todowrite` (the plugin's own `recordTodo`), Cursor `todo_write` and Codex `update_plan`, which arrive with no matcher. `open`, `ready` and `blocked` count the list, and `detail` holds the ready items' heads, one per line | the `ready steps` Stop class (`hooks/tezgah_integrity.py::ready_left`) and the idle-wait warning (`hooks/tezgah_gate.py::ready_advice`) |
 | `wait` | `hooks/tezgah_integrity.py::note_tool`, for omp's `wait` | `hooks/tezgah_gate.py::ready_advice`, which counts it as idle; nothing counts it as work |
+| `ask` | `hooks/tezgah_gate.py::ask_advice`, for an omp `ask` or Claude AskUserQuestion call: `detail` holds the questions, cut; `questions` counts them and `defaults` the ones with a recommended option | nothing refuses on it; the row is the record of what the session asked |
+| `grant` | `hooks/tezgah_context.py::context_for`, from each prompt's `user_grants` (`hooks/tezgah_context.py::user_grants`): `detail` holds the user's clause, `target` the outward class it covers (`push`, `release`, `publish`, `pr` or `all`), or `lift:<class>` when the prompt took it back | `hooks/tezgah_integrity.py::grants_in_force`, read by the `needless ask` Stop class and the ask-tool warning |
 | `began` | the gate's allow path for a write or shell call `hooks/tezgah_gate.py::decision`; on opencode the plugin's before-hook when the core was not asked (`hosts/opencode/plugins/tezgah.js:2572-2588`) | `hooks/tezgah_integrity.py::unanswered`, behind a claim in the Stop rule and in `counters.unanswered` |
 | `claim` | `hooks/tezgah_integrity.py::stop_reason`, only for a reply in the claim vocabulary - a completion or verification word (`DONE`/`VERIFIED`), blocked or allowed, or a refused claim about an external system's state (`_external_claim`) | `hooks/tezgah_integrity.py::counters` |
 | `refusal` | `stop_reason`, for a blocked reply that claimed nothing - a work-only or a shape refusal - with the same `blocked: <class>` detail (row version 3) | `counters.refusals`, and `shape_blocked` for a shape class; never a claim; `NOT_TOOL_HOOK` lists it |
@@ -415,7 +417,9 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    nothing is left ("Eksik yok"). "Doğrulanmadı, kanıt yok" still starts one. The class refuses an item that nothing accounts
    for (`hooks/tezgah_integrity.py::unblocked_items`). Two things do. One is a capitalised KARAR or
    GERİ ALINAMAZ token outside code, a Turkish suffix allowed and a negation not: a choice or a
-   consent leaves no row to check. The other is a capitalised YETKİ or ORTAM token with its
+   consent leaves no row to check. A KARAR item also names its options or a recommended default
+   (`hooks/tezgah_integrity.py::OPTIONS_MARK`, `hooks/tezgah_integrity.py::DEFAULT_MARK`): a
+   choice with neither is one the agent can make (plan 086, S3). The other is a capitalised YETKİ or ORTAM token with its
    evidence (`hooks/tezgah_integrity.py::_tried_holds`). The item names an error of the type's
    kind. For ORTAM that is a missing tool, file, module, setting or quota. For YETKİ it is a denied
    permission, a failed login or a 401/403. The item also quotes, in backticks or a fenced line, a
@@ -462,9 +466,9 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    limits, risks and a bare recommendation. Suggested improvements are work left and stay in.
    Before the class, 503 of 1876 final replies carried a residual label. They came from the owner's
    omp and Claude transcripts, and 467 of them from turns that called a non-read tool. The word list
-   is precise rather than complete. A doable item typed KARAR still passes. `tezgah-gate replay`
-   counts the replies that end on a question to watch for that, beside the residual sections per
-   turn ([the replay corpus](#the-replay-corpus)). A residual refusal counts in `blocked_claims`
+   is precise rather than complete. A doable item typed KARAR with options still passes.
+   `tezgah-gate replay` counts the replies that end on a question to watch for that, beside the
+   residual sections per turn ([the replay corpus](#the-replay-corpus)). A residual refusal counts in `blocked_claims`
    but not as a false completion: a check may back the claim beside the list.
 12. **ready steps** — a turn that did work ends while the newest todo list still holds a ready
    step. The host's todo list is the orchestrator's step queue, and a todo call leaves a `todo` row
@@ -495,6 +499,23 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    (`hooks/tezgah_gate.py::ready_advice`). The warning needs a spawn with nothing after it but
    waits and todo updates, and a ready item no running slice names. It rides back with the wait's
    result.
+13. **needless ask** — the reply ends on a question the agent can decide (plan 086, S3). The
+   last line asks: it ends on "?" or a pack's question particle
+   (`hooks/tezgah_integrity.py::QUESTION_END`). Its paragraph names no recommended default, and
+   it names no step the ask policy keeps from a default (`hooks/tezgah_integrity.py::never_default`).
+   Such steps are a force push, a delete, production, a credential, a third party, or a spend
+   over `spend_cap`. The class then refuses a process question: the packs' `ask.process`
+   shapes, such as "Başlayayım mı?", "shall I proceed?" and "which first?"
+   (`hooks/tezgah_integrity.py::PROCESS_ASK`). It also refuses a question about an outward
+   step the user granted this session (`hooks/tezgah_integrity.py::grants_in_force`). A question
+   about an outward step the user has not granted is the one the policy asks, so it passes. The
+   refusal says to take the step, or to move it into the approval batch with a default. Under
+   `tr` it opens with "Bu soruyu sorma". `_residual_block` asks it after `residual work` and
+   before `ready steps` (`hooks/tezgah_integrity.py::needless_ask`). Unlike those two, it needs
+   no work in the turn, because a plan proposal that ends "Başlayayım mı?" is its measured case.
+   The research line counted 33 process questions among 48 question endings in the owner's omp
+   transcripts. It refuses once per turn and counts like `residual work`
+   (`hooks/tezgah_integrity.py::LIST_BLOCKS`).
 
 Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,
 plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles
@@ -904,6 +925,16 @@ only, and never leaves the machine. The run's summary is its row of the cache's 
 - **Denial budget** (`tezgah_shapes.deny_runs`) = per rule, runs of 3 or more consecutive denies
   inside one turn, and sessions with 20 or more denies. These are Claude Code auto mode's
   thresholds, not a tezgah measurement.
+- **Ask policy** (`hooks/tezgah_replay.py::residual_turns`, plan 086 S3) = four counts over the
+  top-level omp and Claude transcripts, beside the residual sections. `process_questions` counts
+  final replies that the `needless ask` class reads as a process question. `cheap_answers` counts
+  prompts that only approve ("devam", "evet", "go on") right after a reply that ended on a
+  question. `asks_without_default` counts ask-tool questions with no recommended option.
+  `outward_without_grant` counts turns that ran `git push`, a package publish or a `gh` release
+  or PR write. Such a turn counts only when no earlier prompt of the session granted or named the
+  step. The transcripts
+  hold no grant rows, so the first count misses a re-ask after a grant. One outward turn without
+  a grant per 100 work turns over 14 days is the trigger for an outward-action gate (S3's V3).
 
 `replay --sheet` draws the blind label sample with a fixed seed. It fills per-stratum quotas,
 shuffles them, and writes `tezgah-taste measure`'s `{set, n, text}` format. No item shows its
