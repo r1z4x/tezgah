@@ -22,6 +22,7 @@ from unittest import mock
 import bash_vectors
 import support
 from support import TempHome
+from test_gate import SECRET_PREFIX_DENIES, SECRET_PREFIX_PASSES
 
 # The Python half writes the same ledger; importing its id function is what makes
 # a separator or a canonical-form drift between the two halves fail here.
@@ -1017,6 +1018,22 @@ class OpenCodePlugin(TempHome):
                         'git commit -m "fix api_key= handling"',
                         'git add -A && git commit -m "fix api_key= handling"'):
             self.allowed(self.before("bash", {"command": command}))
+
+    def test_secret_reads_an_env_prefix_as_the_python_gate_does(self):
+        # plan 096: a key in a program's leading NAME=value words passes unless
+        # the program prints it, and a later printer of an assigned key holds -
+        # one vector list, both halves, the same answer on every line
+        commands = SECRET_PREFIX_PASSES + SECRET_PREFIX_DENIES
+        results = self.drive([{"hook": "tool.execute.before",
+                               "input": {"tool": "bash", "sessionID": "s1",
+                                         "args": {"command": command}}}
+                              for command in commands])
+        for command, res in zip(commands, results):
+            self.assertEqual(
+                "Credential write denied" in str(res.get("error") or ""),
+                tg.secret_command(command) is not None, command)
+            self.assertEqual(tg.secret_command(command) is not None,
+                             command in SECRET_PREFIX_DENIES, command)
 
     # ---- the shell's own write route (three write-tool rules, one twin) ----
     def test_a_heredoc_that_disables_a_test_is_refused(self):

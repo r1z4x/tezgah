@@ -102,7 +102,8 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
                               WRITE_TOOLS, _blank_heredocs, _heredocs, bind_session,
-                              _shell_lines, _shell_segments, _turn_start,
+                              _shell_commands, _shell_lines, _shell_segments,
+                              _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
                               prior_calls, scratch_target, shortcut_command,
@@ -267,6 +268,24 @@ SECRET_SINK = re.compile(
 # log` hands the piped text to tee. The split is read off the masked text, so a
 # quoted `;` does not split.
 SEGMENT = re.compile(r"\|\||&&|[;&\n]")
+# Plan 096: a token in a leading `NAME=value` word (after an optional `env`)
+# reaches only the program's own environment, so that program's redirected
+# output carries no key. The value reads quotes, one level of `$( )` and a
+# backtick body; a value it cannot read ends the prefix early, and the token
+# then sits outside it and holds.
+SECRET_PREFIX = re.compile(
+    r"[\s;&|]*(?:env\s+)?(?:[A-Za-z_]\w*=(?:'[^']*'|\"(?:\\.|[^\"\\])*\"|"
+    r"\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|()<>'\"`\\])*\s+)+")
+# The sinks that carry a program's output, and nothing but it: the only ones a
+# key in that program's environment stays out of.
+SECRET_OUTPUT = re.compile(r">>?(?![&=])|\|\s*tee\b")
+# The programs that print their environment or arguments, or run text that
+# can. An interpreter running its own text (`sh -c`, `python3 -c`) is read off
+# `_program`, which names the interpreter only then; `""` is a bare `env`.
+SECRET_PRINTERS = frozenset(("", "echo", "printf", "env", "printenv", "cat",
+                             "tee", "eval", "set", "export", "declare",
+                             "typeset", "builtin", "awk", "perl", "ruby"))
+SECRET_INLINE = frozenset(("-e", "-p", "--eval", "--print"))
 
 SECRET_DENY = (
     "Credential write denied: this command would land a credential in a file "
@@ -795,8 +814,12 @@ def secret_command(command):
 
     Reading an env var or running a tool with a key in its env is the normal work
     this must not touch, so a token only counts next to a write sink, and a sink
-    only carries the text of its own simple command. A `git add` that names a
-    credential file is refused whatever its text holds (`_secret_add`)."""
+    only carries the text of its own simple command. A token held only by the
+    leading `NAME=value` words of a program that prints neither is in that
+    program's env (`_env_prefix_only`); a name an earlier command assigned a
+    token is carried, and a printer reading it into a sink still writes it. A
+    `git add` that names a credential file is refused whatever its text holds
+    (`_secret_add`)."""
     c = str(command or "")
     added = _secret_add(c)
     if added:
@@ -804,13 +827,47 @@ def secret_command(command):
     if not c or not SECRET_TOKEN.search(c):
         return None
     masked = mask(c)
-    start = 0
+    start, carried = 0, set()
     for end in [m.start() for m in SEGMENT.finditer(masked)] + [len(c)]:
-        if (SECRET_TOKEN.search(c[start:end])
-                and SECRET_SINK.search(masked[start:end])):
-            return SECRET_DENY
+        text = c[start:end]
+        if SECRET_SINK.search(masked[start:end]):
+            if SECRET_TOKEN.search(text) and not _env_prefix_only(text):
+                return SECRET_DENY
+            if (carried & {a or b for a, b in SHELL_VAR.findall(text)}
+                    and _secret_printer(text)):
+                return SECRET_DENY
+        carried |= {m.group(1) for m in SHELL_ASSIGN.finditer(text)
+                    if SECRET_TOKEN.search(m.group(0))}
         start = end
     return None
+
+
+def _env_prefix_only(text):
+    """True when every token in this simple command's text sits in its leading
+    `NAME=value` words (SECRET_PREFIX), no sink runs inside them, the sinks after
+    them carry only the program's output (SECRET_OUTPUT: a `git add` or a curl
+    trace holds), and the program prints neither (plan 096). Any doubt reads
+    False: the rule holds."""
+    m = SECRET_PREFIX.match(text)
+    if not m:
+        return False
+    rest = text[m.end():]
+    return not (SECRET_TOKEN.search(rest) or SECRET_SINK.search(text[:m.end()])
+                or SECRET_SINK.search(SECRET_OUTPUT.sub(" ", rest))
+                or _secret_printer(rest))
+
+
+def _secret_printer(text):
+    """True unless the first program `text` runs is known not to print its
+    environment or arguments (SECRET_PRINTERS, an interpreter running its own
+    text, `node -e`); a program the shell names at run time (`$TOOL`) prints."""
+    text = text.lstrip(" \t\n;&|")
+    words = next((w for w, sep in _shell_commands(text) if sep != "$)"), [])
+    program, args = _program(words)
+    return (program in SECRET_PRINTERS or program in INTERPRETERS
+            or bool(re.fullmatch(r"python[\d.]*|.*[$`].*", program))
+            or (program in ("node", "bun", "deno")
+                and bool(SECRET_INLINE.intersection(args))))
 
 
 def _secret_add(command):

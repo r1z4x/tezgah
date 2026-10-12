@@ -22,6 +22,45 @@ import tezgah_gate as tg  # noqa: E402  (rm_outside's floor, read in process)
 # included, so the source must not carry it whole.
 SKIP_MARK = "@pytest.mark." + "skip"
 
+# Plan 096's vectors for the credential write rule, shared with the opencode
+# mirror's parity test (test_opencode_plugin) so both halves read one list.
+# A key in a program's leading NAME=value words reaches only its environment:
+SECRET_PREFIX_PASSES = (
+    'API_KEY="$(cat ~/.config/x/key)" python3 tool.py > /tmp/run.log',
+    "A=1 API_KEY=$(cat k) prog --flag >> log 2>&1",
+    'env API_KEY="$(cat k)" prog > out',
+    "API_KEY=`cat k` prog | tee run.log",
+    "cd x && API_KEY=$(cat k) node block.js > run.log",
+    # the carried hold reads only a printer of the assigned name
+    "API_KEY=x; prog --key $API_KEY > run.log",
+    "API_KEY=x; echo $OTHER > f")
+# ...unless the program prints its environment or runs text that can, the token
+# sits outside the prefix too, the prefix's own value writes a file, the sink is
+# a `git add` or a curl trace rather than the program's output, or a later
+# printer reads a name the line assigned a key:
+SECRET_PREFIX_DENIES = (
+    "API_KEY=\"$(cat k)\" sh -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) bash -c 'env' > f",
+    "API_KEY=$(cat k) python3 -c 'import os; print(os.environ)' > f",
+    "API_KEY=$(cat k) node -e 'console.log(process.env)' > f",
+    "API_KEY=$(cat k) printenv > f",
+    "API_KEY=$(cat k) env > f",
+    "API_KEY=$(cat k) env | tee f",
+    "API_KEY=$(cat k) cat key > f",
+    "API_KEY=$(cat k) echo hi >> f",
+    "API_KEY=$(cat k) eval prog > f",
+    "API_KEY=$(cat k) export -p > f",
+    "API_KEY=$(cat k) $TOOL > f",
+    "API_KEY=$(cat k) prog --token=$API_KEY > f",
+    "API_KEY=$(cat k) prog > token=x",
+    'API_KEY="$(cat k | tee copy)" prog > f',
+    "API_KEY=$(cat k) git add notes.txt",
+    "API_KEY=$(cat k) curl --trace-ascii t.log https://api.example.com",
+    'echo "api_key=$K" > f',
+    "printf 'token=%s' \"$(cat key)\" > f",
+    "API_KEY=x; echo $API_KEY > f",
+    'API_KEY="$(cat k)"; printf %s "${API_KEY}" | tee f')
+
 
 class Gate(TempHome):
     def setUp(self):
@@ -871,6 +910,21 @@ class Gate(TempHome):
         # and committing a message that mentions the shape is not a write
         self.assertIsNone(self.decide("Bash", {
             "command": 'git add -A && git commit -m "fix api_key= handling"'}))
+
+    def test_a_credential_in_a_programs_env_prefix_passes(self):
+        # plan 096: a leading NAME=value word only reaches the program's own
+        # environment, so redirecting that program's output writes no key; the
+        # deny text's own rephrase was refused, and the `export` workaround left
+        # the key in the persistent shell
+        for command in SECRET_PREFIX_PASSES:
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_an_env_prefix_to_a_program_that_prints_it_still_denies(self):
+        # the rule reads token shapes, not file names: `echo "$KEY" > f` or
+        # `cat key > f` carry no NAME=value or bearer token and never denied
+        for command in SECRET_PREFIX_DENIES:
+            reason = self.decide("Bash", {"command": command})
+            self.assertIn("Credential", reason or "", command)
 
     def test_git_add_of_a_credential_file_is_refused(self):
         # plan 057 (a)3, a deliberate flip: this test used to pin `git add .env`

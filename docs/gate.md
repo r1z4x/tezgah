@@ -210,6 +210,12 @@ Three triggers, one per shape a credential takes on its way into a file (`hooks/
 - **Shell text.** One simple command (split on `&&`, `||`, `;`, newline — `hooks/tezgah_gate.py::SEGMENT`) carrying both a token (`hooks/tezgah_gate.py::SECRET_TOKEN` — an
   `Authorization: Bearer` header, or a `name=value` assignment for `api_key`/`token`/`secret`/`password`/...) and a sink (`hooks/tezgah_gate.py::SECRET_SINK` — `>`/`>>`,
   `| tee`, a curl `--trace`, or `git add`). Told: record the name, length or a fingerprint instead, and pass the value through the tool's environment (`hooks/tezgah_gate.py::SECRET_DENY`).
+  A token only in the leading `NAME=value` words of a program reaches that program's environment, not the file.
+  So `API_KEY="$(cat key)" python3 tool.py > run.log` passes (`hooks/tezgah_gate.py::_env_prefix_only`).
+  It holds when the program prints them: `echo`, `printf`, `env`, `cat`, `sh -c`, `python3 -c`, `node -e` and their kin (`hooks/tezgah_gate.py::SECRET_PRINTERS`).
+  It also holds when the sink is a `git add` or a curl trace (`hooks/tezgah_gate.py::SECRET_OUTPUT`).
+  A printer that reads a name an earlier command on the line set to a token still denies, as in `API_KEY=x; echo $API_KEY > f`.
+  The rule reads token shapes, not file names: `echo "$KEY" > f` and `cat key > f` carry no token and pass.
 - **A credential file staged.** A `git add` that names a credential file (`hooks/tezgah_snapshot.py::SECRET_FILE`: `.env`, `.env.local`, a key, `id_rsa`, `credentials.json`).
   The command is read word by word (`hooks/tezgah_gate.py::_secret_add`). `.env.example`, `.env.sample`, `.env.template`, `.env.dist` and `.env.defaults` carry names without values and pass (`hooks/tezgah_gate.py::SECRET_TEMPLATES`).
   The rule does not read `git add -A` or `git add .` (`hooks/tezgah_gate.py::SECRET_ADD_DENY`).

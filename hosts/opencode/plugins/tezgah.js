@@ -228,6 +228,35 @@ const SECRET_SINK =
 // message about the rule rather than a credential in a write. `|` is NOT a
 // boundary here but a carrier, and the split is read off the masked text.
 const SEGMENT = /\|\||&&|[;&\n]/g
+// Plan 096, as hooks/tezgah_gate reads it (SECRET_PREFIX, SECRET_PRINTERS,
+// _program): a token held only by a program's leading `NAME=value` words is in
+// that program's env, so its redirected output carries no key - unless the
+// program prints its environment or runs text that can. Any doubt holds.
+const SECRET_PREFIX =
+  /^[\s;&|]*(?:env\s+)?(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|()<>'"`\\])*\s+)+/
+// the sinks that carry a program's output and nothing but it (SECRET_OUTPUT)
+const SECRET_OUTPUT = />>?(?![&=])|\|\s*tee\b/g
+const SECRET_PRINTERS = new Set(["", "echo", "printf", "env", "printenv", "cat",
+  "tee", "eval", "set", "export", "declare", "typeset", "builtin", "awk",
+  "perl", "ruby"])
+const SECRET_INLINE = new Set(["-e", "-p", "--eval", "--print"])
+// a versioned python is read by /^python[\d.]+$/: only pythonBin() spells the
+// interpreter's name (tests/test_interpreter.py)
+const SECRET_INTERPRETERS = new Set(["python", "sh", "bash", "zsh", "dash"])
+const SECRET_KEYWORDS = new Set(["if", "then", "elif", "else", "do", "while",
+  "until", "!", "{", "time"])
+// the wrappers `_program` reads past, with the options that take a value
+const SECRET_WRAPPERS = new Map([
+  ["sudo", ["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U"]],
+  ["env", ["-u", "--unset", "-C", "--chdir"]], ["nice", ["-n", "--adjustment"]],
+  ["nohup", []], ["exec", ["-a"]], ["time", ["-f", "-o"]], ["command", []],
+  ["timeout", ["-s", "--signal", "-k", "--kill-after"]], ["stdbuf", ["-i", "-o", "-e"]]])
+const SECRET_INTERPRETER_OPTS = ["-X", "-W", "-o", "+o", "-O"]
+// `NAME=value` at a word start, and the `$NAME`/`${NAME}` a later word reads
+// (hooks/tezgah_gate.SHELL_ASSIGN, SHELL_VAR)
+const SECRET_ASSIGN =
+  /(?:^|(?<=[\s;&|(]))([A-Za-z_][A-Za-z0-9_]*)=((?:'[^']*'|"[^"]*"|[^\s;&|)'"])*)/g
+const SECRET_VAR = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g
 const SECRET_DENY =
   "Credential write denied: this command would land a credential in a file " +
   "(`>`/`>>`, `tee`, `git add` or a curl trace). Record the credential's " +
@@ -1941,21 +1970,93 @@ function realPath(p) {
 // The refusal when this command would write a credential into a file, or null.
 // Reading an env var or running a tool with a key in its env is the normal work
 // this must not touch, so a token only counts next to a write sink, and a sink
-// only carries the text of its own simple command.
+// only carries the text of its own simple command. A token held only by the
+// leading `NAME=value` words of a program that prints neither is in that
+// program's env (envPrefixOnly); a name an earlier command assigned a token is
+// carried, and a printer reading it into a sink still writes it (plan 096).
 function secretCommand(command) {
   const c = String(command || "")
   if (!c || !SECRET_TOKEN.test(c)) return null
   const masked = maskText(c)
   let start = 0
+  const carried = new Set()
   const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
   for (const end of ends.concat(c.length)) {
-    if (SECRET_TOKEN.test(c.slice(start, end))
-        && SECRET_SINK.test(masked.slice(start, end))) {
-      return SECRET_DENY
+    const text = c.slice(start, end)
+    if (SECRET_SINK.test(masked.slice(start, end))) {
+      if (SECRET_TOKEN.test(text) && !envPrefixOnly(text)) return SECRET_DENY
+      if ([...text.matchAll(SECRET_VAR)].some((v) => carried.has(v[1] || v[2]))
+          && secretPrinter(text)) {
+        return SECRET_DENY
+      }
+    }
+    for (const a of text.matchAll(SECRET_ASSIGN)) {
+      if (SECRET_TOKEN.test(a[0])) carried.add(a[1])
     }
     start = end
   }
   return null
+}
+
+// True when every token in this simple command's text sits in its leading
+// `NAME=value` words, no sink runs inside them, the sinks after them carry only
+// the program's output (a `git add` or a curl trace holds), and the program
+// prints neither (hooks/tezgah_gate._env_prefix_only).
+function envPrefixOnly(text) {
+  const m = text.match(SECRET_PREFIX)
+  if (!m) return false
+  const rest = text.slice(m[0].length)
+  return !(SECRET_TOKEN.test(rest) || SECRET_SINK.test(m[0])
+           || SECRET_SINK.test(rest.replace(SECRET_OUTPUT, " "))
+           || secretPrinter(rest))
+}
+
+// True unless the first program `text` runs is known not to print its
+// environment or arguments (hooks/tezgah_gate._secret_printer).
+function secretPrinter(text) {
+  const first = shellCommands(text.replace(/^[ \t\n;&|]+/, ""))
+    .find((cmd) => cmd[1] !== "$)")
+  const [program, args] = secretProgram(first ? first[0] : [])
+  return SECRET_PRINTERS.has(program) || SECRET_INTERPRETERS.has(program)
+    || /^(?:python[\d.]*|.*[$`].*)$/.test(program)
+    || (["node", "bun", "deno"].includes(program)
+        && args.some((arg) => SECRET_INLINE.has(arg)))
+}
+
+// [program basename without `.py`, its arguments] for one simple command, past
+// keywords, env assignments, the wrappers and an interpreter's options before
+// its script (hooks/tezgah_gate._program).
+function secretProgram(words) {
+  let i = 0
+  while (i < words.length) {
+    const word = words[i]
+    if (/^[A-Za-z_]\w*=/.test(word) || SECRET_KEYWORDS.has(word)) { i += 1; continue }
+    const wrapper = basename(word)
+    const opts = SECRET_WRAPPERS.get(wrapper)
+    if (!opts) break
+    i += 1
+    while (i < words.length && words[i].startsWith("-")) i += opts.includes(words[i]) ? 2 : 1
+    if (wrapper === "timeout" && i < words.length) i += 1
+  }
+  words = words.slice(i)
+  if (words[0] === "[") {
+    const close = words.indexOf("]")
+    words = words.slice(close < 0 ? words.length : close + 1)
+  }
+  if (!words.length) return ["", []]
+  let name = basename(words[0])
+  if (SECRET_INTERPRETERS.has(name) || /^python[\d.]+$/.test(name)) {
+    const own = name.startsWith("python") ? /^-[A-Za-z]*[cm]$/ : /^-[A-Za-z]*c[A-Za-z]*$/
+    let j = 1
+    while (j < words.length && /^[-+]/.test(words[j]) && words[j] !== "-") {
+      if (own.test(words[j])) { j = words.length + 1; break }
+      j += SECRET_INTERPRETER_OPTS.includes(words[j]) ? 2 : 1
+    }
+    if (j < words.length) words = words.slice(j)
+  }
+  if (!words.length) return ["", []]
+  name = basename(words[0])
+  return [name.endsWith(".py") ? name.slice(0, -3) : name, words.slice(1)]
 }
 
 // --- untrusted content: the channel and the label ---------------------------
