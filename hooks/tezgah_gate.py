@@ -102,7 +102,8 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
                               PLAIN_TAIL, SECRET_PREFIXED, STEP_KINDS,
                               WRITE_TOOLS, _blank_heredocs, _heredocs, bind_session,
-                              _shell_lines, _shell_segments, _turn_start,
+                              _shell_commands, _shell_lines, _shell_segments,
+                              _turn_start,
                               _unquoted_backticks, call_id, cut, events,
                               heredoc_bodies, mask, mcp_class, mcp_text, note,
                               prior_calls, scratch_target, shortcut_command,
@@ -267,6 +268,46 @@ SECRET_SINK = re.compile(
 # log` hands the piped text to tee. The split is read off the masked text, so a
 # quoted `;` does not split.
 SEGMENT = re.compile(r"\|\||&&|[;&\n]")
+# Plan 096: a token in a leading `NAME=value` word (after an optional `env`)
+# reaches only the program's own environment, so that program's redirected
+# output carries no key. The value reads quotes, one level of `$( )` and a
+# backtick body; a value it cannot read ends the prefix early, and the token
+# then sits outside it and holds. Names are ASCII, as bash reads them.
+SECRET_PREFIX = re.compile(
+    r"[\s;&|]*(?:env\s+)?(?:[A-Za-z_]\w*=(?:'[^']*'|\"(?:\\.|[^\"\\])*\"|"
+    r"\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|()<>'\"`\\])*\s+)+", re.ASCII)
+# The sinks that carry a program's output, and nothing but it: the only ones a
+# key in that program's environment stays out of.
+SECRET_OUTPUT = re.compile(r">>?(?![&=])|\|\s*tee\b")
+# The ceiling of that relaxation is an allowlist (`_secret_runner`): a script
+# runner given a script file, with no option that makes it run its own text,
+# stdin or a preload, or trace the commands it runs. Every other program may
+# print its environment, so it holds. The rule cannot read the script itself:
+# an allowlisted script that prints its own environment still writes the key.
+SECRET_RUNNER = re.compile(r"python[\d.]*|node|bun|deno|bash|sh|zsh")
+SECRET_SCRIPT = re.compile(r"[^$`\s]+\.(?:py|js|mjs|ts|sh)")
+SECRET_INLINE = {"python": re.compile(r"-[A-Za-z]*[cmi]"),
+                 "sh": re.compile(r"-[A-Za-z]*[csxv]|-o$|--(?:verbose|debugger)"),
+                 "js": re.compile(r"-[A-Za-z]*[epri]|--(?:eval|print|require|"
+                                  r"import|loader|experimental-loader|preload|"
+                                  r"interactive)(?:=|$)")}
+# A line that reads the environment from /proc, sets a variable an interpreter
+# reads at startup or a shell trace, turns the shell's own trace on, or defines
+# a function that can shadow the program, gets no relaxation.
+SECRET_ENVIRON = re.compile(r"/proc/[^/\s]*/environ")
+SECRET_STARTUP = re.compile(
+    r"(?<![\w$])(?:SHELLOPTS|BASHOPTS|BASH_ENV|ENV|PS4|ZDOTDIR|NODE_OPTIONS|"
+    r"PYTHONSTARTUP|PYTHONINSPECT|PERL5OPT|PERL5DB|RUBYOPT|LD_PRELOAD|DYLD_\w*)=",
+    re.ASCII)
+SECRET_TRACE = re.compile(
+    r"(?:^|[\s;&|(])set\s+(?:-[A-Za-z]*[xv]|-o\s+(?:xtrace|verbose))")
+SECRET_FUNCTION = re.compile(
+    r"(?:^|[\s;&|(])(?:function\s+[^\s(){};&|]+|[^\s(){};&|$=]+\s*\(\s*\))")
+# The programs a carried name is printed by when they own a sink. An
+# interpreter running its own text is read off `_program`, which names the
+# interpreter only then; a program the shell names at run time prints too.
+SECRET_PRINTERS = frozenset(("echo", "printf", "cat", "eval", "awk", "perl",
+                             "ruby"))
 
 SECRET_DENY = (
     "Credential write denied: this command would land a credential in a file "
@@ -795,8 +836,14 @@ def secret_command(command):
 
     Reading an env var or running a tool with a key in its env is the normal work
     this must not touch, so a token only counts next to a write sink, and a sink
-    only carries the text of its own simple command. A `git add` that names a
-    credential file is refused whatever its text holds (`_secret_add`)."""
+    only carries the text of its own simple command. A token held only by the
+    leading `NAME=value` words of an allowlisted program is in that program's
+    env (`_env_prefix_only`), unless the line reads /proc's environ, sets a
+    startup or trace variable, turns `set -x` on or defines a function. A name
+    an earlier command assigned a token is carried, and a
+    printer owning a sink that reads it still writes it (`_printer_owns_sink`).
+    A `git add` that names a credential file is refused whatever its text holds
+    (`_secret_add`)."""
     c = str(command or "")
     added = _secret_add(c)
     if added:
@@ -804,13 +851,95 @@ def secret_command(command):
     if not c or not SECRET_TOKEN.search(c):
         return None
     masked = mask(c)
-    start = 0
+    relax = not (SECRET_ENVIRON.search(c) or SECRET_STARTUP.search(c)
+                 or SECRET_FUNCTION.search(masked) or SECRET_TRACE.search(masked))
+    start, carried = 0, set()
     for end in [m.start() for m in SEGMENT.finditer(masked)] + [len(c)]:
-        if (SECRET_TOKEN.search(c[start:end])
-                and SECRET_SINK.search(masked[start:end])):
-            return SECRET_DENY
+        text = c[start:end]
+        if SECRET_SINK.search(masked[start:end]):
+            if SECRET_TOKEN.search(text) and not (relax and _env_prefix_only(text)):
+                return SECRET_DENY
+            if (carried & {a or b for a, b in SHELL_VAR.findall(text)}
+                    and _printer_owns_sink(text, masked[start:end])):
+                return SECRET_DENY
+        carried |= {m.group(1) for m in SHELL_ASSIGN.finditer(text)
+                    if SECRET_TOKEN.search(m.group(0))}
         start = end
     return None
+
+
+def _env_prefix_only(text):
+    """True when every token in this simple command's text sits in its leading
+    `NAME=value` words (SECRET_PREFIX), no sink runs inside them, the sinks after
+    them carry only the program's output (SECRET_OUTPUT: a `git add` or a curl
+    trace holds), and the program is on the allowlist (`_secret_runner`, plan
+    096). Any doubt reads False: the rule holds."""
+    m = SECRET_PREFIX.match(text)
+    if not m:
+        return False
+    rest = text[m.end():]
+    return not (SECRET_TOKEN.search(rest) or SECRET_SINK.search(text[:m.end()])
+                or SECRET_SINK.search(SECRET_OUTPUT.sub(" ", rest))
+                or not _secret_runner(rest))
+
+
+def _first_command(text):
+    """The words of the first command `text` runs, a `$( )` body skipped."""
+    text = text.lstrip(" \t\n;&|")
+    return next((w for w, sep in _shell_commands(text) if sep != "$)"), [])
+
+
+def _secret_runner(text):
+    """True when the first program `text` runs, past the wrappers, is a script
+    runner named by itself (SECRET_RUNNER; a path could be any program) given a
+    script file (SECRET_SCRIPT), with no `-` or SECRET_INLINE option before it:
+    no inline text, stdin, preload, interactive mode or trace."""
+    words = _past_wrappers(_first_command(text))
+    if not words or not SECRET_RUNNER.fullmatch(words[0]):
+        return False
+    name = words[0]
+    args = words[1:]
+    if name == "deno":
+        if args[:1] != ["run"]:
+            return False
+        args = args[1:]
+    inline = SECRET_INLINE["python" if name.startswith("python")
+                           else "js" if name in ("node", "bun", "deno") else "sh"]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "-" or inline.match(arg):
+            return False
+        if not arg.startswith(("-", "+")):
+            return bool(SECRET_SCRIPT.fullmatch(arg))
+        i += 2 if arg in INTERPRETER_VALUE_OPTS else 1
+    return False
+
+
+def _printer_owns_sink(text, masked):
+    """True when a pipeline stage of this simple command that owns a file sink
+    - a `>` to a file other than /dev/null, or a pipe into `tee` - is a printer:
+    SECRET_PRINTERS, an interpreter running its own text, or a program the shell
+    names at run time. `echo "$T" | docker login --password-stdin > log` hands
+    the key to docker's stdin, and docker's output is what lands."""
+    cuts = [m.start() for m in re.finditer(r"(?<!>)\|", masked)]
+    stages = list(zip([0] + [k + 1 for k in cuts], cuts + [len(text)]))
+    for k, (a, b) in enumerate(stages):
+        owns = any(text[a + m.end():b].split()[:1] != ["/dev/null"]
+                   for m in re.finditer(r">>?(?![&=])", masked[a:b]))
+        if k + 1 < len(stages) and re.match(r"\s*tee\b", masked[stages[k + 1][0]:]):
+            owns = True
+        if owns and _secret_printer(text[a:b]):
+            return True
+    return False
+
+
+def _secret_printer(text):
+    """True when the first program `text` runs prints a carried name."""
+    program = _program(_first_command(text))[0]
+    return (program in SECRET_PRINTERS or program in INTERPRETERS
+            or bool(re.fullmatch(r"python[\d.]+", program)
+                    or UNEXPANDED.search(program)))
 
 
 def _secret_add(command):
@@ -2944,11 +3073,9 @@ WRAPPER_VALUE_OPTS = {"sudo": ("-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "
 INTERPRETER_VALUE_OPTS = ("-X", "-W", "-o", "+o", "-O")
 
 
-def _program(words):
-    """(program basename without `.py`, its arguments) for one simple command,
-    past compound keywords, env assignments, the wrappers (WRAPPER_VALUE_OPTS,
-    by basename, with their options) and an interpreter's options before the
-    script it runs."""
+def _past_wrappers(words):
+    """`words` past compound keywords, env assignments and the wrappers
+    (WRAPPER_VALUE_OPTS, by basename, with their options)."""
     i = 0
     while i < len(words):
         word = words[i]
@@ -2963,7 +3090,14 @@ def _program(words):
             i += 2 if words[i] in WRAPPER_VALUE_OPTS[wrapper] else 1
         if wrapper == "timeout" and i < len(words):
             i += 1  # the duration
-    words = words[i:]
+    return words[i:]
+
+
+def _program(words):
+    """(program basename without `.py`, its arguments) for one simple command,
+    past compound keywords, env assignments, the wrappers (`_past_wrappers`)
+    and an interpreter's options before the script it runs."""
+    words = _past_wrappers(words)
     if words and words[0] == "[":
         # the test command: its operands are not a program, and the command
         # after the `]` is (`if [ -d x ]; then touch y; fi`)

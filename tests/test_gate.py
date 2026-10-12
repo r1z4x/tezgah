@@ -22,6 +22,138 @@ import tezgah_gate as tg  # noqa: E402  (rm_outside's floor, read in process)
 # included, so the source must not carry it whole.
 SKIP_MARK = "@pytest.mark." + "skip"
 
+# Plan 096's vectors for the credential write rule, shared with the opencode
+# mirror's parity test (test_opencode_plugin) so both halves read one list.
+# A key in the leading NAME=value words of a script runner given a script file
+# reaches only that program's environment:
+SECRET_PREFIX_PASSES = (
+    'API_KEY="$(cat ~/.config/x/key)" python3 tool.py > /tmp/run.log',
+    "A=1 API_KEY=$(cat k) python3 tool.py --flag >> log 2>&1",
+    'env API_KEY="$(cat k)" python3 tool.py > out',
+    "API_KEY=`cat k` node tool.js | tee run.log",
+    "cd x && API_KEY=$(cat k) node block.js > run.log",
+    "API_KEY=$(cat k) python3 -u tool.py > f",
+    "API_KEY=$(cat k) nohup python3.12 -X dev tool.py >| f",
+    "API_KEY=$(cat k) deno run --allow-env main.ts > f",
+    "API_KEY=$(cat k) bun x.mjs > f",
+    "API_KEY=$(cat k) bash deploy.sh > f",
+    "API_KEY=$(cat k) bash -e deploy.sh > f 2>&1",
+    # the carried hold refuses only a printer owning the sink
+    "API_KEY=x; ./prog --key $API_KEY > run.log",
+    "API_KEY=x; echo $OTHER > f",
+    "API_KEY=x; echo $API_KEY > /dev/null",
+    'TOKEN=$(cat k); echo "$TOKEN" | docker login -u u --password-stdin '
+    "> /dev/null 2>&1",
+    'TOKEN=$(cat k); echo "$TOKEN" | gh auth login --with-token > log')
+# ...and every other program holds: a printer, a program running inline text,
+# stdin, a preload or a trace, a runner `_program` does not step past, a bare
+# name, a path; so does a token outside the prefix, a sink in the prefix's
+# value, a `git add` or curl trace sink, a startup or trace variable or `set -x`
+# on the line, `/proc/*/environ`, a function the line defines, and a later
+# printer owning a sink that reads a name the line assigned a key:
+SECRET_PREFIX_DENIES = (
+    "API_KEY=$(cat k) bash -x deploy.sh > f 2>&1",
+    "API_KEY=$(cat k) sh -xe deploy.sh > f 2>&1",
+    "API_KEY=$(cat k) bash -o xtrace deploy.sh > f 2>&1",
+    "API_KEY=$(cat k) bash -v deploy.sh > f 2>&1",
+    "API_KEY=$(cat k) bash --verbose deploy.sh > f 2>&1",
+    "SHELLOPTS=xtrace API_KEY=$(cat k) bash deploy.sh > f 2>&1",
+    "BASHOPTS=x API_KEY=$(cat k) bash deploy.sh > f 2>&1",
+    "BASH_ENV=dump.sh API_KEY=$(cat k) bash deploy.sh > f",
+    "ENV=dump.sh API_KEY=$(cat k) sh deploy.sh > f",
+    "PS4='$API_KEY' API_KEY=$(cat k) bash deploy.sh > f 2>&1",
+    "ZDOTDIR=. API_KEY=$(cat k) zsh deploy.sh > f",
+    "NODE_OPTIONS=--require=./dump.js API_KEY=$(cat k) node tool.js > f",
+    "API_KEY=$(cat k) env NODE_OPTIONS=--require=./dump.js node tool.js > f",
+    "export NODE_OPTIONS=--require=./dump.js; API_KEY=$(cat k) node tool.js > f",
+    "PYTHONSTARTUP=d.py API_KEY=$(cat k) python3 tool.py > f",
+    "PYTHONINSPECT=1 API_KEY=$(cat k) python3 tool.py > f",
+    "PERL5OPT=-d API_KEY=$(cat k) python3 tool.py > f",
+    "PERL5DB=x API_KEY=$(cat k) python3 tool.py > f",
+    "RUBYOPT=-rdump API_KEY=$(cat k) python3 tool.py > f",
+    "LD_PRELOAD=./d.so API_KEY=$(cat k) python3 tool.py > f",
+    "DYLD_INSERT_LIBRARIES=./d.dylib API_KEY=$(cat k) python3 tool.py > f",
+    "set -x; API_KEY=$(cat k) python3 tool.py > f 2>&1",
+    "set -o xtrace; API_KEY=$(cat k) python3 tool.py > f 2>&1",
+    "API_KEY=$(cat k) python3 -i tool.py > f",
+    "API_KEY=$(cat k) node -r ./dump.js tool.js > f",
+    "API_KEY=$(cat k) node --require=./dump.js tool.js > f",
+    "API_KEY=$(cat k) node --import ./dump.mjs tool.js > f",
+    "API_KEY=$(cat k) bun --preload ./dump.ts x.ts > f",
+    "API_KEY=$(cat k) ./node_modules/.bin/tsx -e 'console.log(process.env)' > f",
+    "API_KEY=$(cat k) ./node_modules/.bin/dotenv -- env > f",
+    "API_KEY=$(cat k) ./evil/python3 tool.py > f",
+    "A=1 API_KEY=$(cat k) ./prog --flag >> log 2>&1",
+    'env API_KEY="$(cat k)" bin/prog > out',
+    "API_KEY=`cat k` /Users/me/proj/bin/prog | tee run.log",
+    "API_KEY=\"$(cat k)\" sh -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) bash -c 'env' > f",
+    "API_KEY=$(cat k) bash -s < s.sh > f",
+    "API_KEY=$(cat k) python3 -c 'import os; print(os.environ)' > f",
+    "API_KEY=$(cat k) python3 -m http.server > f",
+    "API_KEY=$(cat k) node -e 'console.log(process.env)' > f",
+    "API_KEY=$(cat k) node -pe process.env > f",
+    "API_KEY=$(cat k) node --eval=console.log(process.env) > f",
+    "API_KEY=$(cat k) node tool > f",
+    "API_KEY=$(cat k) deno eval 'console.log(Deno.env.toObject())' > f",
+    "API_KEY=$(cat k) python3 - > f <<'EOF'\nimport os; print(os.environ)\nEOF",
+    "API_KEY=$(cat k) node > f <<'EOF'\nconsole.log(process.env)\nEOF",
+    "API_KEY=$(cat k) ksh -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) fish -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) php -r 'print_r(getenv());' > f",
+    "API_KEY=$(cat k) osascript -e 'system attribute \"API_KEY\"' > f",
+    "API_KEY=$(cat k) jq -n env > f",
+    "API_KEY=$(cat k) printenv > f",
+    "API_KEY=$(cat k) env > f",
+    "API_KEY=$(cat k) env | tee f",
+    "API_KEY=$(cat k) env >| f",
+    "API_KEY=$(cat k) >| f printenv",
+    "API_KEY=$(cat k) /usr/bin/env > f",
+    "API_KEY=$(cat k) /usr/bin/printenv > f",
+    "API_KEY=$(cat k) python3 -c 'import os;print(os.environ)' tool.py > f",
+    "API_KEY=$(cat k) python3 - tool.py < dump.txt > f",
+    "API_KEY=$(cat k) node -pe process.env tool.js > f",
+    "API_KEY=$(cat k) bash -s deploy.sh < s.sh > f",
+    "API_KEY=$(cat k) vendor/bin/cat key > f",
+    "API_KEY=$(cat k) cat key > f",
+    "API_KEY=$(cat k) echo hi >> f",
+    "API_KEY=$(cat k) eval prog > f",
+    "API_KEY=$(cat k) export -p > f",
+    "API_KEY=$(cat k) $TOOL > f",
+    "A=1 API_KEY=$(cat k) prog --flag >> log 2>&1",
+    "API_KEY=$(cat k) xargs env < list > f",
+    "API_KEY=$(cat k) xargs sh -c 'echo $API_KEY' < /dev/null > f",
+    "API_KEY=$(cat k) uv run python -c 'import os;print(os.environ)' > f",
+    "API_KEY=$(cat k) setsid env > f",
+    "API_KEY=$(cat k) doas env > f",
+    "API_KEY=$(cat k) caffeinate -i env > f",
+    "API_KEY=$(cat k) busybox env > f",
+    "API_KEY=$(cat k) watch -n1 env > f",
+    "API_KEY=$(cat k) script -q /dev/null env > f",
+    "API_KEY=$(cat k) git -c alias.e='!env' e > f",
+    "API_KEY=$(cat k) head -c 9999 /proc/self/environ > f",
+    "API_KEY=$(cat k) python3 dump.py /proc/self/environ > f",
+    "python3() { env; }; API_KEY=$(cat k) python3 tool.py > f",
+    "A\u00e9=1 API_KEY=x python3 tool.py > f",
+    "API_KEY=$(cat k) python3 tool.py --token=$API_KEY > f",
+    "API_KEY=$(cat k) python3 tool.py > token=x",
+    'API_KEY="$(cat k | tee copy)" python3 tool.py > f',
+    "API_KEY=$(cat k) python3 tool.py git add notes.txt",
+    "API_KEY=$(cat k) python3 fetch.py --trace-ascii t.log https://api.example.com",
+    'echo "api_key=$K" > f',
+    "printf 'token=%s' \"$(cat key)\" > f",
+    "API_KEY=x; echo $API_KEY > f",
+    'API_KEY="$(cat k)"; printf %s "${API_KEY}" | tee f',
+    "API_KEY=x; echo $API_KEY | cat > f",
+    'API_KEY=x; cat <<< "$API_KEY" > f',
+    'API_KEY=x; eval "echo $API_KEY" > f',
+    "API_KEY=x; awk -v k=\"$API_KEY\" 'BEGIN{print k}' > f",
+    "API_KEY=x; perl -e \"print '$API_KEY'\" > f",
+    "API_KEY=x; ruby -e \"puts '$API_KEY'\" > f",
+    'API_KEY=x; sh -c "echo $API_KEY" > f',
+    "API_KEY=x; python3 -c \"print('$API_KEY')\" > f",
+    'API_KEY=x; $TOOL "$API_KEY" > f')
+
 
 class Gate(TempHome):
     def setUp(self):
@@ -871,6 +1003,21 @@ class Gate(TempHome):
         # and committing a message that mentions the shape is not a write
         self.assertIsNone(self.decide("Bash", {
             "command": 'git add -A && git commit -m "fix api_key= handling"'}))
+
+    def test_a_credential_in_a_programs_env_prefix_passes(self):
+        # plan 096: a leading NAME=value word only reaches the program's own
+        # environment, so redirecting that program's output writes no key; the
+        # deny text's own rephrase was refused, and the `export` workaround left
+        # the key in the persistent shell
+        for command in SECRET_PREFIX_PASSES:
+            self.assertIsNone(self.decide("Bash", {"command": command}), command)
+
+    def test_an_env_prefix_to_a_program_that_prints_it_still_denies(self):
+        # the rule reads token shapes, not file names: `echo "$KEY" > f` or
+        # `cat key > f` carry no NAME=value or bearer token and never denied
+        for command in SECRET_PREFIX_DENIES:
+            reason = self.decide("Bash", {"command": command})
+            self.assertIn("Credential", reason or "", command)
 
     def test_git_add_of_a_credential_file_is_refused(self):
         # plan 057 (a)3, a deliberate flip: this test used to pin `git add .env`
