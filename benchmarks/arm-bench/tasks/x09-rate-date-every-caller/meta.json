@@ -1,0 +1,26 @@
+{
+  "id": "x09-rate-date-every-caller",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "source": "new in plan 095 (2026-10-12): five callers reach fetch_rate five ways - by name, as rates.fetch_rate, through an import alias (`lookup`), through the providers.SOURCES table (which also holds a second source that must take the same new keyword), and through a functools.partial - and the visible suite covers only the direct call",
+  "hard_because": "Changing fetch_rate and the `fetch_rate(` call sites a grep shows (convert.py, report.py) makes the suite green; check_rate_day also drives ledger.post (alias `lookup`), batch.convert_all (the SOURCES table, whose fixed_rate must accept `on` too) and pricing.invoice_line (a partial), which raise TypeError or use the wrong day.",
+  "allow": [
+    "fx/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent fx/; tests/ is frozen",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "rate_day",
+      "cmd": "python3 {hidden}/check_rate_day.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

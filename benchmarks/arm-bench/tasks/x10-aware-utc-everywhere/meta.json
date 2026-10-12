@@ -1,0 +1,26 @@
+{
+  "id": "x10-aware-utc-everywhere",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "source": "new in plan 095 (2026-10-12): six places make a datetime, and only two are calls a grep for `utcnow()` or `now()` finds - the others are a dataclass default_factory naming datetime.utcnow without parentheses, a module-level alias NOW = datetime.utcnow, datetime.fromtimestamp and datetime.strptime; fixing some but not the alias makes expired() compare aware with naive and raise",
+  "hard_because": "Fixing the `utcnow()` and `datetime.now()` calls (stamp, next_sweep) turns the suite green; check_aware, run under a non-UTC TZ, also reads Event's default_factory, the clock's NOW alias (expired() then raises TypeError on an aware event), from_epoch and from_text.",
+  "allow": [
+    "events/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent events/; tests/ is frozen",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "aware",
+      "cmd": "python3 {hidden}/check_aware.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
