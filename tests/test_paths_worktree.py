@@ -1,6 +1,6 @@
 """The worktree bridge: a linked checkout is armed through its `.git` pointer,
 its siblings are listed from `.git/worktrees/*/gitdir` - both without a git
-fork - and every checkout keeps its own `.tezgah`."""
+fork - and every checkout of a repository shares the main checkout's `.tezgah`."""
 import json
 import os
 import re

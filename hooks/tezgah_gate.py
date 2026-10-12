@@ -1588,7 +1588,7 @@ def _task(cwd, base, task):
         return task
     if tezgah_task is None:
         return None
-    return tezgah_task.active(cwd, base)
+    return tezgah_task.active(cwd, base, held=True)
 
 
 def _resolved(spelled, top, command):
@@ -1686,7 +1686,13 @@ def _owners(inp, cwd, base, task):
     `tee` target). The cwd's task is an owner too when the line writes where no
     target was read: a positional writer (`sed -i`, `cp`, `mv`, `truncate`,
     `dd`, `patch`, `git apply`, a `tee` with other than one operand) or more
-    write shapes than targets read."""
+    write shapes than targets read.
+
+    A held reading (`tezgah_task.active` with `held`: every phased plan is held
+    by its worktree, and this checkout is none of them) owns no target: a
+    held plan's scope is its worktree's, so a target outside the plan worktrees
+    is held to no plan."""
+    scope = None if task.get("held") else task
     top = tezgah_task.repo_root(cwd, base) if cwd else None
     command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
     paths = _write_targets(inp, command)
@@ -1695,10 +1701,10 @@ def _owners(inp, cwd, base, task):
         path = _resolved(spelled, top, command)
         if _no_repo(path, inp, cwd, command):
             continue
-        own = _worktree_task(path, cwd, base) or task
-        if own not in out:
+        own = _worktree_task(path, cwd, base) or scope
+        if own and own not in out:
             out.append(own)
-    if command and task not in out:
+    if command and scope and scope not in out:
         masked = mask(command)
         shapes = SHELL_WRITE.findall(masked)
         positional = any(not s.startswith(">") and "tee" not in s for s in shapes) or any(
@@ -1706,8 +1712,8 @@ def _owners(inp, cwd, base, task):
                  if not t.startswith("-")]) != 1
             for m in re.finditer(r"\|\s*tee\b", masked))
         if positional or len(shapes) > len(paths):
-            out.append(task)
-    return out if paths else out or [task]
+            out.append(scope)
+    return out if paths or not scope else [scope]
 
 
 def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
@@ -1782,6 +1788,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     task = _task(cwd, base, task)
     if not task:
         return None
+    # a held reading scopes nothing outside the plan worktrees (`_owners`)
+    scope = None if task.get("held") else task
     # The targets the plan scopes: not a URI or a shell target with no known
     # value (unnamed_target), and not tezgah's own gitignored workspace under
     # `.tezgah/` (research lines, lessons, briefs) - the active record there is
@@ -1804,11 +1812,12 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
         if rel is not None and workspace_free(
                 rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):
             continue
-        own = _worktree_task(path, cwd, base) if rel is not None else None
-        project.append((spelled, path, rel, own or task))
+        own = (_worktree_task(path, cwd, base) if rel is not None else None) or scope
+        if own:
+            project.append((spelled, path, rel, own))
     if paths and not project:
         return None
-    for own in [entry[3] for entry in project] or [task]:
+    for own in [entry[3] for entry in project] or [o for o in (scope,) if o]:
         if own["phase"] not in tezgah_task.WRITE_PHASES:
             return TASK_PHASE_DENY % (own["id"], own["phase"],
                                       " or ".join(tezgah_task.WRITE_PHASES))
@@ -3491,7 +3500,10 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         task = _UNRESOLVED
         _WORKTREE_TASKS.clear()
         if tezgah_task is not None and t in WRITE_TOOLS + BASH_TOOLS:
-            task = tezgah_task.active(cwd, base)
+            # held: with every phased plan held by its worktree the record rule
+            # still refuses a direct write to it, and the scope rules hold a
+            # target outside the plan worktrees to none (`_owners`)
+            task = tezgah_task.active(cwd, base, held=True)
         if writes:
             reason = task_record_reason(inp, cwd, base, task)
             if reason:

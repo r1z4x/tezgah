@@ -2600,9 +2600,23 @@ class TaskGate(TempHome):
             self.assertIn("task 017", reason)
             reason = self.decide({"file_path": os.path.join(two, "hooks", "a.py")}, cwd=cwd)
             self.assertIn("task 018", reason)
-        # the main checkout keeps today's reading: the first plan with a phase
-        self.assertIsNone(self.write_path(os.path.join(self.repo, "hooks", "a.py")))
-        self.assertIsNotNone(self.write_path(os.path.join(self.repo, "docs", "a.md")))
+        # every phased plan is held: the main checkout is held to neither scope,
+        # by any write route (plan 097, D6: main read plan 096's scope)
+        for path in (os.path.join(self.repo, "hooks", "a.py"),
+                     os.path.join(self.repo, "docs", "a.md"), "/var/tmp/x.txt"):
+            self.assertIsNone(self.write_path(path), path)
+        self.assertIsNone(self.bash("echo x > docs/a.md && sed -i '' s/a/b/ src/a.py"))
+
+    def test_a_held_plan_in_a_reading_phase_does_not_hold_the_main_checkout(self):
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        one = self.sibling("proj-017", branch="plan/017-gate-rule")
+        self.assertIsNone(self.write_path(os.path.join(self.repo, "docs", "a.md")))
+        # its worktree, and its record, stay held from the main checkout
+        self.assertIn("discovery", self.write_path(os.path.join(one, "hooks", "a.py")) or "")
+        self.assertIn("discovery", self.bash("echo x > %s" % os.path.join(one, "hooks", "a.py"))
+                      or "")
+        record = os.path.join(self.repo, ".tezgah", "plans", "open", "017-gate-rule.md")
+        self.assertIn("own record", self.write_path(record) or "")
 
     def test_a_plan_worktree_on_a_reading_phase_refuses_its_own_writes(self):
         self.plan(phase="implementation", allowed=("hooks/**",))
@@ -2773,12 +2787,16 @@ class TaskGate(TempHome):
             path = os.path.join(self.repo, ".tezgah", "plans", "open", name)
             self.assertIn("own record", self.decide({"file_path": path}, cwd=two) or "", name)
 
-    def test_a_plan_worktree_binds_only_to_the_plans_own_branch(self):
+    def test_a_plans_slice_worktree_is_held_to_that_plan_beside_its_declared_branch(self):
+        # a plan fans out to slices on other plan/NNN-* branches (plan 097 ran
+        # plan/097-records beside plan/097-workspace-integrity): each slice is
+        # held to its own plan, never to the first plan no worktree holds
         self.plan(phase="implementation", allowed=("hooks/**",))
         self.plan(phase="implementation", allowed=("docs/**",), name="018-other.md",
                   task_id="018", branch="plan/018-other")
-        evil = self.sibling("proj-x", branch="plan/018-evil")
-        self.assertIn("task 017", self.write_path(os.path.join(evil, "docs", "a.md")) or "")
+        piece = self.sibling("proj-x", branch="plan/018-slice")
+        self.assertIsNone(self.write_path(os.path.join(piece, "docs", "a.md")))
+        self.assertIn("task 018", self.write_path(os.path.join(piece, "hooks", "a.py")) or "")
         good = self.sibling("proj-018", branch="plan/018-other")
         self.assertIsNone(self.write_path(os.path.join(good, "docs", "a.md")))
 
@@ -2992,9 +3010,9 @@ class TaskGate(TempHome):
         real = tg.tezgah_task.active
         saved = tg.root_for, tg.off, tg.capture
 
-        def counted(cwd, base):
+        def counted(cwd, base, held=False):
             calls.append(cwd)
-            return real(cwd, base)
+            return real(cwd, base, held=held)
 
         tg.root_for = lambda path: self.repo
         tg.off = lambda name: False
