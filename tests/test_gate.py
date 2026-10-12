@@ -2396,6 +2396,53 @@ class TaskGate(TempHome):
             reason = self.write_path(os.path.join(self.repo, ".tezgah", "plans", "open", name))
             self.assertIsNotNone(reason, name)
 
+    def bash(self, command, cwd=None):
+        return self.decide({"command": command}, tool="Bash", cwd=cwd)
+
+    def test_a_shell_write_into_a_plan_worktree_meets_that_plans_phase(self):
+        # the shell is a write route like any other: a redirect into worktree
+        # 018 from the main checkout meets 018's phase, not the first plan's
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        self.assertIsNone(self.bash("echo x > %s" % os.path.join(two, "docs", "a.md")))
+        # the reading first plan still holds a shell write in the main checkout
+        self.assertIn("task 017", self.bash("echo x > docs/a.md"))
+
+    def test_a_shell_write_into_a_reading_plan_worktree_is_refused_as_a_shell_write(self):
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="discovery", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        reason = self.bash("echo x > %s" % os.path.join(two, "docs", "a.md"))
+        self.assertIn("task 018 is in phase `discovery`, and this command writes", reason)
+
+    def test_a_plan_worktrees_pending_checkpoint_holds_its_writes_from_any_cwd(self):
+        # the checkpoint is the worktree plan's own: its sha against that
+        # worktree's HEAD and tree, whichever checkout the call comes from
+        env = self.init_git()
+        two = os.path.join(os.path.dirname(self.repo), "proj-018")
+        self.git(env, "worktree", "add", "-q", "-b", "plan/018-other", two)
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",), name="018-other.md",
+                  task_id="018", checkpoint="pending %s" % self.head())
+        os.makedirs(os.path.join(two, "docs"))
+        with open(os.path.join(two, "docs", "b.md"), "w") as fh:
+            fh.write("uncommitted\n")
+        target = os.path.join(two, "docs", "a.md")
+        for cwd in (self.repo, two):
+            for tool, inp in (("Write", {"file_path": target, "content": "x"}),
+                              ("Bash", {"command": "echo x > %s" % target})):
+                reason = self.decide(inp, tool=tool, cwd=cwd)
+                self.assertIn("Checkpoint gate: the active task 018", reason or "",
+                              (cwd, tool))
+        # the commit in that worktree is the way out, as the refusal says
+        subprocess.run(["git", "-C", two, "-c", "user.name=t", "-c", "user.email=t@localhost",
+                        "commit", "-qam", "x", "--allow-empty"], check=True,
+                       capture_output=True, env=env)
+        self.assertIsNone(self.write_path(target))
+
     def test_the_allowlist_reads_a_linked_worktree_of_the_same_repository(self):
         # every writing slice gets its own worktree, so hooks/a.py there is in
         # scope when hooks/a.py is, and src/a.py there is not
