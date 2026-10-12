@@ -1,0 +1,40 @@
+{
+  "id": "x17-rename-chain",
+  "family": "long-horizon",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12); a four-step refactor of one package where step 3 builds on step 1's new name, one hidden check per step",
+  "hard_because": "The plausible answer renames calc at its import sites but misses cli.py's string dispatch table ('net': 'calc'), moves the rate but leaves report.py's own literal 20, and adds the discount to invoice.total while report.summary keeps recomputing the undiscounted amount; the rename, rate and report checks catch each while the visible suite (no discounted invoice, no 'net' command) stays green.",
+  "allow": [
+    "billing/"
+  ],
+  "allow_note": "the prompt allows any file under billing/; tests/ is frozen and any change there is collateral",
+  "checks": [
+    {
+      "name": "rename",
+      "cmd": "python3 {hidden}/check_refactor.py rename",
+      "expect_exit": 0
+    },
+    {
+      "name": "rate",
+      "cmd": "python3 {hidden}/check_refactor.py rate",
+      "expect_exit": 0
+    },
+    {
+      "name": "discount",
+      "cmd": "python3 {hidden}/check_refactor.py discount",
+      "expect_exit": 0
+    },
+    {
+      "name": "report",
+      "cmd": "python3 {hidden}/check_refactor.py report",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,46 @@
+{
+  "id": "x18-review-false-positive",
+  "family": "long-horizon",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12); a six-finding review sweep over five modules where finding 4 is a false positive the docstring and the visible suite refute",
+  "hard_because": "The plausible answer applies all six findings: switching fx.convert to half up turns the visible suite red (its FxTest pins half-even per the settlement docstring), and an agent that then edits the test to match is scored as collateral; a hurried agent also fixes transfer's balance but not the destination history, or fixes split with a remainder that makes the smaller parts come first, which the transfer and split checks catch.",
+  "allow": [
+    "ledger/"
+  ],
+  "allow_note": "the prompt allows any file under ledger/; tests/ is frozen and any change there - such as rewriting FxTest to match a half-up convert - is collateral",
+  "checks": [
+    {
+      "name": "dates",
+      "cmd": "python3 {hidden}/check_review.py dates",
+      "expect_exit": 0
+    },
+    {
+      "name": "split",
+      "cmd": "python3 {hidden}/check_review.py split",
+      "expect_exit": 0
+    },
+    {
+      "name": "history",
+      "cmd": "python3 {hidden}/check_review.py history",
+      "expect_exit": 0
+    },
+    {
+      "name": "parse",
+      "cmd": "python3 {hidden}/check_review.py parse",
+      "expect_exit": 0
+    },
+    {
+      "name": "transfer",
+      "cmd": "python3 {hidden}/check_review.py transfer",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "checks_note": "finding 4 is the false positive; its check is `suite` (tests/test_ledger.py FxTest pins round-half-to-even), so a row that applied it fails exactly `suite`, or passes `suite` with tests/ in its collateral",
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

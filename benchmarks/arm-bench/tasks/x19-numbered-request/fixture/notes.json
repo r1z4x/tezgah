@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "title": "Kickoff",
+    "body": "Agenda and owners.",
+    "created": "2024-01-15"
+  },
+  {
+    "id": 2,
+    "title": "Budget",
+    "body": "Q1 numbers, draft.",
+    "created": "2024-02-29"
+  },
+  {
+    "id": 3,
+    "title": "Retro",
+    "body": "What went well; budget overrun.",
+    "created": "2024-03-01"
+  },
+  {
+    "id": 4,
+    "title": "Hiring",
+    "body": "Two roles open.",
+    "created": "2024-03-20"
+  }
+]
