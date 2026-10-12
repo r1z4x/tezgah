@@ -110,7 +110,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               write_texts)
 from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS, newest_todo, ready_heads
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
-                          REPO_MARKS, SWITCHES, cache_dir, fallback_cache,
+                          REPO_MARKS, SWITCHES, _toplevel, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
 
 try:  # The ordering rule's two readers (the newest check's state, folded the way
@@ -1482,6 +1482,16 @@ def _worktree_task(path, cwd, base):
     return _WORKTREE_TASKS[key]
 
 
+def _in_checkout(path, cwd):
+    """True when `path` lies under a git checkout or a configured root - some
+    repository's work. A path under neither (the user's `~/.config/x/key`) is no
+    plan's scope, so the task rules leave it to the rules every write meets
+    (plan 094: a credential file the user asked for was refused as outside the
+    repository)."""
+    real = os.path.realpath(os.path.join(cwd or "", os.path.expanduser(path)))
+    return bool(root_for(real) or _toplevel(real))
+
+
 def _write_targets(inp, command):
     """The targets the task rules read: for a shell line that writes, every
     redirect and `tee` target (`shell_targets`, expanded as `write_paths`
@@ -1494,8 +1504,9 @@ def _write_targets(inp, command):
 def _owners(inp, cwd, base, task):
     """The records this call's write targets are held to, each once: plan NNN's
     for a target in a sibling worktree on a `plan/NNN-...` branch
-    (`tezgah_task.worktree_task`), the active task for every other target, and
-    the active task alone when the call names no target.
+    (`tezgah_task.worktree_task`), none for a target under no checkout
+    (`_in_checkout`), the active task for every other target, and the active
+    task alone when the call names no target.
 
     A shell line is read target by target (`shell_targets`: every redirect and
     `tee` target). The cwd's task is an owner too when the line writes where no
@@ -1507,7 +1518,10 @@ def _owners(inp, cwd, base, task):
     paths = _write_targets(inp, command)
     out = []
     for spelled in paths:
-        own = _worktree_task(_resolved(spelled, top, command), cwd, base) or task
+        path = _resolved(spelled, top, command)
+        if not _in_checkout(path, cwd):
+            continue
+        own = _worktree_task(path, cwd, base) or task
         if own not in out:
             out.append(own)
     if command and task not in out:
@@ -1519,7 +1533,7 @@ def _owners(inp, cwd, base, task):
             for m in re.finditer(r"\|\s*tee\b", masked))
         if positional or len(shapes) > len(paths):
             out.append(task)
-    return out or [task]
+    return out if paths else out or [task]
 
 
 def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
@@ -1581,7 +1595,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     hunk like every other write rule's here. A path that resolves outside the
     repo root is refused by `relative` before any pattern is tried - a `**`
     allowlist must not reach out of the repo - unless it is the session's own
-    scratch (`scratch_target`: a temp file, a device), which is no task's work;
+    scratch (`scratch_target`: a temp file, a device), which is no task's work,
+    or lies under no checkout at all (`_in_checkout`), which is no plan's;
     build output inside the repo is a repo path and stays held. The refusal
     names the file as the call spelled it, because the agent has to recognize
     its own argument.
@@ -1610,6 +1625,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         path = _resolved(spelled, top, command)
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
+        if rel is None and not _in_checkout(path, cwd):
+            continue
         if rel is not None and workspace_free(
                 rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):
             continue

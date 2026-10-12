@@ -2118,6 +2118,7 @@ class TaskGate(TempHome):
                 self.assertIsNone(self.decide(inp, tool="Bash"), (phase, inp))
             self.assertIsNone(self.write_path(key), phase)
         # a repo path outside the allowlist is still the plan's to hold
+        self.plan(phase="implementation")
         reason = self.decide({"command": "printf x > src/y.py"}, tool="Bash")
         self.assertIn("tezgah-task allow 'hooks/**' src/y.py", reason or "")
         # and the other rules still read the write: a credential value is refused

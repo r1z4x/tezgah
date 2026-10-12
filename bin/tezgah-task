@@ -1523,4 +1523,14 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    # A reader that leaves early (`tezgah-task stop | head -1`) is not a
+    # failure: the record was already written. A handler rather than SIGPIPE's
+    # default, which would kill the process by signal (status 141), not exit 0.
+    # stdout goes to devnull so the interpreter's own flush at exit is quiet.
+    try:
+        code = main(sys.argv)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        code = 0
+    sys.exit(code)
