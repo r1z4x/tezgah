@@ -844,7 +844,11 @@ def cmd_review(args):
                                 int(since) if (since or "").isdigit() else 0)
         if bad:
             return problems(bad)
-    sha = (git_out(root, "rev-parse", "HEAD") or "")[:12]
+    # a plan held by its own worktree is built on that branch: its HEAD is the
+    # one the next round's diff starts from
+    ident = fields.get("id") or os.path.basename(path).split("-")[0]
+    where = tt.plan_holders(root).get(ident) or root
+    sha = (git_out(where, "rev-parse", "HEAD") or "")[:12]
     record = {"review": "%s %s %s" % (args[1], args[2], today()),
               "review_round": str(int(prior) + 1 if prior.isdigit() else 1),
               "updated": today()}

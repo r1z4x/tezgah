@@ -1028,6 +1028,18 @@ class Cli(TempHome):
         self.assertEqual(fields["status"], "done")
         self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
 
+    def test_review_records_the_plan_worktrees_head(self):
+        # a plan held by its own worktree is built on that branch, so round 2's
+        # `git diff <reviewed_sha>..HEAD` has to start from that branch's HEAD
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        wt = self.slice("plan/001-first", commit=False, merge=False)
+        self.git("commit", "-q", "--allow-empty", "-m", "plan work", cwd=wt)
+        head = subprocess.run(["git", "-C", wt, "rev-parse", "HEAD"], capture_output=True,
+                              text=True, env=dict(os.environ, **GIT_ENV)).stdout.strip()[:12]
+        self.assertNotEqual(head, self.head()[:12])
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "changes").returncode, 0)
+        self.assertEqual(tt.frontmatter(read(path))["reviewed_sha"], head)
+
     def test_review_records_the_sha_so_the_next_round_reads_only_the_delta(self):
         path = self.plan("001-first.md", allowed=["hooks/**"])
         with open(path, "a") as fh:
