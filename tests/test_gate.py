@@ -2110,6 +2110,7 @@ class TaskGate(TempHome):
         # no repository's work, so no plan's phase or allowlist holds it: from
         # the repo, from `~`, and through the write tools alike.
         key = os.path.join(self.home, ".config", "x", "key")
+        os.makedirs(os.path.dirname(key))
         for phase in ("implementation", "discovery"):
             self.plan(phase=phase)
             for inp in ({"command": "printf x > ~/.config/x/key"},
@@ -2125,6 +2126,52 @@ class TaskGate(TempHome):
         reason = self.decide({"command": "printf 'api_key=sk-live-abc123' > "
                                          "~/.config/x/key"}, tool="Bash")
         self.assertIn("Credential", reason or "")
+
+    def holds(self, inp, tool="Bash"):
+        """The task rule's refusal of `inp` in both phases that may be held: the
+        reason must be the task rule's own, not another rule that reads the path."""
+        for phase in ("discovery", "implementation"):
+            self.plan(phase=phase)
+            reason = self.decide(inp, tool=tool)
+            self.assertIn("Task gate", reason or "", (phase, inp))
+
+    def test_a_relative_target_resolves_where_the_line_moved(self):
+        # Review F1: `../../README.md` read against the session cwd is HOME,
+        # under no checkout; after `cd hooks` it is the configured root. A move
+        # the gate cannot follow (a subshell, `bash -c`, a second target behind
+        # a `cd`) exempts nothing.
+        os.makedirs(os.path.join(self.repo, "hooks"))
+        for command in ("cd hooks && echo x > ../../README.md",
+                        "pushd hooks && echo x > ../../README.md",
+                        "cd hooks && D=../..; echo x > $D/README.md",
+                        "(cd hooks; echo x > ../../README.md)",
+                        "cd hooks && echo x > ../../a && cd x && echo x > ../../../b"):
+            self.holds({"command": command})
+
+    def test_a_link_made_on_the_line_or_before_is_held(self):
+        # Review F2/F3: a link into the repo turns a path under no checkout into
+        # a repo file, at run time (`ln` on the same line, a parent that does not
+        # exist yet) or already (a hard link to a repo file)
+        hooks = os.path.join(self.repo, "hooks")
+        os.makedirs(hooks)
+        self.holds({"command": "ln -s %s ~/l && echo x > ~/l/tezgah_gate.py" % hooks})
+        self.holds({"command": "ln -s %s/a.py ~/f && echo x > ~/f" % hooks})
+        self.holds({"file_path": os.path.join(self.home, "nodir", "key")}, tool="Write")
+        repo_file = os.path.join(hooks, "a.py")
+        with open(repo_file, "w") as fh:
+            fh.write("x = 1\n")
+        os.link(repo_file, os.path.join(self.home, "hl"))
+        self.holds({"command": "echo x > ~/hl"})
+
+    def test_host_instruction_and_shell_rc_files_stay_held(self):
+        # Review F4: an agent definition, an instruction file and a shell rc
+        # steer every later session, so no repository-free exemption reaches them
+        for rel in (".claude/agents/x.md", ".claude/CLAUDE.md",
+                    ".omp/agent/skills/x/SKILL.md", ".codex/AGENTS.md",
+                    ".cursor/rules/x.mdc", ".zshrc"):
+            path = os.path.join(self.home, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.holds({"command": "echo x > ~/%s" % rel})
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):

@@ -1363,8 +1363,12 @@ class Cli(TempHome):
         # `tezgah-task stop | head -1` died with BrokenPipeError (plan 094). The
         # read end is closed before the CLI starts, so its first write meets
         # EPIPE on every run - a `head` racing the output would not.
-        self.plan("001-first.md", phase="discovery", allowed=["tests/**"])
-        for args in (("status",), ("stop",)):
+        # A closed pipe costs the output, never the exit: a status that finds a
+        # problem still exits 1 (review F5).
+        cases = ((("status",), 0, "discovery"), (("stop",), 0, "discovery"),
+                 (("status",), 1, "implement"))
+        for args, want, phase in cases:
+            self.plan("001-first.md", phase=phase, allowed=["tests/**"])
             read_end, write_end = os.pipe()
             os.close(read_end)
             try:
@@ -1372,7 +1376,7 @@ class Cli(TempHome):
                                       stdout=write_end, stderr=subprocess.PIPE, text=True)
             finally:
                 os.close(write_end)
-            self.assertEqual(proc.returncode, 0, (args, proc.stderr))
+            self.assertEqual(proc.returncode, want, (args, phase, proc.stderr))
             self.assertEqual(proc.stderr, "", args)
 
     def test_status_reports_a_phase_no_reader_accepts(self):
