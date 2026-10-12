@@ -46,13 +46,11 @@ Exit codes: 0 every record is whole (or there are none), 1 a record was refused
 import json
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import project_top  # noqa: E402
 
 # Nygard's four states and the whole vocabulary: a status outside them is refused
 # rather than printed, because "an ADR without a status" is the falsifier the
@@ -68,19 +66,12 @@ RECORD = re.compile(r"^(\d{3})-[^/]+\.md$")
 
 
 def repo_root(path):
-    """The repository this run is about: git's own answer, else the directory the
-    CLI was called in - a decision recorded under a tree git does not know is
-    still a decision. Resolved here the way bin/tezgah-task resolves its root,
-    because the two CLIs have to agree on which repository they are talking
-    about."""
-    try:
-        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True)
-        if out.returncode == 0 and out.stdout.strip():
-            return project_top(out.stdout.strip())
-    except OSError:
-        pass
-    return os.path.realpath(path)
+    """The repository this run is about: its main checkout, the one whose
+    `.tezgah` holds the records from a linked worktree or from inside `.tezgah`
+    too (`tezgah_task.main_repo`, the root bin/tezgah-task keeps plans under),
+    else the directory the CLI was called in - a decision recorded under a tree
+    git does not know is still a decision."""
+    return tt.main_repo(path) or os.path.realpath(path)
 
 
 def decision_record(text):

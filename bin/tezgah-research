@@ -131,7 +131,9 @@ import tezgah_product as tp_product  # noqa: E402
 import tezgah_research as tr  # noqa: E402
 
 
-def repo_root(path):
+def checkout_root(path):
+    """The checkout `path` is in: git's top level, the project around it inside
+    `.tezgah`, else the directory itself."""
     try:
         out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True)
@@ -140,6 +142,14 @@ def repo_root(path):
     except OSError:
         pass
     return os.path.realpath(path)
+
+
+def repo_root(path):
+    """The checkout whose `.tezgah` holds the lines: the main checkout, from a
+    linked worktree too, as for bin/tezgah-task - a line written into a
+    worktree's own `.tezgah` went with `git worktree remove` (plan 097)."""
+    top = checkout_root(path)
+    return tp.linked_main(top) or top
 
 
 def misuse(message):
@@ -352,7 +362,7 @@ def cmd_check(args):
     report = {}
     if known:
         report = tr.check(repo, rest[0] if rest else None, strict=strict,
-                          all_lines=all_lines)
+                          all_lines=all_lines, code=checkout_root(os.getcwd()))
         for slug, row in report.items():
             for err in row["errors"]:
                 problems += 1
@@ -1001,7 +1011,8 @@ def cmd_import(args):
 def cmd_all(args):
     if args:
         return misuse("--all takes no arguments")
-    for row in tr.across(repo_root(os.getcwd())):
+    # every checkout's own `.tezgah`, marking the one this runs in
+    for row in tr.across(checkout_root(os.getcwd())):
         print(row)
     return 0
 

@@ -168,13 +168,22 @@ The cache dir is resolved once per process and falls back to a temp dir on a
 sandboxed host, so one session's state never splits across two files
 (`hooks/tezgah_paths.py::cache_dir`). Per-repo state — `.tezgah/plans/open/`,
 `.tezgah/lessons.md`, `.tezgah/research/` — lives in the repository, and the
-checkout is the source from which the plugin copy is made. Each checkout of a
-repository keeps its own: a linked `git worktree` gets its own `.tezgah`, locks
-and private git repository, never a share of the main checkout's. It sees the
-others read-only - the session-start line above and `tezgah-research --all` -
-through `worktrees`, which lists `<main>/.git/worktrees/*/gitdir` with no git
-fork and skips an entry whose checkout is gone, as git's own `prunable` does
-(`hooks/tezgah_paths.py::worktrees`).
+checkout is the source from which the plugin copy is made. A repository keeps
+one workspace, in its main checkout. A session or CLI in a linked `git worktree`
+reads and writes the main checkout's `.tezgah`: the session context
+(`hooks/tezgah_context.py::context_for`), `tezgah-task`
+(`bin/tezgah-task::main_root`), the slice journal
+(`hooks/tezgah_task.py::slice_dir`), `tezgah-research`
+(`bin/tezgah-research::repo_root`), `tezgah-decisions` and the taste CLI. A
+worktree's own `.tezgah` went with `git worktree remove`, and so did everything
+a session wrote there. `tezgah-research check` still resolves a line's citations
+against the checkout it runs in, where the branch's code is. The session-start
+line names every checkout through `worktrees`, which lists
+`<main>/.git/worktrees/*/gitdir` with no git fork and skips an entry whose
+checkout is gone, as git's own `prunable` does (`hooks/tezgah_paths.py::worktrees`).
+It also names a worktree whose own `.tezgah` still holds data from before, with
+the `tezgah-research import` that moves its lines (`hooks/tezgah_context.py::sibling_line`).
+A second clone is another repository, with a workspace of its own.
 A path inside `.tezgah` belongs to the repository around it, never to `.tezgah`.
 The workspace keeps its own `.git`, so git's top-level answers `.tezgah` there.
 Every resolver passes that answer through `hooks/tezgah_paths.py::project_top`.
