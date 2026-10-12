@@ -2337,7 +2337,9 @@ class TaskGate(TempHome):
 
     def test_a_path_outside_the_repo_root_refuses_however_wide_the_allowlist(self):
         # `**` is a pattern inside the repo, not a licence to leave it: both a
-        # traversal and a plain path above the root are refused
+        # traversal and a plain path above the root are refused. HOME is made a
+        # checkout: a path under none is no plan's at all (plan 094)
+        os.makedirs(os.path.join(self.home, ".git"))
         self.plan(phase="implementation", allowed=("**",))
         self.assertIsNone(self.write_path(os.path.join(self.repo, "any.py")))
         for outside in (os.path.join(self.home, "outside.py"),
@@ -2349,6 +2351,8 @@ class TaskGate(TempHome):
     def test_a_home_tilde_path_is_not_a_repo_path(self):
         # `~/outside.py` read relative to the working directory was the repo
         # path `~/outside.py`, which `**` matched, while the host wrote to HOME
+        # (a checkout here, so the path is some repository's)
+        os.makedirs(os.path.join(self.home, ".git"))
         self.plan(phase="implementation", allowed=("**",))
         self.assertIsNotNone(self.write_path("~/outside.py"))
 
