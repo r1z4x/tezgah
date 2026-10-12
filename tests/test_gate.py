@@ -2135,17 +2135,23 @@ class TaskGate(TempHome):
             reason = self.decide(inp, tool=tool)
             self.assertIn("Task gate", reason or "", (phase, inp))
 
-    def test_a_relative_target_resolves_where_the_line_moved(self):
-        # Review F1: `../../README.md` read against the session cwd is HOME,
-        # under no checkout; after `cd hooks` it is the configured root. A move
-        # the gate cannot follow (a subshell, `bash -c`, a second target behind
-        # a `cd`) exempts nothing.
+    def test_a_line_that_moves_directory_exempts_nothing(self):
+        # Review F1 and R2-1: `../../README.md` read against the session cwd is
+        # HOME, under no checkout; after `cd hooks` it is the configured root.
+        # A `cd` spelled any way (`builtin`, `command`, an assignment before it)
+        # or read back through `$PWD` moves where the target lands, so a line
+        # that moves the directory at all is held.
         os.makedirs(os.path.join(self.repo, "hooks"))
+        self.envv = self.env(extra={"PWD": self.repo})
         for command in ("cd hooks && echo x > ../../README.md",
                         "pushd hooks && echo x > ../../README.md",
                         "cd hooks && D=../..; echo x > $D/README.md",
                         "(cd hooks; echo x > ../../README.md)",
-                        "cd hooks && echo x > ../../a && cd x && echo x > ../../../b"):
+                        "cd hooks && echo x > ../../a && cd x && echo x > ../../../b",
+                        "builtin cd hooks && echo x > ../../README.md",
+                        "command cd hooks && echo x > ../../README.md",
+                        "X=1 cd hooks && echo x > ../../README.md",
+                        "cd hooks && echo x > $PWD/../../README.md"):
             self.holds({"command": command})
 
     def test_a_link_made_on_the_line_or_before_is_held(self):
@@ -2168,9 +2174,12 @@ class TaskGate(TempHome):
         # steer every later session, so no repository-free exemption reaches them
         for rel in (".claude/agents/x.md", ".claude/CLAUDE.md",
                     ".omp/agent/skills/x/SKILL.md", ".codex/AGENTS.md",
-                    ".cursor/rules/x.mdc", ".zshrc"):
+                    ".cursor/rules/x.mdc", ".zshrc", ".zshenv"):
             path = os.path.join(self.home, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            self.holds({"command": "echo x > ~/%s" % rel})
+        # R2-2: a case-insensitive filesystem opens `~/.ZSHRC` as `~/.zshrc`
+        for rel in (".ZSHRC", ".Claude/agents/x.md"):
             self.holds({"command": "echo x > ~/%s" % rel})
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):

@@ -1364,20 +1364,27 @@ class Cli(TempHome):
         # read end is closed before the CLI starts, so its first write meets
         # EPIPE on every run - a `head` racing the output would not.
         # A closed pipe costs the output, never the exit: a status that finds a
-        # problem still exits 1 (review F5).
+        # problem still exits 1 (review F5), and unbuffered, where every print
+        # meets the pipe inside main, main still finishes its work (R2-3).
         cases = ((("status",), 0, "discovery"), (("stop",), 0, "discovery"),
                  (("status",), 1, "implement"))
-        for args, want, phase in cases:
-            self.plan("001-first.md", phase=phase, allowed=["tests/**"])
-            read_end, write_end = os.pipe()
-            os.close(read_end)
-            try:
-                proc = subprocess.run([CLI] + list(args), env=self.env(), cwd=self.repo,
-                                      stdout=write_end, stderr=subprocess.PIPE, text=True)
-            finally:
-                os.close(write_end)
-            self.assertEqual(proc.returncode, want, (args, phase, proc.stderr))
-            self.assertEqual(proc.stderr, "", args)
+        for unbuffered in ({}, {"PYTHONUNBUFFERED": "1"}):
+            for args, want, phase in cases:
+                self.plan("001-first.md", phase=phase, allowed=["tests/**"])
+                read_end, write_end = os.pipe()
+                os.close(read_end)
+                try:
+                    proc = subprocess.run([CLI] + list(args), env=self.env(extra=unbuffered),
+                                          cwd=self.repo, stdout=write_end,
+                                          stderr=subprocess.PIPE, text=True)
+                finally:
+                    os.close(write_end)
+                where = (args, phase, unbuffered, proc.stderr)
+                self.assertEqual(proc.returncode, want, where)
+                self.assertEqual(proc.stderr, "", where)
+                if args == ("stop",):
+                    self.assertNotIn("phase: discovery",
+                                     read(os.path.join(self.open, "001-first.md")), where)
 
     def test_status_reports_a_phase_no_reader_accepts(self):
         self.plan("001-first.md", phase="implement")
