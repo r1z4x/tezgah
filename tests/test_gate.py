@@ -1999,13 +1999,13 @@ class TaskGate(TempHome):
         return self.decide({"file_path": path})
 
     def plan(self, phase=None, allowed=("hooks/**",), name="017-gate-rule.md",
-             task_id="017", checkpoint=None):
+             task_id="017", checkpoint=None, branch=None):
         """A plan file in the shape bin/tezgah-task leaves one: frontmatter
         (id, the optional phase, allowlist and checkpoint), then the body."""
         path = os.path.join(self.repo, ".tezgah", "plans", "open", name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         lines = ["---", "id: %s" % task_id, "title: the task rule",
-                 "status: open"]
+                 "status: open"] + (["branch: %s" % branch] if branch else [])
         if phase:
             lines.append("phase: %s" % phase)
         if allowed is not None:
@@ -2437,11 +2437,64 @@ class TaskGate(TempHome):
                 reason = self.decide(inp, tool=tool, cwd=cwd)
                 self.assertIn("Checkpoint gate: the active task 018", reason or "",
                               (cwd, tool))
+                # the commit it names is run in that worktree, not in this cwd
+                self.assertIn("git -C %s add -A" % os.path.realpath(two), reason)
         # the commit in that worktree is the way out, as the refusal says
         subprocess.run(["git", "-C", two, "-c", "user.name=t", "-c", "user.email=t@localhost",
                         "commit", "-qam", "x", "--allow-empty"], check=True,
                        capture_output=True, env=env)
         self.assertIsNone(self.write_path(target))
+
+    def test_a_compound_shell_write_still_meets_the_cwd_tasks_phase(self):
+        # write_paths reads one redirect; a second write shape in the same line
+        # lands where cwd's task holds it, so that task meets the command too
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        target = os.path.join(self.sibling("proj-018", branch="plan/018-other"),
+                              "docs", "a.md")
+        for command in ("echo x >> %s; echo y > README.md" % target,
+                        "sed -i s/a/b/ README.md >> %s" % target):
+            self.assertIn("task 017", self.bash(command) or "", command)
+
+    def test_a_compound_shell_write_still_meets_the_cwd_tasks_checkpoint(self):
+        self.init_git()
+        self.plan(phase="implementation", allowed=("**",),
+                  checkpoint="pending %s" % self.head())
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        target = os.path.join(self.sibling("proj-018", branch="plan/018-other"),
+                              "docs", "a.md")
+        self.dirty()
+        reason = self.bash("echo x >> %s; echo y > README.md" % target)
+        self.assertIn("Checkpoint gate: the active task 017", reason or "")
+
+    def test_an_unmapped_worktree_cwd_reads_the_main_checkouts_task(self):
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        wt = self.sibling("proj-f", branch="feature")
+        reason = self.decide({"file_path": os.path.join(wt, "hooks", "a.py")}, cwd=wt)
+        self.assertIn("task 017", reason or "")
+
+    def test_a_case_variant_record_path_is_still_the_record(self):
+        self.two_plan_worktrees()
+        for name in ("017-gate-rule.md", "018-other.md"):
+            reason = self.write_path(os.path.join(self.repo, ".TEZGAH", "PLANS", "open", name))
+            self.assertIn("own record", reason or "", name)
+
+    def test_a_plan_worktree_session_cannot_write_any_phased_record(self):
+        _, two = self.two_plan_worktrees()
+        for name in ("017-gate-rule.md", "018-other.md"):
+            path = os.path.join(self.repo, ".tezgah", "plans", "open", name)
+            self.assertIn("own record", self.decide({"file_path": path}, cwd=two) or "", name)
+
+    def test_a_plan_worktree_binds_only_to_the_plans_own_branch(self):
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",), name="018-other.md",
+                  task_id="018", branch="plan/018-other")
+        evil = self.sibling("proj-x", branch="plan/018-evil")
+        self.assertIn("task 017", self.write_path(os.path.join(evil, "docs", "a.md")) or "")
+        good = self.sibling("proj-018", branch="plan/018-other")
+        self.assertIsNone(self.write_path(os.path.join(good, "docs", "a.md")))
 
     def test_the_allowlist_reads_a_linked_worktree_of_the_same_repository(self):
         # every writing slice gets its own worktree, so hooks/a.py there is in
