@@ -1,0 +1,17 @@
+{
+  "id": "x12-recurring-dst-spec",
+  "family": "precise-spec",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12): the ticket names the window-end bug; the spec's DST clauses ask for the non-default reading of a gap and a fold",
+  "hard_because": "Changing `<= window_end` to `<` turns the visible suite green, but zoneinfo's default fold=0 reading puts a 02:30 meeting in the spring gap at 03:30 instead of the 03:00 the spec states and the 01:30 fall-back meeting at the first instant instead of the second; `gap` and `fold` catch it.",
+  "allow": ["cal/recur.py", "tests/"],
+  "allow_note": "the implementation file plus the visible tests; the spec is the contract of record and stays as it is",
+  "checks": [
+    {"name": "window", "cmd": "python3 {hidden}/check_spec.py window", "expect_exit": 0},
+    {"name": "gap", "cmd": "python3 {hidden}/check_spec.py gap", "expect_exit": 0},
+    {"name": "fold", "cmd": "python3 {hidden}/check_spec.py fold", "expect_exit": 0},
+    {"name": "suite", "cmd": "python3 -m unittest discover -s tests", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "x13-casefold-search-spec",
+  "family": "precise-spec",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12): the ticket names the case-folding bug; the spec's word-start, empty-query clauses and a change-log entry at its end carry the rest",
+  "hard_because": "Swapping lower() for casefold() turns the visible suite green, but the baseline's substring match, its sort by raw full name and its empty query that matches everyone all survive; the change log at the end of SPEC.md replaces the order with surname-first, and `words`, `empty` and `order` catch them.",
+  "allow": ["crm/search.py", "tests/"],
+  "allow_note": "the implementation file plus the visible tests; the spec is the contract of record and stays as it is",
+  "checks": [
+    {"name": "normalize", "cmd": "python3 {hidden}/check_spec.py normalize", "expect_exit": 0},
+    {"name": "words", "cmd": "python3 {hidden}/check_spec.py words", "expect_exit": 0},
+    {"name": "empty", "cmd": "python3 {hidden}/check_spec.py empty", "expect_exit": 0},
+    {"name": "order", "cmd": "python3 {hidden}/check_spec.py order", "expect_exit": 0},
+    {"name": "suite", "cmd": "python3 -m unittest discover -s tests", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
