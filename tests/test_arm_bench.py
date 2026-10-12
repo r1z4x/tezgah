@@ -657,5 +657,117 @@ class SweAdapter(unittest.TestCase):
         self.assertEqual(self.swe.patch_classes(conftest), ["test_or_config_edit"])
 
 
+class DelegateArm(unittest.TestCase):
+    """make_variants.py builds `omp+tezgah-delegate` only when named, pins only
+    the subagent overrides, and a refused input leaves no arm directory. The
+    script runs as shipped against a scratch HOME (the installed dir) whose
+    `hooks` is this checkout's, so neither ~/.omp/agent nor the lab's arms/ is
+    touched."""
+
+    CONFIG = ("other:\n  nested:\n    keep: \"untouched\"\n"
+              "task:\n  isolation: none\n  agentModelOverrides:\n"
+              "    task: anthropic/claude-opus-5-5:medium\n"
+              "    tezgah-standard: \"anthropic/claude-opus-5-5:medium\"\n"
+              "tail: 1\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        installed = self.home / ".omp" / "agent"
+        installed.mkdir(parents=True)
+        (installed / "RULES.md").write_text(
+            "\n\n".join(lead + "\n\nbody" for lead in
+                        ("**Turkish, BLUF.**", "**Ponytail (minimal code).**",
+                         "**Deliver the whole ask; never the shortcut.**",
+                         "**Integrity: evidence, or a named blocker.**")) + "\n")
+        (installed / "config.yml").write_text(self.CONFIG)
+        os.symlink(os.path.join(REPO, "hooks"), self.home / "hooks")
+        self.lab = self.home / "benchmarks" / "arm-bench"
+        self.lab.mkdir(parents=True)
+        (self.lab / "make_variants.py").write_text(Path(LAB, "make_variants.py").read_text())
+        self.arms = self.lab / "arms"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def generate(self, *names, model=None):
+        env = {**os.environ, "HOME": str(self.home)}
+        env.pop("ARMBENCH_SUBAGENT_MODEL", None)
+        if model is not None:
+            env["ARMBENCH_SUBAGENT_MODEL"] = model
+        return subprocess.run([sys.executable, str(self.lab / "make_variants.py"), *names],
+                              cwd=self.lab, env=env, capture_output=True, text=True)
+
+    def test_a_bare_run_builds_the_clause_arms_and_no_delegate_arm(self):
+        proc = self.generate()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted(p.name for p in self.arms.iterdir()),
+                         ["orx-no-integrity", "orx-no-ponytail", "orx-no-reporting",
+                          "orx-no-whole-ask"])
+
+    def test_the_named_arm_pins_every_override_and_nothing_else(self):
+        proc = self.generate("omp+tezgah-delegate", model="deepseek/m:low")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arm = self.arms / "omp+tezgah-delegate"
+        self.assertEqual(sorted(p.name for p in self.arms.iterdir()), ["omp+tezgah-delegate"])
+        self.assertEqual((arm / "config.yml").read_text(), self.CONFIG
+                         .replace("anthropic/claude-opus-5-5:medium\n", '"deepseek/m:low"\n')
+                         .replace('"anthropic/claude-opus-5-5:medium"', '"deepseek/m:low"'))
+        self.assertIn("**Delegate every edit (bench arm).**", (arm / "RULES.md").read_text())
+        self.assertTrue((arm / "agents" / "tezgah-standard.md").is_file())
+        self.assertIn("`ARMBENCH_SUBAGENT_MODEL=deepseek/m:low python3 make_variants.py "
+                      "omp+tezgah-delegate`", (arm / "PROVENANCE.md").read_text())
+
+    def test_the_default_subagent_model_is_direct_deepseek(self):
+        self.assertEqual(self.generate("omp+tezgah-delegate").returncode, 0)
+        config = (self.arms / "omp+tezgah-delegate" / "config.yml").read_text()
+        self.assertIn('    task: "deepseek/deepseek-v4-flash"\n', config)
+
+    def test_an_unknown_arm_exits_non_zero_and_writes_nothing(self):
+        proc = self.generate("orx-no-ponytail", "omp+tezgah-delgate")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("unknown arm: omp+tezgah-delgate", proc.stderr)
+        self.assertFalse(self.arms.exists())
+
+    def test_a_bad_model_exits_non_zero_and_writes_no_arm(self):
+        for model in ("deepseek/m low", "a\\1", ""):
+            proc = self.generate("orx-no-ponytail", "omp+tezgah-delegate", model=model)
+            self.assertNotEqual(proc.returncode, 0, model)
+            self.assertIn("ARMBENCH_SUBAGENT_MODEL", proc.stderr)
+            self.assertIn(r"[\w./:,-]+", proc.stderr)
+            self.assertFalse(self.arms.exists(), model)
+
+    def test_a_config_without_overrides_writes_no_arm(self):
+        (self.home / ".omp" / "agent" / "config.yml").write_text("task:\n  isolation: none\n")
+        proc = self.generate("omp+tezgah-delegate")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("agentModelOverrides", proc.stderr)
+        self.assertFalse(self.arms.exists())
+
+    def test_the_arm_is_listed_and_unverified_until_a_paid_arming_run(self):
+        arm = bench.arms_by_name()["omp+tezgah-delegate"]
+        self.assertFalse(arm["flag_verified"])
+        self.assertEqual(Path(arm["env"]["PI_CODING_AGENT_DIR"]).name, "omp+tezgah-delegate")
+
+
+class BlockTaskGlob(unittest.TestCase):
+    """block.py expands a task glob over tasks/*/meta.json and refuses one that
+    matches nothing, before any run starts."""
+
+    def test_a_glob_expands_and_a_literal_passes_through(self):
+        import block
+        hits = block.expand(["t0*", "g01"])
+        self.assertIn("t01-discount-rounding", hits)
+        self.assertTrue(all(t.startswith("t0") for t in hits[:-1]))
+        self.assertEqual(hits[-1], "g01")
+
+    def test_a_glob_matching_nothing_exits(self):
+        import block
+        with self.assertRaises(SystemExit) as cm:
+            block.expand(["zz-none*"])
+        self.assertIn("no task matches: zz-none*", str(cm.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()

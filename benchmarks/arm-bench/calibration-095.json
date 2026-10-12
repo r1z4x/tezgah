@@ -1,0 +1,11 @@
+{
+ "arms": ["omp+tezgah-delegate"],
+ "tasks": ["x*"],
+ "repeats": 5,
+ "model": "deepseek/deepseek-v4-flash",
+ "timeout": 900,
+ "parallel": 8,
+ "results": "results/095-calibration/calibration.jsonl",
+ "cap_usd": 5.0,
+ "row_meta": {"plan": "095", "block": "calibration"}
+}
