@@ -255,14 +255,15 @@ def root_for(path):
 
 
 def _toplevel(real):
-    """The nearest directory at or above `real` holding a `.git` entry, else None."""
+    """The nearest directory at or above `real` holding a `.git` entry, else
+    None - the project for a path inside its `.tezgah` (`project_top`)."""
     cur = real
     while not os.path.lexists(os.path.join(cur, ".git")):
         parent = os.path.dirname(cur)
         if parent == cur:
             return None
         cur = parent
-    return cur
+    return project_top(cur)
 
 
 def linked_main(path):
@@ -988,6 +989,26 @@ IDENTITY_KEYS = ("user.name", "user.email")
 def workspace(repo):
     """`<repo>/.tezgah`: every per-project file tezgah keeps lives under it."""
     return os.path.join(repo, WORKSPACE)
+
+
+def project_top(path):
+    """`path`, or the project owning the workspace when the nearest `.git` at or
+    above `path` is a `.tezgah`'s own repository.
+
+    git and the `.git` walk both answer the workspace for a path inside it, and a
+    caller that joins `.tezgah` to that answer or sets the project up there wrote
+    `<x>/.tezgah/.tezgah/plans/README.md`, `.tezgah/.cursor` and `.tezgah/.codegraph`.
+    A repository cloned inside the workspace answers for itself. Every resolver
+    (`_toplevel`, the hooks' and CLIs' `repo_root`) passes its answer through here."""
+    cur = path
+    while not os.path.lexists(os.path.join(cur, ".git")):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return path
+        cur = parent
+    if os.path.basename(cur) == WORKSPACE:
+        return project_top(os.path.dirname(cur))
+    return path
 
 
 # The workspace paths whose text is injected as a standing constraint: each is

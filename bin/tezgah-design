@@ -30,6 +30,10 @@ import os
 import re
 import sys
 
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+from tezgah_paths import project_top  # noqa: E402
+
 # The state set every interactive control and every data view owes: seven per
 # control, eight per data view, thirteen distinct states - `loading` and `error`
 # are the two the halves share, and the shipped lists name them twice rather than
@@ -818,7 +822,7 @@ def _print_json(payload):
 
 
 def derive_cli(opts):
-    root = os.path.abspath(opts.get("repo") or "")
+    root = project_top(os.path.abspath(opts.get("repo") or ""))
     if not os.path.isdir(root):
         raise Usage("--repo must name a directory")
     out = opts.get("out") or os.path.join(root, ".tezgah", "design-contract.md")

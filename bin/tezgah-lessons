@@ -112,7 +112,7 @@ def merged(lines, groups):
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="tezgah-lessons", description=__doc__.split("\n")[0])
-    ap.add_argument("--root", default=os.getcwd())
+    ap.add_argument("--root", default=tc.repo_root(os.getcwd()))
     ap.add_argument("--fixture")
     args = ap.parse_args(argv)
     lines = tezgah_lessons.lines(args.root)

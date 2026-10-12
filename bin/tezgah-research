@@ -136,10 +136,7 @@ def repo_root(path):
         out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True)
         if out.returncode == 0 and out.stdout.strip():
-            top = out.stdout.strip()
-            # inside `.tezgah` git answers with the private repository; the line
-            # belongs to the project around it
-            return os.path.dirname(top) if os.path.basename(top) == tp.WORKSPACE else top
+            return tp.project_top(out.stdout.strip())
     except OSError:
         pass
     return os.path.realpath(path)

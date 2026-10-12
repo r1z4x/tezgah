@@ -62,12 +62,15 @@ def repo_root(cwd, base):
     """The git top-level at or above cwd and under base, else the first path
     component below base. Walks up for a `.git` entry (dir or file: a worktree's
     is a file); no subprocess. Same answer as tezgah_context.repo_root without
-    importing the context module into the gate's hot path."""
+    importing the context module into the gate's hot path; inside `.tezgah` the
+    project around it (`tezgah_paths.project_top`)."""
+    from tezgah_paths import project_top
     cwd = os.path.realpath(cwd)
     inside = os.path.realpath(base) if base else None
     cur = cwd
     while True:
         if os.path.exists(os.path.join(cur, ".git")):
+            cur = project_top(cur)
             if inside and _under(cur, inside):
                 return cur
             break
@@ -1427,12 +1430,10 @@ _ABS_PATH = re.compile(r"(?<![\w.~/-])/[^\s'\"`<>()\[\]{},;|*?]+")
 
 def main_repo(path):
     """The main checkout of the repository holding `path`, else None. A path
-    under a repository's own `.tezgah` - a private git repository of its own -
-    belongs to the repository around it, and a worktree to its main checkout."""
+    under a repository's own `.tezgah` belongs to the repository around it
+    (`_toplevel`), and a worktree to its main checkout."""
     from tezgah_paths import _toplevel
     top = _toplevel(os.path.realpath(path))
-    while top and os.path.basename(top) == ".tezgah":
-        top = _toplevel(os.path.dirname(top))
     return _journal_root(top) if top else None
 
 

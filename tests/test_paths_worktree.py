@@ -16,6 +16,8 @@ sys.path.insert(0, support.HOOKS)
 import tezgah_paths as tp  # noqa: E402
 
 RESEARCH = os.path.join(support.REPO, "bin", "tezgah-research")
+TASK = os.path.join(support.REPO, "bin", "tezgah-task")
+RENDER = os.path.join(support.REPO, "skills", "plan-add", "render_table.py")
 
 
 def git(*args):
@@ -165,6 +167,38 @@ class WorktreeBridge(TempHome):
             self.assertIsNone(tp.linked_main(nested))
             self.assertEqual(tp.worktrees(nested), [nested])
 
+    def test_a_path_in_a_workspace_resolves_to_the_checkout_that_owns_it(self):
+        """Plan 097 item 1: `.tezgah` keeps a git repository of its own, so the
+        nearest `.git` above a path in it is the workspace. Every resolver
+        answers the checkout around it, never `.tezgah` itself, at the top and
+        in a subdirectory - which is what kept `<x>/.tezgah/.tezgah` from
+        being written. A real clone kept inside the workspace stays its own."""
+        import tezgah_task as tt
+        for checkout in (self.main, self.inside):
+            ws = os.path.join(checkout, ".tezgah")
+            git("init", "-q", ws)
+            deep = os.path.join(ws, "plans", "open")
+            os.makedirs(deep)
+            for where in (ws, deep):
+                with self.no_fork:
+                    self.assertEqual(tp._toplevel(where), checkout, where)
+                    self.assertEqual(tp.project_top(where), checkout, where)
+                    self.assertEqual(tt.repo_root(where, self.roots), checkout, where)
+                    self.assertEqual(tt.main_repo(where), self.main, where)
+                    self.assertEqual(tp.worktrees(where)[0], self.main, where)
+        with self.no_fork:
+            self.assertEqual(tp.linked_main(os.path.join(self.inside, ".tezgah")),
+                             self.main)
+        clone = os.path.join(self.main, ".tezgah", "scratch", "clone")
+        os.makedirs(os.path.join(clone, ".git"))
+        with self.no_fork:
+            self.assertEqual(tp._toplevel(clone), clone)
+            self.assertEqual(tp.project_top(clone), clone)
+        # a plain project subdirectory is not a workspace and is left alone
+        sub = os.path.join(self.main, "apps", "web")
+        os.makedirs(sub)
+        self.assertEqual(tp.project_top(sub), sub)
+
     def test_all_still_names_this_checkout_when_its_admin_entry_is_gone(self):
         """F4: a checkout git can no longer list (its admin entry removed, e.g.
         after an `mv`) is still this checkout and still shown."""
@@ -206,6 +240,65 @@ class WorktreeBridge(TempHome):
         beta = [r for r in rows if r.startswith("  beta: ")]
         self.assertEqual(len(beta), 1, rows)
         self.assertTrue(beta[0].startswith("  beta: inner - open: phase inner"), beta)
+
+
+class InsideWorkspace(TempHome):
+    """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -
+    its own git repository - works on the project and never writes a `.tezgah`,
+    `.cursor`, `.opencode` or `.gitignore` inside `.tezgah`. AdSentinel's
+    `.tezgah/.tezgah/plans/README.md` was the empty table `render_table` wrote
+    one minute after a workspace commit; this repository's `.tezgah` held
+    tezgah-managed `.cursor/agents` and the workspace `.gitignore` lines."""
+
+    GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+
+    def git(self, *args):
+        subprocess.run(["git"] + list(args), check=True, capture_output=True,
+                       env=dict(os.environ, **self.GIT))
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo()
+        self.git("init", "-q", self.repo)
+        with open(os.path.join(self.repo, ".gitignore"), "w") as fh:
+            fh.write("/.tezgah/\n")
+        self.git("-C", self.repo, "add", ".gitignore")
+        self.git("-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@localhost",
+                 "commit", "-qm", "init")
+        self.ws = os.path.join(self.repo, ".tezgah")
+        self.git("init", "-q", self.ws)
+        self.open = os.path.join(self.ws, "plans", "open")
+        os.makedirs(self.open)
+        with open(os.path.join(self.open, "001-first.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: first plan\nstatus: open\n---\n## Goal\ng\n")
+        self.wt = os.path.join(self.home, "wt-001")
+        self.git("-C", self.repo, "worktree", "add", "-q", "-b", "plan/001-first", self.wt)
+        self.wt = os.path.realpath(self.wt)
+
+    def strays(self):
+        """Every path tezgah must never create inside a workspace."""
+        return [os.path.join(d, n) for d in (self.ws, os.path.join(self.wt, ".tezgah"))
+                for n in (".tezgah", ".cursor", ".opencode", ".codegraph", ".gitignore")
+                if os.path.lexists(os.path.join(d, n))]
+
+    def test_render_table_writes_the_projects_table_from_every_cwd(self):
+        readme = os.path.join(self.ws, "plans", "README.md")
+        for cwd in (self.ws, self.open, self.wt):
+            if os.path.exists(readme):
+                os.remove(readme)
+            proc = support.run([RENDER], env=self.env(extra={"PYTHONPATH": ""}), cwd=cwd)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self.strays(), [], cwd)
+            with open(readme, encoding="utf-8") as fh:
+                self.assertIn("| 001 | first plan |", fh.read(), cwd)
+
+    def test_the_cli_closes_the_projects_plan_from_inside_the_workspace(self):
+        proc = support.run([TASK, "close", "001", "discarded"], env=self.env(),
+                           cwd=self.open)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.ws, "plans", "done",
+                                                    "001-first.md")))
+        self.assertEqual(self.strays(), [])
 
 
 if __name__ == "__main__":
