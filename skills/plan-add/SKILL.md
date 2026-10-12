@@ -72,9 +72,14 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
 9. Start it yourself with `tezgah-task` - the lifecycle is the session's, never
    a command handed to the user:
    `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery` writes `phase:`
-   into this file and clears the phase from every other open plan, and the gate
-   then allows a write only from `implementation` on and only inside the plan's
-   `allowed_paths:` (`--allow '<glob>' ...` replaces them). Entering
+   into this file and clears the phase from every other open plan - except one
+   whose own `plan/NNN-slug` branch a linked worktree has checked out and whose
+   `allowed_paths:` share no prefix with this plan's: that plan keeps its phase
+   and the two run at once, the gate holding a write in each plan's worktree to
+   that plan's record while the main checkout reads the first phased plan. The
+   gate then allows a write only from `implementation` on and only inside the
+   plan's `allowed_paths:` (`--allow '<glob>' ...` replaces them); `phase`,
+   `allow` and `stop` run inside a plan's worktree act on that plan. Entering
    `implementation` or `verification` with no allowlist is refused unless
    `--any-path` is passed, so keep the plan's scope and never drop it to get
    through. Three more refusals land at the same moment, and you fix them in the
@@ -90,7 +95,9 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    the scope with `tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
    the gate refuses a write to it, because the CLI's checks would be skipped.
    Tick an Acceptance box with `tezgah-task tick NNN <n>` (`--undo` unticks),
-   and rewrite State or Next with `tezgah-task note NNN state|next "<text>"`.
+   rewrite State or Next with `tezgah-task note NNN state|next "<text>"`, and
+   record the spike's answer with `tezgah-task spike NNN "<answer>"`, which
+   writes `spike_recorded:` on the plan, active or not.
    After the merge, `tezgah-task close NNN done` deactivates the plan,
    moves it to done and removes every merged worktree.
 
@@ -133,8 +140,9 @@ after:
 
 `allowed_paths:` is written here, at creation (step 5): the scope the task's
 writes have to stay inside, one glob per `- ` line. `tezgah-task` adds the rest:
-`phase:` - `discovery`, `implementation` or `verification`, at most one open plan
-carrying it - is the activation key the gate reads, set when the session starts
+`phase:` - `discovery`, `implementation` or `verification`, on one open plan, or
+on one plan per worktree when their scopes share no prefix (step 9) - is the
+activation key the gate reads, set when the session starts
 the task itself (step 9); `allowed_from:` records where a scope the CLI replaced came from.
 `tezgah-task phase verification` lists what the plan owes before it is done: its
 acceptance commands run unpiped, and a fresh reviewer (the host's
@@ -160,7 +168,8 @@ return to is what a large refactor has instead of 200 per-file snapshots
 The four `spike:` keys are optional and go together, on a plan that must answer
 one question before it can be built: `spike:` is that question, `spike_box:` the
 time box (minutes, or one focused session), `spike_recorded:` where the answer
-is recorded - empty until it is, which is what refuses `implementation` - and
+is recorded (`tezgah-task spike NNN "<answer>"` writes it) - empty until it is,
+which is what refuses `implementation` - and
 `spike_throwaway:` whether the code is thrown away once it has answered. Nothing
 enforces the throwaway half, because `allowed_paths:` already does: a spike pins
 its scope to a scratch path and is never merged, and the knowledge, not the
