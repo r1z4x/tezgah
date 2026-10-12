@@ -149,10 +149,12 @@ def route_of(changed: list[str], meta: dict) -> str | None:
 
 def copy_tree(src: Path, dst: Path) -> None:
     """Copy a fixture, leaving out caches and bytecode: a stale `.pyc` carries
-    the authoring path and old names into every run (plan 095 review)."""
+    the authoring path and old names into every run (plan 095 review). `.git`
+    still copies: an empty fixture-root `.git` file is load-bearing for the
+    gate tasks (s01-s04, u02, u03 `arming_note`)."""
     for path in src.rglob("*"):
         rel = path.relative_to(src)
-        if SKIP_DIRS.intersection(rel.parts) or path.suffix in SKIP_SUFFIXES:
+        if (SKIP_DIRS - {".git"}).intersection(rel.parts) or path.suffix in SKIP_SUFFIXES:
             continue
         target = dst / rel
         if path.is_dir():

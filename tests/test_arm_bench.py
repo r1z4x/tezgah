@@ -780,9 +780,10 @@ class DelegateArm(unittest.TestCase):
             (src / "pkg" / "mod.py").write_text("X = 1\n")
             (src / "pkg" / "__pycache__" / "mod.cpython-310.pyc").write_bytes(b"stale")
             (src / "pkg" / "old.pyc").write_bytes(b"stale")
+            (src / ".git").write_text("")
             bench.copy_tree(src, dst)
             self.assertEqual(sorted(p.relative_to(dst).as_posix() for p in dst.rglob("*")
-                                    if p.is_file()), ["pkg/mod.py"])
+                                    if p.is_file()), [".git", "pkg/mod.py"])
 
 
 class BlockTaskGlob(unittest.TestCase):
