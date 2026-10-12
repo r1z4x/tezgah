@@ -252,15 +252,25 @@ def _worker_body(tier):
             scope = ("If the work needs a judgement above this tier - a design choice,\n"
                      "a stored-data or ordering invariant, security-sensitive code, or\n"
                      "a failure whose cause you cannot find - stop editing and answer\n"
-                     "`ESCALATE: <why>`; the router restarts it on tezgah-frontier.")
+                     "`ESCALATE: <why>`.")
         return ("You are tezgah-%s, a worker on the %s model tier. Do exactly the\n"
                 "brief: stay inside the files it names, run the checks it names, and\n"
                 "report what changed and what each check printed, verbatim. Report\n"
                 "progress, but never redefine the work. Never widen or narrow the brief's\n"
                 "scope, budget or question. If the brief cannot be met as written, say\n"
                 "so and stop rather than answering a different question.\n%s\n"
-                "Never spawn subagents." % (tier, tier, scope))
+                "Never spawn subagents.\n%s" % (tier, tier, scope, WORKER_OUTPUT))
     return body
+
+
+# The report a consumer reads: the orchestrator re-briefs a report missing one
+# of these fields (_orch_body), so only a role with a reader gets them. One
+# text on every host, since a worker body ignores its host.
+WORKER_OUTPUT = ("Output to orchestrator, every field, `none` when empty:\n"
+                 "- changed: the files you changed\n"
+                 "- commit: the sha\n"
+                 "- checks: each command, its exit code and its verbatim output tail\n"
+                 "- escalate: the `ESCALATE:` reason")
 
 
 # The specialists beside the tier workers: name -> (what it does, the skills it
@@ -282,9 +292,10 @@ SPECIALISTS = {
         "import the changed modules. Keep each check last on its line with its\n"
         "output in a file, then read the file in a separate call: never pipe a\n"
         "check into tail or grep, never `|| true`, never `--no-verify`, never a\n"
-        "new skip. Set the shell timeout above 300 s for a long run. Report each\n"
-        "check as passed or failed with its counts and the exact failure text.\n"
-        "Never edit source or test files; a fix belongs to the caller."),
+        "new skip. Set the shell timeout above 300 s for a long run. Never edit\n"
+        "source or test files; a fix belongs to the caller.\n"
+        "Output to orchestrator, per check: its command, the pass/fail/skip\n"
+        "counts and the first failure verbatim (`none` when it passed)."),
     "tezgah-docs": (
         "Writes and repairs docs pages and their `path:line` / `path::symbol` "
         "citations after a code change, under the repo's own docs checks.",
@@ -449,8 +460,11 @@ def _orch_body(names):
         "codegraph tools; a second opinion (`consult`) stays with the main\n"
         "thread. Other work goes to the tier worker\n"
         "`tezgah-route \"<brief>\"` names (tezgah-cheap, tezgah-standard,\n"
-        "tezgah-frontier); an ESCALATE answer is restarted on tezgah-frontier with\n"
-        "the same brief. Never delegate a task a specialist is not\n"
+        "tezgah-frontier). A report missing an `Output to orchestrator` field,\n"
+        "or an ESCALATE, gets one narrower re-brief of the same role naming the\n"
+        "missing field or the escalated judgement; only a second miss is\n"
+        "restarted on tezgah-frontier with the original brief, never continued.\n"
+        "Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
         "returned claim against the code before acting." % (listed, say()["blocker_tokens"]))
 
