@@ -1,0 +1,26 @@
+{
+  "id": "x08-cents-every-conversion",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "source": "new in plan 095 (2026-10-12): six sites turn a float into cents, each spelled differently - int(x * 100), int(round(x, 2) * 100), int(x*100) with no spaces, math.floor(100 * x), round(x * 100) (half-even, so it looks rounded), and a %d format that truncates - and the visible suite covers only the invoice line",
+  "hard_because": "Fixing the `int(... * 100)` sites a grep finds (invoice, tax, shipping) turns the suite green; check_cents also runs refund_cents (math.floor(100 * x)), deposit_cents (round, half-even on 62.5) and receipt_line (a truncating %d) on values where they land a cent off.",
+  "allow": [
+    "billing/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent billing/; tests/ is frozen",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "cents",
+      "cmd": "python3 {hidden}/check_cents.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

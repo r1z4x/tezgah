@@ -1,0 +1,26 @@
+{
+  "id": "x06-readonly-every-command",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "source": "new in plan 095 (2026-10-12): the shell reaches its commands two ways - getattr on a string-built `do_<verb>` name (with `clear-all` mapped to do_clear_all) and a plugins.HANDLERS dict - and the red test names only `add`",
+  "hard_because": "The plausible fix guards the do_* methods in notes/commands.py (or Store.save, which leaves the in-memory notes changed) and goes green; check_readonly runs every verb the shell accepts, including the `tag` and `import` handlers registered in notes/plugins.py, and fails on those.",
+  "allow": [
+    "notes/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent notes/; tests/ is frozen by README.md",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "readonly",
+      "cmd": "python3 {hidden}/check_readonly.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

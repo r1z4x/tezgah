@@ -1,0 +1,27 @@
+{
+  "id": "x07-rename-setting-everywhere",
+  "family": "exhaustive-enumeration",
+  "prompt": "prompt.md",
+  "source": "new in plan 095 (2026-10-12): one setting, four spellings (snake case in Python, dashes in INI keys and the argparse flag, upper case in the environment variable the code builds from the name), and two INI files of which only defaults.ini is on the visible suite's path",
+  "hard_because": "Replacing `max_retries` and fixing config/defaults.ini turns the suite green, but the `--max-retries` flag, `max-retries` in config/example.ini and FETCHER_MAX_RETRIES in README.md survive; check_rename drives --retry-limit and the example config through the CLI and scans for every spelling.",
+  "allow": [
+    "fetcher/",
+    "config/",
+    "README.md"
+  ],
+  "allow_note": "the prompt gives the agent fetcher/, config/ and README.md; tests/ is frozen",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "rename",
+      "cmd": "python3 {hidden}/check_rename.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
