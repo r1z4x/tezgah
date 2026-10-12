@@ -884,6 +884,16 @@ class Cli(TempHome):
         self.assertEqual(rec["plan"], "002")
         self.assertEqual(tt.open_slice(self.repo, "Other", brief="do x")["plan"], "001")
 
+    def test_a_slice_tag_reads_the_shared_context_and_survives_a_reopen(self):
+        self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        self.plan("002-second.md", phase="implementation", allowed=["docs/**"])
+        rec = tt.open_slice(self.repo, "Ctx", task="Read the diff.",
+                            brief="Context: plan 002, round 2.\nRead the diff.")
+        self.assertEqual(rec["plan"], "002")
+        again = tt.open_slice(self.repo, "Ctx")
+        self.assertEqual((again["id"], again["attempts"]), (rec["id"], 2))
+        self.assertEqual(again["plan"], "002")
+
     def test_a_scope_another_worktrees_plan_holds_is_refused(self):
         self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
         self.plan("002-second.md", allowed=["docs/**"])
@@ -1027,6 +1037,37 @@ class Cli(TempHome):
         fields = tt.frontmatter(read(done))
         self.assertEqual(fields["status"], "done")
         self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
+
+    def test_close_from_inside_a_landed_worktree_keeps_it(self):
+        # the session's own cwd is never removed under it
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        wt = self.slice("slice-done")
+        proc = support.run([CLI, "close", "001", "discarded"], env=self.env(), cwd=wt)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isdir(wt), proc.stdout)
+
+    def test_verification_names_the_plan_worktrees_diff(self):
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(path, "a") as fh:
+            fh.write("## Acceptance\n" + COMMAND_ITEM)
+        wt = os.path.realpath(self.slice("plan/001-first", commit=False, merge=False))
+        self.git("commit", "-q", "--allow-empty", "-m", "plan work", cwd=wt)
+        out = self.task("start", "001", "--phase", "verification").stdout
+        self.assertIn("`git -C %s diff " % wt, out)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "changes").returncode, 0)
+        out = self.task("status").stdout
+        self.assertIn("`git -C %s diff %s..HEAD`" % (wt, tt.frontmatter(read(path))["reviewed_sha"]),
+                      out)
+
+    def test_status_reads_a_worktree_plans_checkpoint_from_its_tree(self):
+        path = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"],
+                         checkpoint="pending %s" % self.head())
+        wt = os.path.realpath(self.slice("plan/001-first", commit=False, merge=False))
+        with open(os.path.join(wt, "dirty.txt"), "w") as fh:
+            fh.write("x\n")
+        out = self.task("status").stdout
+        self.assertIn("pending on %s" % self.head(), out)
+        self.assertIn(tt.checkpoint_command(path, wt), out)
 
     def test_review_records_the_plan_worktrees_head(self):
         # a plan held by its own worktree is built on that branch, so round 2's

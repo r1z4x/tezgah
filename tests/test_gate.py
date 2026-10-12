@@ -2457,6 +2457,48 @@ class TaskGate(TempHome):
                         "sed -i s/a/b/ README.md >> %s" % target):
             self.assertIn("task 017", self.bash(command) or "", command)
 
+    def test_tee_with_a_second_operand_still_meets_the_cwd_task(self):
+        # write_paths reads tee's first operand; the second lands where the
+        # cwd's task holds it
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        target = os.path.join(two, "docs", "a.md")
+        for command in ("echo y | tee %s README.md" % target,
+                        "echo y | tee -a %s README.md" % target):
+            self.assertIn("task 017", self.bash(command) or "", command)
+        self.assertIsNone(self.bash("echo y | tee -a %s" % target))
+
+    def test_every_redirect_into_a_plan_worktree_is_read_not_counted(self):
+        # two redirects, both into the worktree: no write lands under the cwd's
+        # task, so its reading phase does not refuse the line
+        self.plan(phase="discovery", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        command = "make > %s 2> %s" % (os.path.join(two, "docs", "out.txt"),
+                                       os.path.join(two, "docs", "err.txt"))
+        self.assertIsNone(self.bash(command))
+        # one of the two in the main checkout meets the cwd's task
+        self.assertIn("task 017", self.bash("make > %s 2> err.txt" % os.path.join(
+            two, "docs", "out.txt")) or "")
+
+    def test_a_two_step_edit_cannot_give_a_plan_a_phase(self):
+        # step one spells the key so no phase line reads it, step two renames
+        # it: the plan's text after the edit is what is judged, not new_string
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        other = self.plan(allowed=("docs/**",), name="018-other.md", task_id="018")
+        with open(other) as fh:
+            text = fh.read()
+        step = {"file_path": other, "old_string": "allowed_paths:",
+                "new_string": "xphase: implementation\nallowed_paths:"}
+        self.assertIsNone(self.decide(step, tool="Edit"))
+        with open(other, "w") as fh:
+            fh.write(text.replace(step["old_string"], step["new_string"]))
+        self.assertIsNotNone(self.decide({"file_path": other, "old_string": "xphase",
+                                          "new_string": "phase"}, tool="Edit"))
+
     def test_a_compound_shell_write_still_meets_the_cwd_tasks_checkpoint(self):
         self.init_git()
         self.plan(phase="implementation", allowed=("**",),
