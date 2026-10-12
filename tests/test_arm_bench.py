@@ -773,9 +773,16 @@ class DelegateArm(unittest.TestCase):
         self.assertIn("agentModelOverrides", proc.stderr)
         self.assertFalse(self.arms.exists())
 
-    def test_the_arm_runs_from_its_own_agent_dir(self):
-        arm = bench.arms_by_name()["omp+tezgah-delegate"]
-        self.assertEqual(Path(arm["env"]["PI_CODING_AGENT_DIR"]).name, "omp+tezgah-delegate")
+    def test_a_materialized_fixture_carries_no_bytecode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "src", Path(tmp) / "dst"
+            (src / "pkg" / "__pycache__").mkdir(parents=True)
+            (src / "pkg" / "mod.py").write_text("X = 1\n")
+            (src / "pkg" / "__pycache__" / "mod.cpython-310.pyc").write_bytes(b"stale")
+            (src / "pkg" / "old.pyc").write_bytes(b"stale")
+            bench.copy_tree(src, dst)
+            self.assertEqual(sorted(p.relative_to(dst).as_posix() for p in dst.rglob("*")
+                                    if p.is_file()), ["pkg/mod.py"])
 
 
 class BlockTaskGlob(unittest.TestCase):

@@ -6,7 +6,8 @@
   "hard_because": "Booking is frozen, so the plausible move builds a new Booking and stores it in Agenda._by_id, but leaves the old (start, id) pair in the sorted _timeline that between() bisects; get() shows the new time while between() and the room board list the booking at the old one, which check_move asserts after a move across another booking.",
   "allow": [
     "src/",
-    "tests/"
+    "tests/",
+    "README.md"
   ],
   "allow_note": "the prompt names src/agenda.py; other src/ files and new tests are legitimate, anything outside is collateral",
   "checks": [

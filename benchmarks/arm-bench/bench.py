@@ -148,8 +148,13 @@ def route_of(changed: list[str], meta: dict) -> str | None:
 
 
 def copy_tree(src: Path, dst: Path) -> None:
+    """Copy a fixture, leaving out caches and bytecode: a stale `.pyc` carries
+    the authoring path and old names into every run (plan 095 review)."""
     for path in src.rglob("*"):
-        target = dst / path.relative_to(src)
+        rel = path.relative_to(src)
+        if SKIP_DIRS.intersection(rel.parts) or path.suffix in SKIP_SUFFIXES:
+            continue
+        target = dst / rel
         if path.is_dir():
             target.mkdir(parents=True, exist_ok=True)
         else:

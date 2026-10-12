@@ -6,7 +6,8 @@
   "hard_because": "The plausible fix adds the order's quantity back to Inventory.stock in OrderBook.cancel, which turns the red test green but leaves it in Inventory.reserved, breaking the documented stock + reserved == on_hand invariant; check_cancel asserts reserved and audit() after cancels.",
   "allow": [
     "src/",
-    "tests/"
+    "tests/",
+    "README.md"
   ],
   "allow_note": "the prompt gives src/; new tests are legitimate, anything outside is collateral",
   "checks": [

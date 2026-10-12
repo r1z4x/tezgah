@@ -73,9 +73,10 @@ proof, and the reader's end of it: `report` prints no pass rate for a cell whose
 every row came back without a session (0, against -1 for a session that could not
 be resolved), and `fold_ledgers.py` names those cells from the same function.
 Both read the session's ledger through the SQLite store the hooks write
-(`tezgah_store.evidence_rows`); rows recorded before plan 095 counted the JSONL
-file alone, so they carry `session_rows: 0` and `stop_classes: {}` whether or not
-the arm was armed.
+(`tezgah_store.evidence_rows`). Rows recorded before commit 9a22c49 counted the
+JSONL file alone, so they carry `session_rows: 0` and `stop_classes: {}` whether
+or not the arm was armed. The plan 095 arming and calibration rows were
+recomputed once with the fixed reader (each carries `"recomputed": "9a22c49"`).
 The four `orx-no-*` variant arms are deployed as the harness-carrying arms their
 `harness: tezgah-minus` label claims: `make_variants.py` copies the installed
 agent dir into each arm, drops its per-run state and rewrites its ablated
@@ -408,8 +409,8 @@ python3 analyze.py 'results/095-calibration/*.jsonl'
 other line, and `PROVENANCE.md` records the command that built the arm. An
 unknown arm name, a bad model value or a config without that block exits
 non-zero before any arm directory is written. One paid arming run on
-2026-10-12 proved the arm (x02 r1: pass, `session_rows` 78, one task call to
-`tezgah-standard`), so it is `flag_verified: true`. `calibration-095.json` runs
+2026-10-12 proved the arm (x02 r1: pass, `session_rows` 78 after the 9a22c49
+recompute, one task call to `tezgah-standard`), so it is `flag_verified: true`. `calibration-095.json` runs
 every `x*` task k=5 on that arm, 8 in parallel, under a USD 5.00 cap, into one
 results file. A `tasks` glob that matches nothing stops the block before it
 starts.
@@ -430,10 +431,14 @@ with `deepseek/deepseek-v4-flash`, k=5, 1887 s wall:
 No task lands in the 0.3-0.7 band plan 095 asked for. 97 of 100 runs spawned a
 worker, no run timed out, and no session transcript reads `hidden/` or `gold/`.
 The Stop rule refused a reply for `no verify_ok` in 74 runs, so most runs
-re-checked before they ended. The cost was $0.93 at list price; the DeepSeek
-balance fell $1.70 over the same block. The tasks stay as a regression corpus.
-A role-text search needs real-repository tasks (the SWE-Bench Pro split below)
-or a weaker executor.
+re-checked before they ended. One run (x01 r4) tried a neutered command, and the
+gate refused it. Two conditions differ from a clean clone and are fixed since.
+First, stale fixture `__pycache__` files reached every run dir; `copy_tree` now
+skips them. Second, x01, x02, x03 and x05 did not allow `README.md`, which x05's
+one failure edited; they allow it now. The cost was $0.93 at list price. The
+DeepSeek balance fell $1.70 over the same block. The tasks stay as a regression
+corpus. A role-text search needs real-repository tasks (the SWE-Bench Pro split
+below) or a weaker executor.
 
 ## SWE-Bench Pro split (idea 190)
 

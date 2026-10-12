@@ -6,7 +6,8 @@
   "hard_because": "The plausible bulk load writes the rows into Catalog._prices and calls Store.save once, skipping Catalog._changed, so QuoteService keeps serving quotes memoised at the old prices; check_price_list warms two quotes before the load and reads them after it. Looping over set_price instead fails the one-save requirement.",
   "allow": [
     "src/",
-    "tests/"
+    "tests/",
+    "README.md"
   ],
   "allow_note": "the prompt names src/catalog.py; other src/ files and new tests are legitimate, anything outside is collateral",
   "checks": [

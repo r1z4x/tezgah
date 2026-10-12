@@ -58,7 +58,7 @@ def rate():
         shutil.copytree("billing", Path(tmp) / "billing",
                         ignore=shutil.ignore_patterns("__pycache__"))
         moved = Path(tmp) / "billing" / "config.py"
-        text, n = re.subn(r"(?m)^TAX_RATE_PCT\s*=\s*20\b", "TAX_RATE_PCT = 10",
+        text, n = re.subn(r"(?m)^TAX_RATE_PCT\s*(?::[^=\n]+)?=\s*20\b", "TAX_RATE_PCT = 10",
                           moved.read_text(encoding="utf-8"))
         if n != 1:
             failures.append("billing/config.py does not define TAX_RATE_PCT = 20")

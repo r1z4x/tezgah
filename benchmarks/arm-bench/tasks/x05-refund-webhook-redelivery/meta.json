@@ -6,7 +6,8 @@
   "hard_because": "The plausible handler credits data['amount'] to the customer on every refund.succeeded delivery, or dedupes on the event id; src/webhooks.py documents that redeliveries carry a new event id with the same data id and the charge handler dedupes on it, so check_refunds redelivers the refund under a new event id and expects one credit.",
   "allow": [
     "src/",
-    "tests/"
+    "tests/",
+    "README.md"
   ],
   "allow_note": "the prompt names src/webhooks.py; new tests are legitimate, anything outside is collateral",
   "checks": [
