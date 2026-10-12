@@ -231,18 +231,22 @@ const SEGMENT = /\|\||&&|[;&\n]/g
 // Plan 096, as hooks/tezgah_gate reads it (SECRET_PREFIX, SECRET_RUNNER, ...,
 // _secret_runner): a token held only by a program's leading `NAME=value` words
 // is in that program's env, so its redirected output carries no key - but only
-// for an allowlisted program: a script runner given a script file, or a program
-// invoked by a path outside the system directories. Any other program holds.
+// for a script runner named by itself, given a script file, with no option that
+// runs its own text, stdin or a preload, or traces. Any other program holds.
 const SECRET_PREFIX =
   /^[\s;&|]*(?:env\s+)?(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|()<>'"`\\])*\s+)+/
 // the sinks that carry a program's output and nothing but it (SECRET_OUTPUT)
 const SECRET_OUTPUT = />>?(?![&=])|\|\s*tee\b/g
 const SECRET_RUNNER = /^(?:python[\d.]*|node|bun|deno|bash|sh|zsh)$/
 const SECRET_SCRIPT = /^[^$`\s]+\.(?:py|js|mjs|ts|sh)$/
-const SECRET_INLINE = {python: /^-[A-Za-z]*[cm]/, sh: /^-[A-Za-z]*[cs]/,
-  js: /^(?:-[A-Za-z]*[ep]|--(?:eval|print)(?:=|$))/}
-const SECRET_SYSTEM = /^\/(?:bin|sbin|usr|opt|nix|System|Library|private)\//
+const SECRET_INLINE = {python: /^-[A-Za-z]*[cmi]/,
+  sh: /^(?:-[A-Za-z]*[csxv]|-o$|--(?:verbose|debugger))/,
+  js: /^(?:-[A-Za-z]*[epri]|--(?:eval|print|require|import|loader|experimental-loader|preload|interactive)(?:=|$))/}
+// the line holds (SECRET_ENVIRON, SECRET_STARTUP, SECRET_TRACE, SECRET_FUNCTION)
 const SECRET_ENVIRON = /\/proc\/[^/\s]*\/environ/
+const SECRET_STARTUP =
+  /(?<![\w$])(?:SHELLOPTS|BASHOPTS|BASH_ENV|ENV|PS4|ZDOTDIR|NODE_OPTIONS|PYTHONSTARTUP|PYTHONINSPECT|PERL5OPT|PERL5DB|RUBYOPT|LD_PRELOAD|DYLD_\w*)=/
+const SECRET_TRACE = /(?:^|[\s;&|(])set\s+(?:-[A-Za-z]*[xv]|-o\s+(?:xtrace|verbose))/
 const SECRET_FUNCTION =
   /(?:^|[\s;&|(])(?:function\s+[^\s(){};&|]+|[^\s(){};&|$=]+\s*\(\s*\))/
 const SECRET_UNEXPANDED = /\$[A-Za-z_{(]|`/
@@ -1988,7 +1992,8 @@ function secretCommand(command) {
   const c = String(command || "")
   if (!c || !SECRET_TOKEN.test(c)) return null
   const masked = maskText(c)
-  const relax = !(SECRET_ENVIRON.test(c) || SECRET_FUNCTION.test(masked))
+  const relax = !(SECRET_ENVIRON.test(c) || SECRET_STARTUP.test(c)
+                  || SECRET_FUNCTION.test(masked) || SECRET_TRACE.test(masked))
   let start = 0
   const carried = new Set()
   const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
@@ -2030,16 +2035,13 @@ function firstCommand(text) {
 }
 
 // True when the first program `text` runs, past the wrappers, is a script
-// runner given a script file with no option that runs its own text or stdin,
-// or a program invoked by a path outside the system directories that is not a
-// printer (hooks/tezgah_gate._secret_runner).
+// runner named by itself (a path could be any program) given a script file,
+// with no `-` or inline, stdin, preload, interactive or trace option before it
+// (hooks/tezgah_gate._secret_runner).
 function secretRunner(text) {
   const words = secretPastWrappers(firstCommand(text))
-  if (!words.length || SECRET_UNEXPANDED.test(words[0])) return false
-  const word = words[0], name = basename(word)
-  if (!SECRET_RUNNER.test(name)) {
-    return word.includes("/") && !SECRET_SYSTEM.test(word) && !SECRET_PRINTERS.has(name)
-  }
+  if (!words.length || !SECRET_RUNNER.test(words[0])) return false
+  const name = words[0]
   let args = words.slice(1)
   if (name === "deno") {
     if (args[0] !== "run") return false

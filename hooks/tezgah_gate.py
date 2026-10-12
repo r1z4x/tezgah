@@ -280,18 +280,27 @@ SECRET_PREFIX = re.compile(
 # key in that program's environment stays out of.
 SECRET_OUTPUT = re.compile(r">>?(?![&=])|\|\s*tee\b")
 # The ceiling of that relaxation is an allowlist (`_secret_runner`): a script
-# runner given a script file, with no option that makes it run its own text
-# or stdin, or a program invoked by a path outside the system directories.
-# Every other program may print its environment, so it holds.
+# runner given a script file, with no option that makes it run its own text,
+# stdin or a preload, or trace the commands it runs. Every other program may
+# print its environment, so it holds. The rule cannot read the script itself:
+# an allowlisted script that prints its own environment still writes the key.
 SECRET_RUNNER = re.compile(r"python[\d.]*|node|bun|deno|bash|sh|zsh")
 SECRET_SCRIPT = re.compile(r"[^$`\s]+\.(?:py|js|mjs|ts|sh)")
-SECRET_INLINE = {"python": re.compile(r"-[A-Za-z]*[cm]"),
-                 "sh": re.compile(r"-[A-Za-z]*[cs]"),
-                 "js": re.compile(r"-[A-Za-z]*[ep]|--(?:eval|print)(?:=|$)")}
-SECRET_SYSTEM = re.compile(r"/(?:bin|sbin|usr|opt|nix|System|Library|private)/")
-# A line that reads the environment from /proc, or defines a function that can
-# shadow the program, gets no relaxation.
+SECRET_INLINE = {"python": re.compile(r"-[A-Za-z]*[cmi]"),
+                 "sh": re.compile(r"-[A-Za-z]*[csxv]|-o$|--(?:verbose|debugger)"),
+                 "js": re.compile(r"-[A-Za-z]*[epri]|--(?:eval|print|require|"
+                                  r"import|loader|experimental-loader|preload|"
+                                  r"interactive)(?:=|$)")}
+# A line that reads the environment from /proc, sets a variable an interpreter
+# reads at startup or a shell trace, turns the shell's own trace on, or defines
+# a function that can shadow the program, gets no relaxation.
 SECRET_ENVIRON = re.compile(r"/proc/[^/\s]*/environ")
+SECRET_STARTUP = re.compile(
+    r"(?<![\w$])(?:SHELLOPTS|BASHOPTS|BASH_ENV|ENV|PS4|ZDOTDIR|NODE_OPTIONS|"
+    r"PYTHONSTARTUP|PYTHONINSPECT|PERL5OPT|PERL5DB|RUBYOPT|LD_PRELOAD|DYLD_\w*)=",
+    re.ASCII)
+SECRET_TRACE = re.compile(
+    r"(?:^|[\s;&|(])set\s+(?:-[A-Za-z]*[xv]|-o\s+(?:xtrace|verbose))")
 SECRET_FUNCTION = re.compile(
     r"(?:^|[\s;&|(])(?:function\s+[^\s(){};&|]+|[^\s(){};&|$=]+\s*\(\s*\))")
 # The programs a carried name is printed by when they own a sink. An
@@ -829,8 +838,9 @@ def secret_command(command):
     this must not touch, so a token only counts next to a write sink, and a sink
     only carries the text of its own simple command. A token held only by the
     leading `NAME=value` words of an allowlisted program is in that program's
-    env (`_env_prefix_only`), unless the line reads /proc's environ or defines a
-    function. A name an earlier command assigned a token is carried, and a
+    env (`_env_prefix_only`), unless the line reads /proc's environ, sets a
+    startup or trace variable, turns `set -x` on or defines a function. A name
+    an earlier command assigned a token is carried, and a
     printer owning a sink that reads it still writes it (`_printer_owns_sink`).
     A `git add` that names a credential file is refused whatever its text holds
     (`_secret_add`)."""
@@ -841,7 +851,8 @@ def secret_command(command):
     if not c or not SECRET_TOKEN.search(c):
         return None
     masked = mask(c)
-    relax = not (SECRET_ENVIRON.search(c) or SECRET_FUNCTION.search(masked))
+    relax = not (SECRET_ENVIRON.search(c) or SECRET_STARTUP.search(c)
+                 or SECRET_FUNCTION.search(masked) or SECRET_TRACE.search(masked))
     start, carried = 0, set()
     for end in [m.start() for m in SEGMENT.finditer(masked)] + [len(c)]:
         text = c[start:end]
@@ -880,16 +891,13 @@ def _first_command(text):
 
 def _secret_runner(text):
     """True when the first program `text` runs, past the wrappers, is a script
-    runner given a script file (SECRET_RUNNER, SECRET_SCRIPT) with no option
-    that runs its own text or stdin (SECRET_INLINE, a `-`), or a program invoked
-    by a path outside the system directories that is not a printer."""
+    runner named by itself (SECRET_RUNNER; a path could be any program) given a
+    script file (SECRET_SCRIPT), with no `-` or SECRET_INLINE option before it:
+    no inline text, stdin, preload, interactive mode or trace."""
     words = _past_wrappers(_first_command(text))
-    if not words or UNEXPANDED.search(words[0]):
+    if not words or not SECRET_RUNNER.fullmatch(words[0]):
         return False
-    word, name = words[0], os.path.basename(words[0])
-    if not SECRET_RUNNER.fullmatch(name):
-        return ("/" in word and not SECRET_SYSTEM.match(word)
-                and name not in SECRET_PRINTERS)
+    name = words[0]
     args = words[1:]
     if name == "deno":
         if args[:1] != ["run"]:
