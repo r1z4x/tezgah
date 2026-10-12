@@ -228,18 +228,27 @@ const SECRET_SINK =
 // message about the rule rather than a credential in a write. `|` is NOT a
 // boundary here but a carrier, and the split is read off the masked text.
 const SEGMENT = /\|\||&&|[;&\n]/g
-// Plan 096, as hooks/tezgah_gate reads it (SECRET_PREFIX, SECRET_PRINTERS,
-// _program): a token held only by a program's leading `NAME=value` words is in
-// that program's env, so its redirected output carries no key - unless the
-// program prints its environment or runs text that can. Any doubt holds.
+// Plan 096, as hooks/tezgah_gate reads it (SECRET_PREFIX, SECRET_RUNNER, ...,
+// _secret_runner): a token held only by a program's leading `NAME=value` words
+// is in that program's env, so its redirected output carries no key - but only
+// for an allowlisted program: a script runner given a script file, or a program
+// invoked by a path outside the system directories. Any other program holds.
 const SECRET_PREFIX =
   /^[\s;&|]*(?:env\s+)?(?:[A-Za-z_]\w*=(?:'[^']*'|"(?:\\.|[^"\\])*"|\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|()<>'"`\\])*\s+)+/
 // the sinks that carry a program's output and nothing but it (SECRET_OUTPUT)
 const SECRET_OUTPUT = />>?(?![&=])|\|\s*tee\b/g
-const SECRET_PRINTERS = new Set(["", "echo", "printf", "env", "printenv", "cat",
-  "tee", "eval", "set", "export", "declare", "typeset", "builtin", "awk",
-  "perl", "ruby"])
-const SECRET_INLINE = new Set(["-e", "-p", "--eval", "--print"])
+const SECRET_RUNNER = /^(?:python[\d.]*|node|bun|deno|bash|sh|zsh)$/
+const SECRET_SCRIPT = /^[^$`\s]+\.(?:py|js|mjs|ts|sh)$/
+const SECRET_INLINE = {python: /^-[A-Za-z]*[cm]/, sh: /^-[A-Za-z]*[cs]/,
+  js: /^(?:-[A-Za-z]*[ep]|--(?:eval|print)(?:=|$))/}
+const SECRET_SYSTEM = /^\/(?:bin|sbin|usr|opt|nix|System|Library|private)\//
+const SECRET_ENVIRON = /\/proc\/[^/\s]*\/environ/
+const SECRET_FUNCTION =
+  /(?:^|[\s;&|(])(?:function\s+[^\s(){};&|]+|[^\s(){};&|$=]+\s*\(\s*\))/
+const SECRET_UNEXPANDED = /\$[A-Za-z_{(]|`/
+// the programs a carried name is printed by when they own a sink
+const SECRET_PRINTERS = new Set(["echo", "printf", "cat", "eval", "awk", "perl",
+  "ruby"])
 // a versioned python is read by /^python[\d.]+$/: only pythonBin() spells the
 // interpreter's name (tests/test_interpreter.py)
 const SECRET_INTERPRETERS = new Set(["python", "sh", "bash", "zsh", "dash"])
@@ -1971,22 +1980,24 @@ function realPath(p) {
 // Reading an env var or running a tool with a key in its env is the normal work
 // this must not touch, so a token only counts next to a write sink, and a sink
 // only carries the text of its own simple command. A token held only by the
-// leading `NAME=value` words of a program that prints neither is in that
-// program's env (envPrefixOnly); a name an earlier command assigned a token is
-// carried, and a printer reading it into a sink still writes it (plan 096).
+// leading `NAME=value` words of an allowlisted program is in that program's env
+// (envPrefixOnly), unless the line reads /proc's environ or defines a function.
+// A name an earlier command assigned a token is carried, and a printer owning a
+// sink that reads it still writes it (printerOwnsSink; plan 096).
 function secretCommand(command) {
   const c = String(command || "")
   if (!c || !SECRET_TOKEN.test(c)) return null
   const masked = maskText(c)
+  const relax = !(SECRET_ENVIRON.test(c) || SECRET_FUNCTION.test(masked))
   let start = 0
   const carried = new Set()
   const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
   for (const end of ends.concat(c.length)) {
     const text = c.slice(start, end)
     if (SECRET_SINK.test(masked.slice(start, end))) {
-      if (SECRET_TOKEN.test(text) && !envPrefixOnly(text)) return SECRET_DENY
+      if (SECRET_TOKEN.test(text) && !(relax && envPrefixOnly(text))) return SECRET_DENY
       if ([...text.matchAll(SECRET_VAR)].some((v) => carried.has(v[1] || v[2]))
-          && secretPrinter(text)) {
+          && printerOwnsSink(text, masked.slice(start, end))) {
         return SECRET_DENY
       }
     }
@@ -2000,33 +2011,79 @@ function secretCommand(command) {
 
 // True when every token in this simple command's text sits in its leading
 // `NAME=value` words, no sink runs inside them, the sinks after them carry only
-// the program's output (a `git add` or a curl trace holds), and the program
-// prints neither (hooks/tezgah_gate._env_prefix_only).
+// the program's output (a `git add` or a curl trace holds), and the program is
+// on the allowlist (hooks/tezgah_gate._env_prefix_only).
 function envPrefixOnly(text) {
   const m = text.match(SECRET_PREFIX)
   if (!m) return false
   const rest = text.slice(m[0].length)
   return !(SECRET_TOKEN.test(rest) || SECRET_SINK.test(m[0])
            || SECRET_SINK.test(rest.replace(SECRET_OUTPUT, " "))
-           || secretPrinter(rest))
+           || !secretRunner(rest))
 }
 
-// True unless the first program `text` runs is known not to print its
-// environment or arguments (hooks/tezgah_gate._secret_printer).
-function secretPrinter(text) {
+// the words of the first command `text` runs, a `$( )` body skipped
+function firstCommand(text) {
   const first = shellCommands(text.replace(/^[ \t\n;&|]+/, ""))
     .find((cmd) => cmd[1] !== "$)")
-  const [program, args] = secretProgram(first ? first[0] : [])
-  return SECRET_PRINTERS.has(program) || SECRET_INTERPRETERS.has(program)
-    || /^(?:python[\d.]*|.*[$`].*)$/.test(program)
-    || (["node", "bun", "deno"].includes(program)
-        && args.some((arg) => SECRET_INLINE.has(arg)))
+  return first ? first[0] : []
 }
 
-// [program basename without `.py`, its arguments] for one simple command, past
-// keywords, env assignments, the wrappers and an interpreter's options before
-// its script (hooks/tezgah_gate._program).
-function secretProgram(words) {
+// True when the first program `text` runs, past the wrappers, is a script
+// runner given a script file with no option that runs its own text or stdin,
+// or a program invoked by a path outside the system directories that is not a
+// printer (hooks/tezgah_gate._secret_runner).
+function secretRunner(text) {
+  const words = secretPastWrappers(firstCommand(text))
+  if (!words.length || SECRET_UNEXPANDED.test(words[0])) return false
+  const word = words[0], name = basename(word)
+  if (!SECRET_RUNNER.test(name)) {
+    return word.includes("/") && !SECRET_SYSTEM.test(word) && !SECRET_PRINTERS.has(name)
+  }
+  let args = words.slice(1)
+  if (name === "deno") {
+    if (args[0] !== "run") return false
+    args = args.slice(1)
+  }
+  const inline = SECRET_INLINE[name.startsWith("python") ? "python"
+    : ["node", "bun", "deno"].includes(name) ? "js" : "sh"]
+  for (let i = 0; i < args.length;) {
+    const arg = args[i]
+    if (arg === "-" || inline.test(arg)) return false
+    if (!/^[-+]/.test(arg)) return SECRET_SCRIPT.test(arg)
+    i += SECRET_INTERPRETER_OPTS.includes(arg) ? 2 : 1
+  }
+  return false
+}
+
+// True when a pipeline stage that owns a file sink - a `>` to a file other than
+// /dev/null, or a pipe into `tee` - is a printer
+// (hooks/tezgah_gate._printer_owns_sink).
+function printerOwnsSink(text, masked) {
+  const cuts = [...masked.matchAll(/(?<!>)\|/g)].map((m) => m.index)
+  const starts = [0, ...cuts.map((k) => k + 1)]
+  const stops = [...cuts, text.length]
+  for (let k = 0; k < starts.length; k++) {
+    const a = starts[k], b = stops[k]
+    let owns = [...masked.slice(a, b).matchAll(/>>?(?![&=])/g)].some((m) =>
+      text.slice(a + m.index + m[0].length, b).trim().split(/\s+/)[0] !== "/dev/null")
+    if (k + 1 < starts.length && /^\s*tee\b/.test(masked.slice(starts[k + 1]))) owns = true
+    if (owns && secretPrinter(text.slice(a, b))) return true
+  }
+  return false
+}
+
+// True when the first program `text` runs prints a carried name
+// (hooks/tezgah_gate._secret_printer).
+function secretPrinter(text) {
+  const program = secretProgram(firstCommand(text))[0]
+  return SECRET_PRINTERS.has(program) || SECRET_INTERPRETERS.has(program)
+    || /^python[\d.]+$/.test(program) || SECRET_UNEXPANDED.test(program)
+}
+
+// `words` past keywords, env assignments and the wrappers
+// (hooks/tezgah_gate._past_wrappers)
+function secretPastWrappers(words) {
   let i = 0
   while (i < words.length) {
     const word = words[i]
@@ -2038,7 +2095,14 @@ function secretProgram(words) {
     while (i < words.length && words[i].startsWith("-")) i += opts.includes(words[i]) ? 2 : 1
     if (wrapper === "timeout" && i < words.length) i += 1
   }
-  words = words.slice(i)
+  return words.slice(i)
+}
+
+// [program basename without `.py`, its arguments] for one simple command, past
+// the wrappers and an interpreter's options before its script
+// (hooks/tezgah_gate._program).
+function secretProgram(words) {
+  words = secretPastWrappers(words)
   if (words[0] === "[") {
     const close = words.indexOf("]")
     words = words.slice(close < 0 ? words.length : close + 1)

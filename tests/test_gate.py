@@ -24,42 +24,99 @@ SKIP_MARK = "@pytest.mark." + "skip"
 
 # Plan 096's vectors for the credential write rule, shared with the opencode
 # mirror's parity test (test_opencode_plugin) so both halves read one list.
-# A key in a program's leading NAME=value words reaches only its environment:
+# A key in the leading NAME=value words of a script runner given a script file,
+# or of a program invoked by its path, reaches only that program's environment:
 SECRET_PREFIX_PASSES = (
     'API_KEY="$(cat ~/.config/x/key)" python3 tool.py > /tmp/run.log',
-    "A=1 API_KEY=$(cat k) prog --flag >> log 2>&1",
-    'env API_KEY="$(cat k)" prog > out',
-    "API_KEY=`cat k` prog | tee run.log",
+    "A=1 API_KEY=$(cat k) ./prog --flag >> log 2>&1",
+    'env API_KEY="$(cat k)" bin/prog > out',
+    "API_KEY=`cat k` /Users/me/proj/bin/prog | tee run.log",
     "cd x && API_KEY=$(cat k) node block.js > run.log",
-    # the carried hold reads only a printer of the assigned name
-    "API_KEY=x; prog --key $API_KEY > run.log",
-    "API_KEY=x; echo $OTHER > f")
-# ...unless the program prints its environment or runs text that can, the token
-# sits outside the prefix too, the prefix's own value writes a file, the sink is
-# a `git add` or a curl trace rather than the program's output, or a later
-# printer reads a name the line assigned a key:
+    "API_KEY=$(cat k) python3 -u tool.py > f",
+    "API_KEY=$(cat k) nohup python3.12 -X dev tool.py >| f",
+    "API_KEY=$(cat k) deno run --allow-env main.ts > f",
+    "API_KEY=$(cat k) bun x.mjs > f",
+    "API_KEY=$(cat k) bash deploy.sh > f",
+    # the carried hold refuses only a printer owning the sink
+    "API_KEY=x; ./prog --key $API_KEY > run.log",
+    "API_KEY=x; echo $OTHER > f",
+    "API_KEY=x; echo $API_KEY > /dev/null",
+    'TOKEN=$(cat k); echo "$TOKEN" | docker login -u u --password-stdin '
+    "> /dev/null 2>&1",
+    'TOKEN=$(cat k); echo "$TOKEN" | gh auth login --with-token > log')
+# ...and every other program holds: a printer, a program running inline text or
+# stdin, a runner `_program` does not step past, a bare name, a system path; so
+# does a token outside the prefix, a sink in the prefix's value, a `git add` or
+# curl trace sink, `/proc/*/environ`, a function the line defines, and a later
+# printer owning a sink that reads a name the line assigned a key:
 SECRET_PREFIX_DENIES = (
     "API_KEY=\"$(cat k)\" sh -c 'echo $API_KEY' > f",
     "API_KEY=$(cat k) bash -c 'env' > f",
+    "API_KEY=$(cat k) bash -s < s.sh > f",
     "API_KEY=$(cat k) python3 -c 'import os; print(os.environ)' > f",
+    "API_KEY=$(cat k) python3 -m http.server > f",
     "API_KEY=$(cat k) node -e 'console.log(process.env)' > f",
+    "API_KEY=$(cat k) node -pe process.env > f",
+    "API_KEY=$(cat k) node --eval=console.log(process.env) > f",
+    "API_KEY=$(cat k) node tool > f",
+    "API_KEY=$(cat k) deno eval 'console.log(Deno.env.toObject())' > f",
+    "API_KEY=$(cat k) python3 - > f <<'EOF'\nimport os; print(os.environ)\nEOF",
+    "API_KEY=$(cat k) node > f <<'EOF'\nconsole.log(process.env)\nEOF",
+    "API_KEY=$(cat k) ksh -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) fish -c 'echo $API_KEY' > f",
+    "API_KEY=$(cat k) php -r 'print_r(getenv());' > f",
+    "API_KEY=$(cat k) osascript -e 'system attribute \"API_KEY\"' > f",
+    "API_KEY=$(cat k) jq -n env > f",
     "API_KEY=$(cat k) printenv > f",
     "API_KEY=$(cat k) env > f",
     "API_KEY=$(cat k) env | tee f",
+    "API_KEY=$(cat k) env >| f",
+    "API_KEY=$(cat k) >| f printenv",
+    "API_KEY=$(cat k) /usr/bin/env > f",
+    "API_KEY=$(cat k) /usr/bin/printenv > f",
+    "API_KEY=$(cat k) python3 -c 'import os;print(os.environ)' tool.py > f",
+    "API_KEY=$(cat k) python3 - tool.py < dump.txt > f",
+    "API_KEY=$(cat k) node -pe process.env tool.js > f",
+    "API_KEY=$(cat k) bash -s deploy.sh < s.sh > f",
+    "API_KEY=$(cat k) vendor/bin/cat key > f",
     "API_KEY=$(cat k) cat key > f",
     "API_KEY=$(cat k) echo hi >> f",
     "API_KEY=$(cat k) eval prog > f",
     "API_KEY=$(cat k) export -p > f",
     "API_KEY=$(cat k) $TOOL > f",
-    "API_KEY=$(cat k) prog --token=$API_KEY > f",
-    "API_KEY=$(cat k) prog > token=x",
-    'API_KEY="$(cat k | tee copy)" prog > f',
-    "API_KEY=$(cat k) git add notes.txt",
-    "API_KEY=$(cat k) curl --trace-ascii t.log https://api.example.com",
+    "A=1 API_KEY=$(cat k) prog --flag >> log 2>&1",
+    "API_KEY=$(cat k) xargs env < list > f",
+    "API_KEY=$(cat k) xargs sh -c 'echo $API_KEY' < /dev/null > f",
+    "API_KEY=$(cat k) uv run python -c 'import os;print(os.environ)' > f",
+    "API_KEY=$(cat k) setsid env > f",
+    "API_KEY=$(cat k) doas env > f",
+    "API_KEY=$(cat k) caffeinate -i env > f",
+    "API_KEY=$(cat k) busybox env > f",
+    "API_KEY=$(cat k) watch -n1 env > f",
+    "API_KEY=$(cat k) script -q /dev/null env > f",
+    "API_KEY=$(cat k) git -c alias.e='!env' e > f",
+    "API_KEY=$(cat k) head -c 9999 /proc/self/environ > f",
+    "API_KEY=$(cat k) ./bin/dump /proc/self/environ > f",
+    "python3() { env; }; API_KEY=$(cat k) python3 tool.py > f",
+    "A\u00e9=1 API_KEY=x python3 tool.py > f",
+    "API_KEY=$(cat k) ./prog --token=$API_KEY > f",
+    "API_KEY=$(cat k) ./prog > token=x",
+    'API_KEY="$(cat k | tee copy)" ./prog > f',
+    "API_KEY=$(cat k) bin/tool git add notes.txt",
+    "API_KEY=$(cat k) ./fetch --trace-ascii t.log https://api.example.com",
     'echo "api_key=$K" > f',
     "printf 'token=%s' \"$(cat key)\" > f",
     "API_KEY=x; echo $API_KEY > f",
-    'API_KEY="$(cat k)"; printf %s "${API_KEY}" | tee f')
+    'API_KEY="$(cat k)"; printf %s "${API_KEY}" | tee f',
+    "API_KEY=x; echo $API_KEY | cat > f",
+    'API_KEY=x; cat <<< "$API_KEY" > f',
+    'API_KEY=x; eval "echo $API_KEY" > f',
+    "API_KEY=x; awk -v k=\"$API_KEY\" 'BEGIN{print k}' > f",
+    "API_KEY=x; perl -e \"print '$API_KEY'\" > f",
+    "API_KEY=x; ruby -e \"puts '$API_KEY'\" > f",
+    'API_KEY=x; sh -c "echo $API_KEY" > f',
+    "API_KEY=x; python3 -c \"print('$API_KEY')\" > f",
+    'API_KEY=x; $TOOL "$API_KEY" > f')
 
 
 class Gate(TempHome):
