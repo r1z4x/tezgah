@@ -1281,11 +1281,12 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
         # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
         rec["transcript_dir"] = _omp_session_dir(rec["parent"]) or ""
     # the slice's own plan: the review guard reads its own plan's records only.
-    # Its worktree's plan branch, else the plan its brief names, else the task
-    # the main checkout reads - with two plans running that is only one of them
-    named = _BRIEF_PLAN.search(own)
+    # Its worktree's plan branch, else the plan its task or shared brief names,
+    # else the tag a re-open already carries, else the task the main checkout
+    # reads - with two plans running that is only one of them
+    named = _BRIEF_PLAN.search(own) or _BRIEF_PLAN.search(brief or "")
     rec["plan"] = (plan_of_branch(rec.get("branch")) or (named and named.group(1))
-                   or (active(main, main) or {}).get("id") or rec.get("plan") or "")
+                   or rec.get("plan") or (active(main, main) or {}).get("id") or "")
     rec.update(base=_git(main, "rev-parse", "HEAD") or "", status="open",
                failure="", updated=now)
     return _write_record(root, rec)

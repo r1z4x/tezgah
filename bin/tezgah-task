@@ -115,6 +115,7 @@ import glob
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -228,6 +229,15 @@ def allow_source(text):
     return allow, "any path in the repo (no allowlist)"
 
 
+def holder_of(path):
+    """The linked worktree holding the plan at `path` (`tt.plan_holders`: on the
+    plan's own branch), else None - the checkout its work, checkpoint and diff
+    live in."""
+    root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
+    return tt.plan_holders(root).get(
+        tt._plan_id(tt.frontmatter(read(path)), os.path.basename(path)))
+
+
 def checkpoint_state(value, path):
     """The checkpoint line `show` prints for a plan in `implementation`: the sha
     the work returns to, or the commit the phase waits for - named with the sha it
@@ -244,7 +254,10 @@ def checkpoint_state(value, path):
     state the phase is in."""
     sha = tt.checkpoint_sha(value)
     if sha:
-        root = repo_root(os.path.dirname(path) or ".")
+        # a plan held by its own worktree waits on that checkout's commit, the
+        # one the gate reads (tezgah_gate.checkpoint_reason)
+        holder = holder_of(path)
+        root = holder or repo_root(os.path.dirname(path) or ".")
         head = git_out(root, "rev-parse", "HEAD")
         listed = git_out(root, "status", "--porcelain")
         if not head or head != sha or not listed:
@@ -255,7 +268,7 @@ def checkpoint_state(value, path):
             print("  checkpoint: pending on %s - the tree held uncommitted changes "
                   "when the phase began, so this phase's writes are refused until "
                   "the commit that moves HEAD off it: %s"
-                  % (sha, tt.checkpoint_command(path)))
+                  % (sha, tt.checkpoint_command(path, holder)))
     elif value:
         print("  checkpoint: %s" % value)
     else:
@@ -409,6 +422,11 @@ def verification_steps(text, path):
     # the project, not the private repository `.tezgah` may hold
     root = os.path.realpath(os.path.join(os.path.dirname(path), "..", "..", ".."))
     reviewed = fields.get("reviewed_sha") or "(no commit)"
+    # a plan held by its own worktree is built on that branch: the review reads
+    # that checkout's diff
+    holder = holder_of(path)
+    where = holder or root
+    diff = "git -C %s diff" % shlex.quote(holder) if holder else "git diff"
     prior = fields.get("review_round") or ""
     rounds = int(prior) if prior.isdigit() else 0
     print("verification - required before this plan is done:")
@@ -440,21 +458,21 @@ def verification_steps(text, path):
     if rounds:
         print("  2. review round 2 (the last): each confirmed critical or major "
               "finding is fixed with a regression test that failed first; one "
-              "fresh tezgah-reviewer reads only the delta `git diff %s..HEAD`, the "
+              "fresh tezgah-reviewer reads only the delta `%s %s..HEAD`, the "
               "round-1 hunks and direct callers of the symbols it touches, and the "
               "test output above, and marks every round-1 finding closed or open; "
-              "it does not re-run the suite" % reviewed)
+              "it does not re-run the suite" % (diff, reviewed))
     else:
-        base = diff_base(root)
-        size = changed_lines(root, base)
+        base = diff_base(where)
+        size = changed_lines(where, base)
         print("  2. one review of the whole plan, at most %d rounds: spawn fresh "
               "tezgah-reviewer subagents in ONE message, each owning one dimension "
               "- correctness and contract, security, tests and performance - or one "
-              "file group of a large diff, over `git diff %s..HEAD` and the test "
+              "file group of a large diff, over `%s %s..HEAD` and the test "
               "output above, then merge their findings into one verdict. Under %d "
               "changed lines one reviewer reads every dimension (this diff: %s), "
               "unless the diff touches auth, secrets or a gate, which keeps a "
-              "security reviewer" % (REVIEW_ROUNDS, base, SMALL_DIFF,
+              "security reviewer" % (REVIEW_ROUNDS, diff, base, SMALL_DIFF,
                                      "unknown" if size is None else size))
         print("     only a confirmed critical or major finding is `changes` and "
               "opens round 2; a minor or suggestion one is fixed in the session "
@@ -908,7 +926,9 @@ def cmd_close(args):
     except OSError as exc:
         return problems(["cannot move %s: %s" % (path, exc)])
     print("moved %s -> %s" % (path, target))
-    for line in prune_worktrees(root):
+    # the checkout this runs in stays, even when it is a landed plan worktree:
+    # removing it would pull the session's own cwd from under it
+    for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
         print(line)
     return 0
 
@@ -980,18 +1000,18 @@ def landing_bases(root):
             if git_out(root, "rev-parse", "-q", "--verify", b)]
 
 
-def prune_worktrees(root):
+def prune_worktrees(root, keep=None):
     """Remove every linked worktree of the repository whose branch has landed and
     which holds nothing else, so a closed plan leaves no checkout behind; one line
     per linked worktree, removed or kept with the reason. The main checkout and
-    the one `close` runs in always stay. Under Orca the removal is Orca's (its
-    card, terminals and merged branch go with it), else `git worktree remove`
-    and a safe `git branch -d`. When Orca is installed but does not answer, its
-    agents cannot be checked, so every worktree stays."""
+    the one `close` runs in (`keep`, else `root`) always stay. Under Orca the
+    removal is Orca's (its card, terminals and merged branch go with it), else
+    `git worktree remove` and a safe `git branch -d`. When Orca is installed but
+    does not answer, its agents cannot be checked, so every worktree stays."""
     import tezgah_orca
     from tezgah_paths import worktrees
     found = worktrees(root)
-    here = os.path.realpath(root)
+    here = os.path.realpath(keep or root)
     linked = [p for p in found[1:] if p != here]
     if not linked:
         return []

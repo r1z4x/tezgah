@@ -1064,12 +1064,13 @@ def known_tail(path, top, command=""):
 PLAN_PHASE_LINE = re.compile(r"(?m)^\s*\+?\s*phase\s*:\s*\S")
 
 
-def workspace_free(rel, inp):
+def workspace_free(rel, inp, path=""):
     """True when `rel` is tezgah's own workspace the plan does not scope: every
     `.tezgah/` path but the slice journal (`tezgah-task slice` writes it) and a
     plan file that could make itself the active task - a shell write into
-    `.tezgah/plans/open/` (its text is unknown) or a write tool's text that
-    carries a `phase:` line. plan-add's own plan file and README stay free.
+    `.tezgah/plans/open/` (its text is unknown) or a write tool whose plan text,
+    once written, carries a `phase:` line (`_text_after`, read from `path`).
+    plan-add's own plan file and README stay free.
     Compared casefolded: on a case-insensitive disk `.tezgah/PLANS/` is the
     plans directory (review of plan 083, N2 and N5)."""
     low = (rel or "").casefold()
@@ -1078,9 +1079,39 @@ def workspace_free(rel, inp):
     if low.startswith(".tezgah/plans/open/"):
         if not isinstance(inp, dict) or inp.get("command") or inp.get("cmd"):
             return False
-        return not any(isinstance(inp.get(k), str) and PLAN_PHASE_LINE.search(inp[k])
-                       for k in EDIT_TEXT)
+        return not PLAN_PHASE_LINE.search(_text_after(inp, path))
     return True
+
+
+_OLD_TEXT = ("old_string", "oldString", "old_str")
+_NEW_TEXT = ("new_string", "newString", "new_str")
+
+
+def _text_after(inp, path):
+    """The file's text once this write lands, as far as the call says: a Write's
+    content, the current text with an Edit's (or a MultiEdit's) replacements
+    made, and for any other shape (a patch, a host's own edit format) the
+    current text beside every new string - the refusing direction. Judging the
+    new string alone let two edits each harmless on its own (`xphase:`, then
+    `xphase` -> `phase`) give an unphased plan a phase."""
+    for key in ("content", "file_text"):
+        if isinstance(inp.get(key), str):
+            return inp[key]
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except (OSError, TypeError):
+        text = ""
+    edits = inp.get("edits") if isinstance(inp.get("edits"), list) else [inp]
+    pairs = [(next((e[k] for k in _OLD_TEXT if isinstance(e.get(k), str)), None),
+              next((e[k] for k in _NEW_TEXT if isinstance(e.get(k), str)), None), e)
+             for e in edits if isinstance(e, dict)]
+    if pairs and all(old is not None and new is not None for old, new, _ in pairs):
+        for old, new, e in pairs:
+            text = text.replace(old, new) if e.get("replace_all") else text.replace(old, new, 1)
+        return text
+    return "\n".join([text] + [inp[k] for k in EDIT_TEXT + ("input",)
+                               if isinstance(inp.get(k), str)])
 
 
 def race_reason(inp, session_id, cwd=None):
@@ -1457,21 +1488,31 @@ def _owners(inp, cwd, base, task):
     (`tezgah_task.worktree_task`), the active task for every other target, and
     the active task alone when the call names no target.
 
-    A shell line can write more than the one redirect write_paths reads: a
-    second write shape (`>> <wt>/a; echo y > README.md`) or a positional writer
-    (`sed -i`, `cp`, `truncate`) lands where cwd's task holds it, so the active
-    task is an owner too unless the line's only write is that one redirect."""
+    A shell line is read target by target (`shell_targets`: every redirect and
+    `tee` target). The cwd's task is an owner too when the line writes where no
+    target was read: a positional writer (`sed -i`, `cp`, `mv`, `truncate`,
+    `dd`, `patch`, `git apply`, a `tee` with other than one operand) or more
+    write shapes than targets read."""
     top = tezgah_task.repo_root(cwd, base) if cwd else None
     command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
-    paths = write_paths(inp)
+    if command:
+        paths = [os.path.expanduser(_expand(t, command)) for t in shell_targets(command)]
+    else:
+        paths = write_paths(inp)
     out = []
     for spelled in paths:
         own = _worktree_task(_resolved(spelled, top, command), cwd, base) or task
         if own not in out:
             out.append(own)
-    if command and task not in out and (
-            not paths or len(SHELL_WRITE.findall(mask(command))) != 1):
-        out.append(task)
+    if command and task not in out:
+        masked = mask(command)
+        shapes = SHELL_WRITE.findall(masked)
+        positional = any(not s.startswith(">") and "tee" not in s for s in shapes) or any(
+            len([t for t in re.split(r"[;&|<>\n]", masked[m.end():], maxsplit=1)[0].split()
+                 if not t.startswith("-")]) != 1
+            for m in re.finditer(r"\|\s*tee\b", masked))
+        if positional or len(shapes) > len(paths):
+            out.append(task)
     return out or [task]
 
 
@@ -1561,7 +1602,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         path = _resolved(spelled, top, command)
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
-        if rel is not None and workspace_free(rel, inp):
+        if rel is not None and workspace_free(
+                rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):
             continue
         own = _worktree_task(path, cwd, base) if rel is not None else None
         project.append((spelled, path, rel, own or task))
@@ -1897,8 +1939,12 @@ def shell_target(command):
     if not SHELL_WRITE.search(masked):
         return ""
     m = SHELL_TARGET.search(masked)
-    if not m:
-        return ""
+    return _target_slice(c, m) if m else ""
+
+
+def _target_slice(c, m):
+    """The target one SHELL_TARGET match `m` (over the masked text) names in the
+    raw command `c`."""
     start, end = m.span(1) if m.group(1) else m.span(2)
     raw = c[start:end]
     # `\S+` runs to the next whitespace, so the separator of a chained command
@@ -1909,6 +1955,16 @@ def shell_target(command):
     if raw[:1] in ("'", '"'):
         return raw.strip("'\"")
     return raw.strip("'\"").rstrip(";|&)")
+
+
+def shell_targets(command):
+    """Every redirect and `tee` target a shell command's text names, in order,
+    `> /dev/null` aside - the per-target reading the task rules need where
+    `shell_target` gives the first one only."""
+    c = str(command or "")
+    masked = mask(c)
+    return [t for t in (_target_slice(c, m) for m in SHELL_TARGET.finditer(masked))
+            if t and t != "/dev/null"]
 
 
 def shell_write_body(command, cwd=None):
