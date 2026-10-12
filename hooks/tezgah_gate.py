@@ -1482,14 +1482,59 @@ def _worktree_task(path, cwd, base):
     return _WORKTREE_TASKS[key]
 
 
-def _in_checkout(path, cwd):
-    """True when `path` lies under a git checkout or a configured root - some
-    repository's work. A path under neither (the user's `~/.config/x/key`) is no
-    plan's scope, so the task rules leave it to the rules every write meets
-    (plan 094: a credential file the user asked for was refused as outside the
-    repository)."""
-    real = os.path.realpath(os.path.join(cwd or "", os.path.expanduser(path)))
-    return bool(root_for(real) or _toplevel(real))
+# Files under no repository that the task rule still holds: an agent definition,
+# an instruction file or a shell rc steers every later session, so it is never
+# the repository-free work `_no_repo` exempts. Globs relative to HOME.
+HOME_HELD = (".claude/agents/**", ".claude/CLAUDE.md", ".omp/agent/**",
+             ".codex/AGENTS.md", ".cursor/**", ".zshrc", ".zprofile", ".bashrc",
+             ".bash_profile", ".profile")
+# A line that makes a link: a path under no checkout may point into one by the
+# time the write runs (`ln -s <repo>/hooks ~/l && echo x > ~/l/a.py`).
+LINK_MAKER = re.compile(
+    r"(?<![\w-])(?:ln|link|install)\s|"
+    r"(?<![\w-])cp\s[^;&|\n]*?(?:\s-[A-Za-z]*[sl]|\s--(?:symbolic-)?link\b)")
+# A directory move `_shell_dir` does not follow: a subshell or substitution, an
+# interpreter or `eval`, `popd`, `cd -`.
+UNTRACKED_MOVE = re.compile(
+    r"[(`]|(?<![\w-])(?:bash|sh|zsh|dash|ksh|eval|exec|source|popd)\b|"
+    r"(?<![\w-])cd\s+-(?:\s|$)")
+
+
+def _no_repo(path, inp, cwd, command, count):
+    """True when the write target `path` is no repository's work, so the task
+    rules leave it to the rules every write meets (plan 094: the user's
+    `~/.config/runpod/key` was refused as outside the repository).
+
+    Every doubt holds it: a relative target is read where the line's `cd`/
+    `pushd` moved (`_shell_dir`), and held when the line moves in a way that is
+    not followed or holds more than one target; a line that makes a link, a
+    parent directory that does not exist yet and a file with a second hard link
+    are held, as is HOME_HELD. Then a target under a git checkout or a
+    configured root is some repository's."""
+    masked = mask(command) if command else ""
+    if LINK_MAKER.search(masked):
+        return False
+    path = os.path.expanduser(path)
+    if not os.path.isabs(path):
+        if command and (UNTRACKED_MOVE.search(masked) or (
+                count != 1 and re.search(r"(?<![\w-])(?:cd|pushd)\b", masked))):
+            return False
+        path = os.path.join(_shell_dir(inp, cwd) if command else cwd or "", path)
+    path = os.path.normpath(path)
+    real = os.path.realpath(path)
+    if root_for(real) or _toplevel(real) or not os.path.isdir(os.path.dirname(real)):
+        return False
+    try:
+        if os.path.isfile(real) and os.stat(real).st_nlink > 1:
+            return False
+    except OSError:
+        return False
+    home = os.path.expanduser("~")
+    for p, h in ((path, home), (real, os.path.realpath(home))):
+        rel = os.path.relpath(p, h).replace(os.sep, "/")
+        if not rel.startswith("../") and any(tezgah_task.match(rel, g) for g in HOME_HELD):
+            return False
+    return True
 
 
 def _write_targets(inp, command):
@@ -1504,8 +1549,8 @@ def _write_targets(inp, command):
 def _owners(inp, cwd, base, task):
     """The records this call's write targets are held to, each once: plan NNN's
     for a target in a sibling worktree on a `plan/NNN-...` branch
-    (`tezgah_task.worktree_task`), none for a target under no checkout
-    (`_in_checkout`), the active task for every other target, and the active
+    (`tezgah_task.worktree_task`), none for a target that is no repository's
+    (`_no_repo`), the active task for every other target, and the active
     task alone when the call names no target.
 
     A shell line is read target by target (`shell_targets`: every redirect and
@@ -1519,7 +1564,7 @@ def _owners(inp, cwd, base, task):
     out = []
     for spelled in paths:
         path = _resolved(spelled, top, command)
-        if not _in_checkout(path, cwd):
+        if _no_repo(path, inp, cwd, command, len(paths)):
             continue
         own = _worktree_task(path, cwd, base) or task
         if own not in out:
@@ -1596,7 +1641,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     repo root is refused by `relative` before any pattern is tried - a `**`
     allowlist must not reach out of the repo - unless it is the session's own
     scratch (`scratch_target`: a temp file, a device), which is no task's work,
-    or lies under no checkout at all (`_in_checkout`), which is no plan's;
+    or is no repository's at all (`_no_repo`), which is no plan's;
     build output inside the repo is a repo path and stays held. The refusal
     names the file as the call spelled it, because the agent has to recognize
     its own argument.
@@ -1625,7 +1670,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         path = _resolved(spelled, top, command)
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
-        if rel is None and not _in_checkout(path, cwd):
+        if rel is None and _no_repo(path, inp, cwd, command, len(paths)):
             continue
         if rel is not None and workspace_free(
                 rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):
