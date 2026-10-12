@@ -15,11 +15,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Claude Code, Codex and Cursor routes can join their workers.** On Claude and Codex, SubagentStart writes a `subagent_start` row. It names the child's id and type, and it goes into the parent's ledger. Claude's SessionStart exports `TEZGAH_SESSION` through `CLAUDE_ENV_FILE`. On Codex, `tezgah-route` writes under the shell's `CODEX_THREAD_ID`. On Cursor it writes under `CURSOR_CONVERSATION_ID`. Cursor's subagentStart opens the child's ledger with a row that names the parent conversation. The report counts that link only after the child writes a row of its own. `cursor-agent` fires no subagentStart, so its routes stay unjoined, and so do dsh routes.
+- **Two plans at once, one worktree each.** A linked worktree on a plan's own `branch:` now answers to that plan's phase, allowlist and checkpoint. This holds for a session inside the worktree and for a write into it from anywhere else. `tezgah-task start` keeps another plan's phase only when both plans run in their own worktrees on disjoint scopes. Otherwise it clears the others as before. The main checkout reads the first phased plan no worktree holds. A worktree on any other branch reads the main checkout's task. `allow` and `phase --any-path` refuse a scope that a held plan could share. The CLI takes a pending checkpoint from the plan's own worktree, and its refusal names `git -C <worktree>`. `tick`, `note`, `spike`, `review` and `close` run from any worktree. `review` records the plan worktree's HEAD, and the verification steps print `git -C <worktree> diff`.
+- **`tezgah-task spike NNN "<answer>"`.** It writes `spike_recorded:` on an open plan, active or not. `phase implementation` then passes, with no stop, hand edit and restart.
 
 ### Fixed
 
 - **A route row never lands in another host's ledger.** A host started from another host's agent shell inherits that host's session id. `tezgah-route` now writes no row when its three session variables name different sessions. Such a route counts as unjoined.
 - **A Codex subagent's repeat limits count only its own attempts**, as on Claude. The root's next try no longer fails for the subagent's attempts.
+- **A shell line is read target by target.** Each redirect and `tee` target meets the phase, allowlist and checkpoint of the plan it lands under. Some lines also meet the task where the session runs. That holds for a line with more write shapes than read targets. It also holds for a positional writer such as `cp` or `sed -i`. So `tee <plan worktree>/a README.md` no longer escapes a reading phase. Two redirects into one plan worktree meet only that plan.
+- **Two edits cannot give a plan a phase.** The gate judged an edit to an open plan by its new string alone. So `xphase: implementation` and then `xphase` -> `phase` both passed. It now judges the plan's text as it will read after the write.
+- **The plan record is the record in any case and from any checkout.** The gate refuses a write to `.TEZGAH/PLANS/open/<plan>.md` as a record write. It refuses a write to any phased record from a session in a linked worktree too.
+- **A slice keeps its own plan.** Its tag comes from its `plan/NNN` branch first. Next comes `plan NNN` in its brief or shared context, then its earlier tag. A re-open with no brief keeps the tag.
+- **`tezgah-task close` run inside a landed worktree keeps that worktree.** The session's own directory is no longer removed from under it.
 
 ## [1.7.0] - 2026-10-12
 
