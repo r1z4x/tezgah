@@ -802,6 +802,12 @@ class Cli(TempHome):
         self.assertEqual(tt.frontmatter(read(second))["phase"], "")
         self.assertEqual(tt.frontmatter(read(first))["phase"], "implementation")
         self.assertEqual(tt.frontmatter(read(third))["phase"], "implementation")
+        # the CLI inside a plan's worktree acts on that plan, not on 001 - the
+        # main checkout's first phased plan
+        wt3 = self.slice("plan/003-third", commit=False, merge=False)
+        self.assertEqual(support.run([CLI, "stop"], env=self.env(), cwd=wt3).returncode, 0)
+        self.assertEqual(tt.frontmatter(read(third))["phase"], "")
+        self.assertEqual(tt.frontmatter(read(first))["phase"], "implementation")
 
     def test_start_clears_a_worktree_plan_whose_scope_overlaps(self):
         first = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])

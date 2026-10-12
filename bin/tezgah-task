@@ -10,6 +10,7 @@
   tezgah-task close <NNN|path> done|discarded [--resolved TEXT] move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
   tezgah-task tick <NNN|path> <n> [--undo]                   tick (or untick) Acceptance item n, counted from 1
   tezgah-task note <NNN|path> state|next "<text>"            replace the body of `## State` (the newest one) or `## Next`
+  tezgah-task spike <NNN|path> "<answer>"                    record the spike's answer (`spike_recorded:`)
   tezgah-task slice open --id ID [--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]
                                                               record a delegated slice (a re-open counts one more attempt)
   tezgah-task slice done ID | slice stop ID [--class C]      close a slice record
@@ -20,16 +21,22 @@
   tezgah-task slice merge-plan [--base REF]                   the done slice branches in merge order, with their forecast conflicts
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
-the scope a write has to stay inside, and at most one open plan carries a phase
-because `start` clears the others. The orchestrating session runs every command
+the scope a write has to stay inside, and `start` clears every other plan's
+phase - except a plan whose own `plan/NNN-...` branch a linked worktree has
+checked out and whose allowlist shares no prefix with the new one: that plan
+keeps its phase, the gate holds a write in that worktree to that plan
+(`tezgah_task.branch_task`), and the main checkout reads the first phased plan
+as before; `phase`, `allow` and `stop` run inside such a worktree act on its
+plan. The orchestrating session runs every command
 here itself as the work moves - the lifecycle is never handed back to the user -
 and this CLI is the record's only writer: the gate refuses a write to the plan
 file, because the checks below are made here and a retyped frontmatter would
 skip them. `phase implementation` (or `verification`) is what lets a write
 through, so the phase changes when the work reaches that point and not before.
-`tick` and `note` are the record's body writers for the same reason: they write
-an Acceptance box or the State/Next text on any open plan, active or not, keep
-the frontmatter but `updated:`, and commit nothing.
+`tick`, `note` and `spike` are the record's body writers for the same reason:
+they write an Acceptance box, the State/Next text or the spike's answer on any
+open plan, active or not, keep the rest of the frontmatter but `updated:`, and
+commit nothing.
 
 The allowlist is the plan's own: plan-add writes `allowed_paths:` when it
 creates the plan, and `start` without `--allow` keeps it. A writing phase with
@@ -525,13 +532,24 @@ def cmd_start(args):
     if bad:
         return problems(bad)
     fields.update(checkpoint_fields(root, phase))
+    from tezgah_paths import worktrees
+    # the plans whose own branch a linked worktree has checked out: the gate
+    # holds that worktree to that plan (tezgah_task.branch_task)
+    held = {tt.plan_of_branch(tt.worktree_branch(p)) for p in worktrees(root)[1:]}
     for other in plans(root):
         if other == path:
             continue
-        if tt.frontmatter(read(other)).get("phase"):
-            # one active task at a time: the plan that had the phase loses it
-            # here rather than both being active and the gate reading whichever
-            # sorts first
+        theirs = read(other)
+        front = tt.frontmatter(theirs)
+        if front.get("phase"):
+            if (tt._plan_id(front, os.path.basename(other)) in held
+                    and not tt.scopes_overlap(tt.allowed_paths(theirs), allow)):
+                # a plan running in its own worktree, on a scope that shares no
+                # prefix with this one, keeps its phase: the two run at once
+                continue
+            # otherwise one active task at a time: the plan that had the phase
+            # loses it here rather than both being active and the gate reading
+            # whichever sorts first
             bad = write_fields(other, phase="", updated=today())
             if bad:
                 return problems(bad)
@@ -680,6 +698,23 @@ def cmd_note(args):
     if bad:
         return problems(bad)
     print("%s: ## %s updated" % (path, heading))
+    return 0
+
+
+def cmd_spike(args):
+    """Record the spike's answer (`spike_recorded:`) on an open plan, active or
+    not: the gate refuses a direct write to the record, and `phase
+    implementation` refuses while the answer is missing (phase_problems)."""
+    answer = " ".join(args[1].split()) if len(args) == 2 else ""
+    if not answer:
+        return misuse('spike takes <NNN|path> "<answer: what the spike found, and where>"')
+    path, problem = open_plan(args[0])
+    if problem:
+        return problems([problem])
+    bad = write_fields(path, spike_recorded=answer, updated=today())
+    if bad:
+        return problems(bad)
+    print("%s: spike_recorded: %s" % (path, answer))
     return 0
 
 
@@ -1415,10 +1450,12 @@ def main(argv):
         return cmd_tick(rest)
     if cmd == "note":
         return cmd_note(rest)
+    if cmd == "spike":
+        return cmd_spike(rest)
     if cmd == "slice":
         return cmd_slice(rest)
     return misuse("unknown command %r (start, phase, allow, stop, status, review, "
-                  "close, tick, note, slice)" % cmd)
+                  "close, tick, note, spike, slice)" % cmd)
 
 
 if __name__ == "__main__":

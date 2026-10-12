@@ -1453,7 +1453,9 @@ def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
 
 
 def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
-    """A deny reason when this write's target IS the active task's record.
+    """A deny reason when this write's target IS the active task's record, or
+    any other open plan carrying a phase (a plan running beside it in its own
+    worktree, `tezgah_task.branch_task`).
 
     The record is a file in the repo, so an agent that may write files could
     retype the phase instead of running the CLI, and skip the Acceptance, spike
@@ -1462,10 +1464,11 @@ def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
     task = _task(cwd, base, task)
     if not task:
         return None
-    record = os.path.relpath(task["path"],
-                             tezgah_task.repo_root(cwd, base)).replace(os.sep, "/")
+    root = tezgah_task.repo_root(cwd, base)
+    record = os.path.relpath(task["path"], root).replace(os.sep, "/")
     for path in write_paths(inp):
-        if tezgah_task.relative(path, cwd, base) == record:
+        rel = tezgah_task.relative(path, cwd, base)
+        if rel == record or tezgah_task.phased_record(root, rel):
             return TASK_RECORD_DENY % path
     return None
 
@@ -1484,7 +1487,12 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     scratch (`scratch_target`: a temp file, a device), which is no task's work;
     build output inside the repo is a repo path and stays held. The refusal
     names the file as the call spelled it, because the agent has to recognize
-    its own argument."""
+    its own argument.
+
+    A target in a sibling worktree on a `plan/NNN-...` branch is held to plan
+    NNN's record when that plan carries a phase (`tezgah_task.worktree_task`):
+    two plans run at once, one per worktree, and neither's scope reaches into
+    the other's checkout. Every other target keeps the active task."""
     task = _task(cwd, base, task)
     if not task:
         return None
@@ -1505,25 +1513,25 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is not None and workspace_free(rel, inp):
             continue
-        project.append((spelled, path, rel))
+        own = tezgah_task.worktree_task(path, cwd, base) if rel is not None else None
+        project.append((spelled, path, rel, own or task))
     if paths and not project:
         return None
-    if task["phase"] not in tezgah_task.WRITE_PHASES:
-        return TASK_PHASE_DENY % (task["id"], task["phase"],
-                                  " or ".join(tezgah_task.WRITE_PHASES))
-    patterns = task["allowed_paths"]
-    if not patterns:
-        return None
-    for spelled, path, rel in project:
-        if scratch_target(spelled, cwd):
+    for own in [entry[3] for entry in project] or [task]:
+        if own["phase"] not in tezgah_task.WRITE_PHASES:
+            return TASK_PHASE_DENY % (own["id"], own["phase"],
+                                      " or ".join(tezgah_task.WRITE_PHASES))
+    for spelled, path, rel, own in project:
+        patterns = own["allowed_paths"]
+        if not patterns or scratch_target(spelled, cwd):
             continue
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             # the call's own spelling: the agent has to recognize its argument
             if rel is None:
-                return TASK_SCOPE_OUTSIDE % (spelled, task["id"], ", ".join(patterns))
+                return TASK_SCOPE_OUTSIDE % (spelled, own["id"], ", ".join(patterns))
             ready = " ".join(["tezgah-task allow"] + [shlex.quote(p) for p in
                                                       list(patterns) + [rel]])
-            return TASK_SCOPE_DENY % (spelled, task["id"], ", ".join(patterns), ready)
+            return TASK_SCOPE_DENY % (spelled, own["id"], ", ".join(patterns), ready)
     return None
 
 

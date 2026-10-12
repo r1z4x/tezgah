@@ -453,14 +453,23 @@ def parallel(rows):
 
 
 def active(cwd, base):
-    """The active task as a dict, or None. Scans `<repo_root>/.tezgah/plans/open/*.md`
-    sorted by name, first file whose frontmatter carries a valid `phase`.
+    """The active task as a dict, or None. A linked worktree on a `plan/NNN-...`
+    branch answers plan NNN when that plan carries a phase (`branch_task`), so
+    two plans can run at once, one per worktree; anywhere else it scans
+    `<repo_root>/.tezgah/plans/open/*.md` sorted by name, first file whose
+    frontmatter carries a valid `phase`.
     Dict: {"id","title","phase","allowed_paths","checkpoint","path"}: id/title are
     the frontmatter values (id falls back to the filename's NNN), checkpoint is
     the frontmatter value or None when the plan carries none, path is the file.
     Never raises: an unreadable directory or file means None (readers fail
     open)."""
     root = repo_root(cwd, base)
+    return branch_task(root) or _phased(root)
+
+
+def _phased(root, ident=None):
+    """The first open plan under `root` carrying a valid phase - plan `ident`
+    only, when one is named - as active()'s dict, else None."""
     directory = os.path.join(root, ".tezgah", "plans", "open")
     try:
         names = sorted(os.listdir(directory))
@@ -478,6 +487,9 @@ def active(cwd, base):
         fields = frontmatter(text)
         if fields.get("phase") not in TASK_PHASES:
             continue
+        ident_here = fields.get("id") or name.split("-")[0]
+        if ident is not None and ident_here != ident:
+            continue
         # A plan the repository shipped is data, not the user's task: its phase
         # and allowlist would lock writes in a cloned repo (audit L-16). Only
         # positive evidence turns the rule off - the index tracks `.tezgah` -
@@ -486,7 +498,7 @@ def active(cwd, base):
         from tezgah_paths import workspace_tracked
         if workspace_tracked(root):
             return None
-        return {"id": fields.get("id") or name.split("-")[0],
+        return {"id": ident_here,
                 "title": fields.get("title", ""),
                 "phase": fields["phase"],
                 "allowed_paths": allowed_paths(text),
@@ -495,6 +507,70 @@ def active(cwd, base):
                 "checkpoint": fields.get("checkpoint"),
                 "path": path}
     return None
+
+
+_PLAN_BRANCH = re.compile(r"plan/(\d+)(?:-|$)")
+
+
+def worktree_branch(top):
+    """The branch the linked worktree `top` checks out, read from its admin
+    `HEAD` without a fork (the gate asks on every write); None for a detached
+    HEAD, a plain checkout or anything unreadable."""
+    try:
+        with open(os.path.join(top, ".git"), encoding="utf-8") as fh:
+            admin = fh.readline().strip()[len("gitdir:"):].strip()
+        with open(os.path.join(top, admin, "HEAD"), encoding="utf-8") as fh:
+            head = fh.readline().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    prefix = "ref: refs/heads/"
+    return head[len(prefix):] if head.startswith(prefix) else None
+
+
+def plan_of_branch(branch):
+    """The plan id a `plan/NNN-slug` branch names, else None."""
+    found = _PLAN_BRANCH.match(branch or "")
+    return found.group(1) if found else None
+
+
+def branch_task(top):
+    """Plan NNN's record (active()'s dict) when `top` is a linked worktree on a
+    `plan/NNN-...` branch and plan NNN, open under the main checkout, carries a
+    phase. None otherwise - another branch, a plan with no phase, an unknown
+    mapping - and the caller keeps the reading it had before (plan 093)."""
+    ident = plan_of_branch(worktree_branch(top))
+    if ident is None:
+        return None
+    from tezgah_paths import linked_main
+    main = linked_main(top)
+    return _phased(main, ident) if main else None
+
+
+def worktree_task(path, cwd, base):
+    """The record a write to `path` is held to when it lands in a sibling linked
+    worktree on a plan branch (`branch_task`), else None. A path under cwd's own
+    root is active()'s to answer, so it pays one realpath and nothing more."""
+    root = repo_root(cwd, base)
+    path = os.path.expanduser(path)
+    real = os.path.realpath(path if os.path.isabs(path) else os.path.join(cwd, path))
+    if _under(real, root):
+        return None
+    top = _sibling_worktree(real, root)
+    return branch_task(top) if top else None
+
+
+def phased_record(root, rel):
+    """True when `rel` (repo-relative) is an open plan under `root` carrying a
+    valid phase - a record only bin/tezgah-task writes, whichever plan the
+    main checkout reads as active."""
+    if not rel or not rel.startswith(".tezgah/plans/open/") or not rel.endswith(".md"):
+        return False
+    try:
+        with open(os.path.join(root, rel), "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return False
+    return frontmatter(text).get("phase") in TASK_PHASES
 
 
 def match(rel, pattern):
