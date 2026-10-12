@@ -712,10 +712,12 @@ def write_line(learning):
 
 
 def store_or_exit(args):
-    """The repository whose taste store a command opens. Refused when its
-    `.tezgah` came with the clone: those files are the project's data, and
-    opening the store would import, rename or create files in them."""
-    repo = repo_root(os.path.abspath(args.repo or os.getcwd()))
+    """The repository whose taste store a command opens: the main checkout's,
+    from a linked worktree too (plan 097). Refused when its `.tezgah` came with
+    the clone: those files are the project's data, and opening the store would
+    import, rename or create files in them."""
+    top = repo_root(os.path.abspath(args.repo or os.getcwd()))
+    repo = top and (tezgah_paths.linked_main(top) or top)
     if not repo:
         raise SystemExit(misuse("not inside a git repository"))
     if tezgah_paths.workspace_from_repo(repo):

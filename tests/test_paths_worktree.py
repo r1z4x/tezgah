@@ -207,6 +207,58 @@ class WorktreeBridge(TempHome):
         self.assertEqual(len(beta), 1, rows)
         self.assertTrue(beta[0].startswith("  beta: inner - open: phase inner"), beta)
 
+    def test_a_worktree_session_reads_and_keeps_the_main_checkouts_workspace(self):
+        """Plan 097: a session in a linked worktree saw neither the open plans
+        nor the lessons (standing constraints) and got a `.tezgah` of its own,
+        which `git worktree remove` deletes with whatever was written there."""
+        os.makedirs(os.path.join(self.main, ".tezgah", "plans", "open"))
+        with open(os.path.join(self.main, ".tezgah", "plans", "open", "001-a.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: alpha plan\nstatus: open\n---\n## Next\ngo\n")
+        with open(os.path.join(self.main, ".tezgah", "lessons.md"), "w") as fh:
+            fh.write("- Never push on red - MAIN-LESSON-1\n")
+        out, proc = support.run_json(
+            [support.PROBE_CONTEXT], {"fn": "context_for", "event": "session_start",
+                                      "cwd": self.inside},
+            env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("MAIN-LESSON-1", out)
+        self.assertIn("alpha plan", out)
+        self.assertFalse(os.path.exists(os.path.join(self.inside, ".tezgah")))
+        self.assertTrue(os.path.isdir(os.path.join(self.main, ".tezgah", ".git")))
+        line = next(x for x in out.splitlines() if x.startswith("Worktrees:"))
+        self.assertIn("%s (this checkout, uses the main checkout's `.tezgah`)"
+                      % self.inside, line)
+
+    def test_research_init_in_a_worktree_survives_its_removal(self):
+        """Plan 097: `init` in a worktree wrote the line into that worktree's
+        `.tezgah`, and a plain `git worktree remove` deleted it."""
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        # the project ignores its workspace, as `ensure_workspace` sets it up
+        with open(os.path.join(self.inside, ".gitignore"), "w") as fh:
+            fh.write("".join(line + "\n" for line in tp.WORKSPACE_IGNORES))
+        git("-C", self.inside, "add", ".gitignore")
+        git("-C", self.inside, "-c", "user.email=a@b", "-c", "user.name=t",
+            "commit", "-qm", "ignore")
+        proc = subprocess.run([sys.executable, RESEARCH, "init", "wt-line", "--ask", "q"],
+                              cwd=self.inside, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        git("-C", self.main, "worktree", "remove", self.inside)
+        line = os.path.join(self.main, ".tezgah", "research", "open", "wt-line")
+        self.assertTrue(os.path.isfile(os.path.join(line, "state.json")), proc.stdout)
+
+    def test_a_worktree_workspace_left_from_before_is_named_with_its_import(self):
+        import tezgah_context as tc
+        line = os.path.join(self.outside, ".tezgah", "research", "open", "old")
+        os.makedirs(line)
+        with open(os.path.join(line, "state.json"), "w") as fh:
+            json.dump({"question": "q", "phase": "inner"}, fh)
+        text = tc.sibling_line(self.main)
+        self.assertIn("%s (its own `.tezgah` still holds research, which `git worktree "
+                      "remove` deletes: move each research line with" % self.outside, text)
+        self.assertIn("import %s <slug>" % self.outside, text)
+        self.assertIn("(lines: old)", text)
+        self.assertIn("%s (this checkout, " % self.main, text)
+
 
 if __name__ == "__main__":
     unittest.main()

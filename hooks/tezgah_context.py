@@ -532,28 +532,46 @@ def open_plans(root):
 
 
 def sibling_line(root):
-    """One line naming every checkout of this repository with its open plan and
-    research line counts, or "" when it has one checkout. Fork-free (the pinned
+    """One line naming every checkout of this repository, or "" when it has one.
+    The main checkout's `.tezgah` is the repository's one workspace (plan 097),
+    named with its open plan and research line counts. A linked checkout whose
+    own `.tezgah` still holds data is named with what it holds, because `git
+    worktree remove` deletes it with the checkout. Fork-free (the pinned
     session-start git budget): `worktrees` reads `.git/worktrees/*/gitdir`, and
-    the counts are directory listings. Each checkout keeps its own `.tezgah`;
-    this only makes the others visible."""
+    the counts are directory listings."""
     checkouts = worktrees(root)
     here = os.path.realpath(root)
     if here not in checkouts:
         checkouts.append(here)
     if len(checkouts) < 2:
         return ""
+    main = checkouts[0]
     items = []
     for checkout in checkouts:
         ws = workspace(checkout)
-        state = ("no workspace yet" if not os.path.isdir(ws) else
-                 "%d open plan(s), %d research line(s)"
-                 % (len(glob.glob(os.path.join(ws, "plans", "open", "*.md"))),
-                    len(tezgah_research.slugs(checkout))))
+        if checkout == main:
+            state = ("no workspace yet" if not os.path.isdir(ws) else
+                     "%d open plan(s), %d research line(s)"
+                     % (len(glob.glob(os.path.join(ws, "plans", "open", "*.md"))),
+                        len(tezgah_research.slugs(checkout))))
+        else:
+            try:
+                held = sorted(set(os.listdir(ws)) - {".git"})
+            except OSError:
+                held = []
+            lines = tezgah_research.slugs(checkout) if held else []
+            state = ("uses the main checkout's `.tezgah`" if not held else
+                     "its own `.tezgah` still holds %s, which `git worktree remove` "
+                     "deletes: move each research line with `%s import %s <slug>` "
+                     "from the main checkout, and the rest by hand"
+                     % (", ".join(held), tool("tezgah-research"), checkout))
+            if lines:
+                state += " (lines: %s)" % ", ".join(lines)
         items.append("%s (%s%s)" % (checkout, "this checkout, " if checkout == here
                                     else "", state))
-    return ("Worktrees: %d checkouts of this repository, each with its own "
-            "`.tezgah`: %s. Detail: `%s --all`."
+    return ("Worktrees: %d checkouts of this repository share the main checkout's "
+            "`.tezgah` - plans, lessons, research and analysis are written there, "
+            "never into a worktree's own: %s. Detail: `%s --all`."
             % (len(checkouts), "; ".join(items), tool("tezgah-research")))
 
 
@@ -647,8 +665,10 @@ def _active_plan(root):
     report of another plan's State/Next read as the active one is the block
     inventing a task, which is worse than the line it costs. (None, False) when
     the repo keeps no open plan."""
-    paths = sorted(glob.glob(os.path.join(root, ".tezgah", "plans",
-                                          "open", "*.md")))
+    from tezgah_paths import linked_main
+    # a linked worktree's plans are its main checkout's (plan 097)
+    paths = sorted(glob.glob(os.path.join(linked_main(root) or root, ".tezgah",
+                                          "plans", "open", "*.md")))
     if not paths:
         return None, False
     branch = git(root, "rev-parse", "--abbrev-ref", "HEAD")
@@ -884,11 +904,12 @@ def _lessons_state(root):
         lines, tainted_lessons(root))).encode()).hexdigest()[:8]]
 
 
-def state_stamp(root):
-    """The comparable state of the repo this turn is about."""
+def state_stamp(root, ws=None):
+    """The comparable state of the repo this turn is about: the checkout's HEAD,
+    the plans and lessons of its workspace `ws` (the main checkout's)."""
     return {"head": git(root, "rev-parse", "HEAD") or "nogit",
-            "plans": _plan_ids(root),
-            "lessons": _lessons_state(root)}
+            "plans": _plan_ids(ws or root),
+            "lessons": _lessons_state(ws or root)}
 
 
 def read_stamp(session_id):
@@ -1955,6 +1976,11 @@ def context_for(event, cwd, payload=None, with_core=True):
     if not under(cwd):
         return None
     root = repo_root(cwd)
+    # The repository's one workspace: a linked worktree reads and creates the
+    # main checkout's `.tezgah`, where `git worktree remove` cannot take it and
+    # where bin/tezgah-task already keeps the plans (plan 097).
+    from tezgah_paths import linked_main
+    ws = linked_main(root) or root
     ACTIVE_ROOT[0] = root_for(cwd) or ""
     # What the compaction kept, recorded before the block is built: the summary
     # is the host's own text and this path is the only place it is handed over, so
@@ -2045,7 +2071,7 @@ def context_for(event, cwd, payload=None, with_core=True):
                 # only here: a conditional paragraph reaches no static file. The
                 # one-line repeat carries it too: it is a fact, not rule text.
                 parts.append(("armed", render("\n\n".join(armed).replace(
-                    "{OPEN_LINES}", open_lines_note(root)))))
+                    "{OPEN_LINES}", open_lines_note(ws)))))
         else:
             audit_classification(set(), 0)
         # One cheap judgement in front of the skill choice: the roster reaches the
@@ -2068,7 +2094,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # state_delta/constraint_notice), and the glance says whether the graph
         # is behind that move - a comparison that used to end in a status glyph
         # the model never reads.
-        stamp = state_stamp(root)
+        stamp = state_stamp(root, ws)
         delta = state_delta(root, previous, stamp)
         if delta:
             parts.append(("delta", delta))
@@ -2081,8 +2107,8 @@ def context_for(event, cwd, payload=None, with_core=True):
             if (previous or {}).get("root") == root else []
         relevant, keys = "", []
         if prompt and ".no-lessons" not in repo_marks(cwd)[1]:
-            relevant, keys = relevant_lessons(root, prompt, seen)
-            if relevant and workspace_from_repo(root):
+            relevant, keys = relevant_lessons(ws, prompt, seen)
+            if relevant and workspace_from_repo(ws):
                 relevant, keys = (("", []) if "provided" in seen else
                                   (repo_provided(".tezgah/lessons.md"), ["provided"]))
         if relevant:
@@ -2221,8 +2247,8 @@ def context_for(event, cwd, payload=None, with_core=True):
         # The workspace every per-project artifact lands in: created, ignored by
         # the project and given its private git before anything writes there.
         # A root is not a project, and the helper returns None outside a work tree.
-        if root not in roots():
-            ensure_workspace(root)
+        if ws not in roots():
+            ensure_workspace(ws)
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.
         resume = resume_state(root, session_of(payload))
@@ -2238,9 +2264,9 @@ def context_for(event, cwd, payload=None, with_core=True):
 
         def provided():
             if not from_repo:
-                from_repo.append(workspace_from_repo(root))
+                from_repo.append(workspace_from_repo(ws))
             return from_repo[0]
-        plans = open_plans(root)
+        plans = open_plans(ws)
         if plans:
             parts.append(("plans", repo_provided(".tezgah/plans/open/")
                           if provided() else plans))
@@ -2255,7 +2281,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # The project's own rule files, agents and skills (tezgah-migrate's
         # index): they stay where the project keeps them, and one line makes a
         # session read the rows its task touches instead of never seeing them.
-        if os.path.isfile(os.path.join(root, ".tezgah", "analysis",
+        if os.path.isfile(os.path.join(ws, ".tezgah", "analysis",
                                        "project-knowledge.md")):
             parts.append(("knowledge",
                           "Project knowledge: this repo keeps its own rule files, "
@@ -2264,14 +2290,14 @@ def context_for(event, cwd, payload=None, with_core=True):
                           "the task touches before starting; a nested AGENTS.md or "
                           "CLAUDE.md binds the subtree it sits in."))
         if ".no-lessons" not in marks:
-            past = lessons(root)
+            past = lessons(ws)
             if past:
                 parts.append(("lessons", repo_provided(".tezgah/lessons.md")
                               if provided() else past))
                 if not provided():
-                    recent = lesson_lines(root)[-LESSON_LINES:]
+                    recent = lesson_lines(ws)[-LESSON_LINES:]
                     injected = list(zip(recent, _lesson_shown(
-                        recent, tainted_lessons(root))))
+                        recent, tainted_lessons(ws))))
         # The opt-in taste learnings (hooks/tezgah_taste_ledger.block): the
         # active ones as rules or hints, read from the ledger with no call out;
         # off, `enabled` costs the marker stat. The injection is recorded below,
@@ -2297,7 +2323,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # bulk import at most daily (tezgah_store.import_later).
         if event == "session_start":
             tezgah_store.import_later(cache_dir())
-        broken = tezgah_research.failing(root) if not off("research-off") else []
+        broken = tezgah_research.failing(ws) if not off("research-off") else []
         if broken:
             line_slug, err = broken[0]
             parts.append(("research_broken",

@@ -3550,10 +3550,13 @@ def _check_review_integrity(base, errors, warnings, strict):
                       % (" and ".join(high), len(order), order[0][:80]))
 
 
-def check_line(repo, slug, git=True, strict=False):
+def check_line(repo, slug, git=True, strict=False, code=None):
     """(errors, warnings) for one research line. `git=False` skips the checks that
     need git history, for callers that must stay cheap (the session context).
-    `strict=True` turns every guarantee the checker cannot decide into an error."""
+    `strict=True` turns every guarantee the checker cannot decide into an error.
+    `code` is the checkout the check runs in when it is not `repo`: the line
+    lives in the main checkout's workspace (plan 097) and its citations and
+    proofs resolve against the checkout whose branch holds the code."""
     base = line_dir(repo, slug)
     errors, warnings = [], []
     if not os.path.isdir(base):
@@ -3566,7 +3569,8 @@ def check_line(repo, slug, git=True, strict=False):
             errors.append("%s is missing" % name)
     _check_state(base, errors, warnings, strict)
     _check_findings(base, errors, warnings, strict)
-    _check_claims(base, errors, warnings, roots=(repo,), strict=strict)
+    _check_claims(base, errors, warnings, roots=(repo, code) if code and code != repo
+                  else (repo,), strict=strict)
     _check_predictions(repo, base, errors, warnings, strict, git)
     seal_errors, intact = _check_seal(base)
     errors.extend(seal_errors)
@@ -3685,7 +3689,7 @@ def _check_derived_phase(base, phase, direction, warnings):
                         "stopped describing the line" % (direction, derived, want))
 
 
-def check(repo, slug=None, git=True, strict=False, all_lines=True):
+def check(repo, slug=None, git=True, strict=False, all_lines=True, code=None):
     """{slug: {"errors": [...], "warnings": [...]}} for one line or every line.
 
     With `all_lines=False` and no slug, a line under `done/` is read by its order
@@ -3699,7 +3703,7 @@ def check(repo, slug=None, git=True, strict=False, all_lines=True):
             if errors:
                 out[name] = {"errors": errors, "warnings": []}
             continue
-        errors, warnings = check_line(repo, name, git=git, strict=strict)
+        errors, warnings = check_line(repo, name, git=git, strict=strict, code=code)
         out[name] = {"errors": errors, "warnings": warnings}
     return out
 
