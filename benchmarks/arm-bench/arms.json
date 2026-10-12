@@ -631,5 +631,19 @@
   },
   "toggle": "omp-full plus the reminder-off switch file. Confounded by design: the switch drops the per-turn reminder and the long-turn drift notice together",
   "verification": "Plan 062 phase 1: a lab arm. `homes.py deploy --lab <lab>` builds its template HOME out of tree from `git archive` of one commit; `bench.py run` copies the template into a fresh per-run HOME and runs omp with HOME pointed at it and an environment reduced to KEEP_ENV, so no run reads or writes the operator's host config and no switch reaches another run. TEZGAH_ROOTS names the lab's run root, so the hooks arm for the run directory."
+ },
+ {
+  "name": "omp+tezgah-delegate",
+  "host": "omp",
+  "harness": "tezgah-plus",
+  "cmd": ["omp", "-p", "--mode", "json", "--cwd", "{cwd}", "--model", "{model}", "{prompt}"],
+  "env": {
+   "PI_CODING_AGENT_DIR": "{root}/arms/omp+tezgah-delegate",
+   "TEZGAH_ROOTS": "{root}:~/Projects:~/.local/share/openresearch/local-runs"
+  },
+  "orx": false,
+  "toggle": "plan 090, ported in plan 095: the installed ~/.omp/agent plus one RULES.md paragraph that hands every edit to the tezgah-* worker tezgah-route names; subagent model overrides pinned to make_variants.SUBAGENT_MODEL (ARMBENCH_SUBAGENT_MODEL, default deepseek/deepseek-v4-flash); agents/ rendered from hooks/tezgah_agents.py. `python3 make_variants.py omp+tezgah-delegate` deploys it; a bare `make_variants.py` does not",
+  "flag_verified": false,
+  "verification": "deployed by make_variants.py; PROVENANCE.md names the pinned model and the command that rebuilt it; delegation counted from each kept stdout.log (`\"name\":\"task\"` tool calls). flag_verified stays false until one paid arming run shows session_rows > 0 and a spawned tezgah-* worker"
  }
 ]

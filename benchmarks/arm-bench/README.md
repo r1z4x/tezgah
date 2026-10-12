@@ -385,6 +385,30 @@ NEUTER, SKIP_TEST and TEST_PATH, plus a switch the run created), `attempts`,
 proof per row and exits 1 when any row fails it. The protocol and its frozen
 grading rule live in the private research line `paired-outcome-arm`.
 
+## Plan 095: the forced-delegation arm and the calibration block
+
+`omp+tezgah-delegate` is the installed omp agent dir plus one `RULES.md`
+paragraph that hands every edit to the tezgah-* worker `tezgah-route` names, so
+the role text is exercised on every task. A bare `make_variants.py` does not
+build it; name it:
+
+```sh
+ARMBENCH_SUBAGENT_MODEL=deepseek/deepseek-v4-flash python3 make_variants.py omp+tezgah-delegate
+ARMBENCH_LAB=/tmp/armbench-095 python3 block.py --config calibration-095.json --dry-run
+ARMBENCH_LAB=/tmp/armbench-095 python3 block.py --config calibration-095.json
+python3 analyze.py 'results/095-calibration/*.jsonl'
+```
+
+`ARMBENCH_SUBAGENT_MODEL` (default `deepseek/deepseek-v4-flash`) must match
+`[\w./:,-]+`; it replaces every value under `task.agentModelOverrides` and no
+other line, and `PROVENANCE.md` records the command that built the arm. An
+unknown arm name, a bad model value or a config without that block exits
+non-zero before any arm directory is written. The arm stays
+`flag_verified: false` until one paid arming run shows `session_rows > 0` and a
+spawned tezgah-* worker. `calibration-095.json` runs every `x*` task k=5 on that
+arm, 8 in parallel, under a USD 5.00 cap, into one results file; a `tasks` glob
+that matches nothing stops the block before it starts.
+
 ## SWE-Bench Pro split (idea 190)
 
 `swe_pro.py` adds an unsaturated split next to the ImpossibleBench adapter

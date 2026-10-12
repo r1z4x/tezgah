@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Run one pre-registered block of plan 062: every (arm, task, repeat) once.
 
-    ARMBENCH_LAB=<lab> python3 block.py --config <block.json>
+    ARMBENCH_LAB=<lab> python3 block.py --config <block.json> [--dry-run]
 
 The config is the protocol's own numbers, committed with it: `arms`, `tasks`,
 `repeats`, `model`, `timeout`, `parallel`, `results`, `cap_usd`, `row_meta`.
+A `tasks` entry may be a glob (`x*`), expanded against `tasks/<id>/meta.json`.
+`--dry-run` passes `--dry-run` to every `bench.py run`, so the block prints its
+commands and pre-flight lines and spends nothing.
 Each cell is one `bench.py run --repeat-from r --repeat r`, so a stopped block
 resumes where it stopped (bench skips repeats already in `results`). Spend is
 read back from the results file and its excluded file (runs a provider error
@@ -16,6 +19,7 @@ block the same way and the block exits 4: every later run would fail alike.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import subprocess
@@ -40,13 +44,28 @@ def spent(results: Path) -> float:
     return total
 
 
+def expand(patterns: list[str]) -> list[str]:
+    """Task ids: a literal entry as given, a glob expanded over tasks/*/meta.json."""
+    known = sorted(p.parent.name for p in (ROOT / "tasks").glob("*/meta.json"))
+    out = []
+    for want in patterns:
+        hits = fnmatch.filter(known, want) if any(c in want for c in "*?[") else [want]
+        if not hits:
+            sys.exit("no task matches: %s" % want)
+        out += [t for t in hits if t not in out]
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", required=True)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="print every run's command via bench.py run --dry-run; spend nothing")
     args = parser.parse_args()
     if not os.environ.get("ARMBENCH_LAB"):
         sys.exit("ARMBENCH_LAB is not set: the lab arms run from its HOMEs")
     cfg = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    cfg["tasks"] = expand(cfg["tasks"])
     results = Path(cfg["results"]).resolve()
     jobs = [(arm, task, r) for r in range(1, cfg["repeats"] + 1)
             for task in cfg["tasks"] for arm in cfg["arms"]]
@@ -64,7 +83,7 @@ def main() -> int:
             [sys.executable, str(ROOT / "bench.py"), "run", "--arm", arm, "--task", task,
              "--repeat-from", str(repeat), "--repeat", str(repeat), "--model", cfg["model"],
              "--timeout", str(cfg["timeout"]), "--results", str(results),
-             "--row-meta", json.dumps(cfg.get("row_meta", {}))],
+             "--row-meta", json.dumps(cfg.get("row_meta", {}))] + (["--dry-run"] if args.dry_run else []),
             capture_output=True, text=True)
         with lock:
             cost = spent(results)
