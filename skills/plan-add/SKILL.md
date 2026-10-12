@@ -72,14 +72,15 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
 9. Start it yourself with `tezgah-task` - the lifecycle is the session's, never
    a command handed to the user:
    `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery` writes `phase:`
-   into this file and clears the phase from every other open plan - except one
-   whose own `plan/NNN-slug` branch a linked worktree has checked out and whose
-   `allowed_paths:` share no prefix with this plan's: that plan keeps its phase
-   and the two run at once, the gate holding a write in each plan's worktree to
-   that plan's record while the main checkout reads the first phased plan. The
-   gate then allows a write only from `implementation` on and only inside the
-   plan's `allowed_paths:` (`--allow '<glob>' ...` replaces them); `phase`,
-   `allow` and `stop` run inside a plan's worktree act on that plan. Entering
+   into this file and clears the phase from every other open plan. To run two
+   plans at once, give each its own worktree on its own branch (`branch:`, or
+   `plan/NNN-slug`) before `start`: a plan held by its worktree keeps its phase
+   when the plan being started is held by one too and their `allowed_paths:`
+   share no prefix, and the gate holds a write in each worktree to that plan's
+   record. The gate then allows a write only from `implementation` on and only
+   inside the plan's `allowed_paths:` (`--allow '<glob>' ...` replaces them);
+   `phase`, `allow` and `stop` run inside a plan's worktree act on that plan,
+   and `allow` refuses a scope another running plan's worktree holds. Entering
    `implementation` or `verification` with no allowlist is refused unless
    `--any-path` is passed, so keep the plan's scope and never drop it to get
    through. Three more refusals land at the same moment, and you fix them in the
@@ -97,7 +98,8 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    Tick an Acceptance box with `tezgah-task tick NNN <n>` (`--undo` unticks),
    rewrite State or Next with `tezgah-task note NNN state|next "<text>"`, and
    record the spike's answer with `tezgah-task spike NNN "<answer>"`, which
-   writes `spike_recorded:` on the plan, active or not.
+   writes `spike_recorded:` on the plan, active or not. These three work from
+   the main checkout or from any of its worktrees.
    After the merge, `tezgah-task close NNN done` deactivates the plan,
    moves it to done and removes every merged worktree.
 

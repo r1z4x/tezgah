@@ -3,12 +3,16 @@ common calls, in a throwaway HOME and repo (plan 054, part 12).
 
     python3 tests/bench_gate_latency.py              # this tree's hooks/
     python3 tests/bench_gate_latency.py --hooks DIR  # another revision's hooks/
+    python3 tests/bench_gate_latency.py --plans      # two phased plans, one in a worktree
 
 To compare revisions, export one's hooks and point --hooks at it:
 `git archive 44c45e0 hooks | tar -x -C /tmp/base`, then `--hooks /tmp/base/hooks`.
 The numbers are this machine's, on a fixture repo: a property of the code path,
 not of a live session. The dry run writes no row, so the ledger stays empty and
-the rules that read session history read none.
+the rules that read session history read none. `--plans` arms the task rule as
+plan 093 runs it: two plans in `implementation`, the second held by a linked
+worktree on its `plan/002-` branch, and three more calls write into that
+worktree from the main checkout.
 """
 import argparse
 import json
@@ -50,13 +54,19 @@ CALLS = (
 ROUNDS = 10
 
 
-def child(repo):
+def child(repo, wt=""):
     t0 = time.perf_counter()
     import tezgah_gate  # noqa: E402
     imported = (time.perf_counter() - t0) * 1000
+    calls = CALLS + ((
+        ("Write", {"file_path": os.path.join(wt, "docs", "a.md"), "content": "a\n"}),
+        ("Edit", {"file_path": os.path.join(wt, "docs", "a.md"), "old_string": "a",
+                  "new_string": "b"}),
+        ("Bash", {"command": "echo x > %s" % os.path.join(wt, "docs", "b.md")}),
+    ) if wt else ())
     times, denied = [], 0
     for _ in range(ROUNDS):
-        for tool, inp in CALLS:
+        for tool, inp in calls:
             t = time.perf_counter()
             reason = tezgah_gate.decision(tool, dict(inp), repo, "bench",
                                           record=False)
@@ -75,13 +85,35 @@ def child(repo):
                       "max_ms": round(times[-1], 3)}))
 
 
+def seed_plans(repo, wt, env):
+    """Plans 001 (the main checkout's files) and 002 (`docs/**`), both in
+    `implementation`, and a linked worktree on 002's own branch."""
+    git = ["git", "-C", repo, "-c", "user.name=b", "-c", "user.email=b@localhost"]
+    with open(os.path.join(repo, ".gitignore"), "w") as fh:
+        fh.write("/.tezgah/\n")
+    subprocess.run(git + ["add", "-A"], env=env, check=True)
+    subprocess.run(git + ["commit", "-qm", "init"], env=env, check=True)
+    subprocess.run(git + ["worktree", "add", "-q", "-b", "plan/002-docs", wt],
+                   env=env, check=True)
+    directory = os.path.join(repo, ".tezgah", "plans", "open")
+    os.makedirs(directory)
+    for name, scope in (("001-main.md", ("src/**", "tests/**", "notes.txt")),
+                        ("002-docs.md", ("docs/**",))):
+        with open(os.path.join(directory, name), "w") as fh:
+            fh.write("---\nid: %s\nstatus: open\nphase: implementation\n"
+                     "allowed_paths:\n%s---\n" % (name[:3], "".join(
+                         "  - %s\n" % glob for glob in scope)))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--hooks", default=support.HOOKS)
+    ap.add_argument("--plans", action="store_true")
     ap.add_argument("--child", help=argparse.SUPPRESS)
+    ap.add_argument("--wt", default="", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     if args.child:
-        child(args.child)
+        child(args.child, args.wt)
         return 0
     with tempfile.TemporaryDirectory() as home:
         roots = os.path.join(home, "Projects")
@@ -93,8 +125,13 @@ def main(argv=None):
                 fh.write(text)
         env = support.base_env(home, [roots], {"PYTHONPATH": os.path.abspath(args.hooks)})
         subprocess.run(["git", "init", "-q", repo], env=env, check=True)
+        wt = os.path.join(roots, "proj-002") if args.plans else ""
+        if wt:
+            seed_plans(repo, wt, env)
         out = subprocess.run([sys.executable, os.path.abspath(__file__), "--child",
-                              os.path.realpath(repo)], env=env, check=True,
+                              os.path.realpath(repo),
+                              "--wt", os.path.realpath(wt) if wt else ""],
+                             env=env, check=True,
                              stdin=subprocess.DEVNULL, capture_output=True, text=True)
         sys.stdout.write(out.stdout)
     return 0

@@ -22,12 +22,15 @@
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and `start` clears every other plan's
-phase - except a plan whose own `plan/NNN-...` branch a linked worktree has
-checked out and whose allowlist shares no prefix with the new one: that plan
-keeps its phase, the gate holds a write in that worktree to that plan
+phase - except, when the plan being started is held by its own linked worktree
+(on its `branch:`, else a `plan/NNN-...` branch), another plan held the same way
+whose allowlist shares no prefix with it: that plan keeps its phase, the gate
+holds a write in each worktree to that worktree's plan
 (`tezgah_task.branch_task`), and the main checkout reads the first phased plan
-as before; `phase`, `allow` and `stop` run inside such a worktree act on its
-plan. The orchestrating session runs every command
+no worktree holds. `phase`, `allow` and `stop` run inside such a worktree act on
+its plan, and `allow` refuses a scope a held plan's allowlist could share; the
+body writers below and `close` run from any worktree too. The orchestrating
+session runs every command
 here itself as the work moves - the lifecycle is never handed back to the user -
 and this CLI is the record's only writer: the gate refuses a write to the plan
 file, because the checks below are made here and a retyped frontmatter would
@@ -481,7 +484,7 @@ def scope_problem(phase, allow, any_path):
 def cmd_start(args):
     if not args:
         return misuse("start needs a plan id or path")
-    root = repo_root(os.getcwd())
+    root = main_root(repo_root(os.getcwd()))
     path, problem = open_plan(args[0])
     phase = None
     allow = []
@@ -531,21 +534,21 @@ def cmd_start(args):
            or phase_problems(phase, text, path))
     if bad:
         return problems(bad)
-    fields.update(checkpoint_fields(root, phase))
-    from tezgah_paths import worktrees
-    # the plans whose own branch a linked worktree has checked out: the gate
-    # holds that worktree to that plan (tezgah_task.branch_task)
-    held = {tt.plan_of_branch(tt.worktree_branch(p)) for p in worktrees(root)[1:]}
+    holders = tt.plan_holders(root)
+    # the plan's own worktree, when one holds it: the gate reads the checkpoint
+    # against that checkout's HEAD and tree, so it is recorded from there
+    here = holders.get(tt._plan_id(tt.frontmatter(text), os.path.basename(path)))
+    fields.update(checkpoint_fields(here or root, phase))
     for other in plans(root):
         if other == path:
             continue
         theirs = read(other)
         front = tt.frontmatter(theirs)
         if front.get("phase"):
-            if (tt._plan_id(front, os.path.basename(other)) in held
+            if (here and tt._plan_id(front, os.path.basename(other)) in holders
                     and not tt.scopes_overlap(tt.allowed_paths(theirs), allow)):
-                # a plan running in its own worktree, on a scope that shares no
-                # prefix with this one, keeps its phase: the two run at once
+                # both plans run in their own worktrees, on scopes that share no
+                # prefix: the other keeps its phase and the two run at once
                 continue
             # otherwise one active task at a time: the plan that had the phase
             # loses it here rather than both being active and the gate reading
@@ -581,10 +584,12 @@ def cmd_phase(args):
     granted = (any_path or tt.frontmatter(text).get("allowed_from")
                == ANY_PATH)
     bad = (scope_problem(phase, task["allowed_paths"], granted)
-           or phase_problems(phase, text, task["path"]))
+           or phase_problems(phase, text, task["path"])
+           or (held_overlap(root, task["id"], []) if any_path else []))
     if bad:
         return problems(bad)
-    fields.update(checkpoint_fields(root, phase))
+    where = task.get("worktree") or tt.plan_holders(main_root(root)).get(task["id"])
+    fields.update(checkpoint_fields(where or root, phase))
     bad = write_fields(task["path"], **fields)
     if bad:
         return problems(bad)
@@ -608,10 +613,14 @@ def cmd_allow(args):
         return misuse("allow takes globs, or --any-path alone to lift the scope")
     if not why:
         return misuse("allow takes --why \"<what in the plan reaches these paths>\"")
-    task = active_here(repo_root(os.getcwd()))
+    root = repo_root(os.getcwd())
+    task = active_here(root)
     if not task:
         return problems(["no active task to widen: start one with "
                          "`tezgah-task start <id> --phase P --allow GLOB`"])
+    bad = held_overlap(root, task["id"], args)
+    if bad:
+        return problems(bad)
     # --any-path replaces the list with an empty one, which reads as "any path in
     # the repo" - and the gate skips the scope check entirely then, so this is
     # the way back out of a scope that turned out to be too narrow. A flag and
@@ -637,11 +646,42 @@ def cmd_stop(args):
     return show(task["path"])
 
 
+def main_root(root):
+    """The main checkout of the repository `root` is a checkout of: the one that
+    keeps `.tezgah/plans`, so a command run in a plan's worktree finds them."""
+    from tezgah_paths import linked_main
+    return linked_main(root) or root
+
+
+def held_overlap(root, ident, scope):
+    """A problem line per phased plan other than `ident` that a linked worktree
+    holds and whose allowlist `scope` could share a file with: two plans running
+    at once are kept to disjoint scopes, which `start` checked and a widening
+    here must not undo. An empty `scope` is any path, so it meets every one."""
+    main = main_root(root)
+    holders = tt.plan_holders(main)
+    out = []
+    for other in plans(main):
+        text = read(other)
+        front = tt.frontmatter(text)
+        oid = tt._plan_id(front, os.path.basename(other))
+        if oid == ident or oid not in holders or front.get("phase") not in tt.TASK_PHASES:
+            continue
+        theirs = tt.allowed_paths(text)
+        if tt.scopes_overlap(theirs, scope):
+            out.append("scope %s overlaps plan %s's (%s), which runs at once in "
+                       "worktree %s: plans running side by side share no path "
+                       "prefix. Narrow the scope, or stop plan %s first"
+                       % (" ".join(scope) or "any path", oid,
+                          ", ".join(theirs) or "any path", holders[oid], oid))
+    return out
+
+
 def open_plan(ref):
     """(path, problem) for a plan under `.tezgah/plans/open/`: `tick` and `note`
     write past the gate, so they take no other file (review of plan 083, F4:
     `note README.md next ...` rewrote any markdown file with a Next section)."""
-    root = repo_root(os.getcwd())
+    root = main_root(repo_root(os.getcwd()))
     path, problem = plan_path(root, ref)
     if problem:
         return None, problem
@@ -828,7 +868,7 @@ def cmd_close(args):
             return misuse("--resolved takes the fix and the test that proves it")
     if len(args) != 2 or args[1] not in ("done", "discarded"):
         return misuse("close takes <NNN|path> done|discarded [--resolved TEXT]")
-    root = repo_root(os.getcwd())
+    root = main_root(repo_root(os.getcwd()))
     path, problem = plan_path(root, args[0])
     if problem:
         return problems([problem])

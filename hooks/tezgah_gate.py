@@ -1438,21 +1438,40 @@ def _resolved(spelled, top, command):
     return (known_tail(spelled, top, command) or spelled) if command else spelled
 
 
+# worktree_task per (target, cwd, base) for one decision: the phase, scope and
+# checkpoint rules each ask it of the same targets, and each answer costs a
+# realpath and a read of the worktree's pointer files. `decision` clears it.
+_WORKTREE_TASKS = {}
+
+
+def _worktree_task(path, cwd, base):
+    key = (path, cwd, base)
+    if key not in _WORKTREE_TASKS:
+        _WORKTREE_TASKS[key] = tezgah_task.worktree_task(path, cwd, base)
+    return _WORKTREE_TASKS[key]
+
+
 def _owners(inp, cwd, base, task):
     """The records this call's write targets are held to, each once: plan NNN's
     for a target in a sibling worktree on a `plan/NNN-...` branch
     (`tezgah_task.worktree_task`), the active task for every other target, and
     the active task alone when the call names no target.
-    ponytail: a positional shell target (`cp x <wt>/y`) is not read
-    (write_paths), so a command whose read targets all land in plan worktrees is
-    held to those plans only, whatever else its positional arguments write."""
+
+    A shell line can write more than the one redirect write_paths reads: a
+    second write shape (`>> <wt>/a; echo y > README.md`) or a positional writer
+    (`sed -i`, `cp`, `truncate`) lands where cwd's task holds it, so the active
+    task is an owner too unless the line's only write is that one redirect."""
     top = tezgah_task.repo_root(cwd, base) if cwd else None
     command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
+    paths = write_paths(inp)
     out = []
-    for spelled in write_paths(inp):
-        own = tezgah_task.worktree_task(_resolved(spelled, top, command), cwd, base) or task
+    for spelled in paths:
+        own = _worktree_task(_resolved(spelled, top, command), cwd, base) or task
         if own not in out:
             out.append(own)
+    if command and task not in out and (
+            not paths or len(SHELL_WRITE.findall(mask(command))) != 1):
+        out.append(task)
     return out or [task]
 
 
@@ -1491,11 +1510,15 @@ def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
     task = _task(cwd, base, task)
     if not task:
         return None
+    # read against the main checkout, which keeps the records, so a session in
+    # a plan worktree meets the same rule; without case, since a
+    # case-insensitive filesystem opens `.TEZGAH/...` as the record
+    record = (tezgah_task.main_relative(task["path"], cwd, base) or "").casefold()
     root = tezgah_task.repo_root(cwd, base)
-    record = os.path.relpath(task["path"], root).replace(os.sep, "/")
+    main = linked_main(root) or root
     for path in write_paths(inp):
-        rel = tezgah_task.relative(path, cwd, base)
-        if rel == record or tezgah_task.phased_record(root, rel):
+        rel = tezgah_task.main_relative(path, cwd, base)
+        if rel and (rel.casefold() == record or tezgah_task.phased_record(main, rel)):
             return TASK_RECORD_DENY % path
     return None
 
@@ -1540,7 +1563,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is not None and workspace_free(rel, inp):
             continue
-        own = tezgah_task.worktree_task(path, cwd, base) if rel is not None else None
+        own = _worktree_task(path, cwd, base) if rel is not None else None
         project.append((spelled, path, rel, own or task))
     if paths and not project:
         return None
@@ -1658,7 +1681,8 @@ def _pending_checkpoint(task, root):
         return None
     if listed.returncode != 0 or not listed.stdout.strip():
         return None
-    return CHECKPOINT_DENY % (task["id"], tezgah_task.checkpoint_command(task["path"]))
+    return CHECKPOINT_DENY % (task["id"], tezgah_task.checkpoint_command(
+        task["path"], task.get("worktree")))
 
 
 # --- workspace: per-project tezgah state lives under <repo>/.tezgah only ------
@@ -3205,6 +3229,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
         # `.tezgah/plans/open/` and parses a plan, and this path is every write of
         # every session. Reads and non-write tools pay nothing.
         task = _UNRESOLVED
+        _WORKTREE_TASKS.clear()
         if tezgah_task is not None and t in WRITE_TOOLS + BASH_TOOLS:
             task = tezgah_task.active(cwd, base)
         if writes:
