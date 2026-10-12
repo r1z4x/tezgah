@@ -1185,40 +1185,76 @@ def _in_order(routes, kids):
     return [stem for _ts, stem in kids]
 
 
-def _join(routes, kids, spawned_as):
-    """[child stem or None] per route. A child's type is what its parent's task
-    call recorded for its name (`spawn` rows, omp), else its own `agent` (the
-    type itself on opencode). With every child typed, each route agent's routes
-    join that agent's children by `_in_order`, and a child of an unrouted type
-    is left out; with any child untyped, order over all of them is the only
-    evidence. Whatever is not proven stays None (`unjoined`)."""
-    typed = [(ts, stem, spawned_as.get(agent, agent)) for ts, stem, agent in kids]
-    if any(kind is None for _ts, _stem, kind in typed):
-        stems = _in_order(routes, [(ts, stem) for ts, stem, _k in typed])
-        return stems or [None] * len(routes)
-    out = [None] * len(routes)
+# How far apart, in seconds, two children of one task call start: an omp call
+# of 11 workers opened their ledgers over 2 seconds (ledger 01a12277). A second
+# task call within that gap would read as part of the first - ponytail: a model
+# turn between two calls takes longer than this.
+FAN_OUT_GAP = 2
+
+
+def _fan_out(kids):
+    """The children of the first task call in sorted [(ts, key)]: each started
+    within FAN_OUT_GAP of the one before."""
+    out = kids[:1]
+    for kid in kids[1:]:
+        if kid[0] - out[-1][0] > FAN_OUT_GAP:
+            break
+        out.append(kid)
+    return out
+
+
+def _join(routes, kids):
+    """[[child key]] per route, [] where unjoined; `kids` is [(ts, key, type)],
+    type None when no row typed the child.
+
+    With no child typed, order over all of them is the only evidence
+    (`_in_order`). Otherwise each route agent's routes join that agent's
+    children: a route owns the first fan-out of its type after it and before
+    the next route of its type - later same-type spawns are ones no route sent.
+    It owns nothing when the route before it of its type had no worker yet
+    (both routes' workers may be in this one fan-out), or when an untyped child
+    started inside its span (that child could be its worker). A child of an
+    unrouted type is left out. Whatever is not proven stays unjoined."""
+    if kids and all(kind is None for _ts, _key, kind in kids):
+        keys = _in_order(routes, [(ts, key) for ts, key, _k in kids])
+        return [[key] for key in keys] if keys else [[] for _r in routes]
+    out = [[] for _r in routes]
+    untyped = [ts for ts, _key, kind in kids if kind is None]
     for agent in {fields.get("agent") for _ts, fields in routes}:
         mine = [i for i, (_ts, fields) in enumerate(routes) if fields.get("agent") == agent]
-        stems = _in_order([routes[i] for i in mine],
-                          [(ts, stem) for ts, stem, kind in typed if kind == agent])
-        for i, stem in zip(mine, stems or []):
-            out[i] = stem
+        theirs = sorted((ts, key) for ts, key, kind in kids if kind == agent)
+        for n, i in enumerate(mine):
+            start = routes[i][0]
+            end = routes[mine[n + 1]][0] if n + 1 < len(mine) else float("inf")
+            if n and not any(routes[mine[n - 1]][0] <= ts < start for ts, _key in theirs):
+                continue
+            batch = _fan_out([kid for kid in theirs if start <= kid[0] < end])
+            if batch and not any(start <= ts <= batch[-1][0] for ts in untyped):
+                out[i] = [key for _ts, key in batch]
     return out
+
+
+# A fan-out's outcome is its most telling first check: one failed worker fails
+# the route, so a fan-out never hides a failure behind a sibling's pass.
+OUTCOME_ORDER = ("fail", "pass", "ran", "none")
 
 
 def route_report(ledgers):
     """({(via, tier): counts}, counts for Jev routes below the static tier) over
     {ledger stem: rows}.
 
-    A routed worker runs in its own session, so its checks are in its own ledger,
-    whose `spawned` row names the parent session the route row was written under.
-    A route joins the child `_join` can prove is its worker, and the outcome is
-    that child's first check (`pass`, `fail`, `ran`, `none`). A route it cannot
-    prove - an unrouted spawn, a tie, a host that writes no `spawned` row - is
-    `unjoined`: the parent's own next check is never taken for the worker's, and
-    neither is a guess. The second count is the V2-as-default question: Jev
-    picking under the static table's tier, and how often that first attempt
-    failed (docs/models.md)."""
+    A routed worker on omp and opencode runs in its own session, so its checks
+    are in its own ledger, whose `spawned` row names the parent session the
+    route row was written under. On Claude and Codex it runs under its parent's
+    session id: its rows are in the parent's ledger with `agent` = its id, and
+    the `subagent_start` row (SubagentStart's agent_id, agent_type in `detail`)
+    types it. A route joins the children `_join` can prove are its workers, and
+    the outcome is their first check (`pass`, `fail`, `ran`, `none`; over a
+    fan-out, OUTCOME_ORDER's first). A route it cannot prove - an unrouted
+    spawn, a tie, a host that writes no child row - is `unjoined`: the parent's
+    own next check is never taken for the worker's, and neither is a guess. The
+    second count is the V2-as-default question: Jev picking under the static
+    table's tier, and how often that first attempt failed (docs/models.md)."""
     def counts():
         return {"routes": 0, "pass": 0, "fail": 0, "ran": 0, "none": 0, "unjoined": 0}
     def spawn_rows(rows):
@@ -1240,15 +1276,24 @@ def route_report(ledgers):
         # orchestrator shares the parent's TEZGAH_SESSION, so its worker names
         # that parent while the row typing the worker is in the orchestrator's
         # ledger. Another session's task names never type this one's children.
-        # A name two calls typed differently is untyped (None): order decides.
+        # A name two calls typed differently is untyped (None).
         spawned_as = {}
         for r in spawn_rows(rows) + [r for _ts, kid, _a in children.get(stem, [])
                                      for r in spawn_rows(ledgers[kid])]:
             if spawned_as.setdefault(r["child"], r["agent"]) != r["agent"]:
                 spawned_as[r["child"]] = None
-        for (_ts, fields), kid in zip(routes, _join(routes, children.get(stem, []),
-                                                    spawned_as)):
-            outcome = _outcome(ledgers[kid]) if kid else "unjoined"
+        # a child key is (ledger stem, agent id): "" for a whole ledger
+        kids = [(ts, (kid, ""), spawned_as.get(name, name))
+                for ts, kid, name in children.get(stem, [])]
+        kids += [(r.get("ts") or 0, (stem, r["agent"]), r.get("detail") or None)
+                 for r in rows if r.get("kind") == "subagent_start"
+                 and isinstance(r.get("agent"), str) and r["agent"]]
+        for (_ts, fields), keys in zip(routes, _join(routes, kids)):
+            got = {_outcome(ledgers[kid] if not agent else
+                            [r for r in ledgers[kid] if r.get("agent") == agent
+                             and r.get("kind") != "subagent_start"])
+                   for kid, agent in keys}
+            outcome = next((o for o in OUTCOME_ORDER if o in got), "unjoined")
             bins = [groups.setdefault((fields["via"], fields["tier"]), counts())]
             static = fields.get("static")
             if fields["via"] == "jev" and static in TIERS and \

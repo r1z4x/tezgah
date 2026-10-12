@@ -1258,6 +1258,72 @@ class RouteReport(unittest.TestCase):
                 got = tm.route_report(ledgers)[0][("jev", "cheap")]
                 self.assertEqual(got["unjoined"], got["routes"], got)
 
+    def test_one_route_owns_the_fan_out_its_task_call_started(self):
+        # omp ledger 01a12277: one route, one task call of several workers of its
+        # type, then later same-type spawns no route sent. The route owns the
+        # first fan-out after it; a failed first check anywhere in it shows.
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=100),
+                       self.spawn("A", "tezgah-cheap"), self.spawn("B", "tezgah-cheap"),
+                       self.spawn("C", "tezgah-cheap"), self.spawn("Later", "tezgah-cheap")],
+                   "a": self.child("p", 110, self.OK, agent="A"),
+                   "b": self.child("p", 111, self.FAIL, agent="B"),
+                   "c": self.child("p", 112, self.EMPTY, agent="C"),
+                   "later": self.child("p", 4000, self.OK, agent="Later")}
+        self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")], self.counts(fail=1))
+
+    def test_typed_children_join_beside_an_untyped_one(self):
+        # a child no task call typed must not cost the typed routes their join
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=100),
+                       self.route("frontier", "jev", ts=101),
+                       self.spawn("Fix", "tezgah-cheap"), self.spawn("Plan", "tezgah-frontier")],
+                   "fix": self.child("p", 102, self.OK, agent="Fix"),
+                   "plan": self.child("p", 102, self.FAIL, agent="Plan"),
+                   "odd": self.child("p", 3000, self.OK)}  # untyped, long after
+        groups = tm.route_report(ledgers)[0]
+        self.assertEqual(groups[("jev", "cheap")], self.counts(**{"pass": 1}))
+        self.assertEqual(groups[("jev", "frontier")], self.counts(fail=1))
+
+    def test_an_untyped_child_inside_a_route_s_span_keeps_it_unjoined(self):
+        # the untyped child could be the routed worker: no guess
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=100), self.spawn("Fix", "tezgah-cheap")],
+                   "odd": self.child("p", 101, self.OK),
+                   "fix": self.child("p", 102, self.FAIL, agent="Fix")}
+        self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")],
+                         self.counts(unjoined=1))
+
+    def test_routes_before_one_fan_out_of_their_type_stay_unjoined(self):
+        # omp ledger 01a126ae: two standard routes, then one task call of two
+        # standard workers in distinct seconds - which worker is whose is unknown
+        p = ti._slug("p")
+        ledgers = {p: [self.route("standard", "jev", ts=100),
+                       self.route("standard", "jev", ts=101),
+                       self.spawn("A", "tezgah-standard"), self.spawn("B", "tezgah-standard")],
+                   "a": self.child("p", 110, self.OK, agent="A"),
+                   "b": self.child("p", 111, self.FAIL, agent="B")}
+        self.assertEqual(tm.route_report(ledgers)[0][("jev", "standard")],
+                         dict(self.counts(unjoined=2), routes=2))
+
+    def test_claude_and_codex_children_join_inside_the_parent_s_ledger(self):
+        # Claude and Codex run a subagent under its parent's session id: its rows
+        # land in the parent's ledger with `agent` = its id, and the
+        # `subagent_start` row (SubagentStart's agent_id, agent_type) types it.
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=100),
+                       self.route("frontier", "jev", ts=101),
+                       dict(self.OK, ts=101),  # the parent's own check
+                       {"kind": "subagent_start", "ts": 102, "agent": "a1",
+                        "detail": "tezgah-cheap"},
+                       {"kind": "subagent_start", "ts": 102, "agent": "a2",
+                        "detail": "tezgah-frontier"},
+                       dict(self.FAIL, ts=103, agent="a1"),
+                       {"kind": "edit", "ts": 103, "agent": "a2"}]}
+        groups = tm.route_report(ledgers)[0]
+        self.assertEqual(groups[("jev", "cheap")], self.counts(fail=1))
+        self.assertEqual(groups[("jev", "frontier")], self.counts(none=1))
+
     def test_a_row_another_writer_left_is_not_a_route(self):
         groups, below = tm.route_report({"p": [{"kind": "route", "detail": "garbage"},
                                                {"kind": "judge",
