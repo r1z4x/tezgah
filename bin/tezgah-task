@@ -1522,16 +1522,39 @@ def main(argv):
                   "close, tick, note, spike, slice)" % cmd)
 
 
+class ReaderMayLeave:
+    """sys.stdout for a reader that may leave early (`tezgah-task stop | head
+    -1`): a write or flush that meets the closed pipe points fd 1 at devnull
+    and carries on, so main always finishes its work and returns its own code,
+    buffered or not (PYTHONUNBUFFERED=1 meets the pipe at every print). A
+    wrapper rather than SIGPIPE's default, which kills the process by signal
+    (status 141) mid-write."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+    def _gone(self):
+        os.dup2(os.open(os.devnull, os.O_WRONLY), self._stream.fileno())
+
+    def write(self, text):
+        try:
+            return self._stream.write(text)
+        except BrokenPipeError:
+            self._gone()
+            return len(text)
+
+    def flush(self):
+        try:
+            self._stream.flush()
+        except BrokenPipeError:
+            self._gone()
+
+
 if __name__ == "__main__":
-    # A reader that leaves early (`tezgah-task stop | head -1`) costs the
-    # output, never the exit: a pipe closed at the final flush keeps main's
-    # code, one closed mid-run (main never returned) exits 1. A handler rather
-    # than SIGPIPE's default, which would kill the process by signal (status
-    # 141). stdout goes to devnull so the interpreter's own flush is quiet.
-    code = 1
-    try:
-        code = main(sys.argv)
-        sys.stdout.flush()
-    except BrokenPipeError:
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    sys.stdout = ReaderMayLeave(sys.stdout)
+    code = main(sys.argv)
+    sys.stdout.flush()  # here, not in the interpreter's exit flush, which would print the EPIPE
     sys.exit(code)

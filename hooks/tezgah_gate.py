@@ -1484,41 +1484,40 @@ def _worktree_task(path, cwd, base):
 
 # Files under no repository that the task rule still holds: an agent definition,
 # an instruction file or a shell rc steers every later session, so it is never
-# the repository-free work `_no_repo` exempts. Globs relative to HOME.
-HOME_HELD = (".claude/agents/**", ".claude/CLAUDE.md", ".omp/agent/**",
-             ".codex/AGENTS.md", ".cursor/**", ".zshrc", ".zprofile", ".bashrc",
-             ".bash_profile", ".profile")
+# the repository-free work `_no_repo` exempts. Globs relative to HOME, matched
+# without case (a case-insensitive filesystem opens `~/.ZSHRC` as `~/.zshrc`).
+HOME_HELD = (".claude/agents/**", ".claude/hooks/**", ".claude/commands/**",
+             ".claude/skills/**", ".claude/CLAUDE.md", ".omp/agent/**",
+             ".codex/AGENTS.md", ".codex/prompts/**", ".cursor/**",
+             ".config/opencode/**", ".zshrc", ".zshenv", ".zprofile", ".zlogin",
+             ".bashrc", ".bash_profile", ".bash_login", ".profile")
 # A line that makes a link: a path under no checkout may point into one by the
 # time the write runs (`ln -s <repo>/hooks ~/l && echo x > ~/l/a.py`).
 LINK_MAKER = re.compile(
     r"(?<![\w-])(?:ln|link|install)\s|"
     r"(?<![\w-])cp\s[^;&|\n]*?(?:\s-[A-Za-z]*[sl]|\s--(?:symbolic-)?link\b)")
-# A directory move `_shell_dir` does not follow: a subshell or substitution, an
-# interpreter or `eval`, `popd`, `cd -`.
-UNTRACKED_MOVE = re.compile(
-    r"[(`]|(?<![\w-])(?:bash|sh|zsh|dash|ksh|eval|exec|source|popd)\b|"
-    r"(?<![\w-])cd\s+-(?:\s|$)")
+# A line that moves the directory, however spelled (`builtin cd`, `X=1 cd`,
+# `(cd x; ...)`), or reads it back (`$PWD`, quoted or not): where its targets
+# land is not read.
+DIR_MOVE = re.compile(r"(?<![\w-])(?:cd|pushd|popd)\b")
+PWD_READ = re.compile(r"\$\{?(?:OLD)?PWD\b")
 
 
-def _no_repo(path, inp, cwd, command, count):
+def _no_repo(path, inp, cwd, command):
     """True when the write target `path` is no repository's work, so the task
     rules leave it to the rules every write meets (plan 094: the user's
     `~/.config/runpod/key` was refused as outside the repository).
 
-    Every doubt holds it: a relative target is read where the line's `cd`/
-    `pushd` moved (`_shell_dir`), and held when the line moves in a way that is
-    not followed or holds more than one target; a line that makes a link, a
-    parent directory that does not exist yet and a file with a second hard link
-    are held, as is HOME_HELD. Then a target under a git checkout or a
-    configured root is some repository's."""
+    Every doubt holds it: a line that moves the directory or makes a link, a
+    parent directory that does not exist yet, a file with a second hard link
+    and HOME_HELD. Then a target under a git checkout or a configured root is
+    some repository's; a relative one is read in the call's own directory."""
     masked = mask(command) if command else ""
-    if LINK_MAKER.search(masked):
+    if (DIR_MOVE.search(masked) or PWD_READ.search(command or "")
+            or LINK_MAKER.search(masked)):
         return False
     path = os.path.expanduser(path)
     if not os.path.isabs(path):
-        if command and (UNTRACKED_MOVE.search(masked) or (
-                count != 1 and re.search(r"(?<![\w-])(?:cd|pushd)\b", masked))):
-            return False
         path = os.path.join(_shell_dir(inp, cwd) if command else cwd or "", path)
     path = os.path.normpath(path)
     real = os.path.realpath(path)
@@ -1531,8 +1530,9 @@ def _no_repo(path, inp, cwd, command, count):
         return False
     home = os.path.expanduser("~")
     for p, h in ((path, home), (real, os.path.realpath(home))):
-        rel = os.path.relpath(p, h).replace(os.sep, "/")
-        if not rel.startswith("../") and any(tezgah_task.match(rel, g) for g in HOME_HELD):
+        rel = os.path.relpath(p, h).replace(os.sep, "/").casefold()
+        if not rel.startswith("../") and any(
+                tezgah_task.match(rel, g.casefold()) for g in HOME_HELD):
             return False
     return True
 
@@ -1564,7 +1564,7 @@ def _owners(inp, cwd, base, task):
     out = []
     for spelled in paths:
         path = _resolved(spelled, top, command)
-        if _no_repo(path, inp, cwd, command, len(paths)):
+        if _no_repo(path, inp, cwd, command):
             continue
         own = _worktree_task(path, cwd, base) or task
         if own not in out:
@@ -1670,7 +1670,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             continue
         path = _resolved(spelled, top, command)
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
-        if rel is None and _no_repo(path, inp, cwd, command, len(paths)):
+        if rel is None and _no_repo(path, inp, cwd, command):
             continue
         if rel is not None and workspace_free(
                 rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):

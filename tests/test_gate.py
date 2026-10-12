@@ -2113,9 +2113,10 @@ class TaskGate(TempHome):
         os.makedirs(os.path.dirname(key))
         for phase in ("implementation", "discovery"):
             self.plan(phase=phase)
+            # from the repo, and with the call's own cwd at `~` (a `cd` on the
+            # line holds the target, see the next test)
             for inp in ({"command": "printf x > ~/.config/x/key"},
-                        {"command": "cd ~ && printf x > ~/.config/x/key",
-                         "cwd": self.home}):
+                        {"command": "printf x > ~/.config/x/key", "cwd": self.home}):
                 self.assertIsNone(self.decide(inp, tool="Bash"), (phase, inp))
             self.assertIsNone(self.write_path(key), phase)
         # a repo path outside the allowlist is still the plan's to hold
