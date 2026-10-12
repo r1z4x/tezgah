@@ -441,19 +441,23 @@ class Generation(AgentsBase):
                       "pass/fail/skip counts", "the first failure verbatim"):
             self.assertIn(field, tester, field)
         for name in ("docs", "security", "ui", "researcher", "reviewer"):
-            self.assertNotIn("Output to orchestrator", claude["tezgah-%s.md" % name], name)
+            flat = " ".join(claude["tezgah-%s.md" % name].split())
+            self.assertNotIn("Output to orchestrator", flat, name)
         orch = " ".join(claude["tezgah-orchestrator.md"].split())
         self.assertIn("one narrower re-brief of the same role", orch)
         self.assertIn("only a second miss is restarted on tezgah-frontier", orch)
 
     def test_every_copy_of_the_routing_rule_has_the_recall_hop(self):
-        # five hand-kept copies; a merge that reverts one passes every other test
+        # six hand-kept copies; a merge that reverts one passes every other test
         import tezgah_policy
         with open(os.path.join(support.REPO, "skills", "tezgah-contract", "SKILL.md"),
                   encoding="utf-8") as fh:
             skill = fh.read()
         with open(os.path.join(support.REPO, "docs", "models.md"), encoding="utf-8") as fh:
             models = fh.read()
+        with open(os.path.join(support.REPO, "bin", "tezgah-route"), encoding="utf-8") as fh:
+            source = fh.read()
+        docstring = source.split('"""', 2)[1]
         route = subprocess.run(
             [sys.executable, os.path.join(support.REPO, "bin", "tezgah-route"), "--help"],
             capture_output=True, text=True, env=self.env())
@@ -461,7 +465,8 @@ class Generation(AgentsBase):
         # argparse wraps the epilog at hyphens ("re-" / "brief"), so join those back
         helptext = re.sub(r"-\n(?=\w)", "-", route.stdout)
         for where, text in (("ORCHESTRATE", tezgah_policy.ORCHESTRATE), ("SKILL.md", skill),
-                            ("tezgah-route --help", helptext), ("models.md", models)):
+                            ("tezgah-route --help", helptext), ("models.md", models),
+                            ("tezgah-route docstring", re.sub(r"-\n(?=\w)", "-", docstring))):
             flat = " ".join(text.split())
             self.assertIn("one narrower re-brief of the same role", flat, where)
             self.assertIn("only a second miss", flat, where)
