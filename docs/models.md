@@ -25,8 +25,11 @@ generated in every tezgah root because routing needs no capability (`ROLES`,
 `tezgah-researcher` (`hooks/tezgah_agents.py::SPECIALISTS`). A specialist's
 description names its slot from `AGENT_SLOT`. The tier a host shows and the
 model line it runs therefore cannot disagree, and `tezgah-agents --list` prints
-both. A cheaper worker that meets work above its tier
-answers `ESCALATE: <why>`, and the router restarts the task on `tezgah-frontier`
+both. A cheaper worker that meets work above its tier answers `ESCALATE: <why>`,
+and a report missing an `Output to orchestrator` field
+(`hooks/tezgah_agents.py::WORKER_OUTPUT`) counts the same: the router sends one
+narrower re-brief of the same role naming that
+field or judgement, and only a second miss restarts the task on `tezgah-frontier`
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured
 (arXiv 2608.24358, Table 1: 1.61 cost units against 0.72 for frontier-only).

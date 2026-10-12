@@ -419,6 +419,43 @@ class Generation(AgentsBase):
             body = " ".join(claude["tezgah-%s.md" % tier].split())
             self.assertIn("Never widen or narrow the brief's scope", body, tier)
 
+    def omp(self):
+        out, proc = run_json([support.PROBE_AGENTS], {"fn": "omp", "root": self.repo},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_role_with_a_reader_names_its_output_fields_and_no_other_does(self):
+        # the orchestrator re-briefs a report missing a field, so the fields
+        # must be in the brief it re-reads; a role nobody reads gets none
+        claude = self.user("claude")
+        for tier in ("cheap", "standard", "frontier"):
+            body = " ".join(claude["tezgah-%s.md" % tier].split())
+            self.assertIn("Output to orchestrator", body, tier)
+            for field in ("- changed:", "- commit: the sha", "exit code",
+                          "verbatim output tail", "- escalate: the `ESCALATE:` reason"):
+                self.assertIn(field, body, (tier, field))
+        tester = " ".join(claude["tezgah-tester.md"].split())
+        for field in ("Output to orchestrator", "its command",
+                      "pass/fail/skip counts", "the first failure verbatim"):
+            self.assertIn(field, tester, field)
+        for name in ("docs", "security", "ui", "researcher", "reviewer"):
+            self.assertNotIn("Output to orchestrator", claude["tezgah-%s.md" % name], name)
+        orch = " ".join(claude["tezgah-orchestrator.md"].split())
+        self.assertIn("one narrower re-brief of the same role", orch)
+        self.assertIn("only a second miss is restarted on tezgah-frontier", orch)
+
+    def test_the_output_contract_is_one_body_on_every_host(self):
+        self.sync()
+        omp, claude = self.omp(), self.user("claude")
+        for role in ("tezgah-standard", "tezgah-tester"):
+            name = role + ".md"
+            bodies = {host: text.split("\n---\n", 1)[1] for host, text in (
+                ("claude", claude[name]), ("cursor", self.read(CURSOR, name)),
+                ("opencode", self.read(OPENCODE, name)), ("omp", omp[name]))}
+            self.assertEqual(len(set(bodies.values())), 1, (role, bodies))
+            self.assertIn("Output to orchestrator", bodies["omp"], role)
+
     def test_cursor_gets_a_render_its_line_parser_reads(self):
         # cursor-agent splits each frontmatter line at its first ':' (no YAML):
         # a folded `description: >` read as ">", `model: opus` went through as

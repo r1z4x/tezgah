@@ -36,8 +36,9 @@ order only where no spawn could be swapped - and counts a route it cannot prove
 as `unjoined`. That outcome is what the V2-as-default
 decision waits for (docs/models.md).
 
-A worker that answers `ESCALATE:` is restarted on tezgah-frontier with the same
-brief; its trajectory is not continued. Exit codes: 0 routed / current, 1 the
+A report missing an output field, or an `ESCALATE:`, gets one narrower re-brief
+of the same role naming that field or judgement; only a second miss is restarted
+on tezgah-frontier with the original brief, never continued. Exit codes: 0 routed / current, 1 the
 table is stale or flagged (`--check`) or the refresh failed, 2 misuse.
 """
 import argparse
@@ -58,8 +59,10 @@ def main(argv):
     parser = argparse.ArgumentParser(
         prog="tezgah-route",
         description="Name the tier worker a delegated task goes to, and keep the model table.",
-        epilog="A worker that answers `ESCALATE:` is restarted on tezgah-frontier with "
-               "the same brief; its trajectory is not continued.")
+        epilog="A report missing an output field, or an `ESCALATE:`, gets one "
+               "narrower re-brief of the same role naming that field or judgement; "
+               "only a second miss is restarted on tezgah-frontier with the original "
+               "brief, never continued.")
     parser.add_argument("brief", nargs="*", help="the delegation brief, in English")
     parser.add_argument("--phase", choices=sorted(tm.PHASE_TIER),
                         help="the static table's row when no judgement is available")
@@ -154,6 +157,9 @@ def main(argv):
     ask = tezgah_judge.ask if tezgah_judge.available() else None
     out = tm.route(brief, args.phase, ask)
     judged = out.pop("judged")
+    # omp, opencode and Claude (CLAUDE_ENV_FILE) export TEZGAH_SESSION; a Codex
+    # shell carries CODEX_THREAD_ID, the root thread its hooks' session_id names
+    session = os.environ.get("TEZGAH_SESSION") or os.environ.get("CODEX_THREAD_ID")
     if judged:
         usage = judged.get("usage")
         usage = usage if isinstance(usage, dict) else {}
@@ -161,8 +167,7 @@ def main(argv):
             judged.get("model", tezgah_judge.MODEL), out["tier"],
             usage.get("input_tokens"), usage.get("output_tokens"),
             judged.get("latency_ms"))
-        ti.note(os.environ.get("TEZGAH_SESSION"), "judge", detail)
-    session = os.environ.get("TEZGAH_SESSION")
+        ti.note(session, "judge", detail)
     if session:  # the omp read in worker_model costs a process; skip it with no ledger
         ti.note(session, "route", tm.route_detail(out, args.phase,
                                                   *tm.worker_model(out["agent"])))
