@@ -1482,6 +1482,15 @@ def _worktree_task(path, cwd, base):
     return _WORKTREE_TASKS[key]
 
 
+def _write_targets(inp, command):
+    """The targets the task rules read: for a shell line that writes, every
+    redirect and `tee` target (`shell_targets`, expanded as `write_paths`
+    expands its one), else write_paths."""
+    if command and SHELL_WRITE.search(mask(command)):
+        return [os.path.expanduser(_expand(t, command)) for t in shell_targets(command)]
+    return write_paths(inp)
+
+
 def _owners(inp, cwd, base, task):
     """The records this call's write targets are held to, each once: plan NNN's
     for a target in a sibling worktree on a `plan/NNN-...` branch
@@ -1495,10 +1504,7 @@ def _owners(inp, cwd, base, task):
     write shapes than targets read."""
     top = tezgah_task.repo_root(cwd, base) if cwd else None
     command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
-    if command:
-        paths = [os.path.expanduser(_expand(t, command)) for t in shell_targets(command)]
-    else:
-        paths = write_paths(inp)
+    paths = _write_targets(inp, command)
     out = []
     for spelled in paths:
         own = _worktree_task(_resolved(spelled, top, command), cwd, base) or task
@@ -1593,10 +1599,12 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     # task_record_reason's, refused before this rule runs. A call whose every
     # target is one of those writes no project file, so the phase does not
     # refuse it either; a call with no target at all still meets the phase.
-    paths = write_paths(inp)
+    # A shell line is read target by target: each redirect and `tee` target
+    # meets the allowlist of the record it lands under.
+    command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
+    paths = _write_targets(inp, command)
     project = []
     top = tezgah_task.repo_root(cwd, base) if cwd else None
-    command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
     for spelled in paths:
         if unnamed_target(spelled, inp, top):
             continue
