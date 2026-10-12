@@ -2327,22 +2327,74 @@ class TaskGate(TempHome):
         self.plan(phase="implementation", allowed=("**",))
         self.assertIsNotNone(self.write_path("~/outside.py"))
 
-    def sibling(self, name="proj-slice", back=True):
+    def sibling(self, name="proj-slice", back=True, branch=None):
         """A linked worktree of self.repo, written the way git writes one; with
         `back` False the admin directory does not point back at it (a planted
-        `.git` file)."""
+        `.git` file), and a `branch` is the one its HEAD checks out."""
         os.makedirs(os.path.join(self.repo, ".git"), exist_ok=True)
         admin = os.path.join(self.repo, ".git", "worktrees", name)
         os.makedirs(admin)
         top = os.path.join(os.path.dirname(self.repo), name)
         os.makedirs(top)
-        for path, text in ((os.path.join(admin, "commondir"), "../..\n"),
-                           (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
-                           (os.path.join(admin, "gitdir"),
-                            os.path.join(top if back else self.home, ".git") + "\n")):
+        files = [(os.path.join(admin, "commondir"), "../..\n"),
+                 (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
+                 (os.path.join(admin, "gitdir"),
+                  os.path.join(top if back else self.home, ".git") + "\n")]
+        if branch:
+            files.append((os.path.join(admin, "HEAD"), "ref: refs/heads/%s\n" % branch))
+        for path, text in files:
             with open(path, "w") as fh:
                 fh.write(text)
         return top
+
+    def two_plan_worktrees(self):
+        """Plans 017 (hooks/**) and 018 (docs/**) both in implementation, each
+        with a worktree on its plan branch: the parallel run plan 093 opens."""
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        return (self.sibling("proj-017", branch="plan/017-gate-rule"),
+                self.sibling("proj-018", branch="plan/018-other"))
+
+    def test_each_plan_worktree_is_held_to_its_own_plan(self):
+        one, two = self.two_plan_worktrees()
+        for cwd in (self.repo, one, two):
+            self.assertIsNone(self.decide({"file_path": os.path.join(one, "hooks", "a.py")},
+                                          cwd=cwd), cwd)
+            self.assertIsNone(self.decide({"file_path": os.path.join(two, "docs", "a.md")},
+                                          cwd=cwd), cwd)
+            reason = self.decide({"file_path": os.path.join(one, "docs", "a.md")}, cwd=cwd)
+            self.assertIn("task 017", reason)
+            reason = self.decide({"file_path": os.path.join(two, "hooks", "a.py")}, cwd=cwd)
+            self.assertIn("task 018", reason)
+        # the main checkout keeps today's reading: the first plan with a phase
+        self.assertIsNone(self.write_path(os.path.join(self.repo, "hooks", "a.py")))
+        self.assertIsNotNone(self.write_path(os.path.join(self.repo, "docs", "a.md")))
+
+    def test_a_plan_worktree_on_a_reading_phase_refuses_its_own_writes(self):
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="discovery", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        reason = self.write_path(os.path.join(two, "docs", "a.md"))
+        self.assertIn("018", reason)
+        self.assertIn("discovery", reason)
+
+    def test_a_worktree_with_no_plan_mapping_keeps_the_main_record(self):
+        # fail safe: a non-plan branch, or a plan with no phase, answers the
+        # main checkout's active plan as before
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(allowed=("docs/**",), name="018-other.md", task_id="018")
+        for name, branch in (("proj-f", "feature"), ("proj-018", "plan/018-other")):
+            wt = self.sibling(name, branch=branch)
+            self.assertIsNone(self.write_path(os.path.join(wt, "hooks", "a.py")))
+            self.assertIn("task 017", self.write_path(os.path.join(wt, "docs", "a.md")))
+
+    def test_every_phased_record_is_refused_not_only_the_first(self):
+        self.two_plan_worktrees()
+        for name in ("017-gate-rule.md", "018-other.md"):
+            reason = self.write_path(os.path.join(self.repo, ".tezgah", "plans", "open", name))
+            self.assertIsNotNone(reason, name)
 
     def test_the_allowlist_reads_a_linked_worktree_of_the_same_repository(self):
         # every writing slice gets its own worktree, so hooks/a.py there is in

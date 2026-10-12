@@ -267,20 +267,58 @@ class Record(unittest.TestCase):
         os.symlink(outside, link)
         self.assertIsNone(tt.relative(link, self.repo, self.base))
 
-    def linked_worktree(self, main, name):
+    def linked_worktree(self, main, name, branch=None):
         """A linked worktree of `main` the way git writes one: `<wt>/.git` is a
         `gitdir:` pointer into `<main>/.git/worktrees/<name>`, which holds
-        `commondir`."""
+        `commondir` and, given a `branch`, the `HEAD` that checks it out."""
         admin = os.path.join(main, ".git", "worktrees", name)
         os.makedirs(admin)
         top = os.path.join(self.base, name)
         os.makedirs(os.path.join(top, "hooks"))
-        for path, text in ((os.path.join(admin, "commondir"), "../..\n"),
-                           (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
-                           (os.path.join(admin, "gitdir"), os.path.join(top, ".git") + "\n")):
+        files = [(os.path.join(admin, "commondir"), "../..\n"),
+                 (os.path.join(top, ".git"), "gitdir: %s\n" % admin),
+                 (os.path.join(admin, "gitdir"), os.path.join(top, ".git") + "\n")]
+        if branch:
+            files.append((os.path.join(admin, "HEAD"), "ref: refs/heads/%s\n" % branch))
+        for path, text in files:
             with open(path, "w") as fh:
                 fh.write(text)
         return top
+
+    def test_a_plan_worktree_is_held_to_its_own_plan_by_branch(self):
+        # two plans run at once, each in a worktree on its plan/NNN branch: the
+        # main checkout keeps the first phased plan, each worktree its own
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.plan("001-first.md", plan_text("001", phase="implementation",
+                                            allowed=["hooks/**"]))
+        self.plan("002-second.md", plan_text("002", phase="implementation",
+                                             allowed=["docs/**"]))
+        one = self.linked_worktree(self.repo, "repo-001", branch="plan/001-first")
+        two = self.linked_worktree(self.repo, "repo-002", branch="plan/002-second")
+        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+        self.assertEqual(tt.active(one, self.base)["id"], "001")
+        task = tt.active(two, self.base)
+        self.assertEqual((task["id"], task["allowed_paths"]), ("002", ["docs/**"]))
+        self.assertEqual(task["path"], os.path.join(self.open, "002-second.md"))
+        # a write from the main checkout into a plan worktree answers that plan
+        self.assertEqual(tt.worktree_task(os.path.join(two, "docs", "a.md"),
+                                          self.repo, self.base)["id"], "002")
+        self.assertIsNone(tt.worktree_task(os.path.join(self.repo, "docs", "a.md"),
+                                           self.repo, self.base))
+
+    def test_an_unknown_branch_mapping_keeps_the_checkouts_own_reading(self):
+        # fail safe: another branch, a plan with no phase, or a detached HEAD
+        # maps to no plan, and the worktree reads as it did before
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.plan("001-first.md", plan_text("001", phase="implementation",
+                                            allowed=["hooks/**"]))
+        self.plan("003-third.md", plan_text("003"))
+        for name, branch in (("repo-f", "feature"), ("repo-3", "plan/003-third"),
+                             ("repo-9", "plan/009-missing"), ("repo-d", None)):
+            wt = self.linked_worktree(self.repo, name, branch=branch)
+            self.assertIsNone(tt.active(wt, self.base), name)
+            self.assertIsNone(tt.worktree_task(os.path.join(wt, "hooks", "a.py"),
+                                               self.repo, self.base), name)
 
     def test_relative_reads_a_linked_worktree_of_the_same_repository(self):
         # the contract gives every writing slice its own worktree; an allowlist
@@ -728,6 +766,49 @@ class Cli(TempHome):
         self.assertEqual(self.status()["phase"], "discovery")
         tt.set_fields(path, spike_recorded=".tezgah/research/spike.md")
         self.assertEqual(self.task("phase", "implementation").returncode, 0)
+
+    def test_spike_records_the_answer_through_the_cli(self):
+        # the record's only writer answers the spike too: on the active plan and
+        # on one that is not active, and the implementation phase then opens
+        path = self.plan("001-first.md", allowed=["hooks/**"], spike="does it scale")
+        other = self.plan("002-second.md", allowed=["docs/**"], spike="which store")
+        self.assertEqual(self.task("start", "001", "--phase", "discovery").returncode, 0)
+        proc = self.task("spike", "001", "it scales: .tezgah/research/spike.md")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(tt.frontmatter(read(path))["spike_recorded"],
+                         "it scales: .tezgah/research/spike.md")
+        self.assertEqual(self.task("phase", "implementation").returncode, 0)
+        self.assertEqual(self.task("spike", "002", "sqlite").returncode, 0)
+        fields = tt.frontmatter(read(other))
+        self.assertEqual((fields["spike_recorded"], fields.get("phase")), ("sqlite", None))
+        self.assertEqual(self.task("spike", "002", " ").returncode, 2)
+        self.assertEqual(self.task("spike", "README.md", "x").returncode, 1)
+
+    def test_start_keeps_a_parallel_plans_phase_held_by_its_own_worktree(self):
+        # a plan whose branch is checked out in a worktree and whose scope shares
+        # no prefix with the new one runs beside it; an overlapping one does not
+        first = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        second = self.plan("002-second.md", allowed=["docs/**"])
+        third = self.plan("003-third.md", allowed=["docs/x/**"])
+        wt = self.slice("plan/001-first", commit=False, merge=False)
+        proc = self.task("start", "002", "--phase", "implementation")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(tt.frontmatter(read(first))["phase"], "implementation")
+        self.assertEqual(tt.frontmatter(read(second))["phase"], "implementation")
+        self.assertEqual(tt.active(wt, self.roots)["id"], "001")
+        # 003 overlaps 002 and has no worktree of its own: 002 has none either,
+        # so it loses the phase; 001 shares no prefix with 003 and keeps it
+        self.assertEqual(self.task("start", "003", "--phase", "implementation").returncode, 0)
+        self.assertEqual(tt.frontmatter(read(second))["phase"], "")
+        self.assertEqual(tt.frontmatter(read(first))["phase"], "implementation")
+        self.assertEqual(tt.frontmatter(read(third))["phase"], "implementation")
+
+    def test_start_clears_a_worktree_plan_whose_scope_overlaps(self):
+        first = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        self.plan("002-second.md", allowed=["hooks/x/**"])
+        self.slice("plan/001-first", commit=False, merge=False)
+        self.assertEqual(self.task("start", "002", "--phase", "implementation").returncode, 0)
+        self.assertEqual(tt.frontmatter(read(first))["phase"], "")
 
     def test_entering_implementation_records_the_pre_work_commit(self):
         # the one state a large refactor has to return to: the commit the work

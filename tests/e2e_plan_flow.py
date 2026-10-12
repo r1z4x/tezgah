@@ -7,7 +7,7 @@ runs the CLI half, end to end, in a real `git` repository built under tempfile
 with HOME and TEZGAH_ROOTS redirected into it, so the machine's own config, its
 ledger and its `.tezgah/` are never read - the same isolation the suite uses.
 
-Seven rules, each a step below:
+Nine rules, each a step below:
 
   1. a plan whose Acceptance names no command cannot enter `implementation`, and
      `tezgah-render-table --acceptance --strict` exits 1 on the same item, so
@@ -24,7 +24,11 @@ Seven rules, each a step below:
   6. one command-bearing item does not carry one that names none: the phase
      move and the strict report both refuse that plan;
   7. `tezgah-task status` names the plan an `after:` still waits on, and the
-     ready plans whose `allowed_paths:` share nothing as the ones to run at once.
+     ready plans whose `allowed_paths:` share nothing as the ones to run at once;
+  8. `tezgah-task spike` records the answer, and `implementation` then opens;
+  9. two plans run at once, each in a worktree on its `plan/NNN-` branch: the
+     second `start` keeps the first plan's phase, and the gate holds a write in
+     each worktree to that worktree's own plan.
 
 Not collected by the stdlib suite (the name does not match `test*.py`), the same
 shape as `tests/e2e_packaged_install.py`. Needs `git` on PATH: without it it
@@ -33,6 +37,7 @@ go green on a skip.
 
     TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
 """
+import json
 import os
 import shutil
 import subprocess
@@ -45,6 +50,7 @@ STRICT = os.environ.get("TEZGAH_E2E_STRICT") == "1"
 TASK = os.path.join(ROOT, "bin", "tezgah-task")
 DECISIONS = os.path.join(ROOT, "bin", "tezgah-decisions")
 ACCEPTANCE = os.path.join(ROOT, "skills", "plan-add", "render_table.py")
+GATE = os.path.join(HERE, "_probe_gate.py")
 
 
 def skipped(reason):
@@ -276,6 +282,69 @@ def check_order_and_parallel(project):
     return "; ".join(problems)
 
 
+def check_spike_cli(project):
+    """8: the spike answer goes in through the CLI, the record's only writer,
+    and the move it held back then passes."""
+    project.write(".tezgah/plans/open/007-spike.md",
+                  plan_body("007", extra="spike: does the cache survive a restart?",
+                            items=["`python3 -m unittest` is green"]))
+    project.cli(TASK, "start", "007", "--phase", "discovery")
+    refused = project.cli(TASK, "phase", "implementation")
+    answered = project.cli(TASK, "spike", "007", "it does - .tezgah/research/cache.md")
+    moved = project.cli(TASK, "phase", "implementation")
+    problems = []
+    if refused.returncode == 0:
+        problems.append("the unanswered spike passed: %s" % first_line(refused))
+    if answered.returncode != 0:
+        problems.append("spike refused: %s" % first_line(answered))
+    if "spike_recorded: it does" not in project.read(".tezgah/plans/open/007-spike.md"):
+        problems.append("no spike_recorded written")
+    if moved.returncode != 0:
+        problems.append("the answered spike was refused: %s" % first_line(moved))
+    return "; ".join(problems)
+
+
+def gate(project, path):
+    """The gate's answer for one write from the main checkout: None or the
+    refusal text."""
+    proc = subprocess.run([sys.executable, GATE], cwd=project.root, env=project.env,
+                          input=json.dumps({"tool": "Write", "cwd": project.root,
+                                            "session_id": "e2e-plan-flow",
+                                            "input": {"file_path": path, "content": "x"}}),
+                          stdout=subprocess.PIPE, universal_newlines=True)
+    return json.loads(proc.stdout or "null")
+
+
+def check_parallel_worktrees(project):
+    """9: two plans, two worktrees on their plan branches, each write held to
+    its own worktree's plan."""
+    problems = []
+    trees = {}
+    for pid, slug, scope in (("008", "src", "src/**"), ("009", "lib", "lib/**")):
+        project.write(".tezgah/plans/open/%s-%s.md" % (pid, slug),
+                      plan_body(pid, items=["`python3 -m unittest` is green"],
+                                allowed=scope))
+        trees[pid] = os.path.join(os.path.dirname(project.root), "wt-" + pid)
+        added = project.git("worktree", "add", "-q", "-b",
+                            "plan/%s-%s" % (pid, slug), trees[pid])
+        if added.returncode != 0:
+            return "worktree add failed: %s" % first_line(added)
+    for pid in ("008", "009"):
+        started = project.cli(TASK, "start", pid, "--phase", "implementation")
+        if started.returncode != 0:
+            problems.append("start %s refused: %s" % (pid, first_line(started)))
+    if "phase: implementation" not in project.read(".tezgah/plans/open/008-src.md"):
+        problems.append("start 009 cleared 008's phase")
+    for pid, own, other in (("008", "src", "lib"), ("009", "lib", "src")):
+        allowed = gate(project, os.path.join(trees[pid], own, "a.py"))
+        refused = gate(project, os.path.join(trees[pid], other, "a.py"))
+        if allowed is not None:
+            problems.append("%s's own write refused: %s" % (pid, allowed))
+        if not refused or "task %s" % pid not in refused:
+            problems.append("%s's write outside its scope: %s" % (pid, refused))
+    return "; ".join(problems)
+
+
 CHECKS = (
     ("a plan whose Acceptance names no command cannot enter implementation",
      check_acceptance_gap),
@@ -291,6 +360,10 @@ CHECKS = (
      check_mixed_items_agree),
     ("after: holds a plan back, disjoint ready plans run at once",
      check_order_and_parallel),
+    ("tezgah-task spike records the answer and implementation opens",
+     check_spike_cli),
+    ("two plans in two worktrees, each write held to its own plan",
+     check_parallel_worktrees),
 )
 
 
