@@ -112,7 +112,9 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_SESSION` | `bin/tezgah-status::main`, `bin/tezgah-docs`, `bin/tezgah-route`, `bin/tezgah-triage`, `hosts/omp/tezgah-hook.ts.in` | unset; the omp hook exports it to its shells | The session id `tezgah-docs`, `tezgah-route` and `tezgah-triage` write their ledger rows under, and the id `tezgah-status` lights its "used" marks from when none is passed. |
+| `TEZGAH_SESSION` | `bin/tezgah-status::main`, `bin/tezgah-docs`, `bin/tezgah-route`, `bin/tezgah-triage`, `hosts/omp/tezgah-hook.ts.in` | unset; the omp hook exports it to its shells, and on Claude `hooks/projects-auto-init.py::export_session` appends it to `CLAUDE_ENV_FILE` | The session id `tezgah-docs`, `tezgah-route` and `tezgah-triage` write their ledger rows under, and the id `tezgah-status` lights its "used" marks from when none is passed. |
+| `CODEX_THREAD_ID`, `CURSOR_CONVERSATION_ID` | `bin/tezgah-route` | set by Codex and Cursor in their agent shells | The session `tezgah-route` writes its rows under when `TEZGAH_SESSION` is unset. When two of the three name different sessions, an inherited id is present and no row is written. |
+| `CLAUDE_ENV_FILE` | `hooks/projects-auto-init.py::main` | set by Claude Code for SessionStart hooks | The file Claude sources before each Bash call; `export_session` appends `TEZGAH_SESSION` to it. |
 | `TEZGAH_CORE_IN_FILE` | `hooks/projects-auto-init.py::core_is_in_a_file`, `hooks/hooks.json` | unset | `1` (set by the Claude plugin's hook rows) drops the core rules from the injection when the host's static file really carries the tezgah block; a file without it falls back to the hook. |
 | `TEZGAH_NESTED` | `hooks/tezgah_integrity.py::_shape_block`, `bin/consult` | unset | Set by consult on the agent CLIs it runs: that session's Stop rule does not fire. |
 | `TEZGAH_CALL_OUTCOME` | `hooks/projects-posttooluse.py::main`, `hosts/dsh/hooks.json` | unset | `none` (dsh's Task rows) records the call's outcome as unknown instead of as a pass. |
