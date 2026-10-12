@@ -258,9 +258,9 @@ Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah
 -frontier, or the specialist whose whole job the brief is (tezgah-tester,
 -docs, -security, -ui, -researcher, -reviewer) - and the spawn uses that name,
 never the host's generic task agent (overrides for stored data, credentials,
-security first; then a Jev judgement; the static phase table with no key). A worker that answers
-`ESCALATE:` is restarted on tezgah-frontier with the original brief, never
-continued; the main thread never switches model (the cache is per model). A
+security first; then a Jev judgement; the static phase table with no key). A report missing an output field, or an
+`ESCALATE:`, gets one narrower re-brief of the same role naming that field or judgement; only a second miss is
+restarted on tezgah-frontier with the original brief, never continued; the main thread never switches model (the cache is per model). A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
 `impact`, `node`, `files`, `codegraph_explore`) and says "answer from
 the graph, grep only for literal text"; never a grep-only explorer (observed).
