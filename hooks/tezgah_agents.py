@@ -266,11 +266,13 @@ def _worker_body(tier):
 # The report a consumer reads: the orchestrator re-briefs a report missing one
 # of these fields (_orch_body), so only a role with a reader gets them. One
 # text on every host, since a worker body ignores its host.
-WORKER_OUTPUT = ("Output to orchestrator, every field, `none` when empty:\n"
+WORKER_OUTPUT = ("End the report, after any other shape asked for, with `Output to\n"
+                 "orchestrator`, every field, `none` when empty:\n"
                  "- changed: the files you changed\n"
                  "- commit: the sha\n"
-                 "- checks: each command, its exit code and its verbatim output tail\n"
-                 "- escalate: the `ESCALATE:` reason")
+                 "- checks: each command, its exit code and the last lines of its\n"
+                 "  output file, verbatim\n"
+                 "- escalate: the `ESCALATE:` reason (always `none` on tezgah-frontier)")
 
 
 # The specialists beside the tier workers: name -> (what it does, the skills it
@@ -294,8 +296,9 @@ SPECIALISTS = {
         "check into tail or grep, never `|| true`, never `--no-verify`, never a\n"
         "new skip. Set the shell timeout above 300 s for a long run. Never edit\n"
         "source or test files; a fix belongs to the caller.\n"
-        "Output to orchestrator, per check: its command, the pass/fail/skip\n"
-        "counts and the first failure verbatim (`none` when it passed)."),
+        "End the report, after any other shape asked for, with `Output to\n"
+        "orchestrator`, per check: its command, the pass/fail/skip counts and\n"
+        "the first failure verbatim (`none` when it passed)."),
     "tezgah-docs": (
         "Writes and repairs docs pages and their `path:line` / `path::symbol` "
         "citations after a code change, under the repo's own docs checks.",

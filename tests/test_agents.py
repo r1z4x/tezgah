@@ -433,7 +433,8 @@ class Generation(AgentsBase):
             body = " ".join(claude["tezgah-%s.md" % tier].split())
             self.assertIn("Output to orchestrator", body, tier)
             for field in ("- changed:", "- commit: the sha", "exit code",
-                          "verbatim output tail", "- escalate: the `ESCALATE:` reason"):
+                          "last lines of its output file, verbatim",
+                          "- escalate: the `ESCALATE:` reason"):
                 self.assertIn(field, body, (tier, field))
         tester = " ".join(claude["tezgah-tester.md"].split())
         for field in ("Output to orchestrator", "its command",
@@ -445,16 +446,38 @@ class Generation(AgentsBase):
         self.assertIn("one narrower re-brief of the same role", orch)
         self.assertIn("only a second miss is restarted on tezgah-frontier", orch)
 
+    def test_every_copy_of_the_routing_rule_has_the_recall_hop(self):
+        # five hand-kept copies; a merge that reverts one passes every other test
+        import tezgah_policy
+        with open(os.path.join(support.REPO, "skills", "tezgah-contract", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            skill = fh.read()
+        with open(os.path.join(support.REPO, "docs", "models.md"), encoding="utf-8") as fh:
+            models = fh.read()
+        route = subprocess.run(
+            [sys.executable, os.path.join(support.REPO, "bin", "tezgah-route"), "--help"],
+            capture_output=True, text=True, env=self.env())
+        self.assertEqual(route.returncode, 0, route.stderr)
+        # argparse wraps the epilog at hyphens ("re-" / "brief"), so join those back
+        helptext = re.sub(r"-\n(?=\w)", "-", route.stdout)
+        for where, text in (("ORCHESTRATE", tezgah_policy.ORCHESTRATE), ("SKILL.md", skill),
+                            ("tezgah-route --help", helptext), ("models.md", models)):
+            flat = " ".join(text.split())
+            self.assertIn("one narrower re-brief of the same role", flat, where)
+            self.assertIn("only a second miss", flat, where)
+
     def test_the_output_contract_is_one_body_on_every_host(self):
         self.sync()
-        omp, claude = self.omp(), self.user("claude")
+        omp, claude, codex = self.omp(), self.user("claude"), self.user("codex")
         for role in ("tezgah-standard", "tezgah-tester"):
             name = role + ".md"
-            bodies = {host: text.split("\n---\n", 1)[1] for host, text in (
+            bodies = {host: text.split("\n---\n", 1)[1].strip() for host, text in (
                 ("claude", claude[name]), ("cursor", self.read(CURSOR, name)),
                 ("opencode", self.read(OPENCODE, name)), ("omp", omp[name]))}
+            toml = codex[role + ".toml"]
+            bodies["codex"] = toml.split("developer_instructions = '''", 1)[1].rsplit("'''", 1)[0]
             self.assertEqual(len(set(bodies.values())), 1, (role, bodies))
-            self.assertIn("Output to orchestrator", bodies["omp"], role)
+            self.assertIn("Output to orchestrator", " ".join(bodies["codex"].split()), role)
 
     def test_cursor_gets_a_render_its_line_parser_reads(self):
         # cursor-agent splits each frontmatter line at its first ':' (no YAML):
