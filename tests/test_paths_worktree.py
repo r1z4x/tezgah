@@ -331,6 +331,27 @@ class WorktreeBridge(TempHome):
         self.assertTrue(os.path.isfile(os.path.join(self.main, ".tezgah",
                                                     "design-contract.md")), proc.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.inside, ".tezgah")))
+        # review of plan 097, N1: the line names where the contract is, and the
+        # `check --contract .tezgah/design-contract.md` the Stop refusal and the
+        # reviewer prompt name finds it from the worktree too
+        contract = os.path.join(self.main, ".tezgah", "design-contract.md")
+        self.assertIn("wrote %s " % contract, proc.stdout)
+        proc = subprocess.run([sys.executable, os.path.join(support.REPO, "bin",
+                                                            "tezgah-design"),
+                               "derive", "--repo", self.inside],
+                              cwd=self.inside, capture_output=True, text=True, env=env)
+        self.assertIn("already exists at %s:" % contract, proc.stderr)
+        measured = os.path.join(self.home, "measured.json")
+        with open(measured, "w") as fh:
+            json.dump({"components": [{"name": "Button", "kind": "interactive",
+                                       "states": [], "styles": {}}]}, fh)
+        proc = subprocess.run([sys.executable, os.path.join(support.REPO, "bin",
+                                                            "tezgah-design"),
+                               "check", "--contract", ".tezgah/design-contract.md",
+                               "--measured", measured],
+                              cwd=self.inside, capture_output=True, text=True, env=env)
+        self.assertNotIn("cannot read the contract", proc.stderr)
+        self.assertNotEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
 
 class InsideWorkspace(TempHome):

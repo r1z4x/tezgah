@@ -837,7 +837,7 @@ def derive_cli(opts):
         # deliberate `rm` first.
         raise Usage("the contract already exists at %s: a contract is edited, "
                     "not overwritten - remove it first or pass --out elsewhere"
-                    % os.path.relpath(out, ws))
+                    % os.path.abspath(out))
     tokens, source, sources = derive(root)
     if tokens is None:
         if opts.get("json"):
@@ -866,9 +866,11 @@ def derive_cli(opts):
                      "type_scale": data["tokens"]["type_scale"],
                      "components": len(data["components"])})
     else:
+        # absolute: from a worktree the contract is the main checkout's, which a
+        # `.tezgah/...` read from the worktree's cwd does not name (review N1)
         sys.stdout.write(
             "wrote %s (source: %s, %d colour roles, %s, %d type steps)\n"
-            % (shown, source, len(data["tokens"]["colors"]),
+            % (os.path.abspath(out), source, len(data["tokens"]["colors"]),
                "%spx unit" % data["tokens"]["space_unit"]
                if data["tokens"]["space_unit"] else "no spacing unit found",
                len(data["tokens"]["type_scale"])))
@@ -884,6 +886,12 @@ def check_cli(opts):
     measured = opts.get("measured")
     if not contract or not measured:
         raise Usage("check wants --contract FILE and --measured FILE|-")
+    if (not os.path.isabs(contract) and not os.path.exists(contract)
+            and contract.replace(os.sep, "/").startswith(".tezgah/")):
+        # a worktree's `.tezgah/...` is the main checkout's workspace (plan 097,
+        # review N1): the path the Stop refusal and the reviewer prompt name
+        cwd = os.getcwd()
+        contract = os.path.join(linked_main(cwd) or cwd, contract)
     data, reason = read_contract(contract)
     if data is None:
         raise Usage(reason)
