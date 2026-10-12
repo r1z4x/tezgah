@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-12
+
 ### Added
 
 - **Exploratory research lines (rules 7).** An ask for new ideas, methods or approaches now gets a campaign: `tezgah-research init --method exploratory`. Its arena holds the problem and a budget, and the line's scope says what it covers. A measurable arena adds an evaluator, its sha256 and its metric. The session commits the arena before the first idea. `idea`, `stage` and `match` append `ideas.jsonl`, `stages.jsonl` and `tournament.jsonl` under the lock. One function judges each row type for the writer and for `check`. An idea moves forward only, and each stage needs the one before it: prior art, then screening, a pilot, a full run and a confirmation. A kill with a reason ends it at any stage, and a duplicate ends in a kill. Prior art needs three indexed nearest works and a verdict, and `known` kills the idea in the same append. `check` refuses ideas or results committed before the arena and an arena changed after it. It refuses every stage row while the evaluator hash differs. It also refuses a confirmation on the promoting run. The same goes for a set another idea looked at first, or one this idea looked at before its promotion. It warns about thin judging and about a report that hides how many ideas it tested. `board`, `dedup` and `yield` are reports. `board` gives a Bradley-Terry prior and each idea's next action, and it is the resume point after a crash. `dedup` names its backend, embed-mrl or BM25. Its thresholds come from 40 fixture pairs and 400 human-labelled MRPC pairs. `yield` counts per operator and model family. Lines opened under rules 1-6 read none of it. The research paragraph armed per turn grows by 149 characters, and the on-demand research rule by 593.
@@ -1102,7 +1104,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.7.0
 [1.6.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.6.0
 [1.5.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.1
 [1.5.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.0
