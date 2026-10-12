@@ -2787,6 +2787,24 @@ class TaskGate(TempHome):
             path = os.path.join(self.repo, ".tezgah", "plans", "open", name)
             self.assertIn("own record", self.decide({"file_path": path}, cwd=two) or "", name)
 
+    def test_a_plan_worktree_writes_the_main_checkouts_workspace(self):
+        # review of plan 097, F1: the main checkout's `.tezgah` is the one
+        # workspace, and session start tells a worktree session to write there;
+        # the gate refused it as outside the worktree's plan
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        wt = self.sibling("proj-017", branch="plan/017-gate-rule")
+        for rel in (".tezgah/lessons.md", ".tezgah/analysis/x.md", ".tezgah/research/q/x.md"):
+            target = os.path.join(self.repo, rel)
+            self.assertIsNone(self.decide({"file_path": target}, cwd=wt), rel)
+            self.assertIsNone(self.bash("echo x >> %s" % target, cwd=wt), rel)
+        # the phased record and the slice journal stay held, so does a project file
+        record = os.path.join(self.repo, ".tezgah", "plans", "open", "017-gate-rule.md")
+        self.assertIn("own record", self.decide({"file_path": record}, cwd=wt) or "")
+        self.assertIn("record", self.bash("echo x >> %s" % record, cwd=wt) or "")
+        for rel in (".tezgah/slices/s.json", "hooks/a.py"):
+            target = os.path.join(self.repo, rel)
+            self.assertIn("outside", self.decide({"file_path": target}, cwd=wt) or "", rel)
+
     def test_a_plans_slice_worktree_is_held_to_that_plan_beside_its_declared_branch(self):
         # a plan fans out to slices on other plan/NNN-* branches (plan 097 ran
         # plan/097-records beside plan/097-workspace-integrity): each slice is

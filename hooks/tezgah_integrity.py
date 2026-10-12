@@ -6076,7 +6076,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
     if ready:
         return ("ready steps", READY_STEPS % (
             len(ready), "; ".join(cut(head, 48) for head in ready[:3])))
-    taken = open_left(text, todo)
+    taken = open_left(text, todo, session_id, cwd)
     if taken:
         return ("open todo", OPEN_TODO % (
             len(taken), "; ".join(cut(head, 48) for head in taken[:3])))
@@ -6090,15 +6090,21 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
 
 def ready_heads(row, session_id, cwd):
     """A `todo` row's ready heads (`note_todo`), less each one an open slice of
-    this session is working on: the slice id appears in the head, or the whole
-    head in the slice's own task (`task`, without an omp batch's shared
-    context), each as a word-bounded match of two characters or more,
-    case-insensitive. omp's `todo start` sets every other `in_progress` item
-    back to `pending`, so a dispatched item reads as ready in the list while
-    its slice runs. ponytail: a record written before `task` existed falls
-    back to its brief's last paragraph. Read from `tezgah_task.pending`, off
-    under `slices-off`, and fail open to the row's own heads."""
-    heads = [str(h) for h in row.get("heads") or () if str(h).strip()]
+    this session is working on (`_not_running`). omp's `todo start` sets every
+    other `in_progress` item back to `pending`, so a dispatched item reads as
+    ready in the list while its slice runs."""
+    return _not_running([str(h) for h in row.get("heads") or () if str(h).strip()],
+                        session_id, cwd)
+
+
+def _not_running(heads, session_id, cwd):
+    """`heads` less each one an open slice of this session is working on: the
+    slice id appears in the head, or the whole head in the slice's own task
+    (`task`, without an omp batch's shared context), each as a word-bounded
+    match of two characters or more, case-insensitive. ponytail: a record
+    written before `task` existed falls back to its brief's last paragraph.
+    Read from `tezgah_task.pending`, off under `slices-off`, and fail open to
+    `heads`."""
     if not (heads and session_id and cwd) or off("slices-off"):
         return heads
     try:
@@ -6171,14 +6177,16 @@ def ready_left(text, rows, session_id, cwd=None):
     return _ready_in(text, _turn_todo(rows, session_id), session_id, cwd)
 
 
-def open_left(text, row):
+def open_left(text, row, session_id=None, cwd=None):
     """The heads of the in-progress items a done claim leaves (the `open todo`
     class): the row's `open - blocked - ready` count, named by its `taken`
     heads, when the reply claims done (`asserted_claims`). A blocked item is
-    not counted, and an in-progress one the reply types with its blocker
-    (`_untyped`) passes. A `partial` row (Cursor `merge: true`) holds only the
-    changed items, so it is not judged. ponytail: a row written before `taken`
-    existed is named by its count alone."""
+    not counted, an in-progress one a running slice of this session works on
+    (`_not_running`: Claude's TodoWrite has no blocked status, so a dispatched
+    step reads in_progress) is not either, and one the reply types with its
+    blocker (`_untyped`) passes. A `partial` row (Cursor `merge: true`) holds
+    only the changed items, so it is not judged. ponytail: a row written before
+    `taken` existed is named by its count alone."""
     if not row or row.get("partial"):
         return []
     left = (int(row.get("open") or 0) - int(row.get("blocked") or 0)
@@ -6186,7 +6194,9 @@ def open_left(text, row):
     if left <= 0 or not asserted_claims(text)[0]:
         return []
     heads = [str(h) for h in row.get("taken") or () if str(h).strip()]
-    return _untyped(text, heads) if heads else ["%d in-progress item(s)" % left]
+    if not heads:
+        return ["%d in-progress item(s)" % left]
+    return _untyped(text, _not_running(heads, session_id, cwd))
 
 
 def _settle_slices(cwd):

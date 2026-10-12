@@ -364,13 +364,14 @@ class Record(unittest.TestCase):
 
     def test_concurrent_record_writers_lose_no_write_and_tear_no_read(self):
         # E7: a reader saw a torn record in 29/40 rounds and two writers lost a
-        # write in 1/40, because each writer truncated the file in place
+        # write in 1/40, because each writer truncated the file in place. Review
+        # of plan 097, F5: a tick resolved its line before the lock, so a
+        # frontmatter line inserted meanwhile moved the box it ticked
         import threading
         n = 40
         items = "".join("- [ ] item %d\n" % i for i in range(n))
         path = self.plan("001-first.md", plan_text("001", phase="implementation")
                          + "## Acceptance\n" + items + "## State\nnone\n")
-        lines = {i: line_of(read(path), "item %d" % i) for i in range(n)}
         torn = []
         stop = threading.Event()
 
@@ -382,15 +383,17 @@ class Record(unittest.TestCase):
 
         def ticker():
             for i in range(n):
-                tt.set_box(path, lines[i], True)
+                tt.set_box(path, i + 1, True)
 
         def noter():
             for i in range(n):
                 tt.set_section(path, "State", "note %d" % i)
 
         def stamper():
+            # each round grows `allowed_paths` by one line, shifting the body
             for i in range(n):
-                tt.set_fields(path, updated="2026-10-%02d" % (i % 28 + 1))
+                tt.set_fields(path, updated="2026-10-%02d" % (i % 28 + 1),
+                              allowed_paths=["p%d/**" % j for j in range(i + 1)])
 
         watch = threading.Thread(target=reader)
         watch.start()
@@ -404,10 +407,15 @@ class Record(unittest.TestCase):
         text = read(path)
         self.assertEqual(torn, [])
         self.assertEqual([i for i in range(n) if "- [x] item %d\n" % i not in text], [])
+        self.assertEqual(text.count("- [x]"), n)
         self.assertIn("## State\nnote %d\n" % (n - 1), text)
         self.assertEqual(tt.frontmatter(text)["updated"], "2026-10-%02d" % ((n - 1) % 28 + 1))
-        # no temp file is left beside the record
+        self.assertEqual(len(tt.allowed_paths(text)), n)
+        # no temp file beside the record, and no lock file a private
+        # repository's `add -A` could pick up (review of plan 097, F6)
         self.assertEqual(sorted(os.listdir(self.open)), ["001-first.md"])
+        self.assertEqual(sorted(os.listdir(os.path.dirname(self.open))), ["open"])
+        self.assertIsNone(tt.set_box(path, n + 1, True))
 
     def test_relative_reads_a_linked_worktree_of_the_same_repository(self):
         # the contract gives every writing slice its own worktree; an allowlist
@@ -1213,6 +1221,22 @@ class Cli(TempHome):
         self.assertNotIn("landed", tt.frontmatter(read(os.path.join(
             self.repo, ".tezgah", "plans", "done", "002-second.md"))))
 
+    def test_close_done_before_the_merge_records_no_landed(self):
+        # review of plan 097, F7: HEAD of a main checkout the reviewed work is not
+        # in yet names a commit without it
+        self.plan("003-third.md", allowed=["hooks/**"])
+        wt = self.slice("plan/003-third", commit=False, merge=False)
+        with open(os.path.join(wt, "work.txt"), "w") as fh:
+            fh.write("work\n")
+        self.git("add", "work.txt", cwd=wt)
+        self.git("commit", "-q", "-m", "plan work", cwd=wt)
+        self.assertEqual(self.task("review", "003", "tezgah-reviewer", "approve").returncode, 0)
+        proc = self.task("close", "003", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("landed", tt.frontmatter(read(os.path.join(
+            self.repo, ".tezgah", "plans", "done", "003-third.md"))))
+        self.assertIn("no `landed:` recorded", proc.stdout)
+
     def test_close_commits_only_the_moved_record_in_the_private_repo(self):
         self.private_repo()
         path = self.plan("001-first.md", allowed=["hooks/**"])
@@ -1233,7 +1257,10 @@ class Cli(TempHome):
                          ["A\tplans/done/001-first.md", "D\tplans/open/001-first.md"])
         # the owner's staged change and an untracked plan stay as they were
         self.assertEqual(self.ws("diff", "--cached", "--name-only"), "notes.md")
-        self.assertIn("?? plans/open/002-x.md", self.ws("status", "--porcelain", "-uall"))
+        status = self.ws("status", "--porcelain", "-uall")
+        self.assertIn("?? plans/open/002-x.md", status)
+        # the plans lock leaves no file behind (review of plan 097, F6)
+        self.assertNotIn(".lock", status)
         self.assertIn(self.ws("rev-parse", "HEAD")[:12], proc.stdout)
 
     def test_close_commits_a_record_the_private_repo_never_tracked(self):

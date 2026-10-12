@@ -294,6 +294,44 @@ class WorktreeBridge(TempHome):
         self.assertIn("(lines: old)", text)
         self.assertIn("%s (this checkout, " % self.main, text)
 
+    def test_a_worktree_linking_the_main_workspace_is_no_alarm(self):
+        # review of plan 097, F3: a worktree whose `.tezgah` is a link to the main
+        # checkout's was named as holding data `git worktree remove` deletes
+        import tezgah_context as tc
+        line = os.path.join(self.main, ".tezgah", "research", "open", "old")
+        os.makedirs(line)
+        with open(os.path.join(line, "state.json"), "w") as fh:
+            json.dump({"question": "q", "phase": "inner"}, fh)
+        os.symlink(os.path.join(self.main, ".tezgah"), os.path.join(self.outside, ".tezgah"))
+        text = tc.sibling_line(self.main)
+        self.assertIn("%s (uses the main checkout's `.tezgah`)" % self.outside, text)
+        self.assertNotIn("still holds", text)
+
+    def test_lessons_and_design_derive_in_a_worktree_use_the_main_workspace(self):
+        # review of plan 097, F4: both resolved a linked worktree to itself
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        os.makedirs(os.path.join(self.main, ".tezgah"))
+        with open(os.path.join(self.main, ".tezgah", "lessons.md"), "w") as fh:
+            fh.write("Run the suite once - ran it twice\n")
+        proc = subprocess.run([sys.executable, os.path.join(support.REPO, "bin",
+                                                            "tezgah-lessons")],
+                              cwd=self.inside, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("Proposals for %s" % os.path.join(self.main, ".tezgah", "lessons.md"),
+                      proc.stdout)
+        styles = os.path.join(self.inside, "app", "styles")
+        os.makedirs(styles)
+        with open(os.path.join(styles, "tokens.css"), "w") as fh:
+            fh.write(":root {\n  --color-text: #111111;\n  --space-unit: 4px;\n}\n")
+        proc = subprocess.run([sys.executable, os.path.join(support.REPO, "bin",
+                                                            "tezgah-design"),
+                               "derive", "--repo", self.inside],
+                              cwd=self.inside, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.main, ".tezgah",
+                                                    "design-contract.md")), proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.inside, ".tezgah")))
+
 
 class InsideWorkspace(TempHome):
     """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -

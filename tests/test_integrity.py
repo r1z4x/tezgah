@@ -1010,6 +1010,27 @@ class TodoRows(unittest.TestCase):
         with mock.patch.object(ti, "off", side_effect=lambda n: n == "orchestrate-off"):
             self.assertEqual(self.open_(), [])
 
+    def test_an_in_progress_item_a_running_slice_works_on_is_not_left_open(self):
+        # review of plan 097, F2: Claude's TodoWrite has no blocked status, so a
+        # dispatched step reads in_progress while its slice runs; `ready_heads`
+        # dropped it, `open_left` refused the done claim over it
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "TodoWrite", {"todos": [
+            {"content": "Run the suite", "status": "in_progress"},
+            {"content": "Write the docs", "status": "in_progress"}]}, failed=False)
+        row = ti._turn_todo([{"kind": "edit"}], "s")
+        journal = mock.Mock(spec=["pending"])
+        journal.pending.return_value = [
+            {"id": "suite", "status": "open", "parent": "s", "task": "run the suite"},
+            {"id": "docs", "status": "open", "parent": "other", "task": "write the docs"}]
+        with mock.patch.object(ti, "_journal", return_value=journal), \
+                mock.patch.object(ti, "_toplevel", return_value="/repo"):
+            self.assertEqual(ti.open_left("Tamamlandı.", row, "s", "/repo"),
+                             ["Write the docs"])
+            journal.pending.return_value = []
+            self.assertEqual(ti.open_left("Tamamlandı.", row, "s", "/repo"),
+                             ["Run the suite", "Write the docs"])
+
 
 class ScratchEvidenceReader(unittest.TestCase):
     """scratch_evidence: the session whose whole evidence base is its own scratch

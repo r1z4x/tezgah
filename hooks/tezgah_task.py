@@ -756,11 +756,12 @@ def _sibling_worktree(real, root):
 
 @contextlib.contextmanager
 def plans_lock(path):
-    """Hold the exclusive lock every plan record writer takes, on `.lock` in
-    the `plans/` directory above the plan file `path`, across its whole
-    read-modify-write: two writers in two checkouts lost one write in 40 rounds
-    without it (plan 097, E7). Raises OSError when the lock file cannot be
-    opened."""
+    """Hold the exclusive lock every plan record writer takes, on the `plans/`
+    directory above the plan file `path`, across its whole read-modify-write:
+    two writers in two checkouts lost one write in 40 rounds without it (plan
+    097, E7). The directory itself is locked, so no lock file is left for the
+    private repository's `add -A` to commit (review of plan 097, F6). Raises
+    OSError when the directory cannot be opened."""
     try:
         import fcntl
     except ImportError:
@@ -771,8 +772,7 @@ def plans_lock(path):
     if fcntl is None:
         yield
         return
-    plans = os.path.dirname(os.path.dirname(os.path.realpath(path)))
-    fd = os.open(os.path.join(plans, ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    fd = os.open(os.path.dirname(os.path.dirname(os.path.realpath(path))), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
@@ -865,14 +865,22 @@ def _lines(path):
         return fh.read().split("\n")
 
 
-def set_box(path, line, checked):
-    """Set the `- [ ]`/`- [x]` box on 1-based `line` (an acceptance item's
-    `line`), under the plans lock. Raises OSError."""
+def set_box(path, n, checked):
+    """Set the `- [ ]`/`- [x]` box of Acceptance item `n` (1-based, as `tick`
+    counts) and return the item, or None when the plan has no item `n`. The
+    item's line is found under the plans lock: read before it, a frontmatter
+    line another writer inserted moved the box ticked (review of plan 097,
+    F5). Raises OSError."""
     with plans_lock(path):
         lines = _lines(path)
-        lines[line - 1] = re.sub(r"- \[[ xX]\]", "- [x]" if checked else "- [ ]",
-                                 lines[line - 1], count=1)
+        items = acceptance_items("\n".join(lines))
+        if not 1 <= n <= len(items):
+            return None
+        line = items[n - 1]["line"] - 1
+        lines[line] = re.sub(r"- \[[ xX]\]", "- [x]" if checked else "- [ ]",
+                             lines[line], count=1)
         _write(path, "\n".join(lines))
+        return items[n - 1]
 
 
 def set_section(path, heading, body):

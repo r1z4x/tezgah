@@ -59,7 +59,8 @@ each by number, an unticked Acceptance item that carries no `UNMET: <reason>`
 (an item the owner accepted as not met); `--resolved` never lifts that, and
 `discarded` is not held to it. `close` on the active task clears its phase in the same write;
 `close NNN done` records `landed:`, the main checkout's HEAD, which a squash
-merge and a branch deletion cannot orphan the way they do `reviewed_sha:`. The
+merge and a branch deletion cannot orphan the way they do `reviewed_sha:` -
+once the reviewed commit has landed there, else it warns and records none. The
 record moves to `done/` under the plans lock every record writer holds, and
 when `.tezgah` is a git repository of its own the move - those two paths and
 nothing else - is committed there as `plan: close NNN <slug>`. Then `close`
@@ -730,16 +731,15 @@ def cmd_tick(args):
     path, problem = open_plan(args[0])
     if problem:
         return problems([problem])
-    items = tt.acceptance_items(read(path))
     n = int(args[1])
-    if not 1 <= n <= len(items):
-        return problems(["%s has %d Acceptance items, not an item %d"
-                         % (path, len(items), n)])
-    item = items[n - 1]
     try:
-        tt.set_box(path, item["line"], not undo)
+        # the item's line is found under the lock, where no writer can move it
+        item = tt.set_box(path, n, not undo)
     except OSError as exc:
         return problems(["cannot write %s: %s" % (path, exc)])
+    if item is None:
+        return problems(["%s has %d Acceptance items, not an item %d"
+                         % (path, len(tt.acceptance_items(read(path))), n)])
     bad = write_fields(path, updated=today())
     if bad:
         return problems(bad)
@@ -936,12 +936,12 @@ def cmd_close(args):
             return problems(["%s records no approving review: a fresh reviewer reads "
                              "the diff, then `tezgah-task review %s <reviewer> approve`"
                              % (path, ident)])
-    if args[1] == "done":
-        # reviewed_sha names a worktree HEAD that a squash merge and a branch
-        # deletion leave in no branch: `landed` names the commit the work is in
-        landed = git_out(root, "rev-parse", "HEAD")
-        if landed:
-            fields["landed"] = landed
+    landed = landed_head(root, text, path) if args[1] == "done" else None
+    if landed:
+        fields["landed"] = landed
+    elif args[1] == "done":
+        print("warning: %s's reviewed work is not in %s's HEAD yet, so no `landed:` "
+              "recorded" % (ident, root))
     target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
     try:
         tt.close_record(path, target, **fields)
@@ -958,6 +958,21 @@ def cmd_close(args):
     for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
         print(line)
     return 0
+
+
+def landed_head(root, text, path):
+    """The main checkout's HEAD when the plan's work is in it, else None.
+    reviewed_sha names a worktree HEAD that a squash merge and a branch
+    deletion leave in no branch, so `landed` names the commit the work is in.
+    It is recorded only when the reviewed commit - else the plan's declared
+    `branch:`, else `plan/<slug>` - has landed there (`_landed`: an ancestor,
+    or a squash whose merge changes nothing). A `close done` before the merge
+    would name a commit without the work (review of plan 097, F7)."""
+    front = tt.frontmatter(text)
+    for ref in (front.get("reviewed_sha"), front.get("branch"), "plan/" + tt.slug(path)):
+        if ref and git_out(root, "rev-parse", "-q", "--verify", ref + "^{commit}"):
+            return git_out(root, "rev-parse", "HEAD") if _landed(root, ref, "HEAD") else None
+    return None
 
 
 def commit_close(root, name, message):

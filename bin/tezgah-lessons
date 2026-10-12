@@ -112,7 +112,10 @@ def merged(lines, groups):
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="tezgah-lessons", description=__doc__.split("\n")[0])
-    ap.add_argument("--root", default=tc.repo_root(os.getcwd()))
+    # a linked worktree's lessons are the main checkout's (plan 097)
+    from tezgah_paths import linked_main
+    here = tc.repo_root(os.getcwd())
+    ap.add_argument("--root", default=linked_main(here) or here)
     ap.add_argument("--fixture")
     args = ap.parse_args(argv)
     lines = tezgah_lessons.lines(args.root)

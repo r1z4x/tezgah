@@ -559,7 +559,10 @@ def sibling_line(root):
                         len(tezgah_research.slugs(checkout))))
         else:
             try:
-                held = sorted(set(os.listdir(ws)) - {".git"})
+                # a `.tezgah` that links to the main checkout's is that workspace
+                # (review of plan 097, F3): removing the worktree drops the link
+                held = ([] if os.path.realpath(ws) == os.path.realpath(workspace(main))
+                        else sorted(set(os.listdir(ws)) - {".git"}))
             except OSError:
                 held = []
             lines = tezgah_research.slugs(checkout) if held else []

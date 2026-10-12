@@ -382,7 +382,9 @@ def check_close_records_and_commits(project):
                  ["config", "user.email", "e2e@localhost"]):
         project.run(["git", "-C", ws] + line)
     rel = ".tezgah/plans/open/011-landed.md"
-    project.write(rel, plan_body("011", extra="review: e2e approve 2026-10-12"))
+    # the reviewed commit is in HEAD, so `landed:` is recorded
+    project.write(rel, plan_body("011", extra="review: e2e approve 2026-10-12\n"
+                                 "reviewed_sha: %s" % project.head()[:12]))
     closed = project.cli(TASK, "close", "011", "done")
     problems = []
     if closed.returncode != 0:

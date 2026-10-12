@@ -32,7 +32,7 @@ import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
-from tezgah_paths import project_top  # noqa: E402
+from tezgah_paths import linked_main, project_top  # noqa: E402
 
 # The state set every interactive control and every data view owes: seven per
 # control, eight per data view, thirteen distinct states - `loading` and `error`
@@ -825,7 +825,11 @@ def derive_cli(opts):
     root = project_top(os.path.abspath(opts.get("repo") or ""))
     if not os.path.isdir(root):
         raise Usage("--repo must name a directory")
-    out = opts.get("out") or os.path.join(root, ".tezgah", "design-contract.md")
+    # the tokens are this checkout's; the contract goes to the repository's one
+    # workspace, the main checkout's `.tezgah` (plan 097), which a worktree's
+    # removal does not take with it
+    ws = linked_main(root) or root
+    out = opts.get("out") or os.path.join(ws, ".tezgah", "design-contract.md")
     if os.path.exists(out):
         # A contract that exists is the repository's own decision: it carries
         # the component inventory someone filled in, so overwriting it would
@@ -833,7 +837,7 @@ def derive_cli(opts):
         # deliberate `rm` first.
         raise Usage("the contract already exists at %s: a contract is edited, "
                     "not overwritten - remove it first or pass --out elsewhere"
-                    % os.path.relpath(out, root))
+                    % os.path.relpath(out, ws))
     tokens, source, sources = derive(root)
     if tokens is None:
         if opts.get("json"):
@@ -854,7 +858,7 @@ def derive_cli(opts):
             fh.write(text)
     except OSError as exc:
         raise Usage("cannot write %s: %s" % (out, exc))
-    shown = os.path.relpath(out, root)
+    shown = os.path.relpath(out, ws)
     if opts.get("json"):
         _print_json({"ok": True, "out": shown, "source": source,
                      "colors": len(data["tokens"]["colors"]),

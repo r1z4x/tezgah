@@ -1809,8 +1809,12 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is None and _no_repo(path, inp, cwd, command):
             continue
-        if rel is not None and workspace_free(
-                rel, inp, os.path.join(cwd or "", os.path.expanduser(path))):
+        full = os.path.join(cwd or "", os.path.expanduser(path))
+        # the main checkout's `.tezgah` is every checkout's workspace (plan 097),
+        # so a worktree session meets the exemption the main checkout gets there
+        # (review of plan 097, F1); a phased record stays task_record_reason's
+        ws_rel = rel if rel is not None else tezgah_task.main_relative(path, cwd, base)
+        if ws_rel is not None and workspace_free(ws_rel, inp, full):
             continue
         own = (_worktree_task(path, cwd, base) if rel is not None else None) or scope
         if own:
