@@ -375,6 +375,35 @@ class BlockStopsOnQuota(unittest.TestCase):
             self.assertAlmostEqual(block.spent(out), 0.75)
 
 
+class RunRootOutsideCheckout(unittest.TestCase):
+    """A run directory under a checkout walks up to its `.git`, so the hooks
+    resolved that checkout's plan as the run's active task and the run's agents
+    widened the live plan's allowed_paths (plan 090's probes). The default run
+    root sits outside every checkout and leads each arm's TEZGAH_ROOTS, the
+    `{runs}` root the lab arms already arm."""
+
+    def test_a_default_run_resolves_no_plan_and_stays_armed(self):
+        import tezgah_paths
+        import tezgah_task
+        run_dir = bench.run_dir_for("t00-probe")
+        self.addCleanup(lambda: __import__("shutil").rmtree(run_dir.parent, ignore_errors=True))
+        run_dir.mkdir()
+        self.assertIsNone(tezgah_paths._toplevel(str(run_dir.resolve())))
+        env = bench.arm_env(bench.arms_by_name()["omp+tezgah"], cwd=run_dir, model="m",
+                            root=bench.ROOT)
+        self.assertEqual(env["TEZGAH_ROOTS"].split(os.pathsep)[0], str(bench.RUN_ROOT))
+        saved = os.environ.get("TEZGAH_ROOTS")
+        os.environ["TEZGAH_ROOTS"] = env["TEZGAH_ROOTS"]
+        try:
+            base = tezgah_paths.root_for(str(run_dir))
+            self.assertEqual(base, str(bench.RUN_ROOT))
+            self.assertIsNone(tezgah_task.active(str(run_dir), base))
+        finally:
+            if saved is None:
+                os.environ.pop("TEZGAH_ROOTS")
+            else:
+                os.environ["TEZGAH_ROOTS"] = saved
+
 
 class Attempts(unittest.TestCase):
     def stream(self, *calls):

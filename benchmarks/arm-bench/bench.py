@@ -52,10 +52,10 @@ TASKS = ROOT / "tasks"
 CORPUS = ROOT / "corpus"
 ARMS_FILE = ROOT / "arms.json"
 # The lab: an out-of-tree directory holding the arm HOMEs (homes.py) and the run
-# directories. Without it runs land in `.runs/` inside the repository, the
-# geometry the earlier blocks ran in (see run_dir_for).
+# directories. Without it runs land in the system temp directory, outside every
+# checkout (see run_dir_for); arm_env puts that root first in TEZGAH_ROOTS.
 LAB = Path(os.environ["ARMBENCH_LAB"]).resolve() if os.environ.get("ARMBENCH_LAB") else None
-RUN_ROOT = (LAB / "runs") if LAB else (ROOT / ".runs")
+RUN_ROOT = (LAB / "runs") if LAB else (Path(tempfile.gettempdir()).resolve() / "armbench-runs")
 # What a run's environment keeps from the operator's: the shell basics and the
 # provider keys the host needs (OpenRouter, and DeepSeek's own API: amendment
 # A9 of plan 062 E1; omp lists no `deepseek/...` model without its key).
@@ -791,9 +791,15 @@ def lab_fields() -> dict:
 
 
 def arm_env(arm: dict, **fields) -> dict:
-    """One arm's `env` with the placeholders `run` substitutes filled in."""
+    """One arm's `env` with the placeholders `run` substitutes filled in, and the
+    run root first in a TEZGAH_ROOTS the arm sets, so the hooks arm for its run
+    directories (run_dir_for) - the `{runs}` root the lab arms name themselves."""
     fields = {**lab_fields(), **fields}
-    return {k: str(v).format(**fields) for k, v in arm.get("env", {}).items()}
+    env = {k: str(v).format(**fields) for k, v in arm.get("env", {}).items()}
+    roots = env.get("TEZGAH_ROOTS")
+    if roots is not None and roots.split(os.pathsep)[0] != fields["runs"]:
+        env["TEZGAH_ROOTS"] = fields["runs"] + os.pathsep + roots
+    return env
 
 
 def template_home(arm: dict) -> Path | None:
@@ -1116,14 +1122,15 @@ def existing_cells(out: Path, arm: str, task: str, model: str) -> set[int]:
 
 
 def run_dir_for(task_id: str) -> Path:
-    """A fresh run directory for one cell, inside the repository on purpose.
+    """A fresh run directory for one cell, outside every checkout on purpose.
 
     tezgah arms only inside a configured root (hooks/tezgah_paths.py:root_for),
-    and the tool gate refuses a test-skip edit only there. A fixture materialised
-    under the system temp directory therefore ran the tezgah arms with the gate
-    inert - which is how the first gate tasks measured nothing. `.runs/` sits in
-    this repository, inside the configured root, so the gate is armed for every
-    arm while the fixture stays a throwaway copy.
+    and the tool gate refuses a test-skip edit only there, so arm_env puts
+    RUN_ROOT first in the arm's TEZGAH_ROOTS. Inside a checkout (the old
+    `.runs/`) the run walked up to that checkout's `.git` and the hooks resolved
+    its plan as the run's active task (tezgah_task.active): the gate refused
+    edits by that plan's allowed_paths, and plan 090's probe agents widened the
+    live plan with `tezgah-task allow`. Outside, no plan resolves.
     """
     RUN_ROOT.mkdir(parents=True, exist_ok=True)
     return Path(tempfile.mkdtemp(prefix="armbench-%s-" % task_id, dir=str(RUN_ROOT))) / "repo"

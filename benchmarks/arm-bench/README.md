@@ -80,6 +80,13 @@ arm dir holding `RULES.md` and no bridge loads no harness - the shape `run`
 refuses - and no row has been scored on these arms yet. The deployed directories
 are per-checkout and gitignored; the arm's own `PROVENANCE.md` is the recipe.
 
+Run directories live outside every checkout: `$ARMBENCH_LAB/runs`, else
+`armbench-runs/` in the system temp directory, and `arm_env` puts that root first
+in each arm's `TEZGAH_ROOTS` so the hooks still arm there. A run under a checkout
+walks up to its `.git`, and the hooks then resolve that checkout's plan as the
+run's active task: plan 090's probe agents hit its gate and widened the live
+plan's `allowed_paths` with `tezgah-task allow`.
+
 ## The two-host block
 
 `python3 pilot.py --group N --groups 14 --arms omp+tezgah,omp-bare` ran every
@@ -403,7 +410,7 @@ test patch, runs `run_script.sh`, parses the output with `parser.py`, and exits
 0 only when every `fail_to_pass` and `pass_to_pass` test passed. `validate`
 grades a fresh container per case, the base tree and the base tree plus the
 gold patch (applied as the harness's `solve.sh` does), and removes the images it
-pulled. Logs go to `.runs/swe-pro-validate/`.
+pulled. Logs go to `swe-pro-validate/` under the run root (`bench.RUN_ROOT`).
 
 The committed sample is the seeded draw (seed 78) over the instances whose
 compressed image is at most 600 MB: 12 of the 642 qualify, against a median of
