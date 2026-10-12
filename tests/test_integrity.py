@@ -961,6 +961,55 @@ class TodoRows(unittest.TestCase):
         with mock.patch.object(tg, "off", **switch):
             self.assertIsNone(tg.ready_advice("wait", "s"))
 
+    def open_(self, reply="Tamamlandı."):
+        return ti.open_left(reply, ti._turn_todo([{"kind": "edit"}], "s"))
+
+    def test_a_done_claim_over_an_in_progress_item_is_named_on_every_host(self):
+        # plan 097 item 2: `ready_left` counted only `pending`, so a done claim
+        # over an `in_progress` item ended the turn
+        ti.note("s", "turn", "t1")
+        item = {"content": "Run the suite", "status": "in_progress"}
+        shapes = [("todo", {"op": "start", "task": "Run the suite"}, [item]),
+                  ("TodoWrite", {"todos": [item]}, None),
+                  ("update_plan", {"plan": [{"step": "Run the suite",
+                                             "status": "in_progress"}]}, None),
+                  ("todo_write", {"todos": [item]}, None),
+                  ("todowrite", {"todos": [item]}, None)]
+        for tool, inp, snapshot in shapes:
+            with self.subTest(tool=tool):
+                ti.note_tool("s", tool, inp, failed=False, todo=snapshot)
+                self.assertEqual(self.todo()["taken"], ["Run the suite"])
+                self.assertEqual(self.open_(), ["Run the suite"])
+
+    def test_an_open_item_passes_without_a_claim_or_when_typed_done_or_blocked(self):
+        ti.note("s", "turn", "t1")
+        ti.note_tool("s", "TodoWrite", {"todos": [
+            {"content": "Run the suite", "status": "in_progress"}]}, failed=False)
+        # no done claim, a question, or the item typed with its blocker
+        self.assertEqual(self.open_("Suite hâlâ koşuyor."), [])
+        self.assertEqual(self.open_("Tamamlandı mı?"), [])
+        self.assertEqual(self.open_("Tamamlandı.\nRun the suite - ORTAM: pytest yok"), [])
+        # every item completed
+        ti.note_tool("s", "TodoWrite", {"todos": [
+            {"content": "Run the suite", "status": "completed"}]}, failed=False)
+        self.assertEqual(self.open_(), [])
+        # a blocked item with its reason (omp `blocker`)
+        ti.note_tool("s", "todo", {"op": "block"}, failed=False, todo=[
+            {"content": "Run the suite", "status": "in_progress",
+             "blocker": "slice A runs"}])
+        self.assertEqual(self.open_(), [])
+        # a Cursor `merge: true` list is partial and not judged
+        ti.note_tool("s", "todo_write", {"merge": True, "todos": [
+            {"content": "Run the suite", "status": "in_progress"}]})
+        self.assertTrue(self.todo()["partial"])
+        self.assertEqual(self.open_(), [])
+        # orchestrate-off turns the class off with `ready steps`
+        ti.note_tool("s", "todo_write", {"todos": [
+            {"content": "Run the suite", "status": "in_progress"}]})
+        self.assertEqual(self.open_(), ["Run the suite"])
+        with mock.patch.object(ti, "off", side_effect=lambda n: n == "orchestrate-off"):
+            self.assertEqual(self.open_(), [])
+
 
 class ScratchEvidenceReader(unittest.TestCase):
     """scratch_evidence: the session whose whole evidence base is its own scratch
@@ -3184,6 +3233,29 @@ class StopHook(TempHome):
         self.todos(("Write the schema", "pending"))
         self.assertIsNone(self.stop("Plan hazır."))
         self.assertNotIn("blocked: ready steps", self.claim_rows())
+
+    def test_a_done_claim_over_an_in_progress_todo_is_refused_once(self):
+        # plan 097 item 2 through the real Claude hooks: a verified turn claims
+        # done while its todo list still holds an in-progress item
+        self.turn("parser")
+        self.todos(("Write the parser", "completed"), ("Run the suite", "in_progress"))
+        self.work()
+        out = self.stop("Tamamlandı.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Run the suite", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: open todo"])
+        self.assertIsNone(self.stop("Tamamlandı.", stop_hook_active=True))
+        self.assertEqual([r.get("detail") for r in self.rows("after_block")],
+                         ["would block: open todo"])
+        # the same list without the claim, or with every item done, passes
+        self.turn("devam")
+        self.todos(("Run the suite", "in_progress"))
+        self.work()
+        self.assertIsNone(self.stop("Suite koşuyor, sonucu bekliyorum."))
+        self.turn("devam")
+        self.todos(("Run the suite", "completed"))
+        self.work()
+        self.assertIsNone(self.stop("Tamamlandı."))
 
     def test_a_ledger_with_no_turn_marker_is_not_judged_for_residuals(self):
         # exits C3: with no marker the whole ledger is the "turn", so an

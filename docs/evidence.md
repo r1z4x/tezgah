@@ -117,7 +117,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `turn` | `hooks/tezgah_integrity.py::note_turn`, from the prompt path | `hooks/tezgah_integrity.py::_turn_start`, scoping every turn rule; `hooks/tezgah_integrity.py::_claim_key` |
 | `run`, `edit`, `verify`, `verify_ok`, `verify_fail`, `interrupted` | `hooks/tezgah_integrity.py::note_tool`, the call's own name in `tool`, on opencode the plugin writes these same kinds and the same field (`hosts/opencode/plugins/tezgah.js:1215-1293`) | the Stop rule's `worked` set `hooks/tezgah_integrity.py::WORK_KINDS`; `counters.steps` `hooks/tezgah_integrity.py::_counts`; `last_verify`/`partial_state`; the `--trend` tool histogram |
 | `external`, `unknown` | `hooks/tezgah_integrity.py::note_tool` | the taint notice, via `source`; the `--trend` tool histogram; nothing counts them as work |
-| `todo` | `hooks/tezgah_integrity.py::note_todo`, from `note_tool` for a todo call: omp `todo` (the bridge sends the list from the result's `details`), Claude and dsh `TodoWrite` (their PostToolUse matcher), opencode `todowrite` (the plugin's own `recordTodo`), Cursor `todo_write` and Codex `update_plan`, which arrive with no matcher. `open`, `ready` and `blocked` count the list, and `detail` holds the ready items' heads, one per line | the `ready steps` Stop class (`hooks/tezgah_integrity.py::ready_left`) and the idle-wait warning (`hooks/tezgah_gate.py::ready_advice`) |
+| `todo` | `hooks/tezgah_integrity.py::note_todo`, from `note_tool` for a todo call: omp `todo` (the bridge sends the list from the result's `details`), Claude and dsh `TodoWrite` (their PostToolUse matcher), opencode `todowrite` (the plugin's own `recordTodo`), Cursor `todo_write` and Codex `update_plan`, which arrive with no matcher. `open`, `ready` and `blocked` count the list, `detail` holds the ready items' heads, one per line, `taken` holds the in-progress items' heads, and `partial` marks a Cursor `merge: true` list | the `ready steps` and `open todo` Stop classes (`hooks/tezgah_integrity.py::ready_left`, `hooks/tezgah_integrity.py::open_left`) and the idle-wait warning (`hooks/tezgah_gate.py::ready_advice`) |
 | `wait` | `hooks/tezgah_integrity.py::note_tool`, for omp's `wait` | `hooks/tezgah_gate.py::ready_advice`, which counts it as idle; nothing counts it as work |
 | `ask` | `hooks/tezgah_gate.py::ask_advice`, for an omp `ask` or Claude AskUserQuestion call: `detail` holds the questions, cut; `questions` counts them and `defaults` the ones with a recommended option | nothing refuses on it; the row is the record of what the session asked |
 | `grant` | `hooks/tezgah_context.py::context_for`, from each prompt's `user_grants` (`hooks/tezgah_context.py::user_grants`): `detail` holds the user's clause, `target` the outward class it covers (`push`, `release`, `publish`, `pr` or `all`), or `lift:<class>` when the prompt took it back | `hooks/tezgah_integrity.py::grants_in_force`, read by the `needless ask` Stop class and the ask-tool warning |
@@ -499,6 +499,14 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    (`hooks/tezgah_gate.py::ready_advice`). The warning needs a spawn with nothing after it but
    waits and todo updates, and a ready item no running slice names. It rides back with the wait's
    result.
+   **open todo**, beside it (plan 097): the reply claims done while the same `todo` row still holds
+   an item in progress. The count is `open - blocked - ready`, and `taken` names the heads
+   (`hooks/tezgah_integrity.py::open_left`). The claim is the one `asserted_claims` reads, so a
+   question or a negation is no claim. An in-progress item passes like a ready one: one reply line
+   names it beside a blocker token. A blocked item does not count. A Cursor `merge: true` row
+   holds only the changed items, so the class skips a row marked `partial`. `_residual_block`
+   asks it right after `ready steps`, on the same parsed row (`hooks/tezgah_integrity.py::_turn_todo`),
+   under the same scope and switches. It counts as a false completion, since the reply claims done.
 13. **needless ask** — the reply ends on a question the agent can decide (plan 086, S3). The
    last line asks: it ends on "?" or a pack's question particle
    (`hooks/tezgah_integrity.py::QUESTION_END`). Its paragraph names no recommended default, and
