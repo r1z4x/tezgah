@@ -1,0 +1,5 @@
+[
+  {"sku": "BOLT-M6", "name": "Hex bolt | M6 x 30, zinc", "qty": 1200, "price_cents": 12},
+  {"sku": "NUT-M6", "name": "Hex nut M6", "qty": 3000, "price_cents": 4},
+  {"sku": "SHELF-1", "name": "Shelf bracket 1/2\\3/4 combo", "qty": 40, "price_cents": 350}
+]

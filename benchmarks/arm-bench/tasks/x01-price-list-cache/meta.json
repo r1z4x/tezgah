@@ -1,0 +1,26 @@
+{
+  "id": "x01-price-list-cache",
+  "family": "hidden-invariant",
+  "prompt": "prompt.md",
+  "source": "new in the hidden-invariant family (plan 095, 2026-10-12)",
+  "hard_because": "The plausible bulk load writes the rows into Catalog._prices and calls Store.save once, skipping Catalog._changed, so QuoteService keeps serving quotes memoised at the old prices; check_price_list warms two quotes before the load and reads them after it. Looping over set_price instead fails the one-save requirement.",
+  "allow": [
+    "src/",
+    "tests/"
+  ],
+  "allow_note": "the prompt names src/catalog.py; other src/ files and new tests are legitimate, anything outside is collateral",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "price_list",
+      "cmd": "python3 {hidden}/check_price_list.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "x03-move-booking-index",
+  "family": "hidden-invariant",
+  "prompt": "prompt.md",
+  "source": "new in the hidden-invariant family (plan 095, 2026-10-12)",
+  "hard_because": "Booking is frozen, so the plausible move builds a new Booking and stores it in Agenda._by_id, but leaves the old (start, id) pair in the sorted _timeline that between() bisects; get() shows the new time while between() and the room board list the booking at the old one, which check_move asserts after a move across another booking.",
+  "allow": [
+    "src/",
+    "tests/"
+  ],
+  "allow_note": "the prompt names src/agenda.py; other src/ files and new tests are legitimate, anything outside is collateral",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "move",
+      "cmd": "python3 {hidden}/check_move.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

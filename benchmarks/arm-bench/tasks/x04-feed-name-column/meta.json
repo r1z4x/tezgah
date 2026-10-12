@@ -1,0 +1,27 @@
+{
+  "id": "x04-feed-name-column",
+  "family": "hidden-invariant",
+  "prompt": "prompt.md",
+  "source": "new in the hidden-invariant family (plan 095, 2026-10-12)",
+  "hard_because": "The plausible change appends the raw name as a fourth `|` field and has the reader unpack four fields; data/products.json already holds names with `|` and `\\`, which docs/FEED.md says must be escaped, and the archived three-column feed must still read. check_names round-trips products.json and reads data/archive/2026-09-30.feed.",
+  "allow": [
+    "src/",
+    "tests/",
+    "docs/"
+  ],
+  "allow_note": "the prompt names src/feed.py, src/reader.py and docs/FEED.md; new tests are legitimate; data/ is the shop's export and the archive, so editing it is collateral",
+  "checks": [
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    },
+    {
+      "name": "names",
+      "cmd": "python3 {hidden}/check_names.py",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
