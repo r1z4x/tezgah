@@ -643,7 +643,7 @@
   },
   "orx": false,
   "toggle": "plan 090, ported in plan 095: the installed ~/.omp/agent plus one RULES.md paragraph that hands every edit to the tezgah-* worker tezgah-route names; subagent model overrides pinned to make_variants.SUBAGENT_MODEL (ARMBENCH_SUBAGENT_MODEL, default deepseek/deepseek-v4-flash); agents/ rendered from hooks/tezgah_agents.py. `python3 make_variants.py omp+tezgah-delegate` deploys it; a bare `make_variants.py` does not",
-  "flag_verified": false,
-  "verification": "deployed by make_variants.py; PROVENANCE.md names the pinned model and the command that rebuilt it; delegation counted from each kept stdout.log (`\"name\":\"task\"` tool calls). flag_verified stays false until one paid arming run shows session_rows > 0 and a spawned tezgah-* worker"
+  "flag_verified": true,
+  "verification": "deployed by make_variants.py; PROVENANCE.md names the pinned model and the command that rebuilt it. Arming run 2026-10-12 (results/095-arming, x02-cancel-order-stock r1): pass, session_rows 78, one task call to tezgah-standard (FixCancelStock) in the run's omp transcript; the 100 calibration rows carry session_rows > 0 on all 100 and a spawn row on 97"
  }
 ]

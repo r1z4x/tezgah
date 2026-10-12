@@ -773,9 +773,8 @@ class DelegateArm(unittest.TestCase):
         self.assertIn("agentModelOverrides", proc.stderr)
         self.assertFalse(self.arms.exists())
 
-    def test_the_arm_is_listed_and_unverified_until_a_paid_arming_run(self):
+    def test_the_arm_runs_from_its_own_agent_dir(self):
         arm = bench.arms_by_name()["omp+tezgah-delegate"]
-        self.assertFalse(arm["flag_verified"])
         self.assertEqual(Path(arm["env"]["PI_CODING_AGENT_DIR"]).name, "omp+tezgah-delegate")
 
 

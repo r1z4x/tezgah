@@ -407,11 +407,33 @@ python3 analyze.py 'results/095-calibration/*.jsonl'
 `[\w./:,-]+`; it replaces every value under `task.agentModelOverrides` and no
 other line, and `PROVENANCE.md` records the command that built the arm. An
 unknown arm name, a bad model value or a config without that block exits
-non-zero before any arm directory is written. The arm stays
-`flag_verified: false` until one paid arming run shows `session_rows > 0` and a
-spawned tezgah-* worker. `calibration-095.json` runs every `x*` task k=5 on that
-arm, 8 in parallel, under a USD 5.00 cap, into one results file; a `tasks` glob
-that matches nothing stops the block before it starts.
+non-zero before any arm directory is written. One paid arming run on
+2026-10-12 proved the arm (x02 r1: pass, `session_rows` 78, one task call to
+`tezgah-standard`), so it is `flag_verified: true`. `calibration-095.json` runs
+every `x*` task k=5 on that arm, 8 in parallel, under a USD 5.00 cap, into one
+results file. A `tasks` glob that matches nothing stops the block before it
+starts.
+
+### Calibration, 2026-10-12: the x tasks are saturated too
+
+Twenty tasks in four families were written to fail a hurried agent: a hidden
+invariant (x01-x05), sites a grep misses (x06-x10), an edge clause or late note
+in a spec (x11-x15), and long multi-step sweeps (x16-x20). Each discriminates
+in `selftest` (baseline fails, gold passes, no leak). On `omp+tezgah-delegate`
+with `deepseek/deepseek-v4-flash`, k=5, 1887 s wall:
+
+| tasks | runs | pass | note |
+|---|---|---|---|
+| x01-x04, x06-x20 | 95 | 95 | every hidden check passed |
+| x05-refund-webhook-redelivery | 5 | 4 | the one failure is collateral (`README.md`), not a hidden check |
+
+No task lands in the 0.3-0.7 band plan 095 asked for. 97 of 100 runs spawned a
+worker, no run timed out, and no session transcript reads `hidden/` or `gold/`.
+The Stop rule refused a reply for `no verify_ok` in 74 runs, so most runs
+re-checked before they ended. The cost was $0.93 at list price; the DeepSeek
+balance fell $1.70 over the same block. The tasks stay as a regression corpus.
+A role-text search needs real-repository tasks (the SWE-Bench Pro split below)
+or a weaker executor.
 
 ## SWE-Bench Pro split (idea 190)
 
