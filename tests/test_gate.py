@@ -2470,6 +2470,17 @@ class TaskGate(TempHome):
             self.assertIn("task 017", self.bash(command) or "", command)
         self.assertIsNone(self.bash("echo y | tee -a %s" % target))
 
+    def test_every_shell_target_meets_its_owners_allowlist(self):
+        # the second redirect lands in the main checkout, outside 017's scope
+        self.plan(phase="implementation", allowed=("docs/**",))
+        self.plan(phase="implementation", allowed=("docs/**",),
+                  name="018-other.md", task_id="018")
+        two = self.sibling("proj-018", branch="plan/018-other")
+        reason = self.bash("echo x >> %s; echo y > hooks/outside.py"
+                           % os.path.join(two, "docs", "a.md"))
+        self.assertIn("hooks/outside.py", reason or "")
+        self.assertIn("task 017", reason or "")
+
     def test_every_redirect_into_a_plan_worktree_is_read_not_counted(self):
         # two redirects, both into the worktree: no write lands under the cwd's
         # task, so its reading phase does not refuse the line
