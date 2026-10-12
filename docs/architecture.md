@@ -175,6 +175,10 @@ others read-only - the session-start line above and `tezgah-research --all` -
 through `worktrees`, which lists `<main>/.git/worktrees/*/gitdir` with no git
 fork and skips an entry whose checkout is gone, as git's own `prunable` does
 (`hooks/tezgah_paths.py::worktrees`).
+A path inside `.tezgah` belongs to the repository around it, never to `.tezgah`.
+The workspace keeps its own `.git`, so git's top-level answers `.tezgah` there.
+Every resolver passes that answer through `hooks/tezgah_paths.py::project_top`.
+So tezgah never creates a `.tezgah`, `.cursor`, `.opencode` or graph index inside it.
 
 ## Invariants
 

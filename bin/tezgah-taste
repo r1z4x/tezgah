@@ -500,7 +500,8 @@ DIFF_MAX = 1500
 def repo_root(path):
     out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
                          capture_output=True, text=True)
-    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
+    top = out.stdout.strip() if out.returncode == 0 else ""
+    return tezgah_paths.project_top(top) if top else None
 
 
 def sig_id(*parts):

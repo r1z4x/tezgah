@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Rewrite the status table in <git root>/.tezgah/plans/README.md from .tezgah/plans/open/*.md.
+"""Rewrite the status table in <main checkout>/.tezgah/plans/README.md from .tezgah/plans/open/*.md.
 Usage: python3 render_table.py [--pr-info 'NNN=text' ...]  (extra text appended to the pr cell)
        python3 render_table.py --acceptance  (the acceptance items that name no
        command, with the counts it read; a report, not a gate - always exit 0)
        python3 render_table.py --acceptance --strict  (the same report, and exit 1
        when an item still under .tezgah/plans/open names no command either)
 Creates .tezgah/plans/README.md, or appends the marker block to it, when either is missing."""
-import glob, os, re, subprocess, sys
+import glob, os, re, sys
 # The one reader of a plan file lives in the module that owns the record, so the
 # table and the acceptance report cannot disagree about what a plan says. Three
 # dirnames up from skills/plan-add/render_table.py is the tree that holds hooks/,
@@ -14,7 +14,12 @@ import glob, os, re, subprocess, sys
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
+# The project's main checkout, the one that keeps `.tezgah/plans`: git's own
+# top-level answered `.tezgah` from inside it (its private repository) and a
+# worktree from a linked checkout, and the table was written there instead.
+root = tt.main_repo(os.getcwd())
+if not root:
+    sys.exit("render_table: %s is not inside a git checkout" % os.getcwd())
 
 
 def acceptance(strict):

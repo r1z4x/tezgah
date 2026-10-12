@@ -126,7 +126,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import say  # noqa: E402
+from tezgah_paths import project_top, say  # noqa: E402
 
 
 def repo_root(path):
@@ -136,7 +136,7 @@ def repo_root(path):
         out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
                              capture_output=True, text=True)
         if out.returncode == 0 and out.stdout.strip():
-            return out.stdout.strip()
+            return project_top(out.stdout.strip())
     except OSError:
         pass
     return os.path.realpath(path)
