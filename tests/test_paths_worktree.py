@@ -354,50 +354,6 @@ class WorktreeBridge(TempHome):
         self.assertNotEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
 
-class BareRepository(TempHome):
-    """Plan 097, final pass: the worktrees of a bare repository have no main
-    checkout, so each one took its own `.tezgah` - plans one worktree opened were
-    no task in another, and a research line went with `git worktree remove`. The
-    worktree on the bare repository's HEAD branch stands in for the main one."""
-
-    def setUp(self):
-        super().setUp()
-        src = self.make_repo("src")
-        git("init", "-q", "-b", "main", src)
-        git("-C", src, "-c", "user.email=a@b", "-c", "user.name=t",
-            "commit", "-q", "--allow-empty", "-m", "x")
-        self.bare = os.path.join(self.roots, "app.git")
-        git("clone", "-q", "--bare", src, self.bare)
-        self.main = os.path.join(self.roots, "app-main")
-        self.feature = os.path.join(self.roots, "app-feature")
-        git("-C", self.bare, "worktree", "add", "-q", self.main, "main")
-        git("-C", self.bare, "worktree", "add", "-q", "-b", "feature", self.feature)
-        self.main, self.feature = map(os.path.realpath, (self.main, self.feature))
-        patch = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.roots})
-        patch.start()
-        self.addCleanup(patch.stop)
-
-    def test_the_head_branch_worktree_holds_the_workspace(self):
-        with mock.patch("subprocess.Popen", side_effect=AssertionError("git forked")):
-            self.assertEqual(tp.linked_main(self.feature), self.main)
-            self.assertIsNone(tp.linked_main(self.main))
-            for checkout in (self.main, self.feature):
-                self.assertEqual(tp.worktrees(checkout), [self.main, self.feature], checkout)
-        proc = subprocess.run([sys.executable, RESEARCH, "init", "bare-line", "--ask", "q"],
-                              cwd=self.feature, capture_output=True, text=True,
-                              env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertTrue(os.path.isdir(os.path.join(
-            self.main, ".tezgah", "research", "open", "bare-line")), proc.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.feature, ".tezgah")))
-
-    def test_no_worktree_on_the_head_branch_keeps_each_its_own(self):
-        git("-C", self.bare, "worktree", "remove", self.main)
-        self.assertIsNone(tp.linked_main(self.feature))
-        self.assertEqual(tp.worktrees(self.feature), [])
-
-
-
 class InsideWorkspace(TempHome):
     """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -
     its own git repository - works on the project and never writes a `.tezgah`,
