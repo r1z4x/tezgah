@@ -451,8 +451,9 @@ writes, for a line whose every experiment's order still checks. The ack goes to
 
 ### Moving a line between checkouts
 
-Each checkout keeps its own `.tezgah` repository, and that repository has no
-remote. One directory on one disk holds the only copy of a line's order proof.
+A repository keeps one `.tezgah`, in its main checkout, and every worktree writes
+there. `import` moves a line out of a worktree `.tezgah` written before plan 097,
+or out of another clone.
 A **copy** of a line, committed in another checkout, lands protocol and results
 in one commit. The copy destroys the proof: `check` refuses it as "one commit
 added both". `tezgah-research import <checkout> [<slug>]` moves the line with

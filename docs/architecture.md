@@ -174,7 +174,8 @@ reads and writes the main checkout's `.tezgah`: the session context
 (`hooks/tezgah_context.py::context_for`), `tezgah-task`
 (`bin/tezgah-task::main_root`), the slice journal
 (`hooks/tezgah_task.py::slice_dir`), `tezgah-research`
-(`bin/tezgah-research::repo_root`), `tezgah-decisions` and the taste CLI. A
+(`bin/tezgah-research::repo_root`), `tezgah-decisions`, the taste CLI and taste
+capture (`hooks/tezgah_taste.py::enabled`). A
 worktree's own `.tezgah` went with `git worktree remove`, and so did everything
 a session wrote there. `tezgah-research check` still resolves a line's citations
 against the checkout it runs in, where the branch's code is. The session-start

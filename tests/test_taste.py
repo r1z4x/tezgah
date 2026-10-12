@@ -142,6 +142,24 @@ class Taste(TempHome):
         # an after blob is no pre-state: no `snapshot` ledger row names it
         self.assertFalse([r for r in ti.events(SESSION) if r.get("kind") == "snapshot"])
 
+    def test_a_worktree_session_writes_to_the_main_checkouts_store(self):
+        # plan 097: a worktree keeps no `.tezgah`; its rows go to main's, with
+        # paths relative to the worktree, the same as in the main checkout
+        self.arm()
+        git = ["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@localhost"]
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "init"], check=True)
+        wt = os.path.realpath(os.path.join(self.home, "wt"))
+        subprocess.run(git + ["worktree", "add", "-q", "-b", "plan/001-x", wt], check=True)
+        with open(os.path.join(wt, "a.py"), "w", encoding="utf-8") as fh:
+            fh.write("x = 2\n")
+        self.assertEqual(tt.enabled(wt), os.path.realpath(self.repo))
+        tt.note_prompt(SESSION, "rename it", wt)
+        tt.note_write(SESSION, "id1", {"file_path": "a.py", "old_string": "x = 1",
+                                       "new_string": "x = 2"}, wt)
+        self.assertEqual([r["kind"] for r in self.rows()], ["prompt", "edit", "after"])
+        self.assertEqual(self.rows("edit")[0]["path"], "a.py")
+        self.assertFalse(os.path.exists(os.path.join(wt, ".tezgah")))
+
     def test_write_and_patch_shapes(self):
         self.arm()
         self.write("w.py", "body\n")

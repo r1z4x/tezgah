@@ -33,7 +33,8 @@ from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
                           ai_research_dir, alts, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, language,
-                          off, orx_bin, packs, pony_level, root_for, roots, say, tool,
+                          off, orx_bin, packs, pony_level, project_top, root_for,
+                          roots, say, tool,
                           workspace, workspace_from_repo, worktrees, writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
@@ -383,10 +384,12 @@ def git(root, *args):
 
 def repo_root(cwd):
     """The unit of work: the git top-level under a root, else the first path
-    component below the root (so a non-git project still gets one slug)."""
+    component below the root (so a non-git project still gets one slug). Inside
+    `.tezgah` git answers the workspace's own repository; the unit is the
+    project around it, or the session start sets the project up in `.tezgah`."""
     top = git(cwd, "rev-parse", "--show-toplevel")
     if top and under(top):
-        return os.path.realpath(top)
+        return project_top(os.path.realpath(top))
     base = root_for(cwd)
     if not base:
         return os.path.realpath(cwd)

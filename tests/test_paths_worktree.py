@@ -3,6 +3,7 @@ its siblings are listed from `.git/worktrees/*/gitdir` - both without a git
 fork - and every checkout keeps its own `.tezgah`."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -351,6 +352,29 @@ class InsideWorkspace(TempHome):
         self.assertTrue(os.path.isfile(os.path.join(self.ws, "plans", "done",
                                                     "001-first.md")))
         self.assertEqual(self.strays(), [])
+
+    def test_a_session_started_inside_the_workspace_sets_up_the_project(self):
+        for d in (".cursor", os.path.join(".config", "opencode")):
+            os.makedirs(os.path.join(self.home, d), exist_ok=True)
+        env = self.env(extra={"TEZGAH_CODEGRAPH_BIN": sys.executable})
+        for cwd in (self.ws, self.open):
+            out, proc = support.run_json([support.PROBE_CONTEXT],
+                                         {"fn": "context_for", "event": "session_start",
+                                          "cwd": cwd}, env=env)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(self.strays(), [], cwd)
+        # the project got what the workspace must not: its agents, its ignore
+        # lines and the index worker's log under the project's own slug
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.repo, ".cursor", "agents", "tezgah-cheap.md")))
+        with open(os.path.join(self.repo, ".gitignore"), encoding="utf-8") as fh:
+            self.assertIn("/.codegraph/", fh.read())
+        logs = {n for _, _, names in os.walk(self.home) for n in names}
+
+        def slug(p):
+            return re.sub(r"[^A-Za-z0-9]+", "-", p).strip("-") + ".log"
+        self.assertIn(slug(self.repo), logs)
+        self.assertNotIn(slug(self.ws), logs)
 
 
 if __name__ == "__main__":

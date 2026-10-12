@@ -27,7 +27,8 @@ import time
 
 import tezgah_integrity as ti
 import tezgah_paths
-from tezgah_paths import _toplevel, armed, root_for, workspace_from_repo
+from tezgah_paths import (_linked_main_at, _toplevel, armed, root_for,
+                          workspace_from_repo)
 
 ARM = "taste-on"
 LEARN_EVERY = 3600  # seconds between two background `learn` starts per repo
@@ -46,7 +47,8 @@ WHOLE_KEYS = ("content", "file_text", "text", "new_source")
 
 def enabled(cwd):
     """The git root taste rows for `cwd` go to, or None when capture is off
-    there. The marker is read first, so the default costs two stats."""
+    there: a linked worktree's rows go to its main checkout, the one `.tezgah`
+    of the repository. The marker is read first, so the default costs two stats."""
     try:
         if not cwd or not armed(ARM):
             return None
@@ -54,6 +56,7 @@ def enabled(cwd):
         if not root_for(real):
             return None
         top = _toplevel(real)
+        top = top and (_linked_main_at(top) or top)
         if not top or not os.path.isdir(os.path.join(top, ".tezgah")):
             return None
         from tezgah_context import repo_marks  # imports this module's callers
@@ -73,10 +76,11 @@ def _cut(text, limit):
 
 
 def _rel(root, path, cwd):
-    """`path` relative to `root`, or None when it resolves outside it."""
+    """`path` relative to the checkout holding `cwd` (a worktree's paths read
+    the same as main's), or None when it resolves outside it."""
     apath = os.path.realpath(
         str(path) if os.path.isabs(str(path)) else os.path.join(cwd, str(path)))
-    rel = os.path.relpath(apath, root)
+    rel = os.path.relpath(apath, _toplevel(os.path.realpath(cwd)) or root)
     return None if rel == ".." or rel.startswith(".." + os.sep) else rel
 
 
