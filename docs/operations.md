@@ -616,6 +616,20 @@ it costs nothing there. On held-out Turkish phrasings of the docs index,
 meaning alone found the page in the top three for 0.91 with `embed-mrl` and 0.78
 with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
+## Plan records: the lock, `landed`, the close commit
+
+Every `tezgah-task` writer of a plan record holds an exclusive lock on
+`<main checkout>/.tezgah/plans/.lock` across its read, change and write
+(`hooks/tezgah_task.py::plans_lock`). It writes a temp file beside the record and
+renames it over the record, so a reader never sees a torn file
+(`hooks/tezgah_task.py::_write`). Windows has no `fcntl`, so writers run unlocked
+there, and the rename alone keeps reads whole. `close NNN done` records
+`landed:`, the main checkout's HEAD. A squash merge and a branch deletion can
+orphan `reviewed_sha:`, but not that commit. When `.tezgah` is a git repository
+of its own, `close` commits the move as `plan: close NNN <slug>`. The commit
+holds the record's old and new paths and nothing else the owner staged
+(`bin/tezgah-task::commit_close`).
+
 ## Slice journal: `tezgah-task slice`
 
 A delegated slice can die with its parent. A crash, an omp `/clear`, a quota or
