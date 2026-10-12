@@ -1,0 +1,50 @@
+{
+  "id": "x19-numbered-request",
+  "family": "long-horizon",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12); a six-item numbered request over three modules of one CLI, one hidden check per item, so a row records which items an arm dropped",
+  "hard_because": "The plausible answer adds --since to list and search, which the request leads with, and drops item 5 (export) or item 6 ('(no notes)'), which are unrelated to each other and come last; parsing the date with fromisoformat after argparse instead of as an argparse type turns item 4 into a traceback with exit 1. The export, empty and invalid checks catch each; the visible suite never passes --since.",
+  "allow": [
+    "notes/"
+  ],
+  "allow_note": "the prompt allows any file under notes/; notes.json and tests/ are frozen and any change there is collateral",
+  "checks": [
+    {
+      "name": "filter",
+      "cmd": "python3 {hidden}/check_since.py filter",
+      "expect_exit": 0
+    },
+    {
+      "name": "list",
+      "cmd": "python3 {hidden}/check_since.py list",
+      "expect_exit": 0
+    },
+    {
+      "name": "search",
+      "cmd": "python3 {hidden}/check_since.py search",
+      "expect_exit": 0
+    },
+    {
+      "name": "invalid",
+      "cmd": "python3 {hidden}/check_since.py invalid",
+      "expect_exit": 0
+    },
+    {
+      "name": "export",
+      "cmd": "python3 {hidden}/check_since.py export",
+      "expect_exit": 0
+    },
+    {
+      "name": "empty",
+      "cmd": "python3 {hidden}/check_since.py empty",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "x16-profile-migration",
+  "family": "long-horizon",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12); a five-step storage migration across four modules with a backward-compatibility reader, one hidden check per consequence so a row records how far an arm got",
+  "hard_because": "The plausible answer rewrites save/load for version 2 and stops: it reads only version 2 files (or turns an empty v1 tags string into [''] instead of []), accepts any unknown version, leaves search.by_domain on the old 'mail' key, or rewrites version-2 files on every migrate_dir run; the load, version, readers and migrate checks catch each, while the visible suite stays green throughout.",
+  "allow": [
+    "profiles/"
+  ],
+  "allow_note": "the prompt allows any file under profiles/; data/ and tests/ are frozen and any change there is collateral",
+  "checks": [
+    {
+      "name": "save",
+      "cmd": "python3 {hidden}/check_migration.py save",
+      "expect_exit": 0
+    },
+    {
+      "name": "load",
+      "cmd": "python3 {hidden}/check_migration.py load",
+      "expect_exit": 0
+    },
+    {
+      "name": "version",
+      "cmd": "python3 {hidden}/check_migration.py version",
+      "expect_exit": 0
+    },
+    {
+      "name": "readers",
+      "cmd": "python3 {hidden}/check_migration.py readers",
+      "expect_exit": 0
+    },
+    {
+      "name": "export",
+      "cmd": "python3 {hidden}/check_migration.py export",
+      "expect_exit": 0
+    },
+    {
+      "name": "migrate",
+      "cmd": "python3 {hidden}/check_migration.py migrate",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

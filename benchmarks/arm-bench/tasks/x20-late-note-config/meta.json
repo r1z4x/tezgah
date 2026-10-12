@@ -1,0 +1,50 @@
+{
+  "id": "x20-late-note-config",
+  "family": "long-horizon",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12); a five-step config hardening over two modules with an ops note after the steps that overrides step 3 (retries = 0 is valid), one hidden check per step plus one for the note",
+  "hard_because": "The plausible answer implements step 3 as written (retries >= 1) and never reconciles the note after the steps, so retries = 0 is refused; and it leaves Client.send's range(self.retries) alone because the visible test passes with retries=3, though the docstring asks for one attempt plus retries - with retries = 0 that loop raises None. The late_note and client checks catch each; the visible suite stays green.",
+  "allow": [
+    "svc/"
+  ],
+  "allow_note": "the prompt allows any file under svc/; service.ini and tests/ are frozen and any change there is collateral",
+  "checks": [
+    {
+      "name": "types",
+      "cmd": "python3 {hidden}/check_config.py types",
+      "expect_exit": 0
+    },
+    {
+      "name": "required",
+      "cmd": "python3 {hidden}/check_config.py required",
+      "expect_exit": 0
+    },
+    {
+      "name": "ranges",
+      "cmd": "python3 {hidden}/check_config.py ranges",
+      "expect_exit": 0
+    },
+    {
+      "name": "late_note",
+      "cmd": "python3 {hidden}/check_config.py late_note",
+      "expect_exit": 0
+    },
+    {
+      "name": "env",
+      "cmd": "python3 {hidden}/check_config.py env",
+      "expect_exit": 0
+    },
+    {
+      "name": "client",
+      "cmd": "python3 {hidden}/check_config.py client",
+      "expect_exit": 0
+    },
+    {
+      "name": "suite",
+      "cmd": "python3 -m unittest discover -s tests",
+      "expect_exit": 0
+    }
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
