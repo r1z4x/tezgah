@@ -39,6 +39,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Nothing inside `.tezgah` treats it as a project.** The workspace keeps its own `.git`, so git named `.tezgah` itself as the top level there. Session start then set up `.tezgah/.tezgah`, agents and a graph index inside it. The plans table renderer wrote `.tezgah/.tezgah/plans/README.md`. Every resolver now maps a path inside `.tezgah` to the repository around it.
 - **Plan records survive concurrent writers.** `tick`, `note`, field writes and `close` hold a lock on the plans directory and replace the file atomically. A reader saw a torn record in 29 of 40 rounds before. `tick` now finds its item under the lock.
 - **The slice journal closes a landed slice whose worktree `close` removed.** `reconcile` no longer names the main checkout's HEAD as a removed worktree's last commit.
+- **`close` deletes a squash-merged plan branch.** It used `git branch -d`, which refuses a squash merge, and dropped the error. It now deletes with `-D` only after proving the branch landed, and names a branch it keeps.
+- **Two worktrees can commit to the private `.tezgah` repository at once.** In a fixture, a busy `index.lock` failed 11 of 19 close commits. Close still exited 0. Commits there now wait out a short lock, and close exits 1 when its record commit fails.
 
 ## [1.7.0] - 2026-10-12
 
