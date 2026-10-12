@@ -1,0 +1,18 @@
+{
+  "id": "x15-league-table-spec",
+  "family": "precise-spec",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12): the report names the dense-rank bug; the spec's unplayed-match and name clauses and an amendment after its example carry the rest",
+  "hard_because": "Switching to competition ranking (rank = position when the key changes) turns the visible suite green, but the amendment after the spec's example puts head-to-head points before goal difference, and the baseline's raw-name sort and its crash on a None score survive; `h2h`, `names` and `unplayed` catch it.",
+  "allow": ["league/table.py", "tests/"],
+  "allow_note": "the implementation file plus the visible tests; the spec is the contract of record and stays as it is",
+  "checks": [
+    {"name": "ranks", "cmd": "python3 {hidden}/check_spec.py ranks", "expect_exit": 0},
+    {"name": "names", "cmd": "python3 {hidden}/check_spec.py names", "expect_exit": 0},
+    {"name": "unplayed", "cmd": "python3 {hidden}/check_spec.py unplayed", "expect_exit": 0},
+    {"name": "h2h", "cmd": "python3 {hidden}/check_spec.py h2h", "expect_exit": 0},
+    {"name": "suite", "cmd": "python3 -m unittest discover -s tests", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "x11-invoice-tax-spec",
+  "family": "precise-spec",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12): a written spec whose main text names the reported bug (per-line rounding) and whose edge clauses and late footnote carry the rest",
+  "hard_because": "The plausible fix rounds each line with Decimal (or float round) and passes the visible suite, but taxes shipping at its own rate: footnote 1 at the end of SPEC.md moves shipping to the highest goods rate, and `shipping` catches it; a float or ROUND_HALF_UP line fix also fails `rounding`/`credit`.",
+  "allow": ["invoice/tax.py", "tests/"],
+  "allow_note": "the implementation file plus the visible tests; the spec is the contract of record and stays as it is",
+  "checks": [
+    {"name": "rounding", "cmd": "python3 {hidden}/check_spec.py rounding", "expect_exit": 0},
+    {"name": "credit", "cmd": "python3 {hidden}/check_spec.py credit", "expect_exit": 0},
+    {"name": "exempt", "cmd": "python3 {hidden}/check_spec.py exempt", "expect_exit": 0},
+    {"name": "shipping", "cmd": "python3 {hidden}/check_spec.py shipping", "expect_exit": 0},
+    {"name": "suite", "cmd": "python3 -m unittest discover -s tests", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}

@@ -1,0 +1,18 @@
+{
+  "id": "x14-fixed-width-record-spec",
+  "family": "precise-spec",
+  "prompt": "prompt.md",
+  "source": "new for plan 095 (2026-10-12): the report names the over-wide long-name line; the spec's truncation marker, ASCII, None and overflow clauses carry the rest",
+  "hard_because": "Cutting the name with `name[:20]` and switching to CRLF turns the visible suite green, but the spec cuts to 19 characters plus `~`, writes accented names in ASCII and a None name as spaces, and raises instead of widening a 9-digit account or a 13-character amount; `name` and `overflow` catch it.",
+  "allow": ["bank/record.py", "tests/"],
+  "allow_note": "the implementation file plus the visible tests; the spec is the bank's format and stays as it is",
+  "checks": [
+    {"name": "layout", "cmd": "python3 {hidden}/check_spec.py layout", "expect_exit": 0},
+    {"name": "name", "cmd": "python3 {hidden}/check_spec.py name", "expect_exit": 0},
+    {"name": "amount", "cmd": "python3 {hidden}/check_spec.py amount", "expect_exit": 0},
+    {"name": "overflow", "cmd": "python3 {hidden}/check_spec.py overflow", "expect_exit": 0},
+    {"name": "suite", "cmd": "python3 -m unittest discover -s tests", "expect_exit": 0}
+  ],
+  "baseline_expect": "fail",
+  "gold_expect": "pass"
+}
