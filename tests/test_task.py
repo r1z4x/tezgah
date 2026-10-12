@@ -1271,6 +1271,29 @@ class Cli(TempHome):
         self.assertEqual(self.ws("show", "--name-status", "--format=", "HEAD").splitlines(),
                          ["A\tplans/done/001-first.md"])
 
+    def test_close_waits_out_a_brief_index_lock_and_fails_on_a_stuck_one(self):
+        # plan 097, final pass: a close beside another commit into the private
+        # repository lost its record commit to `index.lock` in 6 of 19 rounds
+        # and still exited 0
+        import threading
+        self.private_repo()
+        lock = os.path.join(self.repo, ".tezgah", ".git", "index.lock")
+        self.plan("001-first.md")
+        open(lock, "w").close()
+        timer = threading.Timer(0.4, os.remove, (lock,))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.ws("log", "-1", "--format=%s"), "plan: close 001 first")
+        # a lock nobody releases (a crashed git) fails the close, named
+        self.plan("002-second.md")
+        open(lock, "w").close()
+        proc = self.task("close", "002", "discarded")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("close not committed", proc.stdout)
+        self.assertIn("index.lock", proc.stdout)
+
     def test_close_commits_nothing_when_the_workspace_is_no_git_repo(self):
         # `.tezgah` here is a plain directory inside the project's repository:
         # a commit there would land in the project's history

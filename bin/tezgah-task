@@ -100,9 +100,10 @@ on a spawn call or by `slice open`, so a parent crash, an omp `/clear`, a quota
 stop or a model or host switch loses no slice. `reconcile` reads each open omp
 record's child transcript and closes the ones that ended, then prints one
 resume brief per open or stopped slice; `--prune` first runs the same worktree
-removal `close` does, deletes (`git branch -d`) every local branch that has
-landed and is checked out nowhere - never main, master or the current branch -
-and marks done each record whose branch landed with a commit of its own.
+removal `close` does, deletes (`git branch -D`, a squash merge counts) every
+local branch that has landed and is checked out nowhere - never main, master
+or the current branch - and marks done each record whose branch landed with a
+commit of its own.
 `resume` prints the host's native path first (omp `write agent://<id>` while
 the parent session lives, Claude `SendMessage`), then a brief any host or model
 can re-dispatch: the original brief plus the last commit, the branch and the
@@ -949,15 +950,15 @@ def cmd_close(args):
         return problems(["cannot close %s: %s" % (path, exc)])
     print("moved %s -> %s" % (path, target))
     name = tt.slug(path)
-    line = commit_close(root, os.path.basename(path), "plan: close %s %s"
-                        % (ident, name.partition("-")[2] or name))
+    line, committed = commit_close(root, os.path.basename(path), "plan: close %s %s"
+                                   % (ident, name.partition("-")[2] or name))
     if line:
         print(line)
     # the checkout this runs in stays, even when it is a landed plan worktree:
     # removing it would pull the session's own cwd from under it
     for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
         print(line)
-    return 0
+    return 0 if committed else 1
 
 
 def landed_head(root, text, path):
@@ -978,14 +979,15 @@ def landed_head(root, text, path):
 def commit_close(root, name, message):
     """Commit the closed record's move - `plans/open/<name>` to
     `plans/done/<name>`, and nothing else the owner staged - in the private
-    `.tezgah` repository; the line to print, or None when `.tezgah` is no
-    repository of its own, where git would answer for the project around it.
-    A failed commit is printed, never fatal: the record has moved already."""
+    `.tezgah` repository: (the line to print, committed). No line and True when
+    `.tezgah` is no repository of its own, where git would answer for the
+    project around it. A failed commit - a lock `ws_git` waited out in vain -
+    is False, so close exits 1: the record has moved, its commit is owed."""
     from tezgah_paths import ws_git
     ws = os.path.realpath(os.path.join(root, ".tezgah"))
     top = git_out(ws, "rev-parse", "--show-toplevel")
     if not top or os.path.realpath(top) != ws:
-        return None
+        return None, True
     paths = ["plans/done/" + name]
     if git_out(ws, "ls-files", "--", "plans/open/" + name):
         paths.insert(0, "plans/open/" + name)
@@ -993,12 +995,16 @@ def commit_close(root, name, message):
         done = ws_git(root, "add", "--", paths[-1])
         if not done.returncode:
             done = ws_git(root, "commit", "-q", "-m", message, "--", *paths)
+        error = ((done.stderr or done.stdout).strip() or "git exited %d" % done.returncode
+                 if done.returncode else "")
     except OSError as exc:
-        return "close not committed in %s: %s" % (ws, exc)
-    if done.returncode:
-        return "close not committed in %s: %s" % (ws, (done.stderr or done.stdout).strip())
-    return "committed %s in %s at %s" % (" ".join(paths), ws,
-                                          git_out(ws, "rev-parse", "--short=12", "HEAD"))
+        error = str(exc)
+    if error:
+        return ("close not committed in %s: %s\n  the record moved; commit it with "
+                "`git -C %s add -- %s && git -C %s commit -m %r -- %s`"
+                % (ws, error, ws, paths[-1], ws, message, " ".join(paths)), False)
+    return ("committed %s in %s at %s" % (" ".join(paths), ws, git_out(
+        ws, "rev-parse", "--short=12", "HEAD")), True)
 
 
 # Ignored output a slice regenerates on its own. Any other ignored path - an
@@ -1068,14 +1074,29 @@ def landing_bases(root):
             if git_out(root, "rev-parse", "-q", "--verify", b)]
 
 
+def drop_branch(root, branch):
+    """`git branch -D` a branch `_landed` proved is in a landing base - `-d`
+    refuses a squash- or rebase-merged one, whose commits are in no base. None
+    once it is gone, else the line saying it stays and why."""
+    if not git_out(root, "rev-parse", "-q", "--verify", "refs/heads/" + branch):
+        return None
+    done = subprocess.run(["git", "-C", root, "branch", "-D", branch],
+                          capture_output=True, text=True)
+    if done.returncode == 0:
+        return None
+    return ("branch kept: %s (`git branch -D %s` refused: %s)"
+            % (branch, branch, ((done.stderr or "").strip().splitlines() or ["?"])[0]))
+
+
 def prune_worktrees(root, keep=None):
     """Remove every linked worktree of the repository whose branch has landed and
     which holds nothing else, so a closed plan leaves no checkout behind; one line
     per linked worktree, removed or kept with the reason. The main checkout and
     the one `close` runs in (`keep`, else `root`) always stay. Under Orca the
     removal is Orca's (its card, terminals and merged branch go with it), else
-    `git worktree remove` and a safe `git branch -d`. When Orca is installed but
-    does not answer, its agents cannot be checked, so every worktree stays."""
+    `git worktree remove`; the landed branch is then deleted (`drop_branch`), a
+    refusal printed. When Orca is installed but does not answer, its agents
+    cannot be checked, so every worktree stays."""
     import tezgah_orca
     from tezgah_paths import worktrees
     found = worktrees(root)
@@ -1110,12 +1131,14 @@ def prune_worktrees(root, keep=None):
             else:
                 gone = git_out(root, "worktree", "remove", path) is not None
                 how = "git worktree remove %s" % path
-                if gone:
-                    git_out(root, "branch", "-d", branch)
             why = None if gone else "`%s` failed; run it and report its error" % how
         out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
                                              why or branch))
         if why is None:
+            # _keeps answered None, so the branch landed: a squash merge too
+            kept = drop_branch(root, branch)
+            if kept:
+                out.append(kept)
             # its work landed and the checkout is gone: a record still open on it
             # would be offered for resume in a worktree that no longer exists
             for rec in tt.slices(root):
@@ -1287,7 +1310,8 @@ def own_commits(root, rec):
 
 
 def prune_branches(root, bases):
-    """`git branch -d` every local branch whose work landed in `bases`, that no
+    """`git branch -D` every local branch whose work landed in `bases` (`_landed`,
+    a squash merge too), that no
     worktree has checked out, that tracks no upstream (a long-lived branch such
     as `develop` tracks one) and that carries a commit of its own (its reflog
     names one, the guard `_keeps` applies to a worktree: a pre-created branch
@@ -1309,11 +1333,7 @@ def prune_branches(root, bases):
             continue
         if not any(_landed(root, branch, b) for b in bases):
             continue
-        done = subprocess.run(["git", "-C", root, "branch", "-d", branch],
-                              capture_output=True, text=True)
-        out.append("branch deleted: %s" % branch if done.returncode == 0 else
-                   "branch kept: %s (`git branch -d %s` refused: %s)"
-                   % (branch, branch, (done.stderr.strip().splitlines() or ["?"])[0]))
+        out.append(drop_branch(root, branch) or "branch deleted: %s" % branch)
     return out
 
 

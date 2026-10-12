@@ -583,6 +583,40 @@ class Cli(Journal):
         self.assertIn("slice C done: worktree %s removed, slice-c landed" % tree, proc.stdout)
         self.assertEqual(self.record("C")["status"], "done")
 
+    def test_close_deletes_a_squash_merged_branch_and_reports_an_unmerged_one(self):
+        """Plan 097 F4: `git branch -d` refuses a squash-merged branch, and close
+        dropped the refusal, so the landed plan branch stayed behind silently."""
+        squashed = self.worktree("plan/001-squashed")
+        self.commit_file("s.txt", cwd=squashed)
+        self.git("merge", "-q", "--squash", "plan/001-squashed")
+        self.git("commit", "-q", "-m", "squash")
+        unmerged = self.worktree("plan/001-unmerged")
+        self.commit_file("u.txt", cwd=unmerged)
+        plans = os.path.join(self.repo, ".tezgah", "plans", "open")
+        os.makedirs(plans)
+        with open(os.path.join(plans, "001-a-plan.md"), "w") as fh:
+            fh.write(PLAN.replace("---\n## Goal", "review: r approve 2026-10-12\n---\n## Goal"))
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("worktree removed: %s (plan/001-squashed)" % squashed, proc.stdout)
+        # an unmerged branch stays with its worktree, and the line says why
+        self.assertIn("worktree kept: %s (plan/001-unmerged is not merged into HEAD or main)"
+                      % unmerged, proc.stdout)
+        branches = self.git("for-each-ref", "--format=%(refname:short)", "refs/heads")
+        self.assertEqual(sorted(branches.split()), ["main", "plan/001-unmerged"])
+
+    def test_reconcile_prune_deletes_a_squash_merged_branch(self):
+        self.git("checkout", "-q", "-b", "squashed")
+        self.commit_file("s.txt")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--squash", "squashed")
+        self.git("commit", "-q", "-m", "squash")
+        proc = self.task("slice", "reconcile", "--prune")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("branch deleted: squashed", proc.stdout)
+        self.assertEqual(self.git("for-each-ref", "--format=%(refname:short)", "refs/heads"),
+                         "main")
+
     def test_reconcile_of_a_removed_worktree_names_no_false_last_commit(self):
         """Plan 097: with the worktree removed by hand, the resume brief named
         the main checkout's HEAD as the slice's last commit on a deleted branch."""

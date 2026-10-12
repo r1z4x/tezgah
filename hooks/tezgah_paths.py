@@ -274,9 +274,9 @@ def linked_main(path):
     never the checkout it sits in; `worktree_top` is the ancestor walk `root_for`
     uses. Read from the `.git` pointer file (`gitdir: <main>/.git/worktrees/
     <name>`), never from git: `root_for` runs on every gate call and a session
-    start's git forks are pinned. A plain checkout (`.git` is a directory), a
-    submodule (a `/modules/` pointer) and a bare main (no `.git` component)
-    answer None."""
+    start's git forks are pinned. A plain checkout (`.git` is a directory) and a
+    submodule (a `/modules/` pointer) answer None; a worktree of a bare
+    repository answers its HEAD-branch worktree (`_bare_main`)."""
     top = _toplevel(os.path.realpath(path))
     if not top:
         return None
@@ -303,7 +303,9 @@ def worktree_top(path):
 def _linked_main_at(top):
     """`linked_main` for one directory: its main checkout when `top` is a linked
     worktree, else None. A `.git` pointer whose admin directory git did not write
-    (its `commondir` missing) is not a worktree."""
+    (its `commondir` missing) is not a worktree. A bare repository has no main
+    checkout: its worktree on the HEAD branch stands in (`_bare_main`), and is
+    itself no linked worktree then."""
     try:
         with open(os.path.join(top, ".git"), encoding="utf-8") as fh:
             line = fh.readline().strip()
@@ -314,10 +316,55 @@ def _linked_main_at(top):
     gitdir = os.path.normpath(os.path.join(top, line[len("gitdir:"):].strip()))
     dotgit = os.path.dirname(os.path.dirname(gitdir))
     if os.path.basename(os.path.dirname(gitdir)) != "worktrees" \
-            or os.path.basename(dotgit) != ".git" \
             or not os.path.isfile(os.path.join(gitdir, "commondir")):
         return None
-    return os.path.realpath(os.path.dirname(dotgit))
+    if os.path.basename(dotgit) == ".git":
+        return os.path.realpath(os.path.dirname(dotgit))
+    main = _bare_main(dotgit)
+    return None if main == os.path.realpath(top) else main
+
+
+def _bare_main(common):
+    """The worktree of the bare repository `common` that checks out the branch
+    its HEAD names - the one git makes the default, `main` most often - else
+    None. Git checks a branch out in one worktree at most, so there is one."""
+    base = os.path.join(common, "worktrees")
+    try:
+        with open(os.path.join(common, "HEAD"), encoding="utf-8") as fh:
+            head = fh.readline().strip()
+        names = sorted(os.listdir(base))
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not head.startswith("ref: "):
+        return None
+    for name in names:
+        try:
+            with open(os.path.join(base, name, "HEAD"), encoding="utf-8") as fh:
+                if fh.readline().strip() != head:
+                    continue
+            with open(os.path.join(base, name, "gitdir"), encoding="utf-8") as fh:
+                dot = os.path.join(base, name, fh.readline().strip())
+        except (OSError, UnicodeDecodeError):
+            continue
+        if os.path.exists(dot):
+            return os.path.realpath(os.path.dirname(dot))
+    return None
+
+
+def _worktrees_dir(main):
+    """The admin directory listing the linked worktrees of the main checkout
+    `main`: `<main>/.git/worktrees`, or the bare repository's `worktrees` when
+    `main` is its HEAD-branch worktree (`_bare_main`); None for neither."""
+    dot = os.path.join(main, ".git")
+    if os.path.isdir(dot):
+        return os.path.join(dot, "worktrees")
+    gitdir = _gitdir_of(main)
+    if not gitdir:
+        return None
+    base = os.path.dirname(os.path.normpath(gitdir))
+    if os.path.basename(base) == "worktrees" and _bare_main(os.path.dirname(base)) == main:
+        return base
+    return None
 
 
 def worktrees(repo):
@@ -325,16 +372,15 @@ def worktrees(repo):
     [] outside a git checkout.
 
     Fork-free, from `<main>/.git/worktrees/*/gitdir` (each names a linked
-    worktree's `.git`). An entry whose target is gone - deleted without `git
-    worktree remove` - is skipped: git itself keeps it, marked prunable, until
-    `git worktree prune`. Each checkout keeps its own `.tezgah`; this only names
-    them."""
-    main = linked_main(repo)
-    if not main:
-        main = _toplevel(os.path.realpath(repo))
-        if not main or not os.path.isdir(os.path.join(main, ".git")):
-            return []
-    base = os.path.join(main, ".git", "worktrees")
+    worktree's `.git`; a bare repository's `worktrees/` for its HEAD-branch
+    worktree). An entry whose target is gone - deleted without `git worktree
+    remove` - is skipped: git itself keeps it, marked prunable, until `git
+    worktree prune`. This only names them; every one uses the main checkout's
+    `.tezgah`."""
+    main = linked_main(repo) or _toplevel(os.path.realpath(repo))
+    base = _worktrees_dir(main) if main else None
+    if base is None:
+        return []
     out = [main]
     try:
         names = sorted(os.listdir(base))
@@ -347,7 +393,7 @@ def worktrees(repo):
         except (OSError, UnicodeDecodeError):
             continue
         dot = os.path.join(base, name, pointer)
-        if pointer and os.path.exists(dot):
+        if pointer and os.path.exists(dot) and os.path.realpath(os.path.dirname(dot)) != main:
             out.append(os.path.realpath(os.path.dirname(dot)))
     return out
 
@@ -1366,15 +1412,32 @@ def seed_identity(repo, ws=None):
         pass
 
 
+# What git says when another git process holds the private repository's index
+# or a ref: every worktree commits into the main checkout's one `.tezgah/.git`,
+# so two closes or a close and a research commit collide (plan 097: 10 of 19
+# concurrent rounds).
+_GIT_LOCKED = (".lock': File exists", "cannot lock ref")
+# The waits between tries, ~1.5 s in all: a commit there takes milliseconds,
+# and a lock still held after it is a crashed git, which the caller reports.
+_LOCK_WAITS = (0.1, 0.2, 0.4, 0.8)
+
+
 def ws_git(repo, *args, **kw):
     """`git -C <repo>/.tezgah <args>` with tezgah's commit identity, as a
-    CompletedProcess (text, captured unless `kw` says otherwise). Raises OSError
-    when git is not installed, like subprocess.run."""
+    CompletedProcess (text, captured unless `kw` says otherwise), tried again
+    while another git holds a lock there (`_GIT_LOCKED`). Raises OSError when
+    git is not installed, like subprocess.run."""
     import subprocess  # deferred: see ensure_workspace
+    import time
     kw.setdefault("capture_output", True)
     kw.setdefault("text", True)
-    return subprocess.run(["git", "-C", workspace(repo)] + list(WS_IDENTITY)
-                          + list(args), **kw)
+    cmd = ["git", "-C", workspace(repo)] + list(WS_IDENTITY) + list(args)
+    for wait in _LOCK_WAITS + (None,):
+        done = subprocess.run(cmd, **kw)
+        err = done.stderr if isinstance(done.stderr, str) else ""
+        if not done.returncode or wait is None or not any(s in err for s in _GIT_LOCKED):
+            return done
+        time.sleep(wait)
 
 
 def guarded_opener(drop_auth=False):

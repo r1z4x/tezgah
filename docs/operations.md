@@ -632,7 +632,19 @@ records nothing. A squash merge and a branch deletion can orphan
 `reviewed_sha:`, but not that commit. When `.tezgah` is a git repository of its
 own, `close` commits the move as `plan: close NNN <slug>`. The commit holds the
 record's old and new paths and nothing else the owner staged
-(`bin/tezgah-task::commit_close`).
+(`bin/tezgah-task::commit_close`). Every worktree commits into that one
+repository, so another git can hold its `index.lock`. Each private-repository
+git call waits about 1.5 s for the lock (`hooks/tezgah_paths.py::ws_git`). A
+lock still held after that fails the close: exit 1, with the command that
+commits the moved record.
+
+`close` then removes each linked worktree whose branch landed and that holds
+nothing else (`bin/tezgah-task::prune_worktrees`). It deletes that branch with
+`git branch -D` (`bin/tezgah-task::drop_branch`). `git branch -d` refuses a
+squash- or rebase-merged branch, and `_landed` has already shown that its work
+is in a landing base (`bin/tezgah-task::_landed`). A branch that has not landed
+stays with its worktree, and the `worktree kept:` line names it as not merged.
+A delete git still refuses prints `branch kept:` with git's reason.
 
 ## Slice journal: `tezgah-task slice`
 
@@ -701,7 +713,7 @@ sessions' records. `tezgah-task slice reconcile` lists them all.
 |---|---|
 | `tezgah-task slice open --id ID [--kind agent\|job] [--host H] [--agent A] [--brief TEXT\|--brief-file F] [--parent P] [--cwd PATH]` | records a slice by hand, for a host whose spawn the hooks do not see |
 | `tezgah-task slice done ID` / `slice stop ID [--class C]` | closes a record as done, or as stopped with a failure class. An exact record id answers from any session. A spawned name answers too, and under `TEZGAH_SESSION` only for that session's records and unowned ones (`hooks/tezgah_task.py::find_slice`) |
-| `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
+| `tezgah-task slice reconcile [--prune]` | lists every pending record with a resume brief. `--prune` also removes landed worktrees and marks those records done. It deletes a landed local branch, a squash-merged one too (`git branch -D`), only when no worktree holds it, it tracks no upstream and its reflog shows a commit of its own; it never deletes main, master or the current branch |
 | `tezgah-task slice resume ID` | prints the native path first: omp `write agent://<id>` while the parent lives, Claude `SendMessage` when the id is an agent name. Otherwise it prints a re-dispatch brief: the original brief plus the last commit, the uncommitted files and "do not redo committed steps". A quota or rate-limit stop is sent to another provider. It sets the status to `resumed` |
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 | `tezgah-task slice board [--parent P]` | lists the open slices one parent spawned - the session's own, or for a subagent its parent's - newest first: the `Owns:` globs, worktree, branch and last commit of each, bounded to 12 lines (`hooks/tezgah_task.py::board`) |

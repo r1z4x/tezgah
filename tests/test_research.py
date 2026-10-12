@@ -1955,6 +1955,25 @@ class Tracking(Workspace):
         self.assertEqual(self.cli(repo, "commit", "q", "again").returncode, 1)
         self.assertEqual(self.cli(repo, "commit", "nope", "x").returncode, 2)
 
+    def test_commit_waits_out_a_brief_index_lock(self):
+        """Plan 097, final pass: two worktrees commit into the one private
+        repository; the second one's `index.lock` failure exited 1 in 4 of 19
+        concurrent rounds, though the lock is held for milliseconds."""
+        import threading
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.assertEqual(self.cli(repo, "commit", "q", "protocol h1").returncode, 0)
+        self.results(repo)
+        lock = os.path.join(repo, ".tezgah", ".git", "index.lock")
+        open(lock, "w").close()
+        timer = threading.Timer(0.4, os.remove, (lock,))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        done = self.cli(repo, "commit", "q", "results h1")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
+
 
 class LockedEvaluation(Workspace):
     """I2: the evaluation is locked before anything runs, and the environment it
