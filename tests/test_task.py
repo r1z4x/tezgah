@@ -1359,6 +1359,22 @@ class Cli(TempHome):
         self.assertIn("allowed: tests/**", printed.stdout)
         self.assertIn(os.path.join(".tezgah", "plans", "open", "001-first.md"), printed.stdout)
 
+    def test_a_reader_that_leaves_early_costs_no_traceback(self):
+        # `tezgah-task stop | head -1` died with BrokenPipeError (plan 094). The
+        # read end is closed before the CLI starts, so its first write meets
+        # EPIPE on every run - a `head` racing the output would not.
+        self.plan("001-first.md", phase="discovery", allowed=["tests/**"])
+        for args in (("status",), ("stop",)):
+            read_end, write_end = os.pipe()
+            os.close(read_end)
+            try:
+                proc = subprocess.run([CLI] + list(args), env=self.env(), cwd=self.repo,
+                                      stdout=write_end, stderr=subprocess.PIPE, text=True)
+            finally:
+                os.close(write_end)
+            self.assertEqual(proc.returncode, 0, (args, proc.stderr))
+            self.assertEqual(proc.stderr, "", args)
+
     def test_status_reports_a_phase_no_reader_accepts(self):
         self.plan("001-first.md", phase="implement")
         proc = self.task("status")

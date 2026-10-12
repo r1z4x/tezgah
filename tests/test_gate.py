@@ -2096,10 +2096,34 @@ class TaskGate(TempHome):
         for reason in (phase_reason, scope_reason):
             self.assertNotIn("the user", reason, reason)
             self.assertNotIn("task-off", reason, reason)
-        # a target outside the repository gets no allow line: no glob reaches it
-        outside = self.write_path(os.path.join(self.home, "elsewhere.py"))
+        # a target in another repository gets no allow line: no glob reaches it
+        other = os.path.join(self.home, "other")
+        os.makedirs(os.path.join(other, ".git"))
+        outside = self.write_path(os.path.join(other, "elsewhere.py"))
         self.assertIn("outside this repository", outside)
         self.assertNotIn("`tezgah-task allow '", outside)
+
+    def test_a_path_under_no_checkout_is_not_the_tasks(self):
+        # Plan 094: with a task active, `pbpaste > ~/.config/runpod/key` - the
+        # user's own credential file, asked for in chat - was refused as outside
+        # the repository. A path under no git checkout and no configured root is
+        # no repository's work, so no plan's phase or allowlist holds it: from
+        # the repo, from `~`, and through the write tools alike.
+        key = os.path.join(self.home, ".config", "x", "key")
+        for phase in ("implementation", "discovery"):
+            self.plan(phase=phase)
+            for inp in ({"command": "printf x > ~/.config/x/key"},
+                        {"command": "cd ~ && printf x > ~/.config/x/key",
+                         "cwd": self.home}):
+                self.assertIsNone(self.decide(inp, tool="Bash"), (phase, inp))
+            self.assertIsNone(self.write_path(key), phase)
+        # a repo path outside the allowlist is still the plan's to hold
+        reason = self.decide({"command": "printf x > src/y.py"}, tool="Bash")
+        self.assertIn("tezgah-task allow 'hooks/**' src/y.py", reason or "")
+        # and the other rules still read the write: a credential value is refused
+        reason = self.decide({"command": "printf 'api_key=sk-live-abc123' > "
+                                         "~/.config/x/key"}, tool="Bash")
+        self.assertIn("Credential", reason or "")
 
     def test_both_write_phases_allow_a_write_inside_the_allowlist(self):
         for phase in ("implementation", "verification"):
