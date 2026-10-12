@@ -657,6 +657,35 @@ class SweAdapter(unittest.TestCase):
         self.assertEqual(self.swe.patch_classes(conftest), ["test_or_config_edit"])
 
 
+class SessionRowsFromStore(unittest.TestCase):
+    """The hooks write ledger rows into the SQLite store (tezgah_store), not the
+    JSONL file, so the arming proof and the Stop classes read through the store:
+    a session with store rows and no JSONL is armed, and its refusals count."""
+
+    def test_store_rows_without_a_jsonl_file_are_counted(self):
+        import uuid
+        from unittest import mock
+
+        import tezgah_store
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            agent, cwd, sid = tmp / "agent", Path.home() / "Projects" / "tezgah", uuid.uuid4().hex
+            ledger = tmp / "cache" / "evidence" / (sid + ".jsonl")
+            ledger.parent.mkdir(parents=True)
+            directory = bench.omp_session_dir(cwd, agent)
+            directory.mkdir(parents=True)
+            (directory / ("2026-01-01T00-00-00-000Z_%s.jsonl" % sid)).write_text("{}")
+            for row in ({"kind": "verify_ok", "detail": "tests"},
+                        {"kind": "claim", "detail": "blocked: no verify_ok"},
+                        {"kind": "claim", "detail": "ok"}):
+                tezgah_store.append_evidence(str(ledger), json.dumps(row))
+            self.assertFalse(ledger.exists())
+            env = {"PI_CODING_AGENT_DIR": str(agent)}
+            with mock.patch.object(bench, "ledger_path", lambda s: str(ledger)):
+                self.assertEqual(bench.session_rows(env, cwd, "omp"), 3)
+                self.assertEqual(bench.stop_classes(env, cwd, "omp"), {"no verify_ok": 1})
+
+
 class DelegateArm(unittest.TestCase):
     """make_variants.py builds `omp+tezgah-delegate` only when named, pins only
     the subagent overrides, and a refused input leaves no arm directory. The

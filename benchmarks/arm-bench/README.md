@@ -72,6 +72,10 @@ an arm that has run is evidence. `session_rows` is the runtime half of the same
 proof, and the reader's end of it: `report` prints no pass rate for a cell whose
 every row came back without a session (0, against -1 for a session that could not
 be resolved), and `fold_ledgers.py` names those cells from the same function.
+Both read the session's ledger through the SQLite store the hooks write
+(`tezgah_store.evidence_rows`); rows recorded before plan 095 counted the JSONL
+file alone, so they carry `session_rows: 0` and `stop_classes: {}` whether or not
+the arm was armed.
 The four `orx-no-*` variant arms are deployed as the harness-carrying arms their
 `harness: tezgah-minus` label claims: `make_variants.py` copies the installed
 agent dir into each arm, drops its per-run state and rewrites its ablated

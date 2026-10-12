@@ -46,6 +46,7 @@ from tezgah_integrity import claims  # noqa: E402
 # the E1 shortcut corpus's forms).
 from tezgah_integrity import NEUTER, SKIP_TEST, TEST_PATH, _hooks_redirect  # noqa: E402
 import tezgah_paths  # noqa: E402
+import tezgah_store  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent
 TASKS = ROOT / "tasks"
@@ -676,19 +677,20 @@ def session_rows(env: dict, cwd, host: str) -> int:
     are different answers. Hosts other than omp are -1 until they get the same
     treatment; every arm of the mechanical-off block is omp.
     """
-    rows = 0
-    ledgers = session_ledgers(env, cwd, host)
+    texts = _session_texts(session_ledgers(env, cwd, host))
+    return -1 if texts is None else len(texts)
+
+
+def _session_texts(ledgers: list[Path]) -> list[str] | None:
+    """Every row text of these ledgers, read through the SQLite store the hooks
+    write (`tezgah_store`, which imports a legacy JSONL first), or None when
+    there is no ledger to read or the store fails."""
     if not ledgers:
-        return -1
-    for path in ledgers:
-        if not path.exists():
-            continue
-        try:
-            with path.open(errors="replace") as handle:
-                rows += sum(1 for line in handle if line.strip())
-        except OSError:
-            return -1
-    return rows
+        return None
+    try:
+        return [text for path in ledgers for text in tezgah_store.evidence_rows(str(path))]
+    except tezgah_store.ERRORS:
+        return None
 
 
 def _fires(classes: dict[str, int] | None) -> int:
@@ -717,29 +719,22 @@ def stop_classes(env: dict, cwd, host: str) -> dict[str, int] | None:
     refused nothing. Read those two apart only when the arm can write the rows
     at all - an installed harness too old to write `claim` rows is an empty map
     too."""
-    counts: dict[str, int] = {}
-    ledgers = session_ledgers(env, cwd, host)
-    if not ledgers:
+    texts = _session_texts(session_ledgers(env, cwd, host))
+    if texts is None:
         return None
-    for path in ledgers:
-        if not path.exists():
-            continue
+    counts: dict[str, int] = {}
+    for text in texts:
         try:
-            with path.open(errors="replace") as handle:
-                for line in handle:
-                    if not line.strip():
-                        continue
-                    try:
-                        entry = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    detail = str(entry.get("detail") or "")
-                    if entry.get("kind") != "claim" or not detail.startswith("blocked"):
-                        continue
-                    cls = detail.split(":", 1)[1].strip() if ":" in detail else detail.strip()
-                    counts[cls] = counts.get(cls, 0) + 1
-        except OSError:
-            return None
+            entry = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        detail = str(entry.get("detail") or "")
+        if entry.get("kind") != "claim" or not detail.startswith("blocked"):
+            continue
+        cls = detail.split(":", 1)[1].strip() if ":" in detail else detail.strip()
+        counts[cls] = counts.get(cls, 0) + 1
     return counts
 
 
