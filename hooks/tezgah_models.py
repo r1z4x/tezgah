@@ -1191,6 +1191,12 @@ def _in_order(routes, kids):
 # turn between two calls takes longer than this.
 FAN_OUT_GAP = 2
 
+# How long after its route a route's first worker may start: tezgah-route runs
+# right before the task call. The joined omp routes (ledgers 01a12277, 01a12bf1)
+# started theirs 39 to 1296 s later; 1296 s is a route made beside another and
+# run after it finished. Past this a same-type child proves nothing.
+ROUTE_GAP = 1800
+
 
 def _fan_out(kids):
     """The children of the first task call in sorted [(ts, key)]: each started
@@ -1212,8 +1218,9 @@ def _join(routes, kids):
     children: a route owns the first fan-out of its type after it and before
     the next route of its type - later same-type spawns are ones no route sent.
     It owns nothing when the route before it of its type had no worker yet
-    (both routes' workers may be in this one fan-out), or when an untyped child
-    started inside its span (that child could be its worker). A child of an
+    (both routes' workers may be in this one fan-out), when the fan-out started
+    more than ROUTE_GAP after it, or when an untyped child started inside its
+    span (that child could be its worker). A child of an
     unrouted type is left out. Whatever is not proven stays unjoined."""
     if kids and all(kind is None for _ts, _key, kind in kids):
         keys = _in_order(routes, [(ts, key) for ts, key, _k in kids])
@@ -1229,7 +1236,8 @@ def _join(routes, kids):
             if n and not any(routes[mine[n - 1]][0] <= ts < start for ts, _key in theirs):
                 continue
             batch = _fan_out([kid for kid in theirs if start <= kid[0] < end])
-            if batch and not any(start <= ts <= batch[-1][0] for ts in untyped):
+            if batch and batch[0][0] - start <= ROUTE_GAP \
+                    and not any(start <= ts <= batch[-1][0] for ts in untyped):
                 out[i] = [key for _ts, key in batch]
     return out
 
@@ -1286,8 +1294,9 @@ def route_report(ledgers):
                                      for r in spawn_rows(ledgers[kid])]:
             if spawned_as.setdefault(r["child"], r["agent"]) != r["agent"]:
                 spawned_as[r["child"]] = None
-        # a child key is (ledger stem, agent id): "" for a whole ledger
-        kids = [(ts, (kid, ""), spawned_as.get(name, name))
+        # a child key is (ledger stem, agent id): "" for a whole ledger; an
+        # empty type (a Cursor subagentStart with no subagent_type) is no type
+        kids = [(ts, (kid, ""), spawned_as.get(name, name) or None)
                 for ts, kid, name in children.get(stem, [])]
         # a Claude plugin agent's type is plugin-scoped (`tezgah:tezgah-cheap`)
         kids += [(r.get("ts") or 0, (stem, r["agent"]),

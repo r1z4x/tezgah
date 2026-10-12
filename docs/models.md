@@ -185,7 +185,8 @@ is the children of one task call, each started within 2 seconds of the one befor
 (`OUTCOME_ORDER`). Later spawns of that type in the window had no route, so the
 report leaves them out. A route gets nothing when the route of its type before it
 had no worker yet: both routes' workers may sit in one fan-out. It also gets nothing
-when an untyped child started inside its span. With no typed child, order is the
+when an untyped child started inside its span. It gets nothing when its fan-out
+started more than 30 minutes after it (`ROUTE_GAP`). With no typed child, order is the
 fallback. It joins only when one child sits between each route and the next, with
 no two spawns in one second. The report then reads each child's first check: `pass`,
 `fail`, `ran` (no outcome seen) or `none`. A route it cannot prove counts as

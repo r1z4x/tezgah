@@ -1302,16 +1302,32 @@ class RouteReport(unittest.TestCase):
     def test_one_route_owns_the_fan_out_its_task_call_started(self):
         # omp ledger 01a12277: one route, one task call of several workers of its
         # type, then later same-type spawns no route sent. The route owns the
-        # first fan-out after it; a failed first check anywhere in it shows.
+        # first fan-out after it - children each within FAN_OUT_GAP (2s) of the
+        # one before - and a failed first check anywhere in it shows.
         p = ti._slug("p")
-        ledgers = {p: [self.route("cheap", "jev", ts=100),
-                       self.spawn("A", "tezgah-cheap"), self.spawn("B", "tezgah-cheap"),
-                       self.spawn("C", "tezgah-cheap"), self.spawn("Later", "tezgah-cheap")],
-                   "a": self.child("p", 110, self.OK, agent="A"),
-                   "b": self.child("p", 111, self.FAIL, agent="B"),
-                   "c": self.child("p", 112, self.EMPTY, agent="C"),
-                   "later": self.child("p", 4000, self.OK, agent="Later")}
-        self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")], self.counts(fail=1))
+        names = ("A", "B", "C", "D", "Next", "Later")
+        for b, want in ((self.OK, self.counts(**{"pass": 1})), (self.FAIL, self.counts(fail=1))):
+            with self.subTest(b["kind"]):
+                ledgers = {p: [self.route("cheap", "jev", ts=100)]
+                           + [self.spawn(n, "tezgah-cheap") for n in names],
+                           "a": self.child("p", 110, self.OK, agent="A"),
+                           "b": self.child("p", 111, b, agent="B"),
+                           "c": self.child("p", 112, self.EMPTY, agent="C"),
+                           "d": self.child("p", 114, self.OK, agent="D"),  # 2s: in
+                           "next": self.child("p", 117, self.FAIL, agent="Next"),  # 3s: out
+                           "later": self.child("p", 4000, self.FAIL, agent="Later")}
+                self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")], want)
+
+    def test_a_fan_out_long_after_its_route_stays_unjoined(self):
+        # ROUTE_GAP: tezgah-route runs right before the task call; a child of the
+        # route's type half an hour later is not proof of its worker
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=10), self.spawn("A", "tezgah-cheap"),
+                       self.spawn("B", "tezgah-cheap")],
+                   "a": self.child("p", 10 + tm.ROUTE_GAP + 1, self.OK, agent="A"),
+                   "b": self.child("p", 10 + tm.ROUTE_GAP + 400, self.OK, agent="B")}
+        self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")],
+                         self.counts(unjoined=1))
 
     def test_typed_children_join_beside_an_untyped_one(self):
         # a child no task call typed must not cost the typed routes their join
@@ -1332,6 +1348,17 @@ class RouteReport(unittest.TestCase):
         ledgers = {p: [self.route("cheap", "jev", ts=100), self.spawn("Fix", "tezgah-cheap")],
                    "odd": self.child("p", 101, self.OK),
                    "fix": self.child("p", 102, self.FAIL, agent="Fix")}
+        self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")],
+                         self.counts(unjoined=1))
+
+    def test_a_child_with_an_empty_type_is_untyped(self):
+        # a Cursor subagentStart with no subagent_type: "" is no type, so the
+        # untyped child inside the span keeps the route unjoined
+        p = ti._slug("p")
+        ledgers = {p: [self.route("cheap", "jev", ts=100)],
+                   "odd": [{"kind": "spawned", "ts": 101, "parent": "p", "agent": ""},
+                           self.OK],
+                   "fix": self.child("p", 102, self.FAIL, agent="tezgah-cheap")}
         self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")],
                          self.counts(unjoined=1))
 

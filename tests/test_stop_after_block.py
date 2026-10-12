@@ -264,7 +264,8 @@ class AfterBlock(TempHome):
                          ["a-123"])
 
     def test_new_kinds_are_not_tool_hook_rows(self):
-        for kind in (b"after_block", b"refusal", b"subagent_end"):
+        # subagent_start: written by SubagentStart on Claude and Codex (plan 089)
+        for kind in (b"after_block", b"refusal", b"subagent_end", b"subagent_start"):
             self.assertIn(kind, tezgah_context.NOT_TOOL_HOOK)
 
     def test_no_adapter_keeps_its_own_re_ask_count(self):

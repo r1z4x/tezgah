@@ -108,8 +108,8 @@ def gate_reason(payload, cwd, session_id):
     inp = payload.get("tool_input")
     if not isinstance(inp, dict):
         inp = {}
-    # a subagent's calls carry its `agent_id` (the child thread id): its repeat
-    # ceilings count its own attempts, as on Claude
+    # a subagent's calls carry its `agent_id` (the child thread id; optional in
+    # pre-tool-use.command.input.schema.json): its repeat ceilings are its own
     return decision(gate_name(name), inp, cwd, session_id, agent=subagent_id(payload))
 
 

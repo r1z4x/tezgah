@@ -1543,8 +1543,8 @@ def context_nudge(payload, session_id):
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
 # refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
-# compaction, the subagent mark (SubagentStart writes it too), the omp fork's
-# `forked` row, the guard's crash
+# compaction, the subagent mark and the `subagent_start` lineage row (both from
+# SubagentStart), the omp fork's `forked` row, the guard's crash
 # row (any hook), the damage row any reader writes and the session start's
 # attest row. Every other kind - deny, nudge, began, snapshot, ... - can only
 # come from a tool hook.
@@ -1555,7 +1555,7 @@ NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end", b"stop_spec",
                            b"shape", b"compact", b"orch", b"crash", b"route",
                            b"spawned", b"forked", b"lesson", b"disarm", b"ledger_damage",
-                           b"attest"))
+                           b"attest", b"subagent_start"))
 # The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
 # not that the gate saw it - a PostToolUse hook keeps writing them while a
 # broken PreToolUse hook lets every call through - so they are no proof either.

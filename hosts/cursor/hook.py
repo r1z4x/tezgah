@@ -398,7 +398,7 @@ def dispatch(payload):
             if isinstance(child, str) and child and isinstance(parent, str) and parent \
                     and under(cwd):
                 safe(child, note, child, "spawned", "", parent=parent,
-                     agent=str(payload.get("subagent_type") or ""), host="cursor")
+                     agent=str(payload.get("subagent_type") or "") or None, host="cursor")
             # The delegate is a fresh context that must know the rules exist, so
             # it gets the same short brief every other host hands a subagent.
             # Cursor documents no context field on subagentStart (its output is
