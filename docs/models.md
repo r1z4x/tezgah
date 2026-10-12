@@ -174,6 +174,9 @@ parent's ledger. Cursor's
 subagentStart hook opens the child's ledger under `subagent_id` with a `spawned` row
 that names `parent_conversation_id`. Cursor's docs do not say that the child's own
 calls carry `subagent_id`, so that link counts only once a row of the child lands.
+A host started from another host's agent shell inherits that host's id. When two of
+these ids differ, no variable tells which host runs the call, so `tezgah-route`
+writes no row.
 
 `tezgah-route --report` joins by type when any child has a type. A route owns the
 first fan-out of its type after it and before the next route of that type. A fan-out

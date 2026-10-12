@@ -26,7 +26,10 @@ model through TypeSafe, OpenRouter System One, Cloudflare Workers AI or a
 compatible endpoint (TEZGAH_JEV_PROVIDER picks one), else the OpenRouter chat
 fallback - so write it in English, the language the judge reads best.
 
-Every routed call writes one `route` row to the session's ledger (TEZGAH_SESSION):
+Every routed call writes one `route` row to the session's ledger, named by
+TEZGAH_SESSION (omp, opencode, Claude), CODEX_THREAD_ID (Codex) or
+CURSOR_CONVERSATION_ID (Cursor); when two of them name different sessions (a host
+started from another host's shell) it writes none. The row holds the
 tier, agent, what set the tier (`via`: rule|jev|phase|default), the static
 table's tier when --phase was given, the worker's model, and `override` (user: an
 omp entry the user owns; mode: no entry, so the session model). `--report` joins
@@ -157,13 +160,16 @@ def main(argv):
     ask = tezgah_judge.ask if tezgah_judge.available() else None
     out = tm.route(brief, args.phase, ask)
     judged = out.pop("judged")
-    # omp, opencode and Claude (CLAUDE_ENV_FILE) export TEZGAH_SESSION; a Codex
-    # shell carries CODEX_THREAD_ID, the root thread its hooks' session_id names,
-    # and a Cursor agent shell CURSOR_CONVERSATION_ID, its hooks' conversation_id.
-    # ponytail: a host started from another host's agent shell inherits that
-    # host's TEZGAH_SESSION, which wins here.
-    session = (os.environ.get("TEZGAH_SESSION") or os.environ.get("CODEX_THREAD_ID")
-               or os.environ.get("CURSOR_CONVERSATION_ID"))
+    # The session the row goes under: omp, opencode and Claude (CLAUDE_ENV_FILE)
+    # export TEZGAH_SESSION, a Codex shell carries CODEX_THREAD_ID (the root
+    # thread its hooks' session_id names), a Cursor agent shell
+    # CURSOR_CONVERSATION_ID (its hooks' conversation_id). A host started from
+    # another host's agent shell inherits that host's id and markers alike, so
+    # two different ids name no host: no row, and the route is never written
+    # into another host's ledger.
+    ids = {os.environ.get(v) for v in ("TEZGAH_SESSION", "CODEX_THREAD_ID",
+                                        "CURSOR_CONVERSATION_ID")} - {None, ""}
+    session = ids.pop() if len(ids) == 1 else None
     if judged:
         usage = judged.get("usage")
         usage = usage if isinstance(usage, dict) else {}

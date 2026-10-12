@@ -1031,22 +1031,44 @@ class Cli(unittest.TestCase):
                           "static": "standard", "model": "claude-opus-5-5:high",
                           "override": "-", "judge": "-"})
 
-    def test_a_codex_or_cursor_shell_writes_its_route_under_its_host_s_id(self):
-        # neither host exports TEZGAH_SESSION. A Codex shell's CODEX_THREAD_ID is
-        # the root thread its hooks' session_id names; a Cursor agent shell's
-        # CURSOR_CONVERSATION_ID is its hooks' conversation_id (cursor-agent
-        # 2026.10.01). The child rows are written under those ids.
-        for var in ("CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID"):
+    def route_rows(self, **env):
+        """{id: [route agent]} under each id `env` named, after one routed call."""
+        home = tempfile.mkdtemp()
+        p = self.run_route("Bump the version", "--phase", "mechanical", HOME=home,
+                           CLAUDECODE="", OMPCODE="", **env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        ledgers = os.path.join(home, ".cache", "tezgah", "evidence")
+        return {sid: [tm.route_fields(r)["agent"] for r in
+                      ti.events_path(os.path.join(ledgers, ti._slug(sid) + ".jsonl"))
+                      if r.get("kind") == "route"]
+                for sid in set(env.values())}
+
+    def test_each_host_s_shell_writes_its_route_under_its_own_id(self):
+        # omp, opencode and Claude (CLAUDE_ENV_FILE) export TEZGAH_SESSION; a
+        # Codex shell's CODEX_THREAD_ID is the root thread its hooks'
+        # session_id names; a Cursor agent shell's CURSOR_CONVERSATION_ID is its
+        # hooks' conversation_id (cursor-agent 2026.10.01)
+        for var in ("TEZGAH_SESSION", "CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID"):
             with self.subTest(var):
-                home = tempfile.mkdtemp()
-                p = self.run_route("Bump the version", "--phase", "mechanical", HOME=home,
-                                   CLAUDECODE="", OMPCODE="", **{var: "id-1"})
-                self.assertEqual(p.returncode, 0, p.stderr)
-                ledger = os.path.join(home, ".cache", "tezgah", "evidence",
-                                      ti._slug("id-1") + ".jsonl")
-                rows = [r for r in ti.events_path(ledger) if r.get("kind") == "route"]
-                self.assertEqual([tm.route_fields(r)["agent"] for r in rows],
-                                 ["tezgah-cheap"])
+                self.assertEqual(self.route_rows(**{var: "id-1"}),
+                                 {"id-1": ["tezgah-cheap"]})
+
+    def test_an_inherited_id_beside_another_host_s_writes_no_route(self):
+        # A host started from another host's agent shell inherits that host's
+        # id, and markers inherit too: the cursor-agent probe's shell, started
+        # from an omp shell, carried OMPCODE, CLAUDECODE and omp's
+        # TEZGAH_SESSION beside its own CURSOR_* - so no variable names the
+        # host running this call. Two ids that differ are unjoined, never a row
+        # in the wrong ledger.
+        ids = ("TEZGAH_SESSION", "CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID")
+        for i, mine in enumerate(ids):
+            for inherited in ids[i + 1:]:
+                with self.subTest(mine=mine, inherited=inherited):
+                    self.assertEqual(self.route_rows(**{mine: "a", inherited: "b"}),
+                                     {"a": [], "b": []})
+        # one id under two names is no conflict
+        self.assertEqual(self.route_rows(TEZGAH_SESSION="a", CODEX_THREAD_ID="a"),
+                         {"a": ["tezgah-cheap"]})
 
     def test_report_joins_a_route_to_its_child_session_s_first_check(self):
         home = tempfile.mkdtemp()
