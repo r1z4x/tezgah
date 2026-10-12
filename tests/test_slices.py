@@ -565,6 +565,38 @@ class Cli(Journal):
         self.assertIn("- slice N (?/?) open attempts 1", proc.stdout)
         self.assertEqual(self.record("N")["status"], "open")
 
+    def test_close_that_removes_a_landed_worktree_closes_its_slice_record(self):
+        """Plan 097: `close` removed the worktree and deleted its branch, and
+        the record stayed open forever - `reconcile --prune` can no longer see
+        a deleted branch land, so it offered a resume in a checkout that is gone."""
+        tree = self.worktree("slice-c")
+        self.task("slice", "open", "--id", "C", "--brief", "Worktree: %s" % tree)
+        self.commit_file("c.txt", cwd=tree)
+        self.git("merge", "-q", "--no-ff", "--no-edit", "slice-c")
+        plans = os.path.join(self.repo, ".tezgah", "plans", "open")
+        os.makedirs(plans)
+        with open(os.path.join(plans, "001-a-plan.md"), "w") as fh:
+            fh.write(PLAN.replace("---\n## Goal", "review: r approve 2026-10-12\n---\n## Goal"))
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("worktree removed: %s (slice-c)" % tree, proc.stdout)
+        self.assertIn("slice C done: worktree %s removed, slice-c landed" % tree, proc.stdout)
+        self.assertEqual(self.record("C")["status"], "done")
+
+    def test_reconcile_of_a_removed_worktree_names_no_false_last_commit(self):
+        """Plan 097: with the worktree removed by hand, the resume brief named
+        the main checkout's HEAD as the slice's last commit on a deleted branch."""
+        tree = self.worktree("slice-g")
+        self.task("slice", "open", "--id", "G", "--brief", "Worktree: %s" % tree)
+        self.git("worktree", "remove", tree)
+        self.git("branch", "-D", "slice-g")
+        proc = self.task("slice", "reconcile")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertNotIn("Resume: last commit", proc.stdout)
+        self.assertIn("Resume: worktree %s no longer exists; branch slice-g no longer "
+                      "exists. If its work landed, close this record with "
+                      "`tezgah-task slice done G`" % tree, proc.stdout)
+
     def test_resume_names_the_last_commit_and_marks_the_record_resumed(self):
         tree = self.worktree("slice-r")
         self.task("slice", "open", "--id", "R", "--host", "omp", "--parent", "P2",

@@ -1047,6 +1047,14 @@ def prune_worktrees(root, keep=None):
             why = None if gone else "`%s` failed; run it and report its error" % how
         out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
                                              why or branch))
+        if why is None:
+            # its work landed and the checkout is gone: a record still open on it
+            # would be offered for resume in a worktree that no longer exists
+            for rec in tt.slices(root):
+                if rec.get("worktree") == path and rec.get("status") in ("open", "stopped", "stale"):
+                    tt.close_slice(root, rec["id"], "done")
+                    out.append("slice %s done: worktree %s removed, %s landed"
+                               % (rec["id"], path, branch))
     return out
 
 
@@ -1159,16 +1167,28 @@ def resume_text(root, rec):
         return "\n".join(lines)
     tree = rec.get("worktree") or ""
     cwd = rec.get("cwd") or ""
-    where = (tree if tree and os.path.isdir(tree) else
-             cwd if cwd and os.path.isdir(cwd) else root)
-    last = git_out(where, "log", "-1", "--format=%h %s") or "(none)"
-    branch = (rec.get("branch") or git_out(where, "symbolic-ref", "-q", "--short", "HEAD")
-              or "(detached HEAD)")
-    # the journal's own directory is not the slice's work, ignored or not
-    dirty = [line[3:] for line in (git_out(where, "status", "--porcelain") or "").splitlines()
-             if not line[3:].startswith(".tezgah")]
-    resume = ("Resume: last commit %s on %s; uncommitted: %s; continue from there, "
-              "do not redo committed steps" % (last, branch, ", ".join(dirty) or "none"))
+    if tree and not os.path.isdir(tree):
+        # the checkout was removed: the main checkout's HEAD is not the slice's
+        # last commit, so say what is known instead of naming the wrong one
+        branch = rec.get("branch") or ""
+        sha = git_out(root, "rev-parse", "-q", "--short", "--verify",
+                      "refs/heads/" + branch) if branch else None
+        resume = ("Resume: worktree %s no longer exists; branch %s %s. If its work "
+                  "landed, close this record with `tezgah-task slice done %s`; else "
+                  "re-dispatch in a new worktree%s"
+                  % (tree, branch or "(none recorded)",
+                     "is at %s" % sha if sha else "no longer exists", sid,
+                     " from %s" % branch if sha else ""))
+    else:
+        where = cwd if not tree and cwd and os.path.isdir(cwd) else tree or root
+        last = git_out(where, "log", "-1", "--format=%h %s") or "(none)"
+        branch = (rec.get("branch") or git_out(where, "symbolic-ref", "-q", "--short", "HEAD")
+                  or "(detached HEAD)")
+        # the journal's own directory is not the slice's work, ignored or not
+        dirty = [line[3:] for line in (git_out(where, "status", "--porcelain") or "").splitlines()
+                 if not line[3:].startswith(".tezgah")]
+        resume = ("Resume: last commit %s on %s; uncommitted: %s; continue from there, "
+                  "do not redo committed steps" % (last, branch, ", ".join(dirty) or "none"))
     # a Claude record named by a 12-hex brief digest addresses no agent: no
     # SendMessage line for it, only the re-dispatch
     named = not re.fullmatch(r"[0-9a-f]{12}", sid)
