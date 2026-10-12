@@ -534,16 +534,21 @@ def plan_of_branch(branch):
 
 
 def branch_task(top):
-    """Plan NNN's record (active()'s dict) when `top` is a linked worktree on a
-    `plan/NNN-...` branch and plan NNN, open under the main checkout, carries a
-    phase. None otherwise - another branch, a plan with no phase, an unknown
-    mapping - and the caller keeps the reading it had before (plan 093)."""
+    """Plan NNN's record (active()'s dict, plus "worktree": `top`, the checkout
+    whose HEAD and tree its checkpoint is read against) when `top` is a linked
+    worktree on a `plan/NNN-...` branch and plan NNN, open under the main
+    checkout, carries a phase. None otherwise - another branch, a plan with no
+    phase, an unknown mapping - and the caller keeps the reading it had before
+    (plan 093)."""
     ident = plan_of_branch(worktree_branch(top))
     if ident is None:
         return None
     from tezgah_paths import linked_main
     main = linked_main(top)
-    return _phased(main, ident) if main else None
+    record = _phased(main, ident) if main else None
+    if record:
+        record["worktree"] = top
+    return record
 
 
 def worktree_task(path, cwd, base):

@@ -1431,9 +1431,35 @@ def _task(cwd, base, task):
     return tezgah_task.active(cwd, base)
 
 
+def _resolved(spelled, top, command):
+    """A write target as the task rules read it: a shell target behind a
+    variable the same line set to the checkout is that checkout path
+    (`known_tail`); any other target is the call's own spelling."""
+    return (known_tail(spelled, top, command) or spelled) if command else spelled
+
+
+def _owners(inp, cwd, base, task):
+    """The records this call's write targets are held to, each once: plan NNN's
+    for a target in a sibling worktree on a `plan/NNN-...` branch
+    (`tezgah_task.worktree_task`), the active task for every other target, and
+    the active task alone when the call names no target.
+    ponytail: a positional shell target (`cp x <wt>/y`) is not read
+    (write_paths), so a command whose read targets all land in plan worktrees is
+    held to those plans only, whatever else its positional arguments write."""
+    top = tezgah_task.repo_root(cwd, base) if cwd else None
+    command = str(inp.get("command") or inp.get("cmd") or "") if isinstance(inp, dict) else ""
+    out = []
+    for spelled in write_paths(inp):
+        own = tezgah_task.worktree_task(_resolved(spelled, top, command), cwd, base) or task
+        if own not in out:
+            out.append(own)
+    return out or [task]
+
+
 def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
-    """A deny reason when the active task's phase only reads and this shell
-    command writes a file, else None.
+    """A deny reason when this shell command writes a file and the phase of the
+    record its target is held to (`_owners`: a plan worktree's own plan, else
+    the active task) only reads, else None.
 
     The route to the hole the phase rule closes, and the one E7b measured: with
     the write tools refused, the armed arm wrote the target with a heredoc
@@ -1445,11 +1471,12 @@ def task_shell_reason(inp, cwd, base, task=_UNRESOLVED):
     write tool's path, while a positional target is not read at all (see
     write_paths), and the same fail-open holds: no record, no requirement."""
     task = _task(cwd, base, task)
-    if not task or task["phase"] in tezgah_task.WRITE_PHASES:
+    if not task or not SHELL_WRITE.search(mask(str(inp.get("command") or ""))):
         return None
-    if not SHELL_WRITE.search(mask(str(inp.get("command") or ""))):
-        return None
-    return TASK_SHELL_DENY % (task["id"], task["phase"])
+    for own in _owners(inp, cwd, base, task):
+        if own["phase"] not in tezgah_task.WRITE_PHASES:
+            return TASK_SHELL_DENY % (own["id"], own["phase"])
+    return None
 
 
 def task_record_reason(inp, cwd, base, task=_UNRESOLVED):
@@ -1509,7 +1536,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     for spelled in paths:
         if unnamed_target(spelled, inp, top):
             continue
-        path = (known_tail(spelled, top, command) or spelled) if command else spelled
+        path = _resolved(spelled, top, command)
         rel = tezgah_task.relative(path, cwd, base, worktrees=True)
         if rel is not None and workspace_free(rel, inp):
             continue
@@ -1581,9 +1608,11 @@ CHECKPOINT_DENY = (
 
 
 def checkpoint_reason(inp, cwd, base, task=_UNRESOLVED):
-    """A deny reason when the active task is in `implementation`, its plan's
-    `checkpoint:` waits for a commit (`pending <sha>`), that sha is still HEAD,
-    and the tree still holds uncommitted work - else None.
+    """A deny reason when the record a write target is held to (`_owners`: a
+    plan worktree's own plan, else the active task) is in `implementation`, its
+    plan's `checkpoint:` waits for a commit (`pending <sha>`), that sha is still
+    HEAD of the checkout the plan works in (the plan's worktree, else this
+    root), and that tree still holds uncommitted work - else None.
 
     The recorded sha, not the word `pending`, is the switch: the commit the
     refusal names moves HEAD off it, so the refusal clears by itself. The section
@@ -1600,14 +1629,25 @@ def checkpoint_reason(inp, cwd, base, task=_UNRESOLVED):
     if command is None and paths and all(URI_TARGET.match(p) for p in paths):
         return None     # a tool device or a message changes no tree state
     task = _task(cwd, base, task)
-    if not task or task["phase"] != "implementation":
+    if not task:
+        return None
+    for own in _owners(inp, cwd, base, task):
+        reason = _pending_checkpoint(own, own.get("worktree")
+                                     or tezgah_task.repo_root(cwd, base))
+        if reason:
+            return reason
+    return None
+
+
+def _pending_checkpoint(task, root):
+    """checkpoint_reason for one record against the checkout `root`."""
+    if task["phase"] != "implementation":
         return None
     sha = tezgah_task.checkpoint_sha(task.get("checkpoint"))
     if not sha:
         return None
     # HEAD read from the ref file, not a fork: this question is asked on every
     # write of the phase, and an unreadable HEAD fails open.
-    root = tezgah_task.repo_root(cwd, base)
     if _head(root) != sha:
         return None
     import subprocess  # deferred: only a plan still pending its checkpoint pays
@@ -2183,9 +2223,10 @@ def _head(root):
     Read from `.git/HEAD` - the ref file, or the packed-refs line beside it -
     rather than a `git` fork, the way `_branch` reads the branch: the checkpoint
     rule asks this on every write of an `implementation` phase, and an
-    unanswerable question must pass. ponytail: a worktree's packed refs live in
-    the common dir, not in the worktree gitdir this reads, so a repacked ref in a
-    linked worktree falls back to "" - the fail-open direction."""
+    unanswerable question must pass. A linked worktree keeps only its HEAD in
+    its own gitdir; its branch refs, loose or packed, live in the common dir its
+    `commondir` file names, so that is where the ref is read (plan 093 reads a
+    plan worktree's checkpoint against that worktree's HEAD)."""
     gitdir = _gitdir(root)
     if not gitdir:
         return ""
@@ -2198,6 +2239,11 @@ def _head(root):
     if not ref.startswith("ref: "):
         return ref if _SHA.fullmatch(ref) else ""
     name = ref[len("ref: "):].strip()
+    try:
+        with open(os.path.join(gitdir, "commondir"), encoding="utf-8") as fh:
+            gitdir = os.path.join(gitdir, fh.readline().strip())
+    except (OSError, UnicodeDecodeError):
+        pass    # a main checkout's gitdir is its own common dir
     try:
         with open(os.path.join(gitdir, name), encoding="utf-8",
                   errors="replace") as fh:
