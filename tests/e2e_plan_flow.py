@@ -7,7 +7,7 @@ runs the CLI half, end to end, in a real `git` repository built under tempfile
 with HOME and TEZGAH_ROOTS redirected into it, so the machine's own config, its
 ledger and its `.tezgah/` are never read - the same isolation the suite uses.
 
-Ten rules, each a step below:
+Eleven rules, each a step below:
 
   1. a plan whose Acceptance names no command cannot enter `implementation`, and
      `tezgah-render-table --acceptance --strict` exits 1 on the same item, so
@@ -27,10 +27,13 @@ Ten rules, each a step below:
      ready plans whose `allowed_paths:` share nothing as the ones to run at once;
   8. `tezgah-task spike` records the answer, and `implementation` then opens;
   9. two plans run at once, each in a worktree on its `plan/NNN-` branch: the
-     second `start` keeps the first plan's phase, and the gate holds a write in
-     each worktree to that worktree's own plan;
+     second `start` keeps the first plan's phase, the gate holds a write in
+     each worktree to that worktree's own plan, and the main checkout, with
+     every phased plan held, holds a write to neither;
  10. `close NNN done` refuses an approved plan with an open Acceptance box and
-     names it, and the same box ending in `UNMET: <reason>` closes.
+     names it, and the same box ending in `UNMET: <reason>` closes;
+ 11. `close NNN done` records `landed:` and commits the record's move, and
+     nothing else, in the private `.tezgah` repository.
 
 Not collected by the stdlib suite (the name does not match `test*.py`), the same
 shape as `tests/e2e_packaged_install.py`. Needs `git` on PATH: without it it
@@ -344,6 +347,11 @@ def check_parallel_worktrees(project):
             problems.append("%s's own write refused: %s" % (pid, allowed))
         if not refused or "task %s" % pid not in refused:
             problems.append("%s's write outside its scope: %s" % (pid, refused))
+    # both phased plans are held: the main checkout has no task of its own, so
+    # a write there is held to neither worktree's scope
+    main = gate(project, os.path.join(project.root, "README.md"))
+    if main is not None:
+        problems.append("a main-checkout write held to a held plan: %s" % main)
     return "; ".join(problems)
 
 
@@ -363,6 +371,28 @@ def check_close_open_item(project):
     closed = project.cli(TASK, "close", "010", "done")
     if closed.returncode != 0:
         problems.append("UNMET item refused: %s" % first_line(closed))
+    return "; ".join(problems)
+
+
+def check_close_records_and_commits(project):
+    """11: `close done` records `landed:` (the main checkout's HEAD) and, with
+    `.tezgah` a git repository of its own, commits the move there alone."""
+    ws = os.path.join(project.root, ".tezgah")
+    for line in (["init", "-q"], ["config", "user.name", "e2e"],
+                 ["config", "user.email", "e2e@localhost"]):
+        project.run(["git", "-C", ws] + line)
+    rel = ".tezgah/plans/open/011-landed.md"
+    project.write(rel, plan_body("011", extra="review: e2e approve 2026-10-12"))
+    closed = project.cli(TASK, "close", "011", "done")
+    problems = []
+    if closed.returncode != 0:
+        return "close refused: %s" % first_line(closed)
+    done = project.read(".tezgah/plans/done/011-landed.md")
+    if "landed: %s" % project.head() not in done:
+        problems.append("no landed: %s line" % project.head()[:12])
+    log = project.run(["git", "-C", ws, "log", "-1", "--format=%s", "--name-only"])
+    if log.stdout.split() != ["plan:", "close", "011", "landed", "plans/done/011-landed.md"]:
+        problems.append("close commit is not the record alone: %r" % log.stdout)
     return "; ".join(problems)
 
 
@@ -387,6 +417,8 @@ CHECKS = (
      check_parallel_worktrees),
     ("close done refuses an open Acceptance item, UNMET with a reason passes",
      check_close_open_item),
+    ("close done records landed and commits the record in the private repo",
+     check_close_records_and_commits),
 )
 
 

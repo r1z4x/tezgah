@@ -22,12 +22,13 @@
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and `start` clears every other plan's
-phase - except, when the plan being started is held by its own linked worktree
-(on its `branch:`, else a `plan/NNN-...` branch), another plan held the same way
+phase - except, when the plan being started is held by a linked worktree on
+one of its `plan/NNN-...` branches (its declared `branch:` or a slice's),
+another plan held the same way
 whose allowlist shares no prefix with it: that plan keeps its phase, the gate
 holds a write in each worktree to that worktree's plan
 (`tezgah_task.branch_task`), and the main checkout reads the first phased plan
-no worktree holds. `phase`, `allow` and `stop` run inside such a worktree act on
+no worktree holds, or no task when every one is held. `phase`, `allow` and `stop` run inside such a worktree act on
 its plan, and `allow` refuses a scope a held plan's allowlist could share; the
 body writers below and `close` run from any worktree too. The orchestrating
 session runs every command
@@ -56,7 +57,12 @@ rounds per plan; `close NNN done` refuses a plan whose review is missing or not
 session made and the test that proves it. `close NNN done` also refuses, naming
 each by number, an unticked Acceptance item that carries no `UNMET: <reason>`
 (an item the owner accepted as not met); `--resolved` never lifts that, and
-`discarded` is not held to it. `close` on the active task clears its phase in the same write, then
+`discarded` is not held to it. `close` on the active task clears its phase in the same write;
+`close NNN done` records `landed:`, the main checkout's HEAD, which a squash
+merge and a branch deletion cannot orphan the way they do `reviewed_sha:`. The
+record moves to `done/` under the plans lock every record writer holds, and
+when `.tezgah` is a git repository of its own the move - those two paths and
+nothing else - is committed there as `plan: close NNN <slug>`. Then `close`
 removes each linked worktree whose branch has landed in HEAD, `main`, `master`
 or the remote's default branch (an ancestor of it, or a squash whose merge
 would change nothing) and which holds nothing else (no uncommitted or unknown
@@ -182,9 +188,12 @@ def plan_path(root, ref):
 
 
 def active_here(root):
-    """The active task as every reader sees it - resolved by the module, so the
-    CLI and the gate cannot disagree about which plan is active."""
-    return tt.active(root, root)
+    """The active task, resolved by the module, so the CLI and the gate cannot
+    disagree about which plan is active. When every phased plan is held by its
+    worktree the gate holds the main checkout to none, and the CLI acts on the
+    first held one (`held`): the orchestrating session moves a held plan's
+    phase from the main checkout."""
+    return tt.active(root, root, held=True)
 
 
 def problems(items):
@@ -927,21 +936,54 @@ def cmd_close(args):
             return problems(["%s records no approving review: a fresh reviewer reads "
                              "the diff, then `tezgah-task review %s <reviewer> approve`"
                              % (path, ident)])
+    if args[1] == "done":
+        # reviewed_sha names a worktree HEAD that a squash merge and a branch
+        # deletion leave in no branch: `landed` names the commit the work is in
+        landed = git_out(root, "rev-parse", "HEAD")
+        if landed:
+            fields["landed"] = landed
     target = os.path.join(root, ".tezgah", "plans", "done", os.path.basename(path))
-    bad = write_fields(path, **fields)
-    if bad:
-        return problems(bad)
     try:
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        os.replace(path, target)
+        tt.close_record(path, target, **fields)
     except OSError as exc:
-        return problems(["cannot move %s: %s" % (path, exc)])
+        return problems(["cannot close %s: %s" % (path, exc)])
     print("moved %s -> %s" % (path, target))
+    name = tt.slug(path)
+    line = commit_close(root, os.path.basename(path), "plan: close %s %s"
+                        % (ident, name.partition("-")[2] or name))
+    if line:
+        print(line)
     # the checkout this runs in stays, even when it is a landed plan worktree:
     # removing it would pull the session's own cwd from under it
     for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
         print(line)
     return 0
+
+
+def commit_close(root, name, message):
+    """Commit the closed record's move - `plans/open/<name>` to
+    `plans/done/<name>`, and nothing else the owner staged - in the private
+    `.tezgah` repository; the line to print, or None when `.tezgah` is no
+    repository of its own, where git would answer for the project around it.
+    A failed commit is printed, never fatal: the record has moved already."""
+    from tezgah_paths import ws_git
+    ws = os.path.realpath(os.path.join(root, ".tezgah"))
+    top = git_out(ws, "rev-parse", "--show-toplevel")
+    if not top or os.path.realpath(top) != ws:
+        return None
+    paths = ["plans/done/" + name]
+    if git_out(ws, "ls-files", "--", "plans/open/" + name):
+        paths.insert(0, "plans/open/" + name)
+    try:
+        done = ws_git(root, "add", "--", paths[-1])
+        if not done.returncode:
+            done = ws_git(root, "commit", "-q", "-m", message, "--", *paths)
+    except OSError as exc:
+        return "close not committed in %s: %s" % (ws, exc)
+    if done.returncode:
+        return "close not committed in %s: %s" % (ws, (done.stderr or done.stdout).strip())
+    return "committed %s in %s at %s" % (" ".join(paths), ws,
+                                          git_out(ws, "rev-parse", "--short=12", "HEAD"))
 
 
 # Ignored output a slice regenerates on its own. Any other ignored path - an

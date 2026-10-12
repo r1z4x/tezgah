@@ -470,14 +470,20 @@ def parallel(rows):
     return picked if len(picked) > 1 else []
 
 
-def active(cwd, base):
+def active(cwd, base, held=False):
     """The active task as a dict, or None. A linked worktree on a `plan/NNN-...`
     branch answers plan NNN when that plan carries a phase (`branch_task`), so
     two plans can run at once, one per worktree. Anywhere else - the main
     checkout, or a worktree on another branch - it reads the main checkout's
     `.tezgah/plans/open/*.md` sorted by name: the first plan carrying a valid
-    `phase` that no linked worktree holds (`plan_holders`), else the first plan
-    carrying one.
+    `phase` that no linked worktree holds (`plan_holders`). When every phased
+    plan is held there is none: a held plan's scope is its worktree's, and a
+    checkout outside it reading that scope held its writes to the wrong plan
+    (plan 097, D6). `held` answers the first phased plan then instead, marked
+    `"held": True`: the plan bin/tezgah-task's `phase`, `allow`, `stop` and
+    `status` act on from the main checkout, and the record the gate still
+    refuses a direct write to - while it holds no write to that plan's scope
+    outside its worktree. The context line never passes it.
     Dict: {"id","title","phase","allowed_paths","checkpoint","branch","path"}:
     id/title are the frontmatter values (id falls back to the filename's NNN),
     checkpoint is the frontmatter value or None when the plan carries none,
@@ -491,12 +497,14 @@ def active(cwd, base):
     from tezgah_paths import linked_main
     main = linked_main(root) or root
     records = _phased(main)
-    if len(records) > 1:
-        branches = _worktree_branches(main)
-        for record in records:
-            if not any(_binds(record["branch"], record["id"], b) for b in branches):
-                return record
-    return records[0] if records else None
+    branches = _worktree_branches(main) if records else {}
+    for record in records:
+        if not any(_binds(record["id"], b) for b in branches):
+            return record
+    if not held or not records:
+        return None
+    records[0]["held"] = True
+    return records[0]
 
 
 def _phased(root, ident=None):
@@ -568,12 +576,13 @@ def plan_of_branch(branch):
     return found.group(1) if found else None
 
 
-def _binds(declared, ident, branch):
-    """Does `branch` hold plan `ident`? It has to name the plan (`plan/NNN-...`)
-    and, when the plan declares its `branch:`, be that branch: a worktree on
-    `plan/018-anything` must not pick up plan 018's scope."""
-    return bool(branch) and plan_of_branch(branch) == ident and (
-        not declared or declared == branch)
+def _binds(ident, branch):
+    """Does `branch` hold plan `ident`? It has to name the plan: `plan/NNN-...`.
+    A plan's declared `branch:` is one of those, and the slices it fans out to
+    run on others (`plan/097-records` beside `plan/097-workspace-integrity`):
+    each slice is held to its plan's scope, never to another plan's, which is
+    what a first-unheld-plan reading gave it (plan 097, D6)."""
+    return bool(branch) and plan_of_branch(branch) == ident
 
 
 def _worktree_branches(main):
@@ -589,8 +598,10 @@ def _worktree_branches(main):
 
 def plan_holders(main):
     """{plan id: worktree top} for every open plan under the main checkout
-    `main` whose own branch (`_binds`) a linked worktree has checked out, phase
-    or not."""
+    `main` that a linked worktree on one of its branches (`_binds`) holds, phase
+    or not. Of several, the worktree on the plan's declared `branch:` holds it -
+    the checkout its checkpoint, review and diff are read in - else the first
+    by branch name."""
     branches = _worktree_branches(main)
     out = {}
     if not branches:
@@ -598,29 +609,28 @@ def plan_holders(main):
     for name, _, text in _plan_files(main, "open"):
         fields = frontmatter(text)
         ident = _plan_id(fields, name)
-        for branch, top in branches.items():
-            if _binds(fields.get("branch", ""), ident, branch):
-                out[ident] = top
+        held = sorted(b for b in branches if _binds(ident, b))
+        if held:
+            declared = fields.get("branch", "")
+            out[ident] = branches[declared if declared in held else held[0]]
     return out
 
 
 def branch_task(top):
     """Plan NNN's record (active()'s dict, plus "worktree": `top`, the checkout
     whose HEAD and tree its checkpoint is read against) when `top` is a linked
-    worktree on plan NNN's own branch (`_binds`) and plan NNN, open under the
+    worktree on a `plan/NNN-...` branch (`_binds`) and plan NNN, open under the
     main checkout, carries a phase. None otherwise - another branch, a plan with
     no phase, an unknown mapping - and the caller reads the main checkout's task
     (plan 093)."""
-    branch = worktree_branch(top)
-    ident = plan_of_branch(branch)
+    ident = plan_of_branch(worktree_branch(top))
     if ident is None:
         return None
     from tezgah_paths import linked_main
     main = linked_main(top)
     for record in _phased(main, ident) if main else ():
-        if _binds(record["branch"], ident, branch):
-            record["worktree"] = top
-            return record
+        record["worktree"] = top
+        return record
     return None
 
 
@@ -744,15 +754,67 @@ def _sibling_worktree(real, root):
     return top if os.path.realpath(back) == os.path.join(top, ".git") else None
 
 
+@contextlib.contextmanager
+def plans_lock(path):
+    """Hold the exclusive lock every plan record writer takes, on `.lock` in
+    the `plans/` directory above the plan file `path`, across its whole
+    read-modify-write: two writers in two checkouts lost one write in 40 rounds
+    without it (plan 097, E7). Raises OSError when the lock file cannot be
+    opened."""
+    try:
+        import fcntl
+    except ImportError:
+        # ponytail: Windows has no fcntl, so writers run unlocked there; the
+        # rename in _write still keeps every read whole, but two concurrent
+        # writers can lose one write. msvcrt.locking is the fuller version.
+        fcntl = None
+    if fcntl is None:
+        yield
+        return
+    plans = os.path.dirname(os.path.dirname(os.path.realpath(path)))
+    fd = os.open(os.path.join(plans, ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # closing the descriptor releases the lock
+
+
+def _write(path, text):
+    """Replace the file at `path` with `text` whole: written to a temp file
+    beside it, then renamed over it, so a reader sees the old record or the new
+    one and never a truncated one - which read as no frontmatter, so no active
+    task, and opened the gate (29 torn reads in 40, plan 097 E7). Keeps the
+    file's mode. Raises OSError."""
+    import tempfile
+    path = os.path.realpath(path)
+    folder, name = os.path.split(path)
+    fd, tmp = tempfile.mkstemp(prefix="." + name + ".", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 def set_fields(path, **fields):
-    """Rewrite these frontmatter keys in the plan file in place: replace the
+    """Rewrite these frontmatter keys in the plan file: replace the
     `key: value` line when present, insert it before the closing `---` when not.
     `allowed_paths` takes a list and is written as a `- item` block, replacing an
     existing block. `updated` is not special-cased here: the CLI passes today's
     date under it, as it does for a research line's `created:`, so this module
-    needs no clock of its own. Raises OSError."""
-    with open(path, "r", encoding="utf-8") as fh:
-        lines = fh.read().split("\n")
+    needs no clock of its own. Under the plans lock, written whole (`_write`).
+    Raises OSError."""
+    with plans_lock(path):
+        _set_fields(path, fields)
+
+
+def _set_fields(path, fields):
+    lines = _lines(path)
     if not lines or lines[0].strip() != "---":
         lines = ["---", "---"] + lines
     close = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
@@ -773,8 +835,17 @@ def set_fields(path, **fields):
             end += 1
         block[head:end] = fresh
     lines[1:close] = block
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
+    _write(path, "\n".join(lines))
+
+
+def close_record(path, target, **fields):
+    """Write `fields` into the plan at `path` and move it to `target`, under
+    the plans lock: a tick racing the close then fails on the moved file instead
+    of writing it back into `open/`. Raises OSError."""
+    with plans_lock(path):
+        _set_fields(path, fields)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        os.replace(path, target)
 
 
 def _field_lines(key, value):
@@ -794,36 +865,33 @@ def _lines(path):
         return fh.read().split("\n")
 
 
-def _write_lines(path, lines):
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines))
-
-
 def set_box(path, line, checked):
     """Set the `- [ ]`/`- [x]` box on 1-based `line` (an acceptance item's
-    `line`). Raises OSError."""
-    lines = _lines(path)
-    lines[line - 1] = re.sub(r"- \[[ xX]\]", "- [x]" if checked else "- [ ]",
-                             lines[line - 1], count=1)
-    _write_lines(path, lines)
+    `line`), under the plans lock. Raises OSError."""
+    with plans_lock(path):
+        lines = _lines(path)
+        lines[line - 1] = re.sub(r"- \[[ xX]\]", "- [x]" if checked else "- [ ]",
+                                 lines[line - 1], count=1)
+        _write(path, "\n".join(lines))
 
 
 def set_section(path, heading, body):
     """Replace the body of the last `## <heading>` section - the newest, since
-    a plan appends a dated `## State (...)` - with `body` and one blank line.
-    Returns False, writing nothing, when the plan has no such section. Raises
-    OSError."""
-    lines = _lines(path)
-    heads = [i for i, line in enumerate(lines)
-             if re.match(r"## %s(\s|$)" % re.escape(heading), line.strip())]
-    if not heads:
-        return False
-    start = heads[-1] + 1
-    end = next((i for i in range(start, len(lines))
-                if lines[i].lstrip().startswith("## ")), len(lines))
-    lines[start:end] = body.strip("\n").split("\n") + [""]
-    _write_lines(path, lines)
-    return True
+    a plan appends a dated `## State (...)` - with `body` and one blank line,
+    under the plans lock. Returns False, writing nothing, when the plan has no
+    such section. Raises OSError."""
+    with plans_lock(path):
+        lines = _lines(path)
+        heads = [i for i, line in enumerate(lines)
+                 if re.match(r"## %s(\s|$)" % re.escape(heading), line.strip())]
+        if not heads:
+            return False
+        start = heads[-1] + 1
+        end = next((i for i in range(start, len(lines))
+                    if lines[i].lstrip().startswith("## ")), len(lines))
+        lines[start:end] = body.strip("\n").split("\n") + [""]
+        _write(path, "\n".join(lines))
+        return True
 
 
 # ---------------------------------------------------------------- slice journal

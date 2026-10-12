@@ -286,8 +286,9 @@ class Record(unittest.TestCase):
         return top
 
     def test_a_plan_worktree_is_held_to_its_own_plan_by_branch(self):
-        # two plans run at once, each in a worktree on its plan/NNN branch: the
-        # main checkout keeps the first phased plan, each worktree its own
+        # two plans run at once, each in a worktree on its plan/NNN branch: each
+        # worktree has its own, the main checkout none (the CLI's `held` reading
+        # still names the first, the plan its `phase` moves)
         os.makedirs(os.path.join(self.repo, ".git"))
         self.plan("001-first.md", plan_text("001", phase="implementation",
                                             allowed=["hooks/**"]))
@@ -295,7 +296,10 @@ class Record(unittest.TestCase):
                                              allowed=["docs/**"]))
         one = self.linked_worktree(self.repo, "repo-001", branch="plan/001-first")
         two = self.linked_worktree(self.repo, "repo-002", branch="plan/002-second")
-        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+        self.assertIsNone(tt.active(self.repo, self.base))
+        task = tt.active(self.repo, self.base, held=True)
+        self.assertEqual((task["id"], task["held"]), ("001", True))
+        self.assertNotIn("held", tt.active(one, self.base, held=True))
         self.assertEqual(tt.active(one, self.base)["id"], "001")
         task = tt.active(two, self.base)
         self.assertEqual((task["id"], task["allowed_paths"]), ("002", ["docs/**"]))
@@ -330,9 +334,80 @@ class Record(unittest.TestCase):
         self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
         self.linked_worktree(self.repo, "repo-001", branch="plan/001-first")
         self.assertEqual(tt.active(self.repo, self.base)["id"], "002")
-        # every phased plan held: the first one, as before
+        # every phased plan held: a held plan's scope is its worktree's, so the
+        # main checkout and a worktree bound to no plan have no active task
         self.linked_worktree(self.repo, "repo-002", branch="plan/002-second")
-        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+        self.assertIsNone(tt.active(self.repo, self.base))
+        free = self.linked_worktree(self.repo, "repo-f", branch="feature")
+        self.assertIsNone(tt.active(free, self.base))
+        self.assertEqual(tt.active(os.path.join(self.base, "repo-001"),
+                                   self.base)["id"], "001")
+
+    def test_a_plans_slice_worktrees_bind_to_it_beside_its_declared_branch(self):
+        # plan 097 ran slices on plan/097-records beside its declared
+        # plan/097-workspace-integrity: each slice is held to 097's scope, and
+        # the declared branch's worktree stays the plan's holder
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.plan("001-first.md", plan_text("001", phase="implementation",
+                                            allowed=["hooks/**"]))
+        self.plan("002-second.md", plan_text("002", phase="implementation",
+                                             allowed=["docs/**"]).replace(
+            "status: open", "status: open\nbranch: plan/002-main"))
+        self.linked_worktree(self.repo, "repo-001", branch="plan/001-x")
+        piece = self.linked_worktree(self.repo, "repo-002s", branch="plan/002-slice")
+        task = tt.active(piece, self.base)
+        self.assertEqual((task["id"], task["allowed_paths"]), ("002", ["docs/**"]))
+        self.assertEqual(tt.plan_holders(self.repo)["002"], piece)
+        main = self.linked_worktree(self.repo, "repo-002", branch="plan/002-main")
+        self.assertEqual(tt.plan_holders(self.repo)["002"], main)
+        self.assertEqual(tt.active(piece, self.base)["id"], "002")
+
+    def test_concurrent_record_writers_lose_no_write_and_tear_no_read(self):
+        # E7: a reader saw a torn record in 29/40 rounds and two writers lost a
+        # write in 1/40, because each writer truncated the file in place
+        import threading
+        n = 40
+        items = "".join("- [ ] item %d\n" % i for i in range(n))
+        path = self.plan("001-first.md", plan_text("001", phase="implementation")
+                         + "## Acceptance\n" + items + "## State\nnone\n")
+        lines = {i: line_of(read(path), "item %d" % i) for i in range(n)}
+        torn = []
+        stop = threading.Event()
+
+        def reader():
+            while not stop.is_set():
+                text = read(path)
+                if not text.startswith("---\n") or "## State" not in text:
+                    torn.append(text[:40])
+
+        def ticker():
+            for i in range(n):
+                tt.set_box(path, lines[i], True)
+
+        def noter():
+            for i in range(n):
+                tt.set_section(path, "State", "note %d" % i)
+
+        def stamper():
+            for i in range(n):
+                tt.set_fields(path, updated="2026-10-%02d" % (i % 28 + 1))
+
+        watch = threading.Thread(target=reader)
+        watch.start()
+        writers = [threading.Thread(target=f) for f in (ticker, noter, stamper)]
+        for t in writers:
+            t.start()
+        for t in writers:
+            t.join()
+        stop.set()
+        watch.join()
+        text = read(path)
+        self.assertEqual(torn, [])
+        self.assertEqual([i for i in range(n) if "- [x] item %d\n" % i not in text], [])
+        self.assertIn("## State\nnote %d\n" % (n - 1), text)
+        self.assertEqual(tt.frontmatter(text)["updated"], "2026-10-%02d" % ((n - 1) % 28 + 1))
+        # no temp file is left beside the record
+        self.assertEqual(sorted(os.listdir(self.open)), ["001-first.md"])
 
     def test_relative_reads_a_linked_worktree_of_the_same_repository(self):
         # the contract gives every writing slice its own worktree; an allowlist
@@ -1097,6 +1172,87 @@ class Cli(TempHome):
         proc = support.run([CLI, "close", "001", "discarded"], env=self.env(), cwd=wt)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertTrue(os.path.isdir(wt), proc.stdout)
+
+    def ws(self, *args):
+        """git in the private `.tezgah` repository, its stdout."""
+        return subprocess.run(["git", "-C", os.path.join(self.repo, ".tezgah")] + list(args),
+                              capture_output=True, text=True, check=True,
+                              env=dict(os.environ, **GIT_ENV)).stdout.strip()
+
+    def private_repo(self):
+        """`.tezgah` as its own git repository with an owner identity, the way
+        ensure_workspace seeds it."""
+        self.ws("init", "-q")
+        self.ws("config", "user.name", "owner")
+        self.ws("config", "user.email", "owner@localhost")
+
+    def test_close_done_records_the_commit_that_landed(self):
+        # reviewed_sha names the worktree's HEAD, which a squash merge and a
+        # branch deletion leave in no branch: `landed` names the main checkout's
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        wt = self.slice("plan/001-first", commit=False, merge=False)
+        with open(os.path.join(wt, "work.txt"), "w") as fh:
+            fh.write("work\n")
+        self.git("add", "work.txt", cwd=wt)
+        self.git("commit", "-q", "-m", "plan work", cwd=wt)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        reviewed = tt.frontmatter(read(path))["reviewed_sha"]
+        self.git("merge", "-q", "--squash", "plan/001-first")
+        self.git("commit", "-q", "-m", "squash")
+        self.git("worktree", "remove", "--force", wt)
+        self.git("branch", "-D", "plan/001-first")
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        fields = tt.frontmatter(read(os.path.join(self.repo, ".tezgah", "plans", "done",
+                                                  "001-first.md")))
+        self.assertEqual(fields.get("landed"), self.head())
+        self.assertNotEqual(self.head()[:12], reviewed)
+        # a discarded plan landed nothing
+        self.plan("002-second.md")
+        self.assertEqual(self.task("close", "002", "discarded").returncode, 0)
+        self.assertNotIn("landed", tt.frontmatter(read(os.path.join(
+            self.repo, ".tezgah", "plans", "done", "002-second.md"))))
+
+    def test_close_commits_only_the_moved_record_in_the_private_repo(self):
+        self.private_repo()
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        self.ws("add", "plans/open/001-first.md")
+        self.ws("commit", "-q", "-m", "plan: add 001")
+        staged = os.path.join(self.repo, ".tezgah", "notes.md")
+        with open(staged, "w") as fh:
+            fh.write("staged by the owner\n")
+        self.ws("add", "notes.md")
+        with open(os.path.join(self.repo, ".tezgah", "plans", "open", "002-x.md"), "w") as fh:
+            fh.write("untracked\n")
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(self.ws("log", "-1", "--format=%s"), "plan: close 001 first")
+        self.assertEqual(self.ws("show", "--name-status", "--format=", "HEAD").splitlines(),
+                         ["A\tplans/done/001-first.md", "D\tplans/open/001-first.md"])
+        # the owner's staged change and an untracked plan stay as they were
+        self.assertEqual(self.ws("diff", "--cached", "--name-only"), "notes.md")
+        self.assertIn("?? plans/open/002-x.md", self.ws("status", "--porcelain", "-uall"))
+        self.assertIn(self.ws("rev-parse", "HEAD")[:12], proc.stdout)
+
+    def test_close_commits_a_record_the_private_repo_never_tracked(self):
+        self.private_repo()
+        self.plan("001-first.md")
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.ws("show", "--name-status", "--format=", "HEAD").splitlines(),
+                         ["A\tplans/done/001-first.md"])
+
+    def test_close_commits_nothing_when_the_workspace_is_no_git_repo(self):
+        # `.tezgah` here is a plain directory inside the project's repository:
+        # a commit there would land in the project's history
+        before = self.head()
+        self.plan("001-first.md")
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.head(), before)
+        self.assertNotIn("committed", proc.stdout)
 
     def test_verification_names_the_plan_worktrees_diff(self):
         path = self.plan("001-first.md", allowed=["hooks/**"])
