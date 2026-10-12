@@ -1135,6 +1135,9 @@ def prune_worktrees(root, keep=None):
         out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
                                              why or branch))
         if why is None:
+            # Orca removes the checkout but git may still list it, and git
+            # refuses to delete a branch a listed worktree holds
+            git_out(root, "worktree", "prune")
             # _keeps answered None, so the branch landed: a squash merge too
             kept = drop_branch(root, branch)
             if kept:
