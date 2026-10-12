@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-13
+
 ### Changed
 
 - **Typed worker output and a recall hop.** Tier workers and `tezgah-tester` now end their report with an `Output to orchestrator` block. It comes after any other shape the session asks for. A worker lists changed files, the commit sha and the `ESCALATE:` reason. For each check it gives the command, the exit code and the last lines of its output file. The tester gives pass, fail and skip counts and the first failure verbatim. A report that misses a field, or an `ESCALATE:`, gets one narrower re-brief of the same role. Only a second miss goes to `tezgah-frontier`, with the original brief and a fresh start. This ships as text only. An h05 spike on omp+tezgah spawned no subagent, so the arm-bench pilot could not measure it. No default changed.
@@ -1140,7 +1142,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.0
 [1.7.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.7.0
 [1.6.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.6.0
 [1.5.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.5.1
