@@ -66,7 +66,7 @@ def export_session(env_file, session_id):
     """Append `export TEZGAH_SESSION=<id>` to Claude's CLAUDE_ENV_FILE, appended
     because other hooks write the same file."""
     import shlex
-    with open(env_file, "a") as fh:
+    with open(env_file, "a", encoding="utf-8") as fh:
         fh.write("export TEZGAH_SESSION=%s\n" % shlex.quote(session_id))
 
 

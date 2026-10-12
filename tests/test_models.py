@@ -965,6 +965,8 @@ class Cli(unittest.TestCase):
         # the one a test passes
         env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=home)
         env.pop("TEZGAH_SESSION", None)
+        env.pop("CODEX_THREAD_ID", None)
+        env.pop("CURSOR_CONVERSATION_ID", None)
         env.update(extra)
         return subprocess.run([sys.executable, os.path.join(REPO, "bin", "tezgah-route")]
                               + list(args), capture_output=True, text=True, env=env)
@@ -1028,6 +1030,23 @@ class Cli(unittest.TestCase):
                          {"tier": "frontier", "agent": "tezgah-frontier", "via": "rule",
                           "static": "standard", "model": "claude-opus-5-5:high",
                           "override": "-", "judge": "-"})
+
+    def test_a_codex_or_cursor_shell_writes_its_route_under_its_host_s_id(self):
+        # neither host exports TEZGAH_SESSION. A Codex shell's CODEX_THREAD_ID is
+        # the root thread its hooks' session_id names; a Cursor agent shell's
+        # CURSOR_CONVERSATION_ID is its hooks' conversation_id (cursor-agent
+        # 2026.10.01). The child rows are written under those ids.
+        for var in ("CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID"):
+            with self.subTest(var):
+                home = tempfile.mkdtemp()
+                p = self.run_route("Bump the version", "--phase", "mechanical", HOME=home,
+                                   CLAUDECODE="", OMPCODE="", **{var: "id-1"})
+                self.assertEqual(p.returncode, 0, p.stderr)
+                ledger = os.path.join(home, ".cache", "tezgah", "evidence",
+                                      ti._slug("id-1") + ".jsonl")
+                rows = [r for r in ti.events_path(ledger) if r.get("kind") == "route"]
+                self.assertEqual([tm.route_fields(r)["agent"] for r in rows],
+                                 ["tezgah-cheap"])
 
     def test_report_joins_a_route_to_its_child_session_s_first_check(self):
         home = tempfile.mkdtemp()
@@ -1323,6 +1342,19 @@ class RouteReport(unittest.TestCase):
         groups = tm.route_report(ledgers)[0]
         self.assertEqual(groups[("jev", "cheap")], self.counts(fail=1))
         self.assertEqual(groups[("jev", "frontier")], self.counts(none=1))
+
+    def test_a_cursor_child_joins_once_its_own_row_lands(self):
+        # Cursor's `spawned` row comes from the parent's subagentStart, under
+        # the documented `subagent_id`: a ledger holding only that row is no
+        # proof the child's calls write there
+        p = ti._slug("conv")
+        link = {"kind": "spawned", "ts": 101, "parent": "conv", "agent": "tezgah-cheap",
+                "host": "cursor"}
+        for rows, want in (([link], self.counts(unjoined=1)),
+                           ([link, dict(self.OK, ts=102)], self.counts(**{"pass": 1}))):
+            with self.subTest(len(rows)):
+                ledgers = {p: [self.route("cheap", "jev", ts=100)], "kid": rows}
+                self.assertEqual(tm.route_report(ledgers)[0][("jev", "cheap")], want)
 
     def test_a_row_another_writer_left_is_not_a_route(self):
         groups, below = tm.route_report({"p": [{"kind": "route", "detail": "garbage"},

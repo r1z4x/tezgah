@@ -1264,7 +1264,11 @@ def route_report(ledgers):
     for stem, rows in ledgers.items():
         link = next((r for r in rows if r.get("kind") == "spawned" and r.get("parent")),
                     None)
-        if link:
+        # Cursor's row is written from the parent's subagentStart under the
+        # child's `subagent_id`; that the child's own calls carry this id is not
+        # documented, so the link counts only once a row of the child's landed
+        if link and not (link.get("host") == "cursor"
+                         and all(r.get("kind") == "spawned" for r in rows)):
             children.setdefault(ti._slug(link["parent"]), []).append(
                 (link.get("ts") or 0, stem, link.get("agent")))
     groups, below = {}, counts()

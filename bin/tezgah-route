@@ -158,8 +158,12 @@ def main(argv):
     out = tm.route(brief, args.phase, ask)
     judged = out.pop("judged")
     # omp, opencode and Claude (CLAUDE_ENV_FILE) export TEZGAH_SESSION; a Codex
-    # shell carries CODEX_THREAD_ID, the root thread its hooks' session_id names
-    session = os.environ.get("TEZGAH_SESSION") or os.environ.get("CODEX_THREAD_ID")
+    # shell carries CODEX_THREAD_ID, the root thread its hooks' session_id names,
+    # and a Cursor agent shell CURSOR_CONVERSATION_ID, its hooks' conversation_id.
+    # ponytail: a host started from another host's agent shell inherits that
+    # host's TEZGAH_SESSION, which wins here.
+    session = (os.environ.get("TEZGAH_SESSION") or os.environ.get("CODEX_THREAD_ID")
+               or os.environ.get("CURSOR_CONVERSATION_ID"))
     if judged:
         usage = judged.get("usage")
         usage = usage if isinstance(usage, dict) else {}

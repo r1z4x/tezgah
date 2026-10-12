@@ -175,6 +175,30 @@ class CursorHook(TempHome):
                          "subagent_type": "generalPurpose", "task": "t"})
         self.assertEqual(out, {"permission": "allow"})
 
+    def rows(self, session):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": session}, env=self.envv)
+        return out
+
+    def test_subagent_start_opens_the_child_s_ledger_with_its_parent(self):
+        # the documented subagentStart input (Cursor hooks docs): subagent_id,
+        # subagent_type, parent_conversation_id, beside the base conversation_id
+        self.call({"hook_event_name": "subagentStart", "cwd": self.repo,
+                   "conversation_id": "conv-456", "subagent_id": "abc-123",
+                   "subagent_type": "tezgah-cheap", "task": "fix it",
+                   "parent_conversation_id": "conv-456", "tool_call_id": "tc-789",
+                   "subagent_model": "m", "is_parallel_worker": False})
+        row = self.rows("abc-123")[0]
+        self.assertEqual((row["kind"], row["parent"], row["agent"], row["host"]),
+                         ("spawned", "conv-456", "tezgah-cheap", "cursor"))
+
+    def test_subagent_start_without_ids_or_outside_the_roots_opens_nothing(self):
+        for cwd, extra in ((self.home, {"subagent_id": "abc-123"}), (self.repo, {})):
+            self.call(dict({"hook_event_name": "subagentStart", "cwd": cwd,
+                            "parent_conversation_id": "conv-456",
+                            "subagent_type": "tezgah-cheap", "task": "t"}, **extra))
+        self.assertEqual(self.rows("abc-123"), [])
+
     def test_before_submit_prompt_injects_the_reminder(self):
         out = self.call({"hook_event_name": "beforeSubmitPrompt", "cwd": self.repo})
         self.assertTrue(out["continue"])

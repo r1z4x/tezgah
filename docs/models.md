@@ -168,6 +168,12 @@ a `subagent_start` row into the parent's ledger with that id and the child's typ
 Both hosts' payloads carry `agent_id` and `agent_type`. Claude's SessionStart hook
 exports `TEZGAH_SESSION` through `CLAUDE_ENV_FILE`. A Codex shell carries
 `CODEX_THREAD_ID`, the root thread's id. So the `route` row lands in the same ledger.
+A Cursor subagent runs under its own conversation id. Each Cursor agent shell carries
+its conversation's id as `CURSOR_CONVERSATION_ID`, so the route row lands in the
+parent's ledger. Cursor's
+subagentStart hook opens the child's ledger under `subagent_id` with a `spawned` row
+that names `parent_conversation_id`. Cursor's docs do not say that the child's own
+calls carry `subagent_id`, so that link counts only once a row of the child lands.
 
 `tezgah-route --report` joins by type when any child has a type. A route owns the
 first fan-out of its type after it and before the next route of that type. A fan-out
@@ -180,10 +186,10 @@ when an untyped child started inside its span. With no typed child, order is the
 fallback. It joins only when one child sits between each route and the next, with
 no two spawns in one second. The report then reads each child's first check: `pass`,
 `fail`, `ran` (no outcome seen) or `none`. A route it cannot prove counts as
-`unjoined`: a tie, an unrouted spawn, or a host with no child row. Two hosts write
-none. Cursor's shells get no session id, and its hook writes no child row. The dsh
-bridge runs Claude's hook, and no dsh SubagentStart payload on record shows
-`agent_id`. The parent's own next check never counts for the worker.
+`unjoined`: a tie, an unrouted spawn, or a host with no child row. Two cases write
+none. `cursor-agent` 2026.10.01 fires no subagentStart, and its child's calls name no
+parent. The dsh bridge runs Claude's hook, and no dsh SubagentStart payload on
+record shows `agent_id`. The parent's own next check never counts for the worker.
 One line per `via` and tier gives the first-attempt pass rate. The `jev-below-static`
 line counts Jev routes under the static tier and how many of them failed. That is the
 measurement that decides whether Jev routing becomes the default or the static table

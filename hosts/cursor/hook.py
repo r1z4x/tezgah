@@ -388,6 +388,17 @@ def dispatch(payload):
         else:
             record(session_id, "orch")
             out = {"permission": "allow"}
+            # The child's ledger opens with its parent, as on omp and opencode:
+            # a Cursor subagent runs under its own conversation id (observed with
+            # cursor-agent 2026.10.01), and this event names it `subagent_id`
+            # beside `parent_conversation_id` (Cursor hooks docs, subagentStart).
+            # `host` marks the row whose id the report has not seen carried by
+            # the child's own calls (tezgah_models.route_report).
+            child, parent = payload.get("subagent_id"), payload.get("parent_conversation_id")
+            if isinstance(child, str) and child and isinstance(parent, str) and parent \
+                    and under(cwd):
+                safe(child, note, child, "spawned", "", parent=parent,
+                     agent=str(payload.get("subagent_type") or ""), host="cursor")
             # The delegate is a fresh context that must know the rules exist, so
             # it gets the same short brief every other host hands a subagent.
             # Cursor documents no context field on subagentStart (its output is
