@@ -53,7 +53,10 @@ project's HEAD it read) and `review_round:`, so the next round reads only
 `git diff <reviewed_sha>..HEAD`, and refuses a third round: the budget is two
 rounds per plan; `close NNN done` refuses a plan whose review is missing or not
 `approve`, unless both rounds are spent and `--resolved` records the fix the
-session made and the test that proves it. `close` on the active task clears its phase in the same write, then
+session made and the test that proves it. `close NNN done` also refuses, naming
+each by number, an unticked Acceptance item that carries no `UNMET: <reason>`
+(an item the owner accepted as not met); `--resolved` never lifts that, and
+`discarded` is not held to it. `close` on the active task clears its phase in the same write, then
 removes each linked worktree whose branch has landed in HEAD, `main`, `master`
 or the remote's default branch (an ancestor of it, or a squash whose merge
 would change nothing) and which holds nothing else (no uncommitted or unknown
@@ -898,6 +901,14 @@ def cmd_close(args):
         return problems(["%s is not under %s" % (path, open_dir(root))])
     text = read(path)
     ident = os.path.basename(path).split("-")[0]
+    unticked = tt.open_items(text) if args[1] == "done" else []
+    if unticked:
+        # a review (or --resolved) answers the diff, never the plan's own boxes
+        return problems(["%s item %d: %s" % (path, n, item["text"]) for n, item in unticked] + [
+            "%s has %d open Acceptance item(s): tick each one met with `tezgah-task "
+            "tick %s %d`, end an item the owner accepted as not met with `UNMET: "
+            "<reason, who accepted it>`, or `tezgah-task close %s discarded`"
+            % (path, len(unticked), ident, unticked[0][0], ident)])
     # closing the active task deactivates it in the same write: the plan leaves
     # open/ anyway, and a separate `stop` first was one more step for nobody
     fields = {"status": args[1], "updated": today()}

@@ -1038,6 +1038,58 @@ class Cli(TempHome):
         self.assertEqual(fields["status"], "done")
         self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
 
+    def approved_plan(self, *items):
+        """Plan 001 with these Acceptance lines and an approving review: the
+        only thing left between it and done is its items."""
+        path = self.plan("001-first.md", allowed=["hooks/**"])
+        with open(path, "a") as fh:
+            fh.write("## Acceptance\n" + "".join(items))
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        return path
+
+    def test_close_done_refuses_an_open_acceptance_item_and_names_it(self):
+        # Plan 095 closed done with its item 2 still `[ ]`: close read only the
+        # review, never the plan's own Acceptance boxes.
+        path = self.approved_plan("- [x] first: `ruff check .`\n", COMMAND_ITEM)
+        before = read(path)
+        for extra in ((), ("--resolved", "a fix; test_x proves it")):
+            proc = self.task("close", "001", "done", *extra)
+            self.assertEqual(proc.returncode, 1, proc.stdout)
+            self.assertIn("item 2: The counts it read are printed.", proc.stdout)
+            self.assertNotIn("item 1:", proc.stdout)
+            for way in ("tezgah-task tick 001 2", "UNMET:", "close 001 discarded"):
+                self.assertIn(way, proc.stdout)
+            self.assertEqual(read(path), before)
+
+    def test_close_done_passes_once_every_item_is_ticked(self):
+        path = self.approved_plan(COMMAND_ITEM)
+        self.assertEqual(self.task("tick", "001", "1").returncode, 0)
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertFalse(os.path.exists(path))
+
+    def test_close_done_passes_an_item_marked_unmet_with_a_reason(self):
+        path = self.approved_plan(
+            "- [ ] Calibration band reached: `make cal`\n"
+            "      UNMET: 0 of 20 tasks in the band, owner kept them 2026-10-12\n")
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_bare_unmet_marker_is_not_a_reason(self):
+        path = self.approved_plan("- [ ] Calibration band reached: `make cal` UNMET:\n")
+        proc = self.task("close", "001", "done")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("item 1:", proc.stdout)
+        self.assertTrue(os.path.exists(path))
+
+    def test_close_discarded_ignores_open_items(self):
+        self.plan("001-first.md", allowed=["hooks/**"])
+        with open(os.path.join(self.open, "001-first.md"), "a") as fh:
+            fh.write("## Acceptance\n" + COMMAND_ITEM)
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+
     def test_close_from_inside_a_landed_worktree_keeps_it(self):
         # the session's own cwd is never removed under it
         self.plan("001-first.md", phase="implementation", allowed=["**"])

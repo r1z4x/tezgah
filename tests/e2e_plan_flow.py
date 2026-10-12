@@ -7,7 +7,7 @@ runs the CLI half, end to end, in a real `git` repository built under tempfile
 with HOME and TEZGAH_ROOTS redirected into it, so the machine's own config, its
 ledger and its `.tezgah/` are never read - the same isolation the suite uses.
 
-Nine rules, each a step below:
+Ten rules, each a step below:
 
   1. a plan whose Acceptance names no command cannot enter `implementation`, and
      `tezgah-render-table --acceptance --strict` exits 1 on the same item, so
@@ -28,7 +28,9 @@ Nine rules, each a step below:
   8. `tezgah-task spike` records the answer, and `implementation` then opens;
   9. two plans run at once, each in a worktree on its `plan/NNN-` branch: the
      second `start` keeps the first plan's phase, and the gate holds a write in
-     each worktree to that worktree's own plan.
+     each worktree to that worktree's own plan;
+ 10. `close NNN done` refuses an approved plan with an open Acceptance box and
+     names it, and the same box ending in `UNMET: <reason>` closes.
 
 Not collected by the stdlib suite (the name does not match `test*.py`), the same
 shape as `tests/e2e_packaged_install.py`. Needs `git` on PATH: without it it
@@ -345,6 +347,25 @@ def check_parallel_worktrees(project):
     return "; ".join(problems)
 
 
+def check_close_open_item(project):
+    """10: an approved plan with an open Acceptance box is refused `close done`,
+    naming the item; the same box ending in `UNMET: <reason>` closes."""
+    rel = ".tezgah/plans/open/010-close.md"
+    item = "`python3 -m unittest` is green"
+    project.write(rel, plan_body("010", extra="review: e2e approve 2026-10-12",
+                                 items=[item]))
+    refused = project.cli(TASK, "close", "010", "done")
+    problems = []
+    if refused.returncode != 1 or "item 1: %s" % item not in refused.stdout:
+        problems.append("open item not refused: %s" % first_line(refused))
+    project.write(rel, project.read(rel).replace(
+        item, item + " UNMET: suite not run here, owner accepted"))
+    closed = project.cli(TASK, "close", "010", "done")
+    if closed.returncode != 0:
+        problems.append("UNMET item refused: %s" % first_line(closed))
+    return "; ".join(problems)
+
+
 CHECKS = (
     ("a plan whose Acceptance names no command cannot enter implementation",
      check_acceptance_gap),
@@ -364,6 +385,8 @@ CHECKS = (
      check_spike_cli),
     ("two plans in two worktrees, each write held to its own plan",
      check_parallel_worktrees),
+    ("close done refuses an open Acceptance item, UNMET with a reason passes",
+     check_close_open_item),
 )
 
 

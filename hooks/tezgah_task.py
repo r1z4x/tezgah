@@ -165,6 +165,10 @@ _MARKER = re.compile(r"unverifiable(?![-\w])", re.I)
 # names the word ("either the command or the word `unverifiable` followed by
 # why") has no separator there and is not a declaration.
 _SEPARATORS = ":,;(-"
+# An unticked item the owner accepted as not met: `UNMET:` and the reason, upper
+# case so prose that names the word is not a marker. `close NNN done` lets
+# such an item through and refuses every other open box (open_items).
+_UNMET = re.compile(r"(?<!\w)UNMET:\s*(\S.*)")
 _SPAN = re.compile(r"`([^`\n]+)`")
 # A runner whose test entry point is a bare subcommand: `pnpm test`, `cargo
 # test`, `uv run pytest` carry no option and no path, yet each is the command.
@@ -275,6 +279,14 @@ def acceptance_gap(text):
     gate that case either - so refusing it here would tax every plan that
     predates the rule. Returns the items so a refusal can name them."""
     return unproven(acceptance_items(text))
+
+
+def open_items(text):
+    """The plan's unticked Acceptance items that carry no `UNMET: <reason>`, as
+    (number counted from 1, item) pairs: what `close NNN done` refuses on. Plan
+    095 closed done with an open box because close read only the review."""
+    return [(n, item) for n, item in enumerate(acceptance_items(text), 1)
+            if not item["checked"] and not _UNMET.search(item["text"])]
 
 
 # The `checkpoint:` values a plan can carry: a commit sha (the tree was clean at

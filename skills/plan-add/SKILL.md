@@ -101,7 +101,9 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    writes `spike_recorded:` on the plan, active or not. These three work from
    the main checkout or from any of its worktrees.
    After the merge, `tezgah-task close NNN done` deactivates the plan,
-   moves it to done and removes every merged worktree.
+   moves it to done and removes every merged worktree. It refuses while an
+   Acceptance box is open: tick it, or, only when the owner accepted the item
+   as not met, end it with `UNMET: <reason, who accepted it>`.
 
 10. If the work settles a decision that is hard to reverse, spans components, or
     keeps being re-explained, record it as an ADR under `.tezgah/decisions/` with
@@ -150,7 +152,8 @@ the task itself (step 9); `allowed_from:` records where a scope the CLI replaced
 acceptance commands run unpiped, and a fresh reviewer (the host's
 `tezgah-reviewer` subagent) reading the diff, whose verdict
 `tezgah-task review NNN <reviewer> approve|changes` records as `review:`.
-`tezgah-task close NNN done` (plan-sync) refuses without an `approve`.
+`tezgah-task close NNN done` (plan-sync) refuses without an `approve`, and on an
+unticked Acceptance item with no `UNMET: <reason>`; `discarded` needs neither.
 
 `after:` names the plans that must be done before this one starts - a `- NNN`
 block or `after: 012, 015`. `tezgah-task status` reads it: each open plan's
