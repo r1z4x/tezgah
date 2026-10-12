@@ -156,16 +156,31 @@ an entry the user owns, and `mode` when omp holds none and the session model run
 otherwise. `via` keeps the word `jev` even when the chat fallback answered,
 because the report groups history by it. `judge` is where the two differ.
 
-A routed worker runs in its own session, so its checks land in its own ledger. On omp
-and opencode the child's ledger opens with a `spawned` row that names its parent
-session. `tezgah-route --report` matches a route to a child by agent type first. On
-opencode the child's own title carries the type. On omp the parent's task call
-records which type each named child runs. Order is the fallback, and only when one
-child sits between each route and the next with no two spawns in one second. The
-report then reads each child's first check: `pass`, `fail`, `ran` (no outcome seen)
-or `none`. A route it cannot prove counts as `unjoined`. That covers a tie, an
-unrouted spawn, a nested subagent, and every host with no parent signal: Claude
-Code, Codex, Cursor and dsh. The parent's own next check never counts for the worker.
+On omp and opencode a routed worker runs in its own session and its own ledger. That
+ledger opens with a `spawned` row that names the parent session. On opencode the
+child's own title carries its type. On omp the parent's task call records which type
+each named child runs. On Claude Code and Codex the worker runs under its parent's
+session id, and its rows carry its own `agent` id. There the SubagentStart hook writes
+a `subagent_start` row into the parent's ledger with that id and the child's type.
+Both hosts' payloads carry `agent_id` and `agent_type`. Claude's SessionStart hook
+exports `TEZGAH_SESSION` through `CLAUDE_ENV_FILE`. A Codex shell carries
+`CODEX_THREAD_ID`, the root thread's id. So the `route` row lands in the same ledger.
+
+`tezgah-route --report` joins by type when any child has a type. A route owns the
+first fan-out of its type after it and before the next route of that type. A fan-out
+is the children of one task call, each started within 2 seconds of the one before
+(`FAN_OUT_GAP`). One failed first check in it fails the route, else a pass passes it
+(`OUTCOME_ORDER`). Later spawns of that type in the window had no route, so the
+report leaves them out. A route gets nothing when the route of its type before it
+had no worker yet: both routes' workers may sit in one fan-out. It also gets nothing
+when an untyped child started inside its span. With no typed child, order is the
+fallback. It joins only when one child sits between each route and the next, with
+no two spawns in one second. The report then reads each child's first check: `pass`,
+`fail`, `ran` (no outcome seen) or `none`. A route it cannot prove counts as
+`unjoined`: a tie, an unrouted spawn, or a host with no child row. Two hosts write
+none. Cursor's shells get no session id, and its hook writes no child row. The dsh
+bridge runs Claude's hook, and no dsh SubagentStart payload on record shows
+`agent_id`. The parent's own next check never counts for the worker.
 One line per `via` and tier gives the first-attempt pass rate. The `jev-below-static`
 line counts Jev routes under the static tier and how many of them failed. That is the
 measurement that decides whether Jev routing becomes the default or the static table

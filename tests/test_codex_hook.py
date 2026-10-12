@@ -235,6 +235,85 @@ class CodexEvidence(TempHome):
         self.assertEqual(self.kinds(), ["verify_ok"])
 
 
+class CodexSubagentLineage(TempHome):
+    """A Codex subagent runs under the root's session_id (the root thread's id)
+    with its own `agent_id`. Payload fields from the generated schema
+    codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json
+    (required: agent_id, agent_type, cwd, hook_event_name, model,
+    permission_mode, session_id, transcript_path, turn_id)."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+        self.session = "root-thread"
+
+    def hook(self, payload):
+        proc = run([support.CODEX_HOOK], dict({"cwd": self.repo,
+                                               "session_id": self.session}, **payload),
+                   env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc
+
+    def start(self, aid, kind):
+        self.hook({"hook_event_name": "SubagentStart", "agent_id": aid,
+                   "agent_type": kind, "model": "gpt-5.5", "permission_mode": "default",
+                   "transcript_path": None, "turn_id": "t1"})
+
+    def check(self, exit_code, aid=None):
+        payload = {"hook_event_name": "PostToolUse", "tool_name": "exec_command",
+                   "tool_input": {"command": "pytest -q"},
+                   "tool_response": {"exit_code": exit_code, "output": "x"}}
+        if aid:
+            payload.update(agent_id=aid, agent_type="tezgah-cheap")
+        self.hook(payload)
+
+    def rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": self.session}, env=self.envv)
+        return out
+
+    def test_the_child_is_typed_and_its_checks_join_the_root_s_route(self):
+        import sys
+        if support.HOOKS not in sys.path:
+            sys.path.insert(0, support.HOOKS)
+        import tezgah_models as tm
+        self.check(0)  # the root's own check is never the worker's
+        self.start("child-thread", "tezgah-cheap")
+        self.check(1, aid="child-thread")
+        rows = self.rows()
+        start = next(r for r in rows if r["kind"] == "subagent_start")
+        self.assertEqual((start["agent"], start["detail"]), ("child-thread", "tezgah-cheap"))
+        self.assertEqual([(r["kind"], r.get("agent")) for r in rows
+                          if r["kind"].startswith("verify")],
+                         [("verify_ok", None), ("verify_fail", "child-thread")])
+        route = {"kind": "route", "ts": rows[0]["ts"],
+                 "detail": "tezgah-route tier=cheap agent=tezgah-cheap via=jev "
+                           "model=m override=-"}
+        got = tm.route_report({"root": [route] + rows})[0][("jev", "cheap")]
+        self.assertEqual((got["fail"], got["unjoined"]), (1, 0))
+
+    def test_a_subagent_s_failures_are_its_own_repeats_not_the_root_s(self):
+        self.check(1, aid="child-thread")
+        self.check(1, aid="child-thread")
+        def decide(**extra):
+            out, _ = run_json([support.CODEX_HOOK], dict({
+                "hook_event_name": "PreToolUse", "cwd": self.repo,
+                "session_id": self.session, "tool_name": "exec_command",
+                "tool_input": {"command": "pytest -q"}}, **extra), env=self.envv)
+            return (out or {}).get("hookSpecificOutput", {}).get("permissionDecision")
+        self.assertEqual(decide(agent_id="child-thread", agent_type="tezgah-cheap"), "deny")
+        self.assertIsNone(decide())
+
+    def test_outside_every_root_the_start_writes_no_row(self):
+        outside = os.path.join(self.home, "outside")
+        os.makedirs(outside)
+        self.hook({"hook_event_name": "SubagentStart", "cwd": outside,
+                   "agent_id": "c", "agent_type": "tezgah-cheap"})
+        self.assertEqual([r for r in self.rows() if r["kind"] == "subagent_start"], [])
+
+
+
 class CodexLoopGuardIdentity(TempHome):
     """One call, one id: the gate maps Codex's shell name (`exec_command`) onto
     the gate's `Bash`, and `call_id` hashes the name it is handed. While the

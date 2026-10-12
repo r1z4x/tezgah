@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from tezgah_guard import attest_session, import_failed, safe  # noqa: E402
 try:
     from tezgah_context import context_for, record  # noqa: E402
-    from tezgah_paths import HOST_DIRS  # noqa: E402
+    from tezgah_paths import HOST_DIRS, root_for  # noqa: E402
 except Exception as exc:
     import_failed(exc)
 
@@ -62,6 +62,20 @@ def core_is_in_a_file():
         return False
 
 
+def export_session(env_file, session_id):
+    """Append `export TEZGAH_SESSION=<id>` to Claude's CLAUDE_ENV_FILE, appended
+    because other hooks write the same file."""
+    import shlex
+    with open(env_file, "a") as fh:
+        fh.write("export TEZGAH_SESSION=%s\n" % shlex.quote(session_id))
+
+
+def note_child(session_id, agent_id, agent_type):
+    """The child's lineage row in its parent's ledger (`tezgah-route --report`)."""
+    from tezgah_integrity import note
+    note(session_id, "subagent_start", agent_type, agent=agent_id)
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
@@ -74,6 +88,14 @@ def main():
         # tezgah wires, and dsh (which runs it too) has no transcript to derive
         # the kind from, so the store is the only channel its line has.
         safe(payload.get("session_id"), record, payload.get("session_id"), "orch")
+        # The child's lineage row: a Claude subagent runs under its parent's
+        # session id, its calls carrying `agent_id`, so this row in the parent's
+        # ledger is what types it for `tezgah-route --report` (hooks reference,
+        # SubagentStart input: agent_id, agent_type).
+        aid, kind = payload.get("agent_id"), payload.get("agent_type")
+        if isinstance(aid, str) and aid and isinstance(kind, str) and root_for(cwd):
+            safe(payload.get("session_id"), note_child, payload.get("session_id"),
+                 aid, kind)
     if event == "SessionStart":
         # Claude and dsh run this one script; Claude's manifest declares
         # TEZGAH_CORE_IN_FILE on SessionStart and dsh's does not, so the flag
@@ -82,6 +104,12 @@ def main():
         sid = payload.get("session_id")
         host = "claude" if os.environ.get("TEZGAH_CORE_IN_FILE") == "1" else "dsh"
         safe(sid, attest_session, host, sid, cwd)
+        # The session id the route, judge and status CLIs write under: Claude
+        # sources this file before every Bash call (CLAUDE_ENV_FILE, SessionStart
+        # only), as omp exports TEZGAH_SESSION to its shells
+        env_file = os.environ.get("CLAUDE_ENV_FILE")
+        if env_file and isinstance(sid, str) and sid:
+            safe(sid, export_session, env_file, sid)
     text = safe(payload.get("session_id"), context_for,
                 EVENTS.get(event, "session_start"), cwd, payload,
                 # the brief is a subagent's own text, never the file's; every

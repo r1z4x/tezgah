@@ -1285,7 +1285,9 @@ def route_report(ledgers):
         # a child key is (ledger stem, agent id): "" for a whole ledger
         kids = [(ts, (kid, ""), spawned_as.get(name, name))
                 for ts, kid, name in children.get(stem, [])]
-        kids += [(r.get("ts") or 0, (stem, r["agent"]), r.get("detail") or None)
+        # a Claude plugin agent's type is plugin-scoped (`tezgah:tezgah-cheap`)
+        kids += [(r.get("ts") or 0, (stem, r["agent"]),
+                  str(r.get("detail") or "").rsplit(":", 1)[-1] or None)
                  for r in rows if r.get("kind") == "subagent_start"
                  and isinstance(r.get("agent"), str) and r["agent"]]
         for (_ts, fields), keys in zip(routes, _join(routes, kids)):

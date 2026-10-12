@@ -1317,7 +1317,7 @@ class RouteReport(unittest.TestCase):
                        {"kind": "subagent_start", "ts": 102, "agent": "a1",
                         "detail": "tezgah-cheap"},
                        {"kind": "subagent_start", "ts": 102, "agent": "a2",
-                        "detail": "tezgah-frontier"},
+                        "detail": "tezgah:tezgah-frontier"},  # a plugin agent
                        dict(self.FAIL, ts=103, agent="a1"),
                        {"kind": "edit", "ts": 103, "agent": "a2"}]}
         groups = tm.route_report(ledgers)[0]

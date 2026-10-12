@@ -25,6 +25,52 @@ class AutoInit(TempHome):
         self.assertEqual(proc.stdout.strip(), "")
 
 
+class AutoInitLineage(TempHome):
+    """The two rows a Claude route join needs, from the documented payloads
+    (code.claude.com/docs/en/hooks: SubagentStart input `agent_id`,
+    `agent_type`; SessionStart's CLAUDE_ENV_FILE, sourced before every Bash)."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+
+    def fire(self, payload, extra=None, cwd=None):
+        proc = run([support.AUTO_INIT],
+                   dict({"cwd": cwd or self.repo, "session_id": "parent-s"}, **payload),
+                   env=self.env(extra=extra))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def rows(self):
+        out, _ = run_json([support.PROBE_INTEGRITY],
+                          {"fn": "events", "session": "parent-s"}, env=self.env())
+        return out
+
+    def test_subagent_start_types_the_child_in_the_parent_s_ledger(self):
+        self.fire({"hook_event_name": "SubagentStart", "agent_id": "agent-abc123",
+                   "agent_type": "tezgah-cheap",
+                   "transcript_path": "/tmp/t.jsonl"})
+        row = next(r for r in self.rows() if r["kind"] == "subagent_start")
+        self.assertEqual((row["agent"], row["detail"]), ("agent-abc123", "tezgah-cheap"))
+
+    def test_subagent_start_outside_every_root_or_without_an_id_writes_nothing(self):
+        outside = os.path.join(self.home, "outside")
+        os.makedirs(outside)
+        self.fire({"hook_event_name": "SubagentStart", "agent_id": "a",
+                   "agent_type": "tezgah-cheap"}, cwd=outside)
+        self.fire({"hook_event_name": "SubagentStart", "agent_type": "tezgah-cheap"})
+        self.assertEqual([r for r in self.rows() if r["kind"] == "subagent_start"], [])
+
+    def test_session_start_exports_the_session_through_claude_s_env_file(self):
+        env_file = os.path.join(self.home, "claude-env.sh")
+        with open(env_file, "w") as fh:
+            fh.write("export OTHER=1\n")  # another hook's line stays
+        self.fire({"hook_event_name": "SessionStart", "session_id": "it's"},
+                  extra={"CLAUDE_ENV_FILE": env_file})
+        with open(env_file) as fh:
+            text = fh.read()
+        self.assertEqual(text, "export OTHER=1\nexport TEZGAH_SESSION='it'\"'\"'s'\n")
+
+
 class AutoInitCoreInFile(TempHome):
     """install_claude writes the always-on core into `~/.claude/CLAUDE.md`, which
     Claude reads into every session, so a session whose manifest declares that

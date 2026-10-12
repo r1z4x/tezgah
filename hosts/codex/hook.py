@@ -31,7 +31,7 @@ try:
         shell_kind)
     from tezgah_gate import cross_project_note, decision, graph_advice  # noqa: E402
     from tezgah_integrity import (  # noqa: E402
-        SUBAGENT_CHANNEL, bind_session, changed_files_notice, note_tool, ran_nothing,
+        SUBAGENT_CHANNEL, bind_session, changed_files_notice, note, note_tool, ran_nothing,
         report_bytes, stop_reason, untrusted_source)
     from tezgah_paths import HOST_DIRS, off, root_for  # noqa: E402
     from tezgah_taste import write_note  # noqa: E402
@@ -108,7 +108,16 @@ def gate_reason(payload, cwd, session_id):
     inp = payload.get("tool_input")
     if not isinstance(inp, dict):
         inp = {}
-    return decision(gate_name(name), inp, cwd, session_id)
+    # a subagent's calls carry its `agent_id` (the child thread id): its repeat
+    # ceilings count its own attempts, as on Claude
+    return decision(gate_name(name), inp, cwd, session_id, agent=subagent_id(payload))
+
+
+def subagent_id(payload):
+    """The child thread id Codex puts on a subagent's hook input, else None (a
+    root-agent call; codex-rs/hooks: "Add subagent identity to hook inputs")."""
+    aid = payload.get("agent_id")
+    return aid if isinstance(aid, str) and aid else None
 
 
 def verify_outcome(payload):
@@ -196,7 +205,11 @@ def main():
                  out_bytes=(report_bytes(result)
                             if untrusted_source(tool, inp) == SUBAGENT_CHANNEL
                             else result_size(result)),
-                 empty_run=ran_nothing(result))
+                 empty_run=ran_nothing(result),
+                 # the child's rows land in the root session's ledger (Codex's
+                 # session_id is the root thread's); the route report reads them
+                 # back by this id
+                 agent=subagent_id(payload))
         # The gate's graph line for a code-symbol search rides the same
         # non-blocking channel (tezgah_gate.graph_advice): a Codex PreToolUse
         # carries a deny and nothing else.
@@ -220,6 +233,13 @@ def main():
         return
     if event == "SubagentStart":
         safe(session_id, record, session_id, "orch")
+        # the child's typing row in the root ledger: SubagentStart requires
+        # agent_id and agent_type (codex-rs/hooks/schema/generated/
+        # subagent-start.command.input.schema.json)
+        kind = payload.get("agent_type")
+        if subagent_id(payload) and isinstance(kind, str) and root_for(cwd):
+            safe(session_id, note, session_id, "subagent_start", kind,
+                 agent=subagent_id(payload))
     if event == "Stop":
         out = {}
         # Codex's stop.input carries the same fields Claude's does
