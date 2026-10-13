@@ -144,7 +144,9 @@ def modules_for(path, cache):
         return None
     if path.startswith("tests/"):
         if ext == ".py" and name.startswith("test_"):
-            return [name]
+            # a module the change deleted has nothing left to run: on 3.12+ an
+            # empty discover exits 5 and a pull request went red for it
+            return [name] if os.path.exists(os.path.join(TESTS, name)) else []
         # the neuter matrix is a CI script its own module loads by path, and its
         # killer cache only orders the runs; neither changes another module
         if name in ("neuter_matrix.py", "neuter_killers.json"):

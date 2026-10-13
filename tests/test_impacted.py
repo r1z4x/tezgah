@@ -74,6 +74,7 @@ class TheMap(unittest.TestCase):
 
     def test_a_test_module_maps_to_itself(self):
         self.assertEqual(self.modules("tests/test_gate.py"), ["test_gate.py"])
+        self.assertEqual(self.modules("tests/test_deleted_by_this_change.py"), [])
 
     def test_the_neuter_matrix_and_its_cache_map_to_their_module(self):
         # both ran all 100 modules (2026-10-13); the matrix is CI's
