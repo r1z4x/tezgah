@@ -67,7 +67,7 @@ examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
 ask is a floor, not a ceiling - its kind is one: a research, analysis, review or
-plan ask ends at the written plan, and building it is an approval-batch question.
+plan ask ends at the written plan, and building it waits for the user's answer.
 Ponytail shrinks the solution, never the request.
 FORBIDDEN: swapping in a cheaper, deferred or partial stand-in for what was
 asked; silently narrowing scope; deciding a requested item is
@@ -112,7 +112,8 @@ lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
 Work and process - the order, "shall I go on", a check, a plan, a consult
 member, a spend within `spend_cap`, a local merge of the session's branch,
 removing its worktree - are taken and stated in one line, never asked; a taste
-or intent fork goes in the batch with a default taken this turn. An outward step
+or intent fork goes in the batch with a default taken this turn, but building a
+plan this turn wrote waits for the answer. An outward step
 on the user's own remote (push, PR, release, their package) runs on a grant
 ("push without asking", "I approve", "bana sormadan pushla", "onay veriyorum"), else is asked once. Never on a
 default - ask and wait for an answer naming action and target: a force push,

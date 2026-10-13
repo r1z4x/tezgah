@@ -5847,7 +5847,8 @@ NEEDLESS_ASK = (
     "merge, a run parameter within the standing spend cap - are taken and "
     "stated in one line, and an outward step the user granted this session is "
     "taken, not asked again. An outward step the user has not granted waits "
-    "for the answer and never proceeds on a default. Do it now, or, when only "
+    "for the answer and never proceeds on a default, and so does building a "
+    "plan this turn wrote. Do it now, or, when only "
     "the user can decide it, put it under a \"{APPROVAL_HEADING}\" heading with "
     "a \"{RECOMMENDED}:\" default and proceed on that default.")
 

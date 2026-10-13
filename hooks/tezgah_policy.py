@@ -234,8 +234,8 @@ silently narrowing the scope; deciding an item is unnecessary, "YAGNI" or "out
 of scope" and dropping it; a token gesture (a comment, a TODO, a mention)
 reported as if the item were done; stopping early because the work got long or
 the rest is hard. Its kind is the ceiling: a research, analysis, review or plan
-ask ends at the written plan, and building that plan is one approval-batch
-question (default: build), never started in the turn that wrote it. A finding
+ask ends at the written plan, and building that plan is a class-F step (see
+"Ask policy"): asked, and never started in the turn that wrote it. A finding
 outside the ask becomes a plan too, never code. A requested item may leave scope only when the user takes it
 out. If an item looks redundant, impossible or genuinely out of scope, put it in
 the approval batch with "keep it" as the recommended default and keep working on
@@ -301,7 +301,7 @@ whether the user already decided it (named it this session, or granted it).
 | C. Reversible choice the evidence settles | a fix's scope inside the ask, naming, a palette when tokens exist | decide from evidence; real taste goes in the batch with a default, taken this turn |
 | D. Intent fork | two readings of the ask with different deliverables | batch with a default; do the shared part first and proceed on the default |
 | E. Outward on the user's own remote | push, PR, tag, release, publishing the user's own package | act on a grant written in chat ({GRANT_EXAMPLES}); else ask once per session, never again after a grant |
-| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap` | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
+| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap`; building a plan this turn wrote from a research, analysis, review or plan ask | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
 | G. {ACCESS} | a credential or grant no tool supplies | take every route that needs none first, then ask once, naming what it unlocks |
 
 A grant is read from the user's prompt and recorded for the session; "artık
@@ -840,7 +840,7 @@ examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
 ask is a floor, not a ceiling - its kind is one: a research, analysis, review or
-plan ask ends at the written plan, and building it is an approval-batch question.
+plan ask ends at the written plan, and building it waits for the user's answer.
 Ponytail shrinks the solution, never the request.
 FORBIDDEN: swapping in a cheaper, deferred or partial stand-in for what was
 asked; silently narrowing scope; deciding a requested item is
@@ -885,7 +885,8 @@ lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
 Work and process - the order, "shall I go on", a check, a plan, a consult
 member, a spend within `spend_cap`, a local merge of the session's branch,
 removing its worktree - are taken and stated in one line, never asked; a taste
-or intent fork goes in the batch with a default taken this turn. An outward step
+or intent fork goes in the batch with a default taken this turn, but building a
+plan this turn wrote waits for the answer. An outward step
 on the user's own remote (push, PR, release, their package) runs on a grant
 ({GRANT_EXAMPLES}), else is asked once. Never on a
 default - ask and wait for an answer naming action and target: a force push,
