@@ -282,10 +282,9 @@ class ReleaseWaitsForCi(unittest.TestCase):
                                       jobs.get(job, "")), job)
 
     def test_a_release_skips_only_the_serial_suite_the_shards_already_run(self):
-        # The serial suite is the ~10 min leg; the sharded job runs the same
-        # suite in parallel, so a release asks ci.yml to skip only that step
-        # and keep one floor leg for compile, lint and citations. A push keeps
-        # the full matrix: the plan 045 shadow compares the two there.
+        # The sharded job runs the suite on every push and release; the serial
+        # `unittest discover` step it shadowed is gone (2026-10-13, plan 099),
+        # and a release keeps one floor leg for compile, lint and citations.
         on = self.workflow("ci.yml").split("\njobs:\n", 1)[0]
         # a tag push is the release, whose own run calls this workflow: a push
         # trigger on tags ran the same commit's CI a third time (ci #18, v1.0.0).
@@ -296,9 +295,7 @@ class ReleaseWaitsForCi(unittest.TestCase):
                              r"        default: false")
         test = self.jobs(self.workflow("ci.yml"))["test"]
         self.assertIn("inputs.release", test)
-        self.assertRegex(test, r"(?m)^        if: \$\{\{ !inputs\.release && "
-                               r"github\.event_name != 'pull_request' \}\}\n"
-                               r"        run: python3 -m unittest discover")
+        self.assertNotIn("run: python3 -m unittest discover", self.workflow("ci.yml"))
         self.assertNotIn("inputs.release", self.jobs(self.workflow("ci.yml"))["test-sharded"])
         self.assertRegex(self.jobs(self.workflow("release.yml"))["ci"],
                          r"(?m)^    with:\n      release: true\s*$")

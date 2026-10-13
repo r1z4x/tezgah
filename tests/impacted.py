@@ -295,7 +295,10 @@ def run_pool(modules, work_dir, workers):
         # longest first, so the slowest module never starts last and sets the
         # wall time alone; source size is the proxy (the six slowest modules are
         # the six largest, measured 2026-10-13)
-        order = sorted(modules, key=lambda m: -os.path.getsize(os.path.join(TESTS, m)))
+        # a module the change deleted is listed but gone: it sorts last and
+        # runs as an empty discover, as before the ordering (review of 099, F1)
+        order = sorted(modules, key=lambda m: -os.path.getsize(os.path.join(TESTS, m))
+                       if os.path.exists(os.path.join(TESTS, m)) else 0)
         futures = [pool.submit(_run_module, m, log_path) for m in order]
         for fut in concurrent.futures.as_completed(futures):
             module, rc, seconds, section = fut.result()

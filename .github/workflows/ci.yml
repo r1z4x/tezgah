@@ -12,10 +12,8 @@ on:
   # before the same commit is green
   workflow_call:
     inputs:
-      # release.yml passes true: the serial suite (~10 min) is skipped there and
-      # one floor leg keeps compile, lint and citations, because `test-sharded`
-      # runs the same suite in parallel. A push to main keeps the serial floor
-      # and ceiling (the plan 045 shadow compares the two jobs there).
+      # release.yml passes true: one floor leg keeps compile, lint and
+      # citations, because `test-sharded` runs the suite on both legs.
       release:
         type: boolean
         default: false

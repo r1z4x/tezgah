@@ -594,7 +594,12 @@ def verdict(first, known, tree, env, runner=subprocess_runner):
             return proc.returncode or 1, "%s failed (cached killer)" % known, known
     last = ""
     for module in ((first,) if first else ()) + tuple(m for m in MODULES if m != first):
-        proc = runner(unittest_argv(module), tree, env)
+        # its own HOME and TMPDIR, as each control module has: state one module
+        # leaves must not kill a mutant in the next (review of plan 099, F2)
+        own = {k: os.path.join(env[k], module) for k in ("HOME", "TMPDIR") if k in env}
+        for path in own.values():
+            os.makedirs(path, exist_ok=True)
+        proc = runner(unittest_argv(module), tree, dict(env, **own))
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
         last = "%s: %s" % (module, lines[-1] if lines else "")
         if proc.returncode:

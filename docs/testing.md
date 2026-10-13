@@ -71,19 +71,19 @@ No matrix cancels its other legs when one fails (`fail-fast: false`).
   empty diff, a base it cannot read, a release or a manual run runs everything.
 - `docs`, prose only: the citations audit, the clarity audit and
   `tests/impacted.py --ref <base>`, which maps a docs page to the docs modules.
-- `test` (`ci.yml:102`) on Python 3.10 and 3.14, the floor and the ceiling.
+- `test` (`ci.yml:100`) on Python 3.10 and 3.14, the floor and the ceiling.
   It byte-compiles, lints with ruff from `requirements-dev.txt` (pip cached),
   audits the docs citations and clarity and runs `TEZGAH_E2E_STRICT=1 python3
   tests/e2e_plan_flow.py`. A release passes the `release` input and runs one
   3.10 leg.
-- `test-sharded` (`ci.yml:144`) on Python 3.10 and 3.14 with node 22 (the
+- `test-sharded` (`ci.yml:142`) on Python 3.10 and 3.14 with node 22 (the
   first line that loads the omp `.ts` hook without a flag). On `main` and a
   release it runs `python3 tests/impacted.py --all`. On a pull request it runs
   `--ref <base>`: the modules the change maps to, and the whole suite when the
   map does not know a path. It replaced the serial `unittest discover` step on
   2026-10-13: both caught the same failures, and the serial step took about 30
   minutes.
-- `apps-e2e` (`ci.yml:177`) on Python 3.12 and node 20: one step,
+- `apps-e2e` (`ci.yml:175`) on Python 3.12 and node 20: one step,
   `TEZGAH_E2E_STRICT=1 python3 tests/e2e_analyze_wiring.py`. It completes the
   app-MCP handshake only - no browser, no device - so it stays deterministic;
   strict mode makes a server that cannot start a failure rather than a skip, so
@@ -116,7 +116,8 @@ fallbacks and the refusal row have rows too. The shortcut half is still
 hand-written (`MUTANTS`), so a new guard there needs a row.
 Each mutant first runs alone the test that killed it last time, read from
 `tests/neuter_killers.json`. When that test passes or is gone, the mutant runs
-the modules as before and the first failing test becomes its new entry. The
+every module in its own HOME and TMPDIR. The module that reads the mutated file
+goes first. The first failing test becomes its new entry. The
 control runs every module, then every cached killer alone, so a killer that
 fails without a mutant voids the run. A session that adds a deny rule checks its
 one mutant with `python3 tests/neuter_matrix.py --only <name>`.
