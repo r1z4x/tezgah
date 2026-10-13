@@ -3314,6 +3314,15 @@ class PlanGate(TempHome):
     def path(self, *parts):
         return os.path.join(self.repo, *parts)
 
+    def open_plan(self, ident, branch=""):
+        """An open plan record under the repo's workspace, declaring `branch`:
+        a `plan/NNN-*` branch binds only an open plan NNN."""
+        record = self.path(".tezgah", "plans", "open", "%s-x.md" % ident)
+        os.makedirs(os.path.dirname(record), exist_ok=True)
+        with open(record, "w") as fh:
+            fh.write("---\nid: %s\ntitle: x\nstatus: open\nbranch: %s\n---\n" % (ident, branch))
+        return record
+
     # ---- the trigger -------------------------------------------------------
     def test_the_third_product_write_on_main_is_refused(self):
         self.seed_write(self.path("hooks", "one.py"))
@@ -3331,11 +3340,43 @@ class PlanGate(TempHome):
         self.assertIsNone(self.write(self.path("tests", "test_one.py")))
 
     def test_the_same_third_write_on_a_plan_branch_passes(self):
+        self.open_plan("017")
         self.seed_write(self.path("hooks", "one.py"))
         self.seed_write(self.path("tests", "test_one.py"))
         subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
                         "plan/017-plan-required-on-main"], check=True)
         self.assertIsNone(self.write(self.path("docs", "one.md")))
+
+    def test_a_plan_branch_naming_no_open_plan_is_refused(self):
+        # review of plan 105, F3: `git switch -c plan/1-x` must not be the escape
+        subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
+                        "plan/999-nope"], check=True)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIn("`plan/999-nope`", self.write(self.path("docs", "one.md")) or "")
+
+    def test_any_project_layout_counts(self):
+        # review of plan 105, F1: ServisTek's unplanned merges wrote apps/,
+        # packages/ and .maestro/ - none of them tezgah's own directories
+        self.seed_write(self.path("apps", "mobile", "x.tsx"))
+        self.seed_write(self.path("packages", "ui", "button.ts"))
+        self.assertIsNotNone(self.write(self.path(".maestro", "flow.yaml")))
+
+    def test_a_merge_or_rebase_in_progress_passes(self):
+        # review of plan 105, F6: resolving conflicts is not new work
+        subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
+                        "feature-x"], check=True)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        for mark in ("MERGE_HEAD", "rebase-merge", "rebase-apply"):
+            target = self.path(".git", mark)
+            if mark == "MERGE_HEAD":
+                self.touch(target)
+            else:
+                os.makedirs(target)
+            self.assertIsNone(self.write(self.path("docs", "one.md")), mark)
+            (os.remove if mark == "MERGE_HEAD" else os.rmdir)(target)
+        self.assertIsNotNone(self.write(self.path("docs", "one.md")))
 
     def test_the_third_product_write_on_a_feature_branch_is_refused(self):
         # plan 105: an Orca worktree on `r1z4x/<name>` built five branches of
@@ -3348,13 +3389,12 @@ class PlanGate(TempHome):
         self.assertIn("`feature-x`", reason or "")
         self.assertIn("plan-add", reason)
         self.assertIn("branch:", reason)
+        # the bind route is a command, not a hand edit of a phased record
+        self.assertIn("--branch feature-x", reason)
 
     def test_a_branch_an_open_plan_declares_is_its_plans_not_this_rules(self):
         wt = self.checkout("wt", "r1z4x/foo")
-        record = self.path(".tezgah", "plans", "open", "007-foo.md")
-        os.makedirs(os.path.dirname(record))
-        with open(record, "w") as fh:
-            fh.write("---\nid: 007\ntitle: foo\nstatus: open\nbranch: r1z4x/foo\n---\n")
+        record = self.open_plan("007", "r1z4x/foo")
         self.seed_write(os.path.join(wt, "hooks", "one.py"))
         self.seed_write(os.path.join(wt, "tests", "test_one.py"))
         self.assertIsNone(self.write(os.path.join(wt, "docs", "one.md")))
@@ -3370,9 +3410,13 @@ class PlanGate(TempHome):
         self.assertIsNone(self.write(self.path("hooks", "one.py")))
 
     def test_a_write_outside_the_product_paths_is_not_the_third(self):
-        for name in ("hooks/one.py", "tests/test_one.py", "docs/one.md"):
+        # tezgah's own index and generated agent sets are not project work
+        for name in (".codegraph/codegraph.db", ".claude/agents/a.md",
+                     ".codex/agents/b.toml", ".cursor/agents/c.md"):
             self.seed_write(self.path(*name.split("/")))
-        self.assertIsNone(self.write(self.path("src", "app.py")))
+        self.seed_write(self.path("src", "app.py"))
+        self.assertIsNone(self.write(self.path(".opencode", "agents", "d.md")))
+        self.assertIsNone(self.write(self.path("src", "lib.py")))
 
     def test_a_read_is_not_a_write(self):
         self.seed_write(self.path("hooks", "one.py"))
@@ -3427,6 +3471,7 @@ class PlanGate(TempHome):
     def test_a_cwd_on_main_writing_into_a_plan_worktree_passes(self):
         # the branch is read off the checkout that holds the file, not the
         # session's cwd: a worktree on a plan branch is free though cwd is main
+        self.open_plan("037")
         wt = self.checkout("wt", "plan/037-research-backlog")
         self.seed_write(os.path.join(wt, "hooks", "one.py"))
         self.seed_write(os.path.join(wt, "tests", "test_one.py"))

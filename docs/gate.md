@@ -244,16 +244,18 @@ Standing, no escape hatch, and outside `verify-off`.
 
 Trigger: a write tool, or a shell redirect/`tee` (`hooks/tezgah_gate.py::write_paths`), whose target is a product path, while the checkout holding that target is on a branch that binds no open plan
 and this turn has already written two other product files into the same checkout (`hooks/tezgah_gate.py::plan_reason`, `hooks/tezgah_gate.py::_branch`, `hooks/tezgah_gate.py::_checkout`,
-`hooks/tezgah_gate.py::_product`). The branch comes from that checkout, not from the session's cwd. A branch binds a plan when it is `plan/NNN-slug`, or when an open plan declares it in its
-`branch:` frontmatter (`hooks/tezgah_gate.py::_unplanned`, `hooks/tezgah_task.py::plan_of_branch`, `hooks/tezgah_task.py::declared_branches`). Orca's `r1z4x/<slug>` branches bind that way. The task
-rule holds such a checkout, by its plan's phase and allowlist. `main` and `master` never bind a plan, whatever a plan declares. The
-count folds the turn's own write rows (`hooks/tezgah_integrity.py::turn_rows`) together with the files the call in hand names, so it needs no state of its own, and it counts DISTINCT
-paths - a turn that rewrites one file three times is still one file's work. The product paths are the ones at the repository root that a plan exists to scope - `hooks/`, `tests/`, `bin/`,
-`skills/`, `docs/`, `statusline.py` and `MANIFEST` (`PLAN_DIRS`/`PLAN_FILES` `hooks/tezgah_gate.py::PLAN_DIRS`, `hooks/tezgah_gate.py::PLAN_FILES`); a `.tezgah/` path is never one of them, and neither is a path outside any git
-repository. Told: the branch it read, how many files the turn has written, and the command that opens a plan - the `plan-add` skill, `/tezgah:plan-add <description>` (`PLAN_DENY`
-`hooks/tezgah_gate.py::PLAN_DENY`). It also names the other way out: put this branch in the open plan's `branch:`. Standing: only changing the tree's state changes it - the work moves to the
-`plan/NNN-slug` branch the skill creates (a one- or two-file fix is free either way), or the repository carries a `.no-plan-gate` mark (the shape of `.no-graph` and `.no-lessons`). A branch an
-open plan declares serves as well. It passes wherever the question cannot be answered: no session or ledger, a directory that is not a git repository, and a detached HEAD with no branch to name.
+`hooks/tezgah_gate.py::_product`). The branch comes from that checkout, not from the session's cwd. A branch binds a plan when it is `plan/NNN-slug` for an open plan NNN, or when an open plan
+declares it in its `branch:` frontmatter (`hooks/tezgah_gate.py::_unplanned`, `hooks/tezgah_task.py::plan_of_branch`, `hooks/tezgah_task.py::declared_branches`). So `plan/999-nope` binds
+nothing, and Orca's `r1z4x/<slug>` branches bind by declaration. The task rule holds a bound checkout, by its plan's phase and allowlist. `main` and `master` never bind a plan, whatever a plan
+declares. The count folds the turn's own write rows (`hooks/tezgah_integrity.py::turn_rows`) together with the files the call in hand names, so it needs no state of its own, and it counts DISTINCT
+paths - a turn that rewrites one file three times is still one file's work. A product path is any path in the checkout, whatever the project's layout (`apps/`, `packages/`, `.maestro/` count as
+`hooks/` does). Tezgah's and git's own state does not count: `.tezgah/`, `.codegraph/` and `.git/` (`hooks/tezgah_gate.py::PLAN_SKIP`). Neither does a host's generated `agents/` set
+(`hooks/tezgah_gate.py::PLAN_AGENT_HOSTS`). A path outside any git repository never counts. Told: the branch it read, how many files the turn has written, and
+the command that opens a plan - the `plan-add` skill, `/tezgah:plan-add <description>` (`hooks/tezgah_gate.py::PLAN_DENY`). It also names the bind route: `tezgah-task start NNN --phase P --branch
+<branch>` writes the plan's `branch:` (`bin/tezgah-task::cmd_start`). The record rule refuses a hand edit of a phased record. Standing: only changing the tree's state changes it - the
+work moves to the `plan/NNN-slug` branch the skill creates or to a bound branch (a one- or two-file fix is free either way), or the repository carries a `.no-plan-gate` mark (the shape of
+`.no-graph` and `.no-lessons`). It passes while a merge or rebase is in progress (`MERGE_HEAD`, `rebase-merge/` or `rebase-apply/` in the checkout's gitdir, `hooks/tezgah_gate.py::_merging`):
+resolving conflicts is not new work. It passes wherever the question cannot be answered: no session or ledger, a directory that is not a git repository, and a detached HEAD with no branch to name.
 
 ### Ordering — a commit while the newest check failed
 

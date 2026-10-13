@@ -2436,7 +2436,9 @@ def ready_advice(tool, session_id, cwd=None):
 # checkout that is not a git repository, a detached HEAD (no branch to name), a
 # missing task module (no binding to read), and a repo carrying the
 # `.no-plan-gate` mark all pass - the direction every rule here takes, because a
-# refusal has to rest on something a reader can check.
+# refusal has to rest on something a reader can check. A merge or rebase in
+# progress passes too: resolving its conflicts is not new work that spans files,
+# and neither way out the refusal names fits it.
 #
 # ponytail: a PRIOR write recorded through the shell is a `run` row whose detail
 # is the command, so it is not counted; only the call in hand contributes a shell
@@ -2445,22 +2447,27 @@ def ready_advice(tool, session_id, cwd=None):
 # would be a second reader of the same table, not a new fact.
 PLAN_TRUNKS = ("main", "master")
 # The product paths the count reads, relative to the checkout holding the write:
-# the code and docs a plan exists to scope. `.tezgah/` - and every other
-# directory - is not one of them, and neither is a path outside any git checkout
-# or a checkout outside every configured root (a scratch fixture repo).
-PLAN_DIRS = ("hooks", "tests", "bin", "skills", "docs")
-PLAN_FILES = ("statusline.py", "MANIFEST")
+# every path of the project, whatever its layout (ServisTek's unplanned merges
+# wrote `apps/`, `packages/` and `.maestro/`, review of plan 105), except what
+# tezgah or git keeps there - the workspace, the graph index, git's own
+# directory and the generated agent sets. Neither is a path outside any git
+# checkout or a checkout outside every configured root (a scratch fixture repo).
+PLAN_SKIP = (".tezgah", ".codegraph", ".git")
+PLAN_AGENT_HOSTS = (".claude", ".codex", ".cursor", ".opencode")   # their agents/
 # The third file: two writes in a turn are a fix, three are work that spans files.
 PLAN_WRITES = 3
+# git's marks of an operation in progress, in the checkout's own gitdir
+PLAN_MERGING = ("MERGE_HEAD", "rebase-merge", "rebase-apply")
 PLAN_DENY = (
-    "This turn has written %d distinct product files while the checkout is on "
-    "`%s`, a branch that binds no open plan. Work that spans files there has no "
-    "plan to review or close, so the third product file in one turn is refused: "
-    "open a plan with the `plan-add` skill (`/tezgah:plan-add <description>`) and "
-    "do the work on the `plan/NNN-slug` branch it creates, or put this branch in "
-    "the open plan's `branch:` frontmatter. A one- or two-file fix stays free. "
-    "Only `hooks/`, `tests/`, `bin/`, `skills/`, `docs/`, `statusline.py` and "
-    "`MANIFEST` are counted; a `.tezgah/` path never is.")
+    "This turn has written %(count)d distinct product files while the checkout is "
+    "on `%(branch)s`, a branch that binds no open plan. Work that spans files there "
+    "has no plan to review or close, so the third product file in one turn is "
+    "refused: open a plan with the `plan-add` skill (`/tezgah:plan-add "
+    "<description>`) and do the work on the `plan/NNN-slug` branch it creates, or "
+    "bind this branch to the open plan with `tezgah-task start NNN --phase P "
+    "--branch %(branch)s` (it writes the plan's `branch:`). A one- or two-file fix "
+    "stays free. Every path in the checkout counts except `.tezgah/`, "
+    "`.codegraph/`, `.git/` and the generated `<host>/agents/` sets.")
 
 
 def _gitdir(root):
@@ -2589,9 +2596,19 @@ def _checkout(path, cwd):
 
 
 def _product(rel):
-    """True when a checkout-relative path is one a plan exists to scope."""
+    """True when a checkout-relative path is project work a plan exists to
+    scope: anything but `PLAN_SKIP` and a host's generated `agents/` set."""
     parts = rel.split(os.sep)
-    return parts[0] in PLAN_DIRS or len(parts) == 1 and parts[0] in PLAN_FILES
+    return parts[0] not in PLAN_SKIP and not (
+        parts[0] in PLAN_AGENT_HOSTS and len(parts) > 2 and parts[1] == "agents")
+
+
+def _merging(top):
+    """True while a merge or rebase is in progress in the checkout at `top`:
+    git's mark of it stands in the checkout's own gitdir."""
+    gitdir = _gitdir(top)
+    return bool(gitdir) and any(os.path.exists(os.path.join(gitdir, mark))
+                                for mark in PLAN_MERGING)
 
 
 def _unplanned(branch, top):
@@ -2624,7 +2641,7 @@ def plan_reason(inp, cwd, session_id):
     for top, written in targets.items():
         branch = _branch(top)
         if os.path.exists(os.path.join(top, ".no-plan-gate")) \
-                or not _unplanned(branch, top):
+                or not _unplanned(branch, top) or _merging(top):
             continue
         if rows is None:
             # a row's `target` is already absolute against the cwd it was
@@ -2634,7 +2651,7 @@ def plan_reason(inp, cwd, session_id):
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:
-            return PLAN_DENY % (len(written), branch)
+            return PLAN_DENY % {"count": len(written), "branch": branch}
     return None
 
 
@@ -3597,8 +3614,8 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     body = inp if t in WRITE_TOOLS else shell_body
     if body and secret_edit(body, cwd):
         return _deny(session_id, "secret", SECRET_EDIT_DENY, tool, inp, base)
-    # Plan required: the turn's third product file while the checkout is on
-    # main/master (see plan_reason). Below the task, workspace and secret rules,
+    # Plan required: the turn's third product file while the checkout is on a
+    # branch no open plan binds (see plan_reason). Below the task, workspace and secret rules,
     # because each names a more specific fault in the same write, and above the
     # repeat guards, because it is the call that is refused and not a repeat of
     # one. Standing: only changing the tree's state changes it.

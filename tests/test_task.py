@@ -384,8 +384,11 @@ class Record(unittest.TestCase):
         self.assertEqual(tt.plan_holders(self.repo), {"007": wt})
         # the main checkout reads the first phased plan no worktree holds
         self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
-        # plan/NNN binds as before; an undeclared branch binds nothing
-        self.assertEqual(tt.plan_of_branch("plan/012-x", self.repo), "012")
+        # plan/NNN binds an open plan NNN only (review of plan 105, F3); the
+        # bare parse, with no checkout to read, still names any NNN
+        self.assertEqual(tt.plan_of_branch("plan/001-x", self.repo), "001")
+        self.assertIsNone(tt.plan_of_branch("plan/999-nope", self.repo))
+        self.assertEqual(tt.plan_of_branch("plan/999-nope"), "999")
         self.assertIsNone(tt.plan_of_branch("feature-x", self.repo))
         other = self.linked_worktree(self.repo, "repo-x", branch="feature-x")
         self.assertEqual(tt.active(other, self.base)["id"], "001")
@@ -968,6 +971,20 @@ class Cli(TempHome):
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("plan 002", proc.stdout)
         self.assertEqual(read(first), before)
+
+    def test_start_binds_the_branch_it_is_given(self):
+        # review of plan 105, F4: the refusal's bind route is a command, since
+        # the gate refuses a hand edit of a phased record
+        second = self.plan("002-second.md", allowed=["docs/**"])
+        wt = os.path.realpath(self.slice("r1z4x/bar", commit=False, merge=False))
+        self.assertEqual(self.task("start", "002", "--phase", "implementation",
+                                   "--branch").returncode, 2)
+        proc = self.task("start", "002", "--phase", "implementation",
+                         "--branch", "r1z4x/bar")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(tt.frontmatter(read(second))["branch"], "r1z4x/bar")
+        self.assertEqual(tt.active(wt, self.roots)["id"], "002")
+        self.assertEqual(tt.plan_holders(self.repo)["002"], wt)
 
     def test_start_of_a_plan_with_no_worktree_clears_a_held_plan(self):
         # the started plan runs in the main checkout, so the main checkout's

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tezgah-task - the active task: one plan's phase and its path allowlist.
 
-  tezgah-task start <NNN|path> --phase P [--allow GLOB ... | --any-path]   activate a plan
+  tezgah-task start <NNN|path> --phase P [--allow GLOB ... | --any-path] [--branch B]   activate a plan; --branch binds the worktree on B to it
   tezgah-task phase P [--any-path]                            change the active task's phase
   tezgah-task allow GLOB ... | --any-path --why REASON         replace the allowlist, recording why
   tezgah-task stop                                            deactivate (clear phase)
@@ -534,6 +534,7 @@ def cmd_start(args):
     root = main_root(repo_root(os.getcwd()))
     path, problem = open_plan(args[0])
     phase = None
+    branch = None
     allow = []
     any_path = False
     rest = args[1:]
@@ -543,6 +544,12 @@ def cmd_start(args):
             if i + 1 >= len(rest):
                 return misuse("--phase needs one of %s" % ", ".join(tt.TASK_PHASES))
             phase = rest[i + 1]
+            i += 2
+            continue
+        if rest[i] == "--branch":
+            if i + 1 >= len(rest) or rest[i + 1].startswith("--"):
+                return misuse("--branch needs the branch name to bind the plan to")
+            branch = rest[i + 1]
             i += 2
             continue
         if rest[i] == ANY_PATH:
@@ -569,6 +576,8 @@ def cmd_start(args):
         return problems([problem])
     text = read(path)
     fields = {"phase": phase, "updated": today()}
+    if branch:
+        fields["branch"] = branch   # binds the worktree on it (plan 105)
     if allow or any_path:
         fields.update(allowed_paths=allow, allowed_from="--allow" if allow else ANY_PATH)
         if tt.frontmatter(text).get("allowed_why"):
@@ -583,8 +592,10 @@ def cmd_start(args):
         return problems(bad)
     holders = tt.plan_holders(root)
     # the plan's own worktree, when one holds it: the gate reads the checkpoint
-    # against that checkout's HEAD and tree, so it is recorded from there
-    here = holders.get(tt._plan_id(tt.frontmatter(text), os.path.basename(path)))
+    # against that checkout's HEAD and tree, so it is recorded from there - the
+    # one on the branch this start binds, before the record names it
+    here = (holders.get(tt._plan_id(tt.frontmatter(text), os.path.basename(path)))
+            or branch and tt._worktree_branches(root).get(branch))
     fields.update(checkpoint_fields(here or work_tree(root), phase))
     for other in plans(root):
         if other == path:

@@ -589,13 +589,23 @@ def declared_branches(main):
 
 
 def plan_of_branch(branch, main=None):
-    """The plan id `branch` binds: NNN for a `plan/NNN-slug` branch, else - given
-    the main checkout `main` - the open plan declaring it (`declared_branches`);
-    None for neither."""
+    """The plan id `branch` binds. Without `main` it is the bare parse: NNN for
+    a `plan/NNN-slug` branch, else None. Given the main checkout `main`, it is
+    an open plan's id only: NNN when plan NNN is open there, else the open plan
+    declaring `branch` (`declared_branches`), else None - so `plan/999-nope`
+    binds nothing (review of plan 105, F3). One pass over the open plans."""
     found = _PLAN_BRANCH.match(branch or "")
-    if found:
-        return found.group(1)
-    return declared_branches(main).get(branch) if branch and main else None
+    if not main:
+        return found.group(1) if found else None
+    declared = None
+    for name, _, text in _plan_files(main, "open") if branch else ():
+        fields = frontmatter(text)
+        ident = _plan_id(fields, name)
+        if found and ident == found.group(1):
+            return ident
+        if fields.get("branch") == branch and (declared is None or ident < declared):
+            declared = ident    # the lowest id, as `declared_branches` picks
+    return declared
 
 
 def _binds(ident, branch, declared):
@@ -653,8 +663,6 @@ def branch_task(top):
     ident = plan_of_branch(worktree_branch(top), main)
     if ident is None:
         return None
-    from tezgah_paths import linked_main
-    main = linked_main(top)
     for record in _phased(main, ident) if main else ():
         record["worktree"] = top
         return record
