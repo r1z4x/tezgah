@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The temporal spec decides the Stop rule's evidence classes.** Its shadow run agreed on all 420 live Stops it reached. `_stop_block` now asks `tezgah_stopspec`, and the refusal texts stay the same. The `stop_spec` shadow row and `TEZGAH_STOPSPEC_STRICT` are gone. `tests/stop_spec_eval.py` keeps only `--mutants`, and the neuter workflow also runs on a change to the spec.
+- **A claim needs a check someone saw pass.** A done or tested claim over a `verify_ok` row with no passing output now owes `no verify_ok`. An earlier pass and a turn of git bookkeeping no longer excuse it.
+
 ### Fixed
 
 - **A bare repository's worktrees share one workspace.** It lives in the bare git directory, `<bare>/.tezgah`, and each worktree's `.tezgah` links to it. No `git worktree remove`, detach or branch switch removes it, and a plan worktree there is held to its plan. Commands read project files in the worktree they run in. That covers the checkpoint, research files and claims, the arena evaluator, the merge checks and `tezgah-taste mine`. A bare repository with one worktree prints no worktrees line.
