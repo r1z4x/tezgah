@@ -3,8 +3,8 @@
 
 Each mutant reverts one guard in a fresh clone of HEAD and runs the test modules
 that cover the gate; a mutant whose run still passes is a guard no test notices.
-An unmutated control clone runs first the same way and must pass, or no mutant
-result can be read. The idea is google/mantis's `reference/scripts/neuter_matrix.py`,
+Unmutated control clones run every module beside the mutants and must pass, or
+no mutant result can be read. The idea is google/mantis's `reference/scripts/neuter_matrix.py`,
 scoped to tezgah's mechanical integrity half (an internal adoption study,
 decision d1, experiment E1).
 
@@ -16,7 +16,7 @@ tests/neuter_killers.json; that test failing is the kill. When it passes or is
 gone the mutant runs the modules (the one reading the mutated file first,
 fail-fast) and its first failing test is the new entry; a survivor runs them
 all. The cache only moves time: the control runs every cached killer alone too,
-and one failing on the unmutated tree voids the run and leaves the cache.
+and one failing on the unmutated tree voids the run and is dropped from the cache.
 
 It reads HEAD, not the working tree: commit first. A mutant on the opencode
 plugin needs `node`; without it that mutant prints `SKIP` (the plugin tests skip
@@ -633,28 +633,23 @@ def run(name, edit, known, work):
     return (name,) + verdict(FIRST.get(edit[0]), known, tree, env)
 
 
-def control(work, killers, runner=subprocess_runner):
-    """(exit status, last line, lonely) for the unmutated clone: every module,
-    then every cached killer alone. A killer that fails alone on the unmutated
-    tree (it leans on an earlier test) proves nothing on a mutant: it is in
-    `lonely`, and the run is void."""
-    tree, env, _error = prepare("control", None, work)
-    last = ""
-    for module in MODULES:
-        proc = runner(unittest_argv(module), tree, env)
-        lines = [x for x in proc.stderr.splitlines() if x.strip()]
-        last = "%s: %s" % (module, lines[-1] if lines else "")
-        if proc.returncode:
-            # a red control is read on a runner nobody can open: say why
-            last += "\n" + "\n".join(x for x in lines if x.startswith(("FAIL:", "ERROR:"))
-                                     or "Error" in x)[-4000:]
-            return proc.returncode, last, []
-    lonely = []
-    for test in sorted(set(killers.values())):
-        # the very command a mutant's cached run is, on the unmutated tree
-        proc = runner(unittest_argv(test.split(".")[0] + ".py", test), tree, env)
-        lonely += [t for t in failed_ids(proc.stderr) if t == test]
-    return (1 if lonely else 0), last, lonely
+def control(name, module, test, work, runner=subprocess_runner):
+    """None when the unmutated clone `name` passes `module` - or, given `test`,
+    passes that cached killer alone - else why not. A killer that fails alone
+    on the unmutated tree leans on an earlier test and proves nothing on a
+    mutant. Each module and each killer is its own clone and pool task: run in
+    one clone in order, the control was the matrix's critical path."""
+    tree, env, _error = prepare(name, None, work)
+    # with `test`, the very command a mutant's cached run is
+    proc = runner(unittest_argv(module, *((test,) if test else ())), tree, env)
+    if test:
+        return "%s fails alone" % test if test in failed_ids(proc.stderr) else None
+    if not proc.returncode:
+        return None
+    # a red control is read on a runner nobody can open: say why
+    lines = [x for x in proc.stderr.splitlines() if x.strip()]
+    return "%s: %s\n%s" % (module, lines[-1] if lines else "", "\n".join(
+        x for x in lines if x.startswith(("FAIL:", "ERROR:")) or "Error" in x)[-4000:])
 
 
 def updated(killers, results, names):
@@ -706,23 +701,26 @@ def main(argv=None):
     try:
         # the control runs beside the mutants rather than before them: its
         # verdict is read first, and a red control discards every result.
-        # Half the cores, not all: each worker forks test subprocesses of its
-        # own, and cpu_count workers measured slower (tests/neuter_matrix.py
-        # docstring)
+        # Its checks go in first, so they end early instead of in the tail.
         workers = max(1, (os.cpu_count() or 2) // 2)
+        alone = sorted({killers[m[0]] for m in rows if m[0] in killers})
+        checks = [(m, None) for m in MODULES] + [(t.split(".")[0] + ".py", t) for t in alone]
         with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-            control_run = pool.submit(control, work, killers)
+            controls = [pool.submit(control, "control-%d" % i, module, test, work)
+                        for i, (module, test) in enumerate(checks)]
             results = list(pool.map(lambda m: run(m[0], m[1:3], killers.get(m[0]), work),
                                     rows))
-            status, last, lonely = control_run.result()
-        if status:
+            red = [(test, why) for (_m, test), f in zip(checks, controls)
+                   for why in [f.result()] if why]
+        if red:
+            lonely = {test for test, _why in red if test}
             if lonely:
                 # dropped from the cache, so the next run reads those mutants
                 # through their modules
                 write_killers(killers, {k: v for k, v in killers.items() if v not in lonely})
-                last = "cached killer(s) fail alone on the unmutated tree, dropped " \
-                       "from tests/neuter_killers.json - rerun: %s" % ", ".join(lonely)
-            print("FAIL: the unmutated control is red, so no mutant can be read (%s)" % last)
+            print("FAIL: the unmutated control is red, so no mutant can be read (%s)%s" % (
+                "; ".join(why for _test, why in red),
+                " - dropped from tests/neuter_killers.json, rerun" if lonely else ""))
             return 1
     finally:
         shutil.rmtree(work, ignore_errors=True)
