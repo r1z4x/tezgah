@@ -215,7 +215,7 @@ moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py::SNAPSHOT`;
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py::check`); that is the moment to re-read
-the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|auto|off` pins
+the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|openai|auto|off` pins
 omp's family instead of following the session default; `off` removes every entry
 and role the table wrote and writes nothing, which is the way back when the
 provider those selectors need has no budget - a measured case, not a
@@ -225,6 +225,10 @@ the table over a selector set by hand and names each one it replaced
 session start leaves a hand-set selector alone. `tezgah-setup --install`
 writes omp's overrides and `--uninstall` removes only the `tezgah-*` entries; the
 omp status report carries a row for them.
+`openai` runs every routed agent on omp's `openai-codex` provider, a ChatGPT
+login (`OMP_OPENAI`, `hooks/tezgah_models.py::OMP_OPENAI`). Its ids are not the
+Codex host's `openai` column, which omp does not list. The mode is never a
+fallback for the others, and with no `openai-codex` login it writes nothing.
 
 ## Source of truth
 

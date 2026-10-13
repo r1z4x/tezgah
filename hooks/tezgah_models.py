@@ -55,7 +55,7 @@ READ_ON = "2026-09-30"
 STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
-MODES = ("auto", "anthropic", "zai", "any", "off")
+MODES = ("auto", "anthropic", "zai", "any", "openai", "off")
 # The two status markers `bin/tezgah-setup` classifies an `apply_omp()` line by:
 # a skip is not a write and not a failure - the user's omp is left untouched, and
 # nothing is left to repair, which is why the status report excuses it rather
@@ -105,6 +105,13 @@ SLOTS = {
                  "zai": ("zai/glm-5.3", None),
                  "any": ("anthropic/claude-opus-5.5", "high")},
 }
+# omp's own OpenAI column (plan 107): omp reaches OpenAI through its
+# `openai-codex` provider (a ChatGPT login), which on 2026-10-13 listed
+# gpt-5.6-luna, gpt-5.6-terra and gpt-6-luna and none of SLOTS' `openai` ids,
+# which stay the Codex host's. One model, effort as the lever, as the
+# Anthropic column does it.
+OMP_OPENAI = {"cheap": ("gpt-6-luna", "low"), "explore": ("gpt-6-luna", "medium"),
+              "standard": ("gpt-6-luna", "medium"), "frontier": ("gpt-6-luna", "high")}
 AGENT_SLOT = {"tezgah-cheap": "cheap", "tezgah-standard": "standard",
               "tezgah-frontier": "frontier", "tezgah-reviewer": "frontier",
               "tezgah-tester": "cheap", "tezgah-docs": "standard",
@@ -209,7 +216,12 @@ OMP_FAMILIES = ("anthropic", "zai", "any")
 # (omp://providers.md:39, omp://environment-variables.md:39-40,71,73).
 OMP_AUTH = {"anthropic": ("anthropic", ("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY")),
             "zai": ("zai", ("ZAI_API_KEY",)),
-            "any": ("openrouter", ("OPENROUTER_API_KEY",))}
+            "any": ("openrouter", ("OPENROUTER_API_KEY",)),
+            "openai": ("openai-codex", ("OPENAI_CODEX_OAUTH_TOKEN",))}
+# Every family `--mode` can pin. `openai` is no fallback for the others: it is
+# its own subscription with its own limit, and the owner's fallback ask
+# (2026-10-11) named zai, so it is reached only when named.
+MODE_FAMILIES = OMP_FAMILIES + ("openai",)
 
 
 def _omp_stored_providers():
@@ -561,17 +573,17 @@ def start_health():
 
 
 def omp_mode(default_selector=None):
-    """`anthropic`, `zai` or `any`: the saved mode, else the default's own family.
+    """`anthropic`, `zai`, `openai` or `any`: the saved mode, else the
+    default's own family.
 
-    A non-Anthropic default reads as `any`, never as a silent fall back to the
-    Anthropic column - the caller decides what to do when the OpenRouter
-    credential the `any` selectors need is missing (`apply_omp` writes nothing
-    and says so)."""
+    A default of no listed family reads as `any`, never as a silent fall back
+    to the Anthropic column - the caller decides what to do when the credential
+    the selectors need is missing (`apply_omp` writes nothing and says so)."""
     mode = overlay().get("mode")
-    if mode in ("anthropic", "zai", "any", "off"):
+    if mode in ("anthropic", "zai", "any", "openai", "off"):
         return mode
-    for family in ("anthropic", "zai"):
-        if str(default_selector or "").startswith(family + "/"):
+    for family in ("anthropic", "zai", "openai"):
+        if str(default_selector or "").startswith(FAMILY_PREFIX[family] or family + "/"):
             return family
     return "any"
 
@@ -585,15 +597,22 @@ OMP_ROLES = ("plan", "slow")
 
 # The prefix each family's stored id needs to become an omp selector. `zai` needs
 # none: its id already is `<provider>/<model>`, the shape omp's own config uses.
-FAMILY_PREFIX = {"anthropic": "anthropic/", "zai": "", "any": "openrouter/"}
+FAMILY_PREFIX = {"anthropic": "anthropic/", "zai": "", "any": "openrouter/",
+                 "openai": "openai-codex/"}
+
+
+def _row(family, slot):
+    """(model, effort) of one slot on one family: omp's own OpenAI column for
+    `openai`, else the table's."""
+    return OMP_OPENAI[slot] if family == "openai" else SLOTS[slot][family]
 
 
 def _selector(family, slot):
     """`<provider>/<model>[:<effort>]` for one slot on one family, the shape omp
     takes for a model override and for a role alike (omp://models.md:492-505):
     the Anthropic column names the host's own id, `zai` a z.ai id, `any` an
-    OpenRouter one."""
-    model, effort = SLOTS[slot][family]
+    OpenRouter one, `openai` an `openai-codex` one."""
+    model, effort = _row(family, slot)
     return FAMILY_PREFIX[family] + model + (":" + effort if effort else "")
 
 
@@ -635,7 +654,7 @@ def _chain(mode, slot, funded, agent=""):
     if policy == "none":
         return [_selector(mode, slot)]
     if policy == "vendor":
-        model, effort = SLOTS[slot][mode]
+        model, effort = _row(mode, slot)
         out = [_selector(mode, slot)]
         for family in families[1:]:
             if _vendor(SLOTS[slot][family][0]) == _vendor(model):
@@ -652,8 +671,15 @@ def _chain(mode, slot, funded, agent=""):
     return [_selector(family, slot) for family in families]
 
 
+def codex_ready():
+    """True when omp holds an `openai-codex` login or its env token."""
+    return ("openai-codex" in _omp_stored_providers()
+            or bool(os.environ.get("OPENAI_CODEX_OAUTH_TOKEN", "").strip()))
+
+
 def _runnable(mode):
-    return mode in OMP_FAMILIES and not (mode == "any" and not openrouter_ready())
+    return mode in MODE_FAMILIES and not (mode == "any" and not openrouter_ready()) \
+        and not (mode == "openai" and not codex_ready())
 
 
 def omp_overrides(mode):
@@ -766,10 +792,10 @@ def _ours_by_shape(key, value):
     # writes chains: pre-chain installs hold single-family selectors, and the
     # bytes are ours whichever shape we wrote.
     slot = AGENT_SLOT.get(key) or BUNDLED.get(key)
-    if slot and any(_selector(family, slot) == value for family in OMP_FAMILIES):
+    if slot and any(_selector(family, slot) == value for family in MODE_FAMILIES):
         return True
     if key.split(".", 1)[-1] in OMP_ROLES and any(
-            _selector(family, "frontier") == value for family in OMP_FAMILIES):
+            _selector(family, "frontier") == value for family in MODE_FAMILIES):
         return True
     return any((omp_overrides(mode) or {}).get(key) == value or
                (omp_role_overrides(mode) or {}).get(key) == value
@@ -850,6 +876,9 @@ def apply_omp(remove=False, take=False):
         elif mode == "any" and not openrouter_ready():
             return ("omp model overrides %s the any mode needs an OpenRouter key "
                     "(or `tezgah-route --mode anthropic`)" % SKIP_MARK)
+        elif mode == "openai" and not codex_ready():
+            return ("omp model overrides %s the openai mode needs omp's "
+                    "`openai-codex` login (`/login openai-codex` in omp)" % SKIP_MARK)
         else:
             want = omp_overrides(mode)
             want_roles = omp_role_overrides(mode)

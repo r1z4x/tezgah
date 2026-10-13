@@ -5,7 +5,8 @@
   tezgah-route --check                          the table's age and refresh flags
   tezgah-route --refresh                        re-read prices/ids (OpenRouter),
                                                 resolve opencode selectors
-  tezgah-route --mode auto|anthropic|any        omp's family, then re-apply omp
+  tezgah-route --mode auto|anthropic|zai|any|openai|off
+                                                omp's family, then re-apply omp
   tezgah-route --health                         probe the other funded families;
                                                 one at a limit leaves the chain
                                                 until its reset; re-apply omp

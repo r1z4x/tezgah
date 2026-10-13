@@ -429,6 +429,41 @@ class OmpOverrides(unittest.TestCase):
             self.assertEqual(tm.omp_mode("anthropic/claude-opus-5-5:high"), "anthropic")
             self.assertEqual(tm.omp_mode("deepseek/deepseek-flash:high"), "any")
 
+    def test_the_openai_mode_names_omps_codex_provider(self):
+        # plan 107: omp reaches OpenAI through its `openai-codex` provider, whose
+        # ids are not the Codex host's column (`gpt-6.1-sol` never resolves there)
+        with mock.patch.object(tm.tp, "fallback_policy", return_value="none"), \
+                mock.patch.object(tm, "codex_ready", return_value=True):
+            out = self.overrides("openai", funded=("anthropic",))
+            roles = tm.omp_role_overrides("openai")
+        self.assertEqual(out["tezgah-cheap"], "openai-codex/gpt-6-luna:low")
+        self.assertEqual(out["scout"], "openai-codex/gpt-6-luna:medium")
+        self.assertEqual(out["tezgah-frontier"], "openai-codex/gpt-6-luna:high")
+        self.assertEqual(roles,
+                         {"modelRoles.plan": "openai-codex/gpt-6-luna:high",
+                          "modelRoles.slow": "openai-codex/gpt-6-luna:high"})
+        # the Codex host keeps its own column
+        self.assertEqual(tm.SLOTS["frontier"]["openai"][0], "gpt-6-astra")
+        with mock.patch.object(tm, "overlay", return_value={}):
+            self.assertEqual(tm.omp_mode("openai-codex/gpt-6-luna:high"), "openai")
+        with mock.patch.object(tm, "overlay", return_value={"mode": "openai"}):
+            self.assertEqual(tm.omp_mode("anthropic/claude-opus-5-5:high"), "openai")
+        # its selectors are ours by shape, so a later switch moves them
+        self.assertTrue(tm._ours_by_shape("tezgah-cheap", "openai-codex/gpt-6-luna:low"))
+
+    def test_the_openai_mode_writes_nothing_without_a_codex_login(self):
+        store = {"task.agentModelOverrides": {"tezgah-cheap": "x"},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high"},
+                 "retry.fallbackChains": {}}
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "codex_ready", return_value=False), \
+                mock.patch.object(tm, "overlay", return_value={"mode": "openai"}):
+            status = tm.apply_omp(take=True)
+        self.assertIn("openai-codex", status)
+        self.assertEqual(store["task.agentModelOverrides"], {"tezgah-cheap": "x"})
+        with mock.patch.object(tm, "codex_ready", return_value=False):
+            self.assertEqual(tm.omp_overrides("openai"), {})
+
     def test_the_off_mode_wants_nothing_at_all(self):
         # the status row reads this: an `off` machine must not look like one with
         # a missing override, because no repair could ever clear that row
