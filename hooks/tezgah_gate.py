@@ -2412,15 +2412,20 @@ def ready_advice(tool, session_id, cwd=None):
     return READY_WAIT % (len(heads), "; ".join(cut(h, 48) for h in heads[:3]))
 
 
-# --- plan required: work that spans files on main has no plan ----------------
+# --- plan required: work that spans files on an unplanned branch -------------
 # What this closes: a turn that wrote four product files - a hook, its tests, its
-# docs and the changelog - straight onto `main`, with the plan opened afterwards.
-# The task rule constrains a write only through a record the user made, so with
-# no active task every product write passes and "work for a plan happens on its
-# branch" is advice rather than a mechanism. Here the checkout is the record: on
-# `main`/`master` the third distinct product file a single turn writes is
-# refused, while a one- or two-file fix stays free - a plan is what makes work
-# that spans files reviewable and closeable.
+# docs and the changelog - straight onto `main`, with the plan opened afterwards;
+# and Orca worktrees on `r1z4x/<name>` that built five branches of work with no
+# plan at all (plan 105). The task rule constrains a write only through a record
+# the user made, so with no active task every product write passes and "work for
+# a plan happens on its branch" is advice rather than a mechanism. Here the
+# checkout is the record: on a branch that binds no open plan the third distinct
+# product file a single turn writes is refused, while a one- or two-file fix
+# stays free - a plan is what makes work that spans files reviewable and
+# closeable. A branch binds a plan when it is `plan/NNN-*` or an open plan
+# declares it in `branch:` (`tezgah_task.plan_of_branch`); such a checkout is
+# the task rule's to hold. `main`/`master` never bind one, whatever a plan
+# declares: the trunk is where unplanned work lands.
 #
 # The count is a fold over the turn's own write rows (`turn_rows`), so it needs
 # no state of its own, and the call in hand contributes the files it names before
@@ -2428,16 +2433,17 @@ def ready_advice(tool, session_id, cwd=None):
 # itself.
 #
 # Fail-open wherever the question cannot be answered: no session, no ledger, a
-# checkout that is not a git repository, a detached HEAD (no branch to name), and
-# a repo carrying the `.no-plan-gate` mark all pass - the direction every rule
-# here takes, because a refusal has to rest on something a reader can check.
+# checkout that is not a git repository, a detached HEAD (no branch to name), a
+# missing task module (no binding to read), and a repo carrying the
+# `.no-plan-gate` mark all pass - the direction every rule here takes, because a
+# refusal has to rest on something a reader can check.
 #
 # ponytail: a PRIOR write recorded through the shell is a `run` row whose detail
 # is the command, so it is not counted; only the call in hand contributes a shell
 # target (`write_paths` reads the redirect). The turn this rule answers is the
 # write-tool turn, and reading a shell command's target off a stored command line
 # would be a second reader of the same table, not a new fact.
-PLAN_BRANCHES = ("main", "master")
+PLAN_TRUNKS = ("main", "master")
 # The product paths the count reads, relative to the checkout holding the write:
 # the code and docs a plan exists to scope. `.tezgah/` - and every other
 # directory - is not one of them, and neither is a path outside any git checkout
@@ -2448,10 +2454,11 @@ PLAN_FILES = ("statusline.py", "MANIFEST")
 PLAN_WRITES = 3
 PLAN_DENY = (
     "This turn has written %d distinct product files while the checkout is on "
-    "`%s`. Work that spans files on `main`/`master` has no plan to review or "
-    "close, so the third product file in one turn is refused: open a plan with "
-    "the `plan-add` skill (`/tezgah:plan-add <description>`) and do the work on "
-    "the `plan/NNN-slug` branch it creates. A one- or two-file fix stays free. "
+    "`%s`, a branch that binds no open plan. Work that spans files there has no "
+    "plan to review or close, so the third product file in one turn is refused: "
+    "open a plan with the `plan-add` skill (`/tezgah:plan-add <description>`) and "
+    "do the work on the `plan/NNN-slug` branch it creates, or put this branch in "
+    "the open plan's `branch:` frontmatter. A one- or two-file fix stays free. "
     "Only `hooks/`, `tests/`, `bin/`, `skills/`, `docs/`, `statusline.py` and "
     "`MANIFEST` are counted; a `.tezgah/` path never is.")
 
@@ -2587,10 +2594,23 @@ def _product(rel):
     return parts[0] in PLAN_DIRS or len(parts) == 1 and parts[0] in PLAN_FILES
 
 
+def _unplanned(branch, top):
+    """True when `branch`, checked out at `top`, binds no open plan of its
+    repository: a trunk always, else neither `plan/NNN-*` nor a branch an open
+    plan declares. An empty branch or a missing task module cannot be read, and
+    reads as planned (fail-open)."""
+    if branch in PLAN_TRUNKS:
+        return True
+    if not branch or tezgah_task is None:
+        return False
+    return tezgah_task.plan_of_branch(branch, linked_main(top) or top) is None
+
+
 def plan_reason(inp, cwd, session_id):
     """A deny reason when this write would be a turn's third distinct product
-    file in a checkout on `main`/`master`, else None. The section above carries
-    the trigger, the counted paths and the fail-open direction."""
+    file in a checkout on a branch that binds no open plan, else None. The
+    section above carries the trigger, the counted paths and the fail-open
+    direction."""
     if not session_id or turn_rows is None:
         return None
     targets = {}
@@ -2603,8 +2623,8 @@ def plan_reason(inp, cwd, session_id):
     rows = None
     for top, written in targets.items():
         branch = _branch(top)
-        if branch not in PLAN_BRANCHES \
-                or os.path.exists(os.path.join(top, ".no-plan-gate")):
+        if os.path.exists(os.path.join(top, ".no-plan-gate")) \
+                or not _unplanned(branch, top):
             continue
         if rows is None:
             # a row's `target` is already absolute against the cwd it was

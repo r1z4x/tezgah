@@ -471,9 +471,10 @@ def parallel(rows):
 
 
 def active(cwd, base, held=False):
-    """The active task as a dict, or None. A linked worktree on a `plan/NNN-...`
-    branch answers plan NNN when that plan carries a phase (`branch_task`), so
-    two plans can run at once, one per worktree. Anywhere else - the main
+    """The active task as a dict, or None. A linked worktree on a branch that
+    binds a plan - `plan/NNN-...` or the plan's declared `branch:` - answers that
+    plan when it carries a phase (`branch_task`), so two plans can run at once,
+    one per worktree. Anywhere else - the main
     checkout, or a worktree on another branch - it reads the main checkout's
     `.tezgah/plans/open/*.md` sorted by name: the first plan carrying a valid
     `phase` that no linked worktree holds (`plan_holders`). When every phased
@@ -498,8 +499,9 @@ def active(cwd, base, held=False):
     main = linked_main(root) or root
     records = _phased(main)
     branches = _worktree_branches(main) if records else {}
+    declared = declared_branches(main) if branches else {}
     for record in records:
-        if not any(_binds(record["id"], b) for b in branches):
+        if not any(_binds(record["id"], b, declared) for b in branches):
             return record
     if not held or not records:
         return None
@@ -570,19 +572,40 @@ def worktree_branch(top):
     return head[len(prefix):] if head.startswith(prefix) else None
 
 
-def plan_of_branch(branch):
-    """The plan id a `plan/NNN-slug` branch names, else None."""
+def declared_branches(main):
+    """{branch: plan id} for every open plan under the main checkout `main` that
+    declares a `branch:` - Orca names a worktree's branch `<user>/<slug>`, and
+    the plan declaring it is the one that worktree holds (plan 105). Read from
+    the plan files' frontmatter, never from git: the gate asks on every write.
+    Two plans declaring one branch: the lowest id binds it, so the answer never
+    depends on which file a directory listing names first."""
+    out = {}
+    for name, _, text in _plan_files(main, "open"):
+        fields = frontmatter(text)
+        branch, ident = fields.get("branch", ""), _plan_id(fields, name)
+        if branch and (branch not in out or ident < out[branch]):
+            out[branch] = ident
+    return out
+
+
+def plan_of_branch(branch, main=None):
+    """The plan id `branch` binds: NNN for a `plan/NNN-slug` branch, else - given
+    the main checkout `main` - the open plan declaring it (`declared_branches`);
+    None for neither."""
     found = _PLAN_BRANCH.match(branch or "")
-    return found.group(1) if found else None
+    if found:
+        return found.group(1)
+    return declared_branches(main).get(branch) if branch and main else None
 
 
-def _binds(ident, branch):
-    """Does `branch` hold plan `ident`? It has to name the plan: `plan/NNN-...`.
-    A plan's declared `branch:` is one of those, and the slices it fans out to
-    run on others (`plan/097-records` beside `plan/097-workspace-integrity`):
-    each slice is held to its plan's scope, never to another plan's, which is
-    what a first-unheld-plan reading gave it (plan 097, D6)."""
-    return bool(branch) and plan_of_branch(branch) == ident
+def _binds(ident, branch, declared):
+    """Does `branch` hold plan `ident`? It has to name the plan: `plan/NNN-...`,
+    or be the branch the plan declares (`declared`, `declared_branches`'s map).
+    The slices a plan fans out to run on other `plan/NNN-...` branches
+    (`plan/097-records` beside `plan/097-workspace-integrity`): each slice is
+    held to its plan's scope, never to another plan's, which is what a
+    first-unheld-plan reading gave it (plan 097, D6)."""
+    return bool(branch) and (plan_of_branch(branch) or declared.get(branch)) == ident
 
 
 def _worktree_branches(main):
@@ -606,24 +629,28 @@ def plan_holders(main):
     out = {}
     if not branches:
         return out
+    declared = declared_branches(main)
     for name, _, text in _plan_files(main, "open"):
         fields = frontmatter(text)
         ident = _plan_id(fields, name)
-        held = sorted(b for b in branches if _binds(ident, b))
+        held = sorted(b for b in branches if _binds(ident, b, declared))
         if held:
-            declared = fields.get("branch", "")
-            out[ident] = branches[declared if declared in held else held[0]]
+            own = fields.get("branch", "")
+            out[ident] = branches[own if own in held else held[0]]
     return out
 
 
 def branch_task(top):
     """Plan NNN's record (active()'s dict, plus "worktree": `top`, the checkout
     whose HEAD and tree its checkpoint is read against) when `top` is a linked
-    worktree on a `plan/NNN-...` branch (`_binds`) and plan NNN, open under the
-    main checkout, carries a phase. None otherwise - another branch, a plan with
-    no phase, an unknown mapping - and the caller reads the main checkout's task
+    worktree on a branch that binds plan NNN (`plan_of_branch`: `plan/NNN-...`
+    or the plan's declared `branch:`) and plan NNN, open under the main
+    checkout, carries a phase. None otherwise - another branch, a plan with no
+    phase, an unknown mapping - and the caller reads the main checkout's task
     (plan 093)."""
-    ident = plan_of_branch(worktree_branch(top))
+    from tezgah_paths import linked_main
+    main = linked_main(top)
+    ident = plan_of_branch(worktree_branch(top), main)
     if ident is None:
         return None
     from tezgah_paths import linked_main
@@ -636,7 +663,7 @@ def branch_task(top):
 
 def worktree_task(path, cwd, base):
     """The record a write to `path` is held to when it lands in a sibling linked
-    worktree on a plan branch (`branch_task`), else None. A path under cwd's own
+    worktree on a plan's branch (`branch_task`), else None. A path under cwd's own
     root is active()'s to answer, so it pays one realpath and nothing more."""
     root = repo_root(cwd, base)
     path = os.path.expanduser(path)
@@ -1372,11 +1399,12 @@ def open_slice(root, sid, *, kind="agent", host="", agent="", brief="", parent="
         # prompt and Stop - never globs (40 ms on 1393 project dirs, measured)
         rec["transcript_dir"] = _omp_session_dir(rec["parent"]) or ""
     # the slice's own plan: the review guard reads its own plan's records only.
-    # Its worktree's plan branch, else the plan its task or shared brief names,
-    # else the tag a re-open already carries, else the task the main checkout
-    # reads - with two plans running that is only one of them
+    # Its worktree's plan branch (`plan/NNN-...` or a plan's declared one), else
+    # the plan its task or shared brief names, else the tag a re-open already
+    # carries, else the task the main checkout reads - with two plans running
+    # that is only one of them
     named = _BRIEF_PLAN.search(own) or _BRIEF_PLAN.search(brief or "")
-    rec["plan"] = (plan_of_branch(rec.get("branch")) or (named and named.group(1))
+    rec["plan"] = (plan_of_branch(rec.get("branch"), main) or (named and named.group(1))
                    or rec.get("plan") or (active(main, main) or {}).get("id") or "")
     rec.update(base=_git(main, "rev-parse", "HEAD") or "", status="open",
                failure="", updated=now)

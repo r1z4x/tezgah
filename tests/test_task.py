@@ -363,6 +363,33 @@ class Record(unittest.TestCase):
         self.assertEqual(tt.plan_holders(self.repo)["002"], main)
         self.assertEqual(tt.active(piece, self.base)["id"], "002")
 
+    def test_a_worktree_on_a_plans_declared_branch_is_held_to_that_plan(self):
+        # plan 105: Orca names its branches `r1z4x/<slug>`, and a plan declaring
+        # one in `branch:` binds the worktree on it the way plan/NNN does; of two
+        # plans declaring one branch, the lowest id binds it
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.plan("001-first.md", plan_text("001", phase="implementation",
+                                            allowed=["hooks/**"]))
+        for ident, allowed in (("007", "docs/**"), ("009", "bin/**")):
+            self.plan("%s-orca.md" % ident, plan_text(
+                ident, phase="implementation", allowed=[allowed]).replace(
+                "status: open", "status: open\nbranch: r1z4x/foo"))
+        wt = self.linked_worktree(self.repo, "repo-foo", branch="r1z4x/foo")
+        task = tt.active(wt, self.base)
+        self.assertEqual((task["id"], task["allowed_paths"], task["worktree"]),
+                         ("007", ["docs/**"], wt))
+        self.assertEqual(tt.plan_of_branch(tt.worktree_branch(wt), self.repo), "007")
+        self.assertEqual(tt.worktree_task(os.path.join(wt, "docs", "a.md"),
+                                          self.repo, self.base)["id"], "007")
+        self.assertEqual(tt.plan_holders(self.repo), {"007": wt})
+        # the main checkout reads the first phased plan no worktree holds
+        self.assertEqual(tt.active(self.repo, self.base)["id"], "001")
+        # plan/NNN binds as before; an undeclared branch binds nothing
+        self.assertEqual(tt.plan_of_branch("plan/012-x", self.repo), "012")
+        self.assertIsNone(tt.plan_of_branch("feature-x", self.repo))
+        other = self.linked_worktree(self.repo, "repo-x", branch="feature-x")
+        self.assertEqual(tt.active(other, self.base)["id"], "001")
+
     def test_concurrent_record_writers_lose_no_write_and_tear_no_read(self):
         # E7: a reader saw a torn record in 29/40 rounds and two writers lost a
         # write in 1/40, because each writer truncated the file in place. Review
@@ -926,6 +953,21 @@ class Cli(TempHome):
             self.assertEqual(proc.returncode, 1, args)
             self.assertIn("plan 002", proc.stdout, args)
             self.assertEqual(read(first), before, args)
+
+    def test_a_declared_branch_worktree_whose_plan_has_no_phase_moves_no_other_plan(self):
+        # plan 105: the same refusal in a worktree on the branch a plan declares
+        # (Orca's `r1z4x/<slug>`), not only on a plan/NNN one
+        first = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        second = self.plan("002-second.md", allowed=["docs/**"])
+        with open(second, "w") as fh:
+            fh.write(plan_text("002", allowed=["docs/**"]).replace(
+                "status: open", "status: open\nbranch: r1z4x/foo"))
+        wt = self.slice("r1z4x/foo", commit=False, merge=False)
+        before = read(first)
+        proc = support.run([CLI, "allow", "src/**", "--why", "x"], env=self.env(), cwd=wt)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("plan 002", proc.stdout)
+        self.assertEqual(read(first), before)
 
     def test_start_of_a_plan_with_no_worktree_clears_a_held_plan(self):
         # the started plan runs in the main checkout, so the main checkout's

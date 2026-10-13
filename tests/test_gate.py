@@ -2865,6 +2865,19 @@ class TaskGate(TempHome):
         good = self.sibling("proj-018", branch="plan/018-other")
         self.assertIsNone(self.write_path(os.path.join(good, "docs", "a.md")))
 
+    def test_a_worktree_on_a_plans_declared_branch_is_held_to_that_plan(self):
+        # plan 105: Orca names its branches `r1z4x/<slug>`; a plan declaring one
+        # in `branch:` holds the worktree on it to its own allowlist
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        self.plan(phase="implementation", allowed=("docs/**",), name="018-other.md",
+                  task_id="018", branch="r1z4x/foo")
+        wt = self.sibling("proj-foo", branch="r1z4x/foo")
+        for cwd in (self.repo, wt):
+            self.assertIsNone(self.decide({"file_path": os.path.join(wt, "docs", "a.md")},
+                                          cwd=cwd), cwd)
+            self.assertIn("task 018", self.decide(
+                {"file_path": os.path.join(wt, "hooks", "a.py")}, cwd=cwd) or "", cwd)
+
     def test_the_allowlist_reads_a_linked_worktree_of_the_same_repository(self):
         # every writing slice gets its own worktree, so hooks/a.py there is in
         # scope when hooks/a.py is, and src/a.py there is not
@@ -3258,10 +3271,10 @@ class WorkspaceGate(TempHome):
 
 class PlanGate(TempHome):
     """The plan-required rule: the third distinct product file a single turn
-    writes while the checkout is on `main`/`master` is refused. A one- or
-    two-file fix stays free, a `plan/NNN-slug` branch is free, `.tezgah/` never
-    counts, and a repo carrying `.no-plan-gate` - or no git repository at all -
-    passes."""
+    writes while the checkout is on a branch that binds no open plan is refused.
+    A one- or two-file fix stays free, a `plan/NNN-slug` branch or one an open
+    plan declares in `branch:` is free, `.tezgah/` never counts, and a repo
+    carrying `.no-plan-gate` - or no git repository at all - passes."""
 
     def setUp(self):
         super().setUp()
@@ -3323,6 +3336,31 @@ class PlanGate(TempHome):
         subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
                         "plan/017-plan-required-on-main"], check=True)
         self.assertIsNone(self.write(self.path("docs", "one.md")))
+
+    def test_the_third_product_write_on_a_feature_branch_is_refused(self):
+        # plan 105: an Orca worktree on `r1z4x/<name>` built five branches of
+        # work with no plan, because only main/master was read
+        subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",
+                        "feature-x"], check=True)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        reason = self.write(self.path("docs", "one.md"))
+        self.assertIn("`feature-x`", reason or "")
+        self.assertIn("plan-add", reason)
+        self.assertIn("branch:", reason)
+
+    def test_a_branch_an_open_plan_declares_is_its_plans_not_this_rules(self):
+        wt = self.checkout("wt", "r1z4x/foo")
+        record = self.path(".tezgah", "plans", "open", "007-foo.md")
+        os.makedirs(os.path.dirname(record))
+        with open(record, "w") as fh:
+            fh.write("---\nid: 007\ntitle: foo\nstatus: open\nbranch: r1z4x/foo\n---\n")
+        self.seed_write(os.path.join(wt, "hooks", "one.py"))
+        self.seed_write(os.path.join(wt, "tests", "test_one.py"))
+        self.assertIsNone(self.write(os.path.join(wt, "docs", "one.md")))
+        # the plan closed: the branch binds nothing, and the rule holds it
+        os.remove(record)
+        self.assertIn("`r1z4x/foo`", self.write(os.path.join(wt, "docs", "one.md")) or "")
 
     def test_a_third_write_of_the_same_file_never_counts(self):
         # the count is DISTINCT product files: a turn that rewrites one file

@@ -200,12 +200,13 @@ def active_here(root):
 
 def own_task(root):
     """(task, problem) for a command that writes the active plan's record. In a
-    linked worktree on a `plan/NNN-...` branch that is plan NNN or a refusal,
-    never the main checkout's first phased plan: `allow` there replaced another
-    plan's allowlist (plan 102). The gate keeps that fallback, which holds the
+    linked worktree on a branch that binds a plan - `plan/NNN-...` or the plan's
+    declared `branch:` - that is plan NNN or a refusal, never the main
+    checkout's first phased plan: `allow` there replaced another plan's
+    allowlist (plan 102). The gate keeps that fallback, which holds the
     worktree's writes; only the record write is refused."""
     task = active_here(root)
-    ident = tt.plan_of_branch(tt.worktree_branch(root))
+    ident = tt.plan_of_branch(tt.worktree_branch(root), main_root(root))
     if ident is not None and (not task or task["id"] != ident):
         return None, ("this worktree is plan %s's and plan %s is not the active task "
                       "here: start it with `tezgah-task start %s --phase P`; no other "
