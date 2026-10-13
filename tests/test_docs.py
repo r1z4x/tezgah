@@ -246,17 +246,21 @@ class RuleLedger(unittest.TestCase):
         self.assertEqual(module.ledger_failures(module.ledger_rows()), [])
 
     def test_every_stop_class_is_read_the_evidence_half_included(self):
-        # `_evidence_block` returns six of the ten Stop classes; a reader that
-        # skipped it saw four and let a renamed evidence class go unrecorded.
+        # `_evidence_text` words the six classes the temporal spec picks; a
+        # reader that skipped it saw four and let a renamed evidence class go
+        # unrecorded
         import ast
         module = docs_module()
         tree = ast.parse(module.source(module.STOP), filename=module.STOP)
         evidence = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_evidence_block":
+            if isinstance(node, ast.FunctionDef) and node.name == "_evidence_text":
                 evidence = module.returned_classes(node)
-        self.assertTrue(evidence, "_evidence_block returns no class")
+        self.assertTrue(evidence, "_evidence_text returns no class")
         self.assertLessEqual(evidence, module.stop_triggers())
+        sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+        import tezgah_stopspec
+        self.assertEqual(evidence, {cls for cls, _ in tezgah_stopspec.ORDER} - {"allow"})
 
     def test_a_rule_with_no_row_is_refused(self):
         module = docs_module()

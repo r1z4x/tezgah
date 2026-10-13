@@ -4493,18 +4493,6 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
         detail, kind = "ok", "claim"
     else:
         return None
-    # The temporal spec's verdict, in shadow (plan 063): recorded beside this
-    # one and never read back, and only for a reply that leaves a claim or a
-    # refusal row - the population its agreement bar is read on - so a quiet
-    # allowed reply pays nothing. Its own guard, because the host wraps this
-    # whole function in `safe()` and an escaping exception would lose the refusal.
-    if not record_only:
-        try:
-            import tezgah_stopspec
-            tezgah_stopspec.shadow(cls, text, session_id, rows, cwd, True, key)
-        except Exception:
-            if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
-                raise
     # A refusal is skipped only as the same verdict on the same reply: the same
     # reply text refused for a new class is the turn's next refusal, and
     # `_record_only` counts refusals by these rows. A row bound for a parent's
@@ -4879,15 +4867,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     scoped the way `_partial_state`'s already was, and the Stop path still reads
     the file once per turn.
 
-    `fold` is the evidence fold the selector below calls, `_evidence_block` by
-    default; `tezgah_stopspec.judge` passes the temporal spec's. Under
-    `TEZGAH_STOPSPEC_STRICT` (tests) the default call also asks the spec and
-    raises on a disagreement."""
+    `fold` is the evidence fold the selector below calls. None, the default,
+    is the temporal spec's (`tezgah_stopspec.fold`: the class from its formulas,
+    the text from `_evidence_text`), and that outer call fills the text's
+    placeholders once (`_said`)."""
     if fold is None:
-        verdict = _stop_block(text, session_id, rows, cwd, shape, _evidence_block)
-        if os.environ.get("TEZGAH_STOPSPEC_STRICT"):
-            import tezgah_stopspec
-            tezgah_stopspec.check(verdict[0], text, session_id, rows, cwd, shape)
+        # imported here: tezgah_stopspec imports this module at its top
+        import tezgah_stopspec
+        verdict = _stop_block(text, session_id, rows, cwd, shape, tezgah_stopspec.fold)
         return (verdict[0], verdict[1] and _said(verdict[1]))
     t = str(text or "")
     shaped = _shape_block(t, cwd) if shape else (None, None)
@@ -4961,7 +4948,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # the session's (the contract says "no successful check recorded in the
     # session"). Read only for these two, so every other turn still pays for
     # its own rows alone. Both ask the same fold
-    # this turn is judged by (`_evidence_block`), over the session's rows BEFORE
+    # this turn is judged by (`fold`, the spec's), over the session's rows BEFORE
     # this turn - every class it has, the UI/design and partial-failure ones
     # included, so a state the earlier turns left refused stays refused (review
     # F5). The current turn is left out because it holds no work of its own
@@ -4999,6 +4986,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         # turn can prove
         judged, worked = [r for r in rows if not _work_row(r) or (
             external and _external_read_row([r]) == 0)], set()
+    if (done or verified) and any(r.get("kind") == "verify_ok" and not passing_check(r)
+                                  for r in judged):
+        # A check that answered with an outcome nobody saw (exit 0 and nothing
+        # returned, a status a pipe owns: not `passing_check`) is no pass, and
+        # as a check it is no work row either. A done or tested claim resting
+        # on it owes the `no verify_ok` floor a lost check owes (plan 101: a
+        # work-free turn of one such row let "Tamamlandı, tüm testler geçti" end).
+        worked = worked | {"verify_ok"}
     return _residual_block(t, rows, shape, fold(judged, worked, external),
                            session_id, cwd)
 
@@ -5028,21 +5023,18 @@ def _before_turn(rows):
     return out
 
 
-def _evidence_block(rows, worked, external, where="this turn"):
-    """The evidence half of `_stop_block` over `rows`: (class, text) or (None,
-    None). `where` names the span the rows cover in the refusal text."""
-    # the newest check decides: "the tests pass" is false when a later run
-    # failed, even though an earlier one succeeded
-    if _last_verify(rows) == "fail":
+def _evidence_text(cls, rows, external, where="this turn"):
+    """(class, block text) for the evidence class the temporal spec picked over
+    `rows` (`tezgah_stopspec.fold`), or (None, None) for none. The spec decides
+    the class; this words it, reading the rows only for what the text names.
+    `where` names the span the rows cover."""
+    if cls == "check failed":
         return ("check failed",
                 "A check failed in %s and the reply claims success. "
                 "Report the failure with its exact error line, or fix it and "
                 "re-run; do not describe a failed check as passing. %s."
                 % (where, ADMISSION))
-    # a failure the turn never resolved: the newest check is not a pass, so an
-    # earlier green run over a different command does not license the claim
-    state = _partial_state(rows)
-    if state["failed"] and not state["verified"]:
+    if cls == "partial failure":
         return ("partial failure",
                 "Partial failure: %s failed %s and no check has passed since, so "
                 "an earlier green run does not cover it. Report that failure "
@@ -5050,89 +5042,44 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "not describe a partial result as done. If you are deliberately "
                 "stopping on the failure, say what is still broken; %s."
                 % (_failed_check(rows),
-                   "after %s's edits" % where if state["edited"] else "in " + where,
-                   ADMISSION))
-    # A passing check licenses the claim only when it is newer than the newest
-    # write the gate saw change the tree: a green run over the previous revision
-    # is not evidence about this one, and the ledger already carries both sides
-    # (the check's position, and `changed` on the write). The admission is the
-    # reply's own "doğrulanmadı" after a check that failed since that write
-    # (`_admitted`). The pass has to be one
-    # run in the newest change's own repository (`_last_pass`'s `repo`).
-    last_change = _last_change(rows)
-    last_pass = _last_pass(rows, _change_repo(rows, last_change))
-    # The UI half, read before the generic freshness pair because it is a stricter
-    # question about the same rows: a proof of the screen - a check that renders,
-    # or a read of the rendered screen - stands where a unit pass stands, and only
-    # when it is newer than the write it is a proof of. A green unit run is not
-    # that proof, which is the whole point: it never sees what a person sees.
-    # The write it is a proof of is the newest UI write, not the newest write of
-    # anything: a later edit to a `.py` file does not unmake a screen read, and
-    # reading the fold that way refused honest turns and named a screen check the
-    # turn had in fact run.
-    ui_write, ui_proof = _ui_evidence(rows)
-    if ui_write >= 0 and ui_proof <= ui_write:
+                   "after %s's edits" % where if _partial_state(rows)["edited"]
+                   else "in " + where, ADMISSION))
+    if cls in ("no ui_ok", "stale evidence"):
         names = _stale_paths(rows)
         shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
                                         if len(names) > 3 else "")
-        return ("no ui_ok",
-                "UI evidence: %s changed a UI source (%s) and the check "
-                "that passed was not one that sees the screen - a unit run "
-                "never does. Run the browser/e2e or visual check and report "
-                "its output, or read the rendered screen (`analyze-app`: the "
-                "accessibility/DOM tree, a screenshot at the widths in scope) "
-                "and say what it showed. A green unit suite does not cover "
-                "what a person sees, and \"{UNVERIFIED}\" does not stand in for "
-                "the screen; if nothing can render it here, write "
-                "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
-                "with the command that failed."
-                % (where, shown or "a UI file"))
-    if ui_write >= 0:
-        # The floor, asked of a component turn on top of the screen proof: a
-        # screenshot or a rendered check says what the thing looks like and
-        # nothing about whether it is on the repository's own contract. A screen
-        # a person looks at is unchanged - it is the component that owes this,
-        # and the check has to be newer than the component write it judges.
-        component, design = _design_evidence(rows)
-        if component >= 0 and design <= component:
-            names = _stale_paths(rows)
-            shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
-                                            if len(names) > 3 else "")
+    if cls == "no ui_ok":
+        # the screen half is asked first, so a turn that owes both reads the
+        # screen's text; the design floor is the component's (`_design_evidence`)
+        ui_write, ui_proof = _ui_evidence(rows)
+        if ui_write >= 0 and ui_proof <= ui_write:
             return ("no ui_ok",
-                    "Design contract: %s changed a component (%s) and no "
-                    "`tezgah-design check` ran over a measurement, so nothing "
-                    "says the component is on the repository's floor - a read of "
-                    "the screen says what it looks like, not whether it is on "
-                    "that floor. Run `tezgah-design check --contract "
-                    ".tezgah/design-contract.md --measured <measurement.json>` "
-                    "(`tezgah-design derive` writes the contract when the repo "
-                    "has none; the measurement is the per-component styles and "
-                    "states the analyze-app loop produces) and report every "
-                    "violation it prints; if the check cannot run here, write "
+                    "UI evidence: %s changed a UI source (%s) and the check "
+                    "that passed was not one that sees the screen - a unit run "
+                    "never does. Run the browser/e2e or visual check and report "
+                    "its output, or read the rendered screen (`analyze-app`: the "
+                    "accessibility/DOM tree, a screenshot at the widths in scope) "
+                    "and say what it showed. A green unit suite does not cover "
+                    "what a person sees, and \"{UNVERIFIED}\" does not stand in for "
+                    "the screen; if nothing can render it here, write "
                     "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
                     "with the command that failed."
-                    % (where, shown or "a component file"))
-    # A screen proof stands where a unit pass stands for the rest of this fold,
-    # so a UI turn whose UI work is proven is not asked for a check it already
-    # has - and one whose UI work is not proven was refused above, so an
-    # unrelated write it left unverified is still the generic question below.
-    # The read of the authoritative source stands where a passing check stands,
-    # for the one claim it is evidence about (`external`): a reply that states
-    # the state of a registry, a release or a CI run and carried the read that
-    # answers it has settled that half of itself. It is folded into the proof
-    # only for that claim - an `npm view` run is not evidence about the tree, and
-    # letting it stand for a turn's own work would excuse every unverified edit
-    # beside it.
-    ext_read = _external_read_row(rows) if external else -1
-    unread = external is not None and ext_read < 0
-    proof = max(last_pass, ui_proof, ext_read)
-    if proof > last_change:
-        if not unread:
-            return (None, None)
-    elif last_pass >= 0:
-        names = _stale_paths(rows)
-        shown = ", ".join(names[:3]) + (" (+%d more)" % (len(names) - 3)
-                                        if len(names) > 3 else "")
+                    % (where, shown or "a UI file"))
+        return ("no ui_ok",
+                "Design contract: %s changed a component (%s) and no "
+                "`tezgah-design check` ran over a measurement, so nothing "
+                "says the component is on the repository's floor - a read of "
+                "the screen says what it looks like, not whether it is on "
+                "that floor. Run `tezgah-design check --contract "
+                ".tezgah/design-contract.md --measured <measurement.json>` "
+                "(`tezgah-design derive` writes the contract when the repo "
+                "has none; the measurement is the per-component styles and "
+                "states the analyze-app loop produces) and report every "
+                "violation it prints; if the check cannot run here, write "
+                "\"{UNVERIFIED}\" and name it under \"{BLOCKERS_HEADING}\" as {ENV} "
+                "with the command that failed."
+                % (where, shown or "a component file"))
+    if cls == "stale evidence":
         return ("stale evidence",
                 "Stale evidence: the newest check that passed ran before %s %s "
                 "written, so it verified an earlier revision of the tree than the "
@@ -5142,18 +5089,19 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "A green run over the previous revision does not cover this one."
                 % (shown or "a file this session wrote",
                    "was" if len(names) <= 1 else "were", ADMISSION))
-    elif worked and _last_pass(rows) > last_change:
-        # a pass newer than the change exists, only in another repository: the
-        # class stays (ledger continuity), the text names the real reason
-        return ("no verify_ok",
-                "%s changed %s, and the check that passed after it ran in "
-                "another repository (%s), so it says nothing about this one. "
-                "Run the check in the repository you changed and report its "
-                "output; %s."
-                % (where.capitalize(), _change_repo(rows, last_change),
-                   rows[max(i for i, r in enumerate(rows)
-                            if passing_check(r))].get("repo"), ADMISSION))
-    elif worked:
+    if cls == "no verify_ok":
+        last_change = _last_change(rows)
+        if _last_pass(rows) > last_change:
+            # a pass newer than the change exists, only in another repository:
+            # the class stays (ledger continuity), the text names the real reason
+            return ("no verify_ok",
+                    "%s changed %s, and the check that passed after it ran in "
+                    "another repository (%s), so it says nothing about this one. "
+                    "Run the check in the repository you changed and report its "
+                    "output; %s."
+                    % (where.capitalize(), _change_repo(rows, last_change),
+                       rows[max(i for i, r in enumerate(rows)
+                                if passing_check(r))].get("repo"), ADMISSION))
         return ("no verify_ok",
                 "%s did work (edits or commands) and no check ran "
                 "successfully in it (nothing recorded as verify_ok with a "
@@ -5164,11 +5112,7 @@ def _evidence_block(rows, worked, external, where="this turn"):
                 "%s. Do not "
                 "describe a check you did not run as if it ran."
                 % (where.capitalize(), ADMISSION))
-    # Last, so none of the classes above loses its turn to it: every shape this
-    # one refuses is a shape the fold was about to allow. That is the whole
-    # ordering rule of this function - the branch is asked only where the answer
-    # would otherwise be "this turn may end".
-    if unread:
+    if cls == "no external read":
         return ("no external read", _external_text(external, where))
     return (None, None)
 
@@ -5392,8 +5336,7 @@ def _admitted(fold, text):
     is the check that ran and failed (`_proof_attempt_failed`), and an external
     claim with no read of its system still owes the read (`no external read`) -
     otherwise a failed unit check would end a turn its passing twin cannot.
-    Wrapped around whichever fold the selector was given, so the live rule and
-    the temporal spec read the admission the same way."""
+    Wrapped around whichever fold the selector was given."""
     if not NEGATED.search(_prose(text)):
         return fold
 

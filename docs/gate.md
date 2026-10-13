@@ -391,7 +391,7 @@ A rule is a refusal with a cause: something happened, the check was written, and
 only as a sentence inside each rule's own paragraph above. It is a table here instead, so it is one place and a machine reads it: `bin/tezgah-docs --citations`
 opens `docs/gate.md`, reads this table, and refuses a rule name the source can still produce with no row, and a row whose `pin` names a test that does not exist.
 The names are read off the source, not restated: the gate's rules are the `_deny(session_id, "<rule>", ...)` calls in `hooks/tezgah_gate.py`, and the Stop
-rule's triggers are the classes `_stop_block` returns, the four `_shape_block` and the six `_evidence_block` hand back included.
+rule's triggers are the classes `_stop_block` returns, the four `_shape_block` hands back and the six `_evidence_text` words for the temporal spec included.
 
 - `incident` — what produced the rule; `designed` where none is recorded. The ratio of incident-derived to designed rules is the maturity signal the research
   entry names, which is why the distinction is written down rather than smoothed over.
@@ -419,7 +419,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` a
 | `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route. A `verify_ok` appended with `python3 -c` licensed a claim (security-03), so a pass with no `began` row is an orphan (`hooks/tezgah_integrity.py::_pair`) | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
 | `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` |
 | `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` |
-| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_integrity.py::_evidence_block` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` |
+| `no ui_ok` | reading the fold the old way refused honest turns and named a screen check the turn had in fact run | `hooks/tezgah_stopspec.py::FORMULAS` | `tests/test_integrity.py::test_a_green_unit_run_does_not_license_a_ui_change` |
 | `stale evidence` | measured 2026-09-19: reading a rewrite as a change refused honest turns | `hooks/tezgah_integrity.py::_post_write` | `tests/test_integrity.py::test_a_write_after_the_check_makes_the_check_stale` |
 | `no verify_ok` | E2: 0 of 10 description-shaped claims refused before the `worked` trigger | `hooks/tezgah_integrity.py::_stop_block` | `tests/test_integrity.py::test_work_with_no_passing_check_is_refused_without_a_claim_word` |
 | `no external read` | two turns: "npm 0.22.0 is missing" off a stale client, and "make NPM_TOKEN an automation token" when it already was | `hooks/tezgah_integrity.py::_external_read_row` | `tests/test_integrity.py::test_an_external_claim_with_no_read_is_refused` |

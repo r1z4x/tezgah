@@ -126,7 +126,7 @@ a write tool is `edit`, a shell call is `verify` when its command matches the ch
 | `refusal` | `stop_reason`, for a blocked reply that claimed nothing - a work-only or a shape refusal - with the same `blocked: <class>` detail (row version 3) | `counters.refusals`, and `shape_blocked` for a shape class; never a claim; `NOT_TOOL_HOOK` lists it |
 | `after_block` | `hooks/tezgah_integrity.py::stop_reason`, on a reply after this rule's own block (a turn holding a `blocked:` claim or refusal row) that is not refused again (`_record_only`) on Claude, Codex, Cursor and omp; `detail` is `would block: <class>`, `ok` or `no claim` | nothing yet: a record for the after-block observation window, not a claim and not a second `shape` row, so `counters` counts it neither as a claim nor as a reply; `NOT_TOOL_HOOK` lists it |
 | `subagent_end` | `stop_reason(..., subagent=True)`, from Claude's SubagentStop (`hooks/hooks.json`) and Cursor's subagentStop `summary`; the evidence half only, never a block (ADR 011); `detail` as `after_block`'s | nothing yet: the rows plan 055 replays before a subagent end may block; `NOT_TOOL_HOOK` lists it. On Claude a subagent's tool rows sit in the parent's ledger, so until the agent key (plan 050) lands the row judges the parent's turn |
-| `stop_spec` | `hooks/tezgah_stopspec.py::shadow`, from `stop_reason`, one per reply that leaves a claim or a refusal row, keyed like the claim row. The `detail` is `agree <where>: <class>`, `disagree <where>: <imperative> -> <spec>` (`ok` for an allow) or `error: <type>`. `<where>` is `fold` when the selector reached the fold and `selector` when it decided alone | `tests/stop_spec_eval.py --shadow-rows`, for plan 063's live agreement bar, read on the `fold` rows. It never feeds the verdict. `NOT_TOOL_HOOK` lists it |
+| `stop_spec` | nothing since plan 101. Plan 063's shadow wrote one per reply that left a claim or a refusal row: `agree`, `disagree` or `error`, and `fold` or `selector`. The fold it compared against is gone | nothing. `NOT_TOOL_HOOK` still lists it and the replay keeps it beside its claim (`hooks/tezgah_replay.py::SIDE_KINDS`), so an old ledger reads as it did |
 | `deny`, `nudge` | the [gate](gate.md)'s `hooks/tezgah_gate.py::_deny`, first-nudge `hooks/tezgah_gate.py::decision` | `hooks/tezgah_integrity.py::counters` |
 | `snapshot`, `rollback` | `hooks/tezgah_snapshot.py::_capture_one`, `hooks/tezgah_snapshot.py::restore` | `hooks/tezgah_integrity.py::_snapshot_hash`; no counter |
 | `compact` | `hooks/tezgah_integrity.py::note_compaction`, from the post-compaction path (`tezgah_context.remember_compaction` `hooks/tezgah_context.py::remember_compaction`) | `hooks/tezgah_integrity.py::_counts` (what `counters` folds with) |
@@ -321,7 +321,7 @@ The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_int
 
 The four shape classes share their switches with the text they enforce: `adhd-off` or a repo's `.no-adhd` lifts 1–3 (`_adhd_armed`, `hooks/tezgah_integrity.py::_adhd_armed`), `exec-mode.off` lifts 4, and a session whose environment carries `TEZGAH_NESTED` (an agent CLI consult started, whose English answer is read by code) is not judged for shape at all. A subagent's reply is never refused: omp's `session_stop` does not fire for task sessions, and a Claude SubagentStop or Cursor subagentStop leaves a record-only `subagent_end` row judged on the evidence half alone (ADR 011). The thresholds were set on the owner's omp transcripts (2026-09-27: 1,495 assistant replies with at least 25 prose words): English prose scored 0.000–0.026, the most English-heavy Turkish reply 0.077 and the bulk 0.3–0.7, and 24 of the 1,495 fall under the cut, all English or Chinese prose. The trade-off is on the Turkish side: a Turkish reply that is mostly quoted English outside backticks can fall under 6%, and the block text tells the model to put the English in backticks or a fence. `tests/test_integrity.py` `ReplyShapeCorpus` pins which realistic replies pass and which block. A lead that announces what follows (`preamble-open`) stays report-only: "Sonuç:" over a list is an answer label and reads like a preamble to any regex.
 
-5. **check failed** — the newest check in the session failed (`hooks/tezgah_integrity.py::_evidence_block`).
+5. **check failed** — the newest check in the session failed (`hooks/tezgah_stopspec.py::verdict`).
 6. **partial failure** — this turn recorded a `verify_fail` and nothing passed since (`hooks/tezgah_integrity.py::_partial_state`).
 7. **no ui_ok** — this turn changed a UI source (`hooks/tezgah_integrity.py::UI_PATH`) and the
    check that passed was not one that sees the screen: a unit run never does. A browser/e2e/visual
@@ -330,7 +330,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    CLI capture) is the evidence this class asks for, and it has to be newer than
    the UI write it is about - not than the newest write of anything, so an unrelated file written
    after the screen read does not stale that read (`hooks/tezgah_integrity.py::_ui_evidence`,
-   branch `hooks/tezgah_integrity.py::_evidence_block`). The write kinds are the freshness fold's own (`_change_row`: a write tool's
+   branch `hooks/tezgah_stopspec.py::verdict`). The write kinds are the freshness fold's own (`_change_row`: a write tool's
    `edit` row or a shell call's `run` row the gate saw change the tree), so a UI source written
    through a redirect owes the same proof. The MCP half of that proof is read off the row's own
    tool name (`hooks/tezgah_integrity.py::_screen_read`), which is the only field that
@@ -342,7 +342,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    under a component/views/widgets
    directory, or a name that carries the convention on its own), a fresh read of the screen is not
    enough by itself and a `tezgah-design check` row has to be newer than the component write it
-   judges (`hooks/tezgah_integrity.py::_design_evidence`, branch `hooks/tezgah_integrity.py::_evidence_block`) - and it has
+   judges (`hooks/tezgah_integrity.py::_design_evidence`, branch `hooks/tezgah_stopspec.py::verdict`) - and it has
    to be a check whose pass was seen (`passing_check`, `hooks/tezgah_integrity.py::passing_check`), because
    a screenshot says what a component looks like and the contract is the only thing that says whether
    it is on the repository's floor. The refusal names the command to run. Both of the checker's verbs
@@ -351,7 +351,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    it. A screen is unchanged: the page a person looks at owes the read, not the contract.
 8. **stale evidence** — the newest check that passed ran before the newest write the gate saw change
    the tree, so it verified an earlier revision of it (`_last_pass`/`_last_change`/`_stale_paths`
-   `hooks/tezgah_integrity.py::_last_pass`, `hooks/tezgah_integrity.py::_last_change`, `hooks/tezgah_integrity.py::_stale_paths`, branch `hooks/tezgah_integrity.py::_evidence_block`). A write counts as a change whether the gate saw it as a
+   `hooks/tezgah_integrity.py::_last_pass`, `hooks/tezgah_integrity.py::_last_change`, `hooks/tezgah_integrity.py::_stale_paths`, branch `hooks/tezgah_stopspec.py::verdict`). A write counts as a change whether the gate saw it as a
    write tool or as a shell command that redirected into the file - `_change_row` (`hooks/tezgah_integrity.py::_change_row`) reads
    an `edit` row, a `run` row whose captured target moved, or a formatter's write mode - while a `verify*` row never does, so
    a check redirecting its own log cannot stale itself. A write *outside* the workspace is not one
@@ -365,10 +365,14 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    change here. A row with no `repo` binds to nothing. That covers an old row and a host that sent
    no cwd. A change with no `target`, such as a shell write, binds to nothing too.
 9. **no verify_ok** — this turn recorded a step (`edit`, `verify`, `verify_fail`, `run`,
-   `interrupted`) and no check passed in the session (`hooks/tezgah_integrity.py::_evidence_block`). A turn with no step at all
+   `interrupted`) and no check passed in the session (`hooks/tezgah_stopspec.py::verdict`). A turn with no step at all
    has only its words as the trigger. There a claim word inside a question or under a negation in
    its own clause is no claim (`asserted_claims`). Examples: "testler geçti mi?", "is it done?",
    "not tested yet", "tamamlandı değil". "Tamamlandı, push edeyim mi?" still claims.
+   A done or tested claim over a check nobody saw pass owes this class too, as a lost call does.
+   That is a `verify_ok` row that is no `passing_check`, such as exit 0 with nothing returned. A
+   work-free turn of one such row used to end on "Tamamlandı, tüm testler geçti" (plan 101,
+   `hooks/tezgah_integrity.py::_stop_block`). A reply with no claim word still ends there.
    A prose edit is no step and no change (`hooks/tezgah_integrity.py::_prose_edit`,
    `hooks/tezgah_integrity.py::_work_row`). Such an `edit` row has a real `target` ending in
    `.md`, `.markdown`, `.rst` or `.adoc`. It owes no check and does not stale a pass. An agent
@@ -379,7 +383,7 @@ The four shape classes share their switches with the text they enforce: `adhd-of
 10. **no external read** — the reply states the state of a system tezgah does not own — a registry,
    a release, a tag, a formula, a CI run — and no read of that system ran in the same turn
    (`hooks/tezgah_integrity.py::_external_claim`, over `EXTERNAL_SYSTEM`/`EXTERNAL_STATE`
-   `hooks/tezgah_integrity.py::EXTERNAL_SYSTEM`, `hooks/tezgah_integrity.py::EXTERNAL_STATE` and the CI pair `EXTERNAL_CI`/`EXTERNAL_CI_STATE` `hooks/tezgah_integrity.py::EXTERNAL_CI`, `hooks/tezgah_integrity.py::EXTERNAL_CI_STATE`; branch `hooks/tezgah_integrity.py::_evidence_block`).
+   `hooks/tezgah_integrity.py::EXTERNAL_SYSTEM`, `hooks/tezgah_integrity.py::EXTERNAL_STATE` and the CI pair `EXTERNAL_CI`/`EXTERNAL_CI_STATE` `hooks/tezgah_integrity.py::EXTERNAL_CI`, `hooks/tezgah_integrity.py::EXTERNAL_CI_STATE`; branch `hooks/tezgah_stopspec.py::verdict`).
    The two halves have to sit within `EXTERNAL_GAP` = 45 characters of each other on one line
    (`hooks/tezgah_integrity.py::_external_pair`), and both are read on the reply's prose with inline code, paths,
    URLs and identifiers blanked: `brew tap` inside a code span, the `.github/workflows/...` in a
@@ -525,27 +529,26 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    transcripts. It refuses once per turn and counts like `residual work`
    (`hooks/tezgah_integrity.py::LIST_BLOCKS`).
 
-Classes 5–10 also exist as a past-time temporal spec (`hooks/tezgah_stopspec.py::FORMULAS`,
+A past-time temporal spec decides classes 5–10 (`hooks/tezgah_stopspec.py::FORMULAS`,
 plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles
 each formula to a one-pass monitor over the rows (`hooks/tezgah_stopspec.py::compile_table`), and the
-order above is its decision list (`ORDER`). The spec runs in shadow. `stop_reason` asks it after the imperative
-fold, inside its own `try`, when the reply leaves a claim or a refusal row. It writes one `stop_spec` row
-per reply. The row says `agree`, `disagree` or `error`. It also says `fold` when the selector reached
-the fold and `selector` when it decided alone. The verdict stays the imperative one. Both folds share one selector,
-`_stop_block`, through its `fold` argument. It picks the rows, runs the lost-began path and
-refuses "evidence tampered". The admission below and class 11 belong to the selector too. The
-spec's verdict passes through them. `ESCAPES` names the three predicates that read beyond one row: the
+order above is its decision list (`ORDER`, walked by `hooks/tezgah_stopspec.py::verdict`). The spec
+ran in shadow beside the imperative fold until it agreed on every Stop that reached the fold.
+Plan 101 then made it the fold and deleted the imperative one. `_stop_block` calls it as its
+evidence fold (`hooks/tezgah_stopspec.py::fold`), and `hooks/tezgah_integrity.py::_evidence_text`
+words the class it picks with the refusal text. `_stop_block` stays the selector. It picks the
+rows, runs the lost-began path and refuses "evidence tampered". The admission below and class 11
+belong to the selector too. `ESCAPES` names the three predicates that read beyond one row: the
 began-row join, the repository binding and the lost-began set. Plan 063 fixed that list before
-the first shadow row. `TEZGAH_STOPSPEC_STRICT=1` makes a disagreement raise, for the tests.
-`tests/stop_spec_eval.py` measures the bet: agreement on plan 055's replayed Stop events and on
-the live rows, the added latency, and generated mutants of the table.
+the first shadow row. `tests/stop_spec_eval.py --mutants` mutates the table and runs the in-process
+Stop tests against each mutant.
 
 The trigger for 5–9 is the turn's own evidence, not its words: a turn that did work and never saw a
 check pass is refused whatever the reply says (`hooks/tezgah_integrity.py::_stop_block`). Two cases are judged against the
 whole session instead of the turn:
 
 - **A claim in a turn with no work.** A done/tested claim made in a turn that recorded no work row
-  is judged by the same fold as a turn (`_evidence_block`), run over the session rows before
+  is judged by the same fold as a turn (the spec's), run over the session rows before
   this turn (`_before_turn`): every class the turn fold has - `check failed`, `no verify_ok`,
   `stale evidence`, a pending UI or design check, a partial failure - applies to the session too.
   A session that did no work at all still ends, and a turn that ran its own passing check is
@@ -575,7 +578,7 @@ whole session instead of the turn:
 
 What lets the turn end is the absence
 of both — no work row and no claim vocabulary (`hooks/tezgah_integrity.py::_stop_block`), the one shape class 10 is exempt from
-— or a `passing_check` row newer than the newest write seen to change the tree (`hooks/tezgah_integrity.py::_evidence_block`), where
+— or a `passing_check` row newer than the newest write seen to change the tree (`hooks/tezgah_stopspec.py::verdict`), where
 a fresh screen proof stands in the same
 place as a unit pass; when that write was a UI source, the passing row has to be a UI proof — a
 check that renders, or a read of the screen — and when it was a component, the design check has to be

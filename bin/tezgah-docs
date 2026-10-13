@@ -405,14 +405,15 @@ def ratchet_drift(unjudged, baseline):
 # audit reads a symbol: the gate's rules are the `_deny(session_id, "<rule>",
 # ...)` calls in hooks/tezgah_gate.py, and the Stop rule's triggers are the
 # classes `_stop_block` returns - including the four `_shape_block` and the six
-# `_evidence_block` hand back, and the one `_residual_block` adds at every exit
-# that would end the turn, which is why those three functions are read too.
+# `_evidence_text` words for the temporal spec's fold, and the one
+# `_residual_block` adds at every exit that would end the turn, which is why
+# those three functions are read too.
 
 GATE = os.path.join(HERE, "hooks", "tezgah_gate.py")
 STOP = os.path.join(HERE, "hooks", "tezgah_integrity.py")
 LEDGER = os.path.join(HERE, "docs", "gate.md")
 LEDGER_COLUMNS = ("rule", "incident", "evidence", "pin")
-STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block", "_residual_block")
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_text", "_residual_block")
 
 
 def source(path):
