@@ -1570,7 +1570,8 @@ def context_nudge(payload, session_id):
 
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
-# refusal, after_block, shape and stop_spec rows, the subagent-end hook's subagent_end row,
+# refusal, after_block and shape rows and the stop_spec rows of plan 063's shadow
+# (old ledgers only), the subagent-end hook's subagent_end row,
 # compaction, the subagent mark and the `subagent_start` lineage row (both from
 # SubagentStart), the omp fork's `forked` row, the guard's crash
 # row (any hook), the damage row any reader writes and the session start's

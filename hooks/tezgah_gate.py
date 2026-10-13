@@ -2222,7 +2222,7 @@ def shell_write_body(command, cwd=None):
 # reported done unless the output was seen - given a mechanical half at the one
 # moment a claim is written into the repository's history.
 #
-# The reader is the Stop rule's own fold over the tail (`_last_verify` on the
+# The reader is the newest-check fold the Stop rule's `check failed` class asks (`_last_verify` on the
 # last ORDER_TAIL rows), and the rule is structurally incapable of firing in
 # either direction that would punish honest work: no check at all folds to None
 # and a passing newest check folds to "ok", so a commit in a session that ran no

@@ -4944,6 +4944,14 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         return _residual_block(t, rows, shape,
                                fold(rows, worked | {BEGAN_KIND}, external),
                                session_id, cwd)
+    # A check that answered with an outcome nobody saw (exit 0 and nothing
+    # returned, a status a pipe owns: not `passing_check`) is no pass, and as a
+    # check it is no work row either. A done or tested claim resting on it owes
+    # the `no verify_ok` floor a lost check owes (plan 101: a work-free turn of
+    # one such row let "Tamamlandı, tüm testler geçti" end), so it is read
+    # before the settled exit below, which an earlier pass would otherwise open.
+    unseen = (done or verified) and any(
+        r.get("kind") == "verify_ok" and not passing_check(r) for r in rows)
     # Two shapes the turn's own rows cannot judge, so they are judged against
     # the session's (the contract says "no successful check recorded in the
     # session"). Read only for these two, so every other turn still pays for
@@ -4965,7 +4973,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
             # failed check, a command this cannot read as bookkeeping - keeps
             # the turn fold below, which asks for a fresh check.
             srows = events(session_id)
-            if not external and _settled(srows):
+            if not external and not unseen and _settled(srows):
                 return _residual_block(t, rows, shape, fold(
                     _before_turn(srows), True, None, "this session"),
                     session_id, cwd)
@@ -4986,13 +4994,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
         # turn can prove
         judged, worked = [r for r in rows if not _work_row(r) or (
             external and _external_read_row([r]) == 0)], set()
-    if (done or verified) and any(r.get("kind") == "verify_ok" and not passing_check(r)
-                                  for r in judged):
-        # A check that answered with an outcome nobody saw (exit 0 and nothing
-        # returned, a status a pipe owns: not `passing_check`) is no pass, and
-        # as a check it is no work row either. A done or tested claim resting
-        # on it owes the `no verify_ok` floor a lost check owes (plan 101: a
-        # work-free turn of one such row let "Tamamlandı, tüm testler geçti" end).
+    if unseen:
         worked = worked | {"verify_ok"}
     return _residual_block(t, rows, shape, fold(judged, worked, external),
                            session_id, cwd)
