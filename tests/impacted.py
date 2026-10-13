@@ -145,6 +145,10 @@ def modules_for(path, cache):
     if path.startswith("tests/"):
         if ext == ".py" and name.startswith("test_"):
             return [name]
+        # the neuter matrix is a CI script its own module loads by path, and its
+        # killer cache only orders the runs; neither changes another module
+        if name in ("neuter_matrix.py", "neuter_killers.json"):
+            return ["test_neuter_matrix.py"]
         return _helper_importers(stem, cache) if ext == ".py" else None
     # the arm-bench lab is a maintainer instrument no shipped code imports:
     # its own module, plus any module that names the changed file (the map's

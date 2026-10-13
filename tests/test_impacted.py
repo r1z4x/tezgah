@@ -75,6 +75,11 @@ class TheMap(unittest.TestCase):
     def test_a_test_module_maps_to_itself(self):
         self.assertEqual(self.modules("tests/test_gate.py"), ["test_gate.py"])
 
+    def test_the_neuter_matrix_and_its_cache_map_to_their_module(self):
+        # both ran all 100 modules (2026-10-13); the matrix is CI's
+        for path in ("tests/neuter_matrix.py", "tests/neuter_killers.json"):
+            self.assertEqual(self.modules(path), ["test_neuter_matrix.py"], path)
+
     def test_a_helper_nothing_imports_is_the_full_suite(self):
         # a helper that changes changes what its importers assert; the import
         # forms and the doubt cases are pinned on a fixture tree below, since
