@@ -1554,6 +1554,24 @@ class Cli(TempHome):
         self.assertIn("ignored file .cursor/agents/mine.md", lines[os.path.realpath(own)])
         self.assertTrue(os.path.isdir(own))
 
+    def test_close_keeps_a_worktree_with_a_fifo_or_a_dir_link_without_hanging(self):
+        # review of plan 102: open() on a FIFO blocks until a writer comes, and
+        # os.walk lists a link to a directory without descending it
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write("/.cursor/agents/\n/cache/\n")
+        piped = self.slice("slice-fifo")
+        os.makedirs(os.path.join(piped, ".cursor", "agents"))
+        os.mkfifo(os.path.join(piped, ".cursor", "agents", "tezgah-a.md"))
+        # git lists no FIFO; a managed file beside it puts the directory on the list
+        with open(os.path.join(piped, ".cursor", "agents", "tezgah-b.md"), "w") as fh:
+            fh.write("# tezgah: managed by tezgah-agents; do not edit\n")
+        linked = self.slice("slice-link")
+        os.makedirs(os.path.join(linked, "cache"))
+        os.symlink(self.home, os.path.join(linked, "cache", "elsewhere"))
+        lines = self.close_lines()
+        self.assertIn("ignored file .cursor/agents/tezgah-a.md", lines[os.path.realpath(piped)])
+        self.assertIn("ignored file cache/elsewhere", lines[os.path.realpath(linked)])
+
     def test_close_keeps_every_worktree_when_orca_does_not_answer(self):
         # Orca installed but down, or answering in a shape this reader does not
         # know: its agents cannot be checked, so nothing goes

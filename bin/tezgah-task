@@ -207,8 +207,8 @@ def own_task(root):
     task = active_here(root)
     ident = tt.plan_of_branch(tt.worktree_branch(root))
     if ident is not None and (not task or task["id"] != ident):
-        return None, ("this worktree is plan %s's and plan %s has no phase: start "
-                      "it here with `tezgah-task start %s --phase P`; no other "
+        return None, ("this worktree is plan %s's and plan %s is not the active task "
+                      "here: start it with `tezgah-task start %s --phase P`; no other "
                       "plan's record moves from this worktree" % (ident, ident, ident))
     return task, None
 
@@ -1037,17 +1037,26 @@ def _only_copy(path, rel):
     beside them is the user's."""
     from tezgah_agents import MARKER
     full = os.path.join(path, rel)
-    files = ([full] if not os.path.isdir(full) else
-             [os.path.join(d, n) for d, _, names in os.walk(full) for n in names])
-    for name in sorted(files):
-        try:
-            with open(name, encoding="utf-8", errors="replace") as fh:
-                managed = (os.path.basename(name).startswith("tezgah-")
-                           and MARKER in fh.read(4096))
-        except OSError:
+    walk = ([(os.path.dirname(full), [], [os.path.basename(full)])]
+            if not os.path.isdir(full) or os.path.islink(full) else os.walk(full))
+    # lazily, stopping at the first file nobody regenerates: an ignored build
+    # tree is walked only as far as its first entry (review of plan 102)
+    for d, dirs, names in walk:
+        dirs.sort()
+        # a link to a directory is a file os.walk does not descend: keep it
+        for name in sorted(names) + [x for x in dirs if os.path.islink(os.path.join(d, x))]:
+            entry = os.path.join(d, name)
             managed = False
-        if not managed:
-            return os.path.relpath(name, path)
+            # the type before any open: a FIFO blocks open() until a writer comes
+            if name.startswith("tezgah-") and os.path.isfile(entry) \
+                    and not os.path.islink(entry):
+                try:
+                    with open(entry, encoding="utf-8", errors="replace") as fh:
+                        managed = MARKER in fh.read(4096)
+                except OSError:
+                    pass
+            if not managed:
+                return os.path.relpath(entry, path)
     return None
 
 
