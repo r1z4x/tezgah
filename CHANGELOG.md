@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.8.1] - 2026-10-13
 
+### Changed
+
+- **The neuter matrix runs in CI, and in minutes.** Each mutant first runs the one test that killed it last time, kept in `tests/neuter_killers.json`. A full search runs only when that test passes. A cached run took 240 s, against about an hour before. CI runs it on a push that changes a guarded file, and weekly. A session checks a new rule's mutant with `--only <name>`.
+- **The suite is faster.** It starts the largest modules first. Slow tests share their expensive installs per class, and one test now covers each duplicated path. A change under `benchmarks/arm-bench/` runs that lab's module, not all 100.
+
 ### Fixed
 
 - **A checkout under the temp dir is not scratch.** The gate treated any path under the temp dir as scratch. So the task scope, the race rule and the main-checkout rule skipped it, and a plan worktree there let a write outside its scope pass. A file inside a git checkout now meets those rules, and a plain temp file stays scratch.
