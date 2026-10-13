@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A claim needs a check someone saw pass.** A done or tested claim over a `verify_ok` row with no passing output now owes `no verify_ok`. An earlier pass and a turn of git bookkeeping no longer excuse it.
 - **A research, analysis, review or plan ask ends at the plan.** The contract now says so. Building that plan waits for the user's answer, and a finding outside the ask becomes a plan, not code.
 - **No plan, no third product file, on any branch.** The no-plan rule held only `main` and `master`, and counted only tezgah's own folders. It now holds every branch that no open plan binds, and counts any path in the checkout. Only `.tezgah/`, `.codegraph/`, `.git/` and the hosts' generated `agents/` sets stay out. A `plan/NNN-*` branch binds only an open plan NNN. A worktree on the branch an open plan names in `branch:` answers to that plan, so Orca's `r1z4x/<name>` worktrees bind too. `tezgah-task start NNN --phase P --branch <name>` writes that binding, and the refusal names it. A merge or rebase in progress passes.
+- **`tezgah-route --mode` switches every routed agent at once.** It writes the table over omp selectors set by hand. That covers the 12 routed agents and the plan and slow roles, and it names each one it replaced. Before, a hand-set selector kept every subagent on another family after a switch. The automatic re-apply at session start still leaves hand-set selectors alone.
 
 ### Fixed
 
@@ -21,6 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`close` prunes a worktree of generated files.** Managed agent files and the `.codegraph` index regenerate, so they keep no landed worktree. Any other ignored file still keeps it. So do a FIFO, a directory link and a directory `close` cannot list.
 - **A Ctrl-C as an installer starts still stops it.** `--deps` armed its group kill only after the installer had started. A Ctrl-C in that gap left the installer running on its own, and a test timed out on it under load.
 - **`close` drops the branch of a worktree Orca removed.** Orca answers before the checkout is gone. Git then refused to delete the branch, and close printed `branch kept`. Close now waits up to 10 seconds for the directory to go, and names a checkout still there as kept.
+- **The no-plan rule reads a `~/` path as a home path.** It joined `~/...` onto the session's directory. A plan worktree's files written by `~/` paths then counted as `main`'s, so the gate refused the third.
 
 ## [1.8.3] - 2026-10-13
 

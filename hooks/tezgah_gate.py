@@ -2580,7 +2580,8 @@ def _checkout(path, cwd):
     session on `main` writing into a linked worktree on a plan branch is plan
     work, and one on a plan branch writing into a `main` checkout is not. A
     relative path is resolved against the call's own `cwd`."""
-    text = str(path or "").strip()
+    # `~/x` is a home path, not one under the cwd (plan 106)
+    text = os.path.expanduser(str(path or "").strip())
     if not text or not cwd and not os.path.isabs(text):
         return None
     full = os.path.realpath(os.path.join(cwd or "", text))

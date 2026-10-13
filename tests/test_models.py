@@ -242,6 +242,40 @@ class OmpOverrides(unittest.TestCase):
         self.assertEqual(store["task.agentModelOverrides"]["tezgah-standard"],
                          "openai/gpt-6.1-sol")
 
+    def test_an_explicit_mode_switch_takes_over_hand_set_routed_agents(self):
+        # plan 106: every routed agent held a hand-set zai/deepseek selector, so
+        # `--mode anthropic` reached none of them. The explicit switch writes the
+        # table over the keys it owns; a key outside the table stays
+        state = {}
+        hand = "zai/glm-5.3-flash:low,deepseek/deepseek-v4-pro:low"
+        store = {"task.agentModelOverrides": {"tezgah-cheap": hand, "sonic": hand,
+                                              "my-agent": hand},
+                 "modelRoles": {"default": "anthropic/claude-opus-5-5:high",
+                                "plan": "zai/glm-5.3:high"},
+                 "retry.fallbackChains": {}}
+
+        def omp(*args):
+            if args[0] == "set":
+                store[args[1]] = json.loads(args[2])
+            return mock.Mock(stdout="")
+
+        with mock.patch.object(tm, "omp_get", side_effect=lambda k: dict(store[k])), \
+                mock.patch.object(tm, "funded_families", return_value=["anthropic"]), \
+                mock.patch.object(tm, "_omp", side_effect=omp), \
+                mock.patch.object(tm, "overlay", side_effect=lambda: dict(state)), \
+                mock.patch.object(tm, "save_overlay",
+                                  side_effect=lambda d: bool(state.update(d)) or True):
+            tm.apply_omp()
+            self.assertEqual(store["task.agentModelOverrides"]["tezgah-cheap"], hand)
+            status = tm.apply_omp(take=True)
+            got = store["task.agentModelOverrides"]
+            self.assertTrue(got["tezgah-cheap"].startswith("anthropic/claude-opus-5-5:low"))
+            self.assertTrue(got["sonic"].startswith("anthropic/claude-opus-5-5:low"))
+            self.assertEqual(got["my-agent"], hand)
+            self.assertEqual(store["modelRoles"]["plan"], "anthropic/claude-opus-5-5:high")
+            self.assertEqual(state["omp_written"]["tezgah-cheap"], got["tezgah-cheap"])
+            self.assertIn("replaced 3 hand-set", status)
+
     def test_apply_writes_the_plan_and_slow_roles_and_keeps_every_other_role(self):
         store = {"task.agentModelOverrides": {},
                  "modelRoles": {"default": "anthropic/claude-opus-5-5:high",

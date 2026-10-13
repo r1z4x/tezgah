@@ -151,7 +151,10 @@ def main(argv):
             print("could not write %s" % tm.OVERLAY, file=sys.stderr)
             return 1
         print("omp mode: %s" % args.mode)
-        print(tm.apply_omp() or "omp not answering; the mode applies at the next setup")
+        # the user named the family: it reaches every routed agent, hand-set
+        # selectors included (plan 106); the automatic re-apply leaves those alone
+        print(tm.apply_omp(take=True)
+              or "omp not answering; the mode applies at the next setup")
         return 0
     if not brief:
         print("usage: tezgah-route \"<brief>\" [--phase P] [--json] | --check | --refresh "

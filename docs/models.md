@@ -219,7 +219,10 @@ the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|auto|o
 omp's family instead of following the session default; `off` removes every entry
 and role the table wrote and writes nothing, which is the way back when the
 provider those selectors need has no budget - a measured case, not a
-hypothetical one. `tezgah-setup --install`
+hypothetical one. The switch reaches every routed agent in one command. It writes
+the table over a selector set by hand and names each one it replaced
+(`apply_omp`, `hooks/tezgah_models.py::apply_omp`). The automatic re-apply at
+session start leaves a hand-set selector alone. `tezgah-setup --install`
 writes omp's overrides and `--uninstall` removes only the `tezgah-*` entries; the
 omp status report carries a row for them.
 

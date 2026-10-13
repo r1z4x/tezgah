@@ -3347,6 +3347,20 @@ class PlanGate(TempHome):
                         "plan/017-plan-required-on-main"], check=True)
         self.assertIsNone(self.write(self.path("docs", "one.md")))
 
+    def test_a_home_relative_target_in_a_plan_worktree_is_that_worktrees(self):
+        # plan 106: `~/wt/x` joined onto a cwd on main read as main's file, so a
+        # session on main writing its plan worktree by a `~/` path was refused
+        self.open_plan("017")
+        subprocess.run(["git", "-C", self.repo, "-c", "user.email=a@b", "-c",
+                        "user.name=t", "commit", "-q", "--allow-empty", "-m", "x"],
+                       check=True)
+        wt = os.path.join(self.home, "wt")
+        subprocess.run(["git", "-C", self.repo, "worktree", "add", "-q", "-b",
+                        "plan/017-x", wt], check=True)
+        self.seed_write("~/wt/hooks/one.py")
+        self.seed_write("~/wt/tests/test_one.py")
+        self.assertIsNone(self.write("~/wt/docs/one.md"))
+
     def test_a_plan_branch_naming_no_open_plan_is_refused(self):
         # review of plan 105, F3: `git switch -c plan/1-x` must not be the escape
         subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-b",

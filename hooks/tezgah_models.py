@@ -776,7 +776,7 @@ def _ours_by_shape(key, value):
                for mode in MODES)
 
 
-def _reconcile(current, written, want):
+def _reconcile(current, written, want, taken=None):
     """(new, owns) for one flat {key: value} record, keys tezgah's own and the
     user's alike: `current` what omp holds, `written` the last recorded write,
     `want` what this mode asks for.
@@ -785,7 +785,9 @@ def _reconcile(current, written, want):
     `omp_written` recorded (or, on a machine written before that record existed,
     one of the table's own selectors - `_ours_by_shape`). A value the user
     changed by hand is left alone, an entry tezgah never wrote is never dropped,
-    and ours that is no longer wanted goes."""
+    and ours that is no longer wanted goes. With `taken` (a list, an explicit
+    `tezgah-route --mode`, plan 106) a wanted key the user set by hand is
+    written over too, and its key is appended to `taken`."""
     new, owns = {}, {}
     for key in sorted(set(current) | set(written) | set(want)):
         cur = current.get(key)
@@ -795,7 +797,9 @@ def _reconcile(current, written, want):
             # byte-identical to what we want counts as ours: claiming it writes
             # the same value and only records ownership, which is what lets the
             # next mode switch move it instead of leaving it behind
-            if cur is None or mine or cur == want[key]:
+            if cur is None or mine or cur == want[key] or taken is not None:
+                if taken is not None and not (cur is None or mine or cur == want[key]):
+                    taken.append(key)
                 new[key], owns[key] = want[key], want[key]
             else:
                 new[key] = cur  # the user's own choice for this key wins
@@ -811,7 +815,7 @@ def _reconcile(current, written, want):
     return new, owns
 
 
-def apply_omp(remove=False):
+def apply_omp(remove=False, take=False):
     """Write (or, with `remove`, drop) this table's entries of omp's
     `task.agentModelOverrides` and its `modelRoles.plan` and `.slow`, leaving
     everything else as it is.
@@ -850,8 +854,9 @@ def apply_omp(remove=False):
             want = omp_overrides(mode)
             want_roles = omp_role_overrides(mode)
     flat_roles = {"modelRoles." + role: roles.get(role) for role in OMP_ROLES}
-    new, owns = _reconcile(current, written, want)
-    new_roles, owns_roles = _reconcile(flat_roles, written, want_roles)
+    taken = [] if take else None
+    new, owns = _reconcile(current, written, want, taken)
+    new_roles, owns_roles = _reconcile(flat_roles, written, want_roles, taken)
     owns.update(owns_roles)
     merged = dict(roles)  # every other role the user set stays as it is
     for key in flat_roles:  # a role this table drops leaves no key behind
@@ -866,7 +871,7 @@ def apply_omp(remove=False):
     flat_chains = {"retry.fallbackChains." + role: chains.get(role)
                    for role in OMP_ROLES}
     want_chains = {} if remove else omp_role_chains(mode)
-    new_chains, owns_chains = _reconcile(flat_chains, written, want_chains)
+    new_chains, owns_chains = _reconcile(flat_chains, written, want_chains, taken)
     owns.update(owns_chains)
     merged_chains = dict(chains)
     for key in flat_chains:
@@ -898,7 +903,9 @@ def apply_omp(remove=False):
         return ("omp model overrides written, ownership NOT recorded "
                 "(overlay unreadable)")
     return ("omp model overrides removed (%s)" % (mode or "uninstall") if remove
-            else "omp model overrides written (%s)" % mode)
+            else "omp model overrides written (%s)%s" % (
+                mode, "; replaced %d hand-set: %s" % (len(taken), ", ".join(taken))
+                if taken else ""))
 
 
 # ---------------------------------------------------------------- refresh ----
