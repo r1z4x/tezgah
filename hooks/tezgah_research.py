@@ -2095,7 +2095,8 @@ def append_claim(repo, slug, claim):
         # The judgement runs under the lock and reads the ids from the descriptor
         # holding it (`_claim_ids`): the ids a claim is judged against are the ids
         # the append commits beside.
-        problems = claim_problems(claim, base, repo, held=_claim_ids(base, handle))
+        problems = claim_problems(claim, base, tp.work_tree(repo),
+                                  held=_claim_ids(base, handle))
         if problems:
             if created and os.path.getsize(path) == 0:
                 os.remove(path)
@@ -4530,7 +4531,7 @@ def _migrate_claims(base, repo, dry_run, problems):
             if claim.get("kind") in KINDS:
                 out.append(raw)
                 continue
-            kind = derive_kind(claim, (base, repo))
+            kind = derive_kind(claim, (base, tp.work_tree(repo)))
             if kind is None:
                 problems.append("claim %s: no kind derived - its proof names no "
                                 "artifact to be a proof of" % label)

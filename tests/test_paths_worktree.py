@@ -627,6 +627,44 @@ class BareRepository(TempHome):
                               cwd=self.feature, capture_output=True, text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
+    def test_a_claim_on_a_worktree_file_is_written_checked_and_migrated(self):
+        # review round 2 of plan 098: the claim write path, the numbers rule and
+        # the kind migration resolved cited files against `<bare>`
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        os.makedirs(os.path.join(self.feature, "src"))
+        with open(os.path.join(self.feature, "src", "report.md"), "w") as fh:
+            fh.write("p95 dropped 7 ms\n")
+        # a `dir/name` with no extension counts as an artifact only where it exists
+        with open(os.path.join(self.feature, "src", "runner"), "w") as fh:
+            fh.write("run\n")
+
+        def cli(*args, stdin=None):
+            return subprocess.run([sys.executable, RESEARCH, *args], input=stdin,
+                                  cwd=self.feature, capture_output=True, text=True,
+                                  env=env)
+        proc = cli("init", "code-line", "--ask", "q", "--question", "q", "--in", "p95")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        claim = {"id": "c1", "statement": "p95 dropped 12 ms", "status": "untested",
+                 "provenance": "ai-executed", "kind": "code", "falsification": "f",
+                 "proof": "see src/report.md", "trace": ["S1"]}
+        proc = cli("claim", "code-line", stdin=json.dumps(claim))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("claim c1 recorded", proc.stdout)
+        # the number the cited worktree file does not hold is warned about
+        proc = cli("check", "code-line")
+        warned = [r for r in proc.stdout.splitlines()
+                  if r.startswith("warn code-line: claim c1") and "12" in r]
+        self.assertTrue(warned, proc.stdout + proc.stderr)
+        # an older row with no kind derives `code` from the worktree file
+        line = os.path.join(self.ws, "research", "open", "code-line", "claims.jsonl")
+        old = dict(claim, id="c2", statement="p95 dropped 7 ms",
+                   proof="the loop in src/runner")
+        del old["kind"]
+        with open(line, "a") as fh:
+            fh.write(json.dumps(old) + "\n")
+        proc = cli("migrate", "code-line")
+        self.assertIn("claim c2: kind code", proc.stdout + proc.stderr)
+
     def test_taste_mine_reads_the_worktrees_sessions(self):
         # review of plan 098, F3: `mine` kept the sessions under `<bare>`, and
         # every session runs in a worktree
