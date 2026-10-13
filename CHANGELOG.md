@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-10-13
+
 ### Changed
 
 - **A release reuses the green CI of its commit.** It waits for the push run of `ci.yml` on the same commit to finish. It skips its own CI run only when that run succeeded, which saves about 12 minutes. Any other outcome runs CI as before.
@@ -1171,7 +1173,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.2...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.3...HEAD
+[1.8.3]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.3
 [1.8.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.2
 [1.8.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.1
 [1.8.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.0
