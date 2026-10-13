@@ -700,16 +700,23 @@ class OpenCodePlugin(TempHome):
         # write path asks the core first - so the one row the ledger holds is
         # that ask's `delegation` row, which is the two failures told apart
         # rather than either of them passing for a rule that found nothing.
-        self.envv = self.env(extra={"PATH": os.path.join(self.home, "no-path")})
+        # Both store runtimes: without node:sqlite (node before 22.5, the node 20
+        # the neuter workflow runs) the store CLI dies on the same PATH, so the
+        # rows land in the legacy file - read the way Python reads them.
         target = os.path.join(self.repo, "src", "a.py")
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "w") as fh:
             fh.write("x = 1\n")
-        self.allowed(self.before("edit", {"file_path": target, "old_string":
-                                          "x = 1", "new_string": "x = 2"}))
-        rows = self.ledger()
-        self.assertEqual([r["kind"] for r in rows], ["delegation", "began"], rows)
-        self.assertEqual(rows[0]["detail"], "gate: spawn")
+        for session, no_sqlite in (("s1", "0"), ("s2", "1")):
+            self.envv = self.env(extra={"PATH": os.path.join(self.home, "no-path"),
+                                        "TEZGAH_OPENCODE_NO_SQLITE": no_sqlite})
+            self.allowed(self.before("edit", {"file_path": target, "old_string":
+                                              "x = 1", "new_string": "x = 2"},
+                                     session=session))
+            rows = ti.events_path(self.evidence_path(session))
+            self.assertEqual([r["kind"] for r in rows], ["delegation", "began"],
+                             (no_sqlite, rows))
+            self.assertEqual(rows[0]["detail"], "gate: spawn")
 
     def test_a_shell_write_is_snapshotted_when_the_call_is_allowed(self):
         # The shell is a write route like any other: the gate keeps the pre-state
