@@ -198,6 +198,21 @@ def active_here(root):
     return tt.active(root, root, held=True)
 
 
+def own_task(root):
+    """(task, problem) for a command that writes the active plan's record. In a
+    linked worktree on a `plan/NNN-...` branch that is plan NNN or a refusal,
+    never the main checkout's first phased plan: `allow` there replaced another
+    plan's allowlist (plan 102). The gate keeps that fallback, which holds the
+    worktree's writes; only the record write is refused."""
+    task = active_here(root)
+    ident = tt.plan_of_branch(tt.worktree_branch(root))
+    if ident is not None and (not task or task["id"] != ident):
+        return None, ("this worktree is plan %s's and plan %s is not the active task "
+                      "here: start it with `tezgah-task start %s --phase P`; no other "
+                      "plan's record moves from this worktree" % (ident, ident, ident))
+    return task, None
+
+
 def problems(items):
     for problem in items:
         print("FAIL %s" % problem)
@@ -602,9 +617,9 @@ def cmd_phase(args):
     if phase not in tt.TASK_PHASES:
         return problems([bad_phase(phase)])
     root = repo_root(os.getcwd())
-    task = active_here(root)
-    if not task:
-        return problems(["no active task: start one with "
+    task, bad = own_task(root)
+    if bad or not task:
+        return problems([bad or "no active task: start one with "
                          "`tezgah-task start <id> --phase %s`" % phase])
     text = read(task["path"])
     fields = {"phase": phase, "updated": today()}
@@ -645,9 +660,9 @@ def cmd_allow(args):
     if not why:
         return misuse("allow takes --why \"<what in the plan reaches these paths>\"")
     root = repo_root(os.getcwd())
-    task = active_here(root)
-    if not task:
-        return problems(["no active task to widen: start one with "
+    task, bad = own_task(root)
+    if bad or not task:
+        return problems([bad or "no active task to widen: start one with "
                          "`tezgah-task start <id> --phase P --allow GLOB`"])
     bad = held_overlap(root, task["id"], args)
     if bad:
@@ -667,9 +682,9 @@ def cmd_allow(args):
 def cmd_stop(args):
     if args:
         return misuse("stop takes no arguments")
-    task = active_here(repo_root(os.getcwd()))
-    if not task:
-        return problems(["no active task to stop"])
+    task, bad = own_task(repo_root(os.getcwd()))
+    if bad or not task:
+        return problems([bad or "no active task to stop"])
     bad = write_fields(task["path"], phase="", updated=today())
     if bad:
         return problems(bad)
@@ -1012,7 +1027,41 @@ def commit_close(root, name, message):
 # a test holds a cache.
 REGENERABLE = frozenset(("__pycache__", ".pytest_cache", ".ruff_cache",
                          ".mypy_cache", "node_modules", ".venv", "venv",
-                         ".DS_Store"))
+                         ".DS_Store", ".codegraph"))
+
+
+def _only_copy(path, rel):
+    """The first file under the ignored entry `rel` of worktree `path` that
+    nothing regenerates, or None. tezgah's own agent files (`tezgah-*`, carrying
+    the managed marker) are written again at session start (plan 102); a file
+    beside them is the user's."""
+    from tezgah_agents import MARKER
+    full = os.path.join(path, rel)
+    unread = []  # a directory the walk cannot list holds what it cannot tell
+    walk = ([(os.path.dirname(full), [], [os.path.basename(full)])]
+            if not os.path.isdir(full) or os.path.islink(full)
+            else os.walk(full, onerror=lambda exc: unread.append(exc.filename)))
+    # lazily, stopping at the first file nobody regenerates: an ignored build
+    # tree is walked only as far as its first entry (review of plan 102)
+    for d, dirs, names in walk:
+        dirs.sort()
+        # a link to a directory is a file os.walk does not descend: keep it
+        for name in sorted(names) + [x for x in dirs if os.path.islink(os.path.join(d, x))]:
+            entry = os.path.join(d, name)
+            managed = False
+            # the type before any open: a FIFO blocks open() until a writer comes
+            if name.startswith("tezgah-") and os.path.isfile(entry) \
+                    and not os.path.islink(entry):
+                try:
+                    with open(entry, encoding="utf-8", errors="replace") as fh:
+                        managed = MARKER in fh.read(4096)
+                except OSError:
+                    pass
+            if not managed:
+                return os.path.relpath(entry, path)
+        if unread:
+            return os.path.relpath(unread[0], path)
+    return os.path.relpath(unread[0], path) if unread else None
 
 
 def _landed(root, branch, base):
@@ -1041,8 +1090,11 @@ def _keeps(root, path, branch, bases, agents):
         return "uncommitted changes"
     for line in (git_out(path, "status", "--porcelain", "-unormal", "--ignored") or "").splitlines():
         rel = line[3:].strip('"').rstrip("/")
-        if rel != ".tezgah" and not REGENERABLE & set(rel.split("/")):
-            return "ignored file %s may be the only copy" % rel
+        if rel == ".tezgah" or REGENERABLE & set(rel.split("/")):
+            continue
+        kept = _only_copy(path, rel)
+        if kept:
+            return "ignored file %s may be the only copy" % kept
     ws = os.path.join(path, ".tezgah")
     # a link to the repository's one workspace (plans 098 and 100) is no data of
     # the worktree's own: removing the worktree drops only the link
