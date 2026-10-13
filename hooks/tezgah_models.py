@@ -425,7 +425,7 @@ def other_family_up(text):
     if os.environ.get("TEZGAH_HEALTH_CHECK") == "0":
         return None
     mode = omp_mode()
-    if mode not in OMP_FAMILIES:
+    if mode not in MODE_FAMILIES:
         return None
     funded = funded_families(live=True)
     chained = {sel for slot in SLOTS for sel in _chain(mode, slot, funded)}

@@ -464,6 +464,17 @@ class OmpOverrides(unittest.TestCase):
         with mock.patch.object(tm, "codex_ready", return_value=False):
             self.assertEqual(tm.omp_overrides("openai"), {})
 
+    def test_a_codex_limit_names_the_family_the_openai_chain_falls_back_to(self):
+        # review of plan 107: the limit reader asked only OMP_FAMILIES, so a
+        # slice stopped on a Codex limit was never told zai was up in its chain
+        env = {k: v for k, v in os.environ.items() if k != "TEZGAH_HEALTH_CHECK"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(tm, "omp_mode", return_value="openai"), \
+                mock.patch.object(tm, "funded_families", return_value=["zai"]), \
+                mock.patch.object(tm, "codex_ready", return_value=True), \
+                mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
+            self.assertEqual(tm.other_family_up("Codex usage_limit_reached"), "zai")
+
     def test_the_off_mode_wants_nothing_at_all(self):
         # the status row reads this: an `off` machine must not look like one with
         # a missing override, because no repair could ever clear that row
