@@ -733,7 +733,7 @@ class ResidualTurns(TempHome):
             {"id": "b", "question": "Hangi renk?", "options": [{"label": "y"}]}]}
         jsonl(os.path.join(self.home, ".omp", "agent", "sessions", "-ask-", "a.jsonl"), [
             {"type": "title"}, {"type": "session", "id": "ask-1", "cwd": repo},
-            user("planla"), text(T0 + 50, "Plan hazır.\n\nBaşlayayım mı?"),
+            user("sırala"), text(T0 + 50, "Üç adım var.\n\nDevam edeyim mi?"),
             user("devam"), assistant(T0 + 51, call("ask", ask)),
             assistant(T0 + 52, call("bash", push)), text(T0 + 53, "Gönderildi."),
             user("bana sormadan pushla"), assistant(T0 + 54, call("bash", push)),

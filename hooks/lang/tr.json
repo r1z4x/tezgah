@@ -255,6 +255,9 @@
   "never_default": [
    "zorla|geçmiş\\w* (?:yeniden yaz|değiştir)\\w*|\\bsil\\w*|kaldır\\w*|yok et\\w*|üretim\\w*|\\bcanlı\\w*|\\bprod\\w*|göç\\w*|kimlik bilgi\\w*|şifre\\w*|parola\\w*|\\bhesa[bp]\\w*|e-?posta\\w*|gönder\\w*"
   ],
+  "plan_build": [
+   "\\bplan\\w*[^.?!\\n]{0,40}(?:hazır|yazıldı|yazdım|oluşturdum|oluşturuldu|açtım|açıldı|eklendi|uygula\\w*|başla\\w*|kur\\w*)|(?:yazdığım|açtığım|hazırladığım|oluşturduğum) plan\\w*"
+  ],
   "spend": [
    "ücret\\w*|ödeme\\w*|harca\\w*|bütçe\\w*|maliyet\\w*|\\bpara\\b|dolar\\w*|\\$\\s?\\d"
   ],

@@ -3182,8 +3182,10 @@ class StopHook(TempHome):
         # ends "Başlayayım mı?" - no work in the turn - is refused once as
         # `needless ask`, a refusal and not a claim, and the reply after it is
         # record-only. Before the class it ended the turn.
-        self.turn("planla")
-        asked = "Plan hazır: üç adım.\n\nBaşlayayım mı?"
+        # plan 105: a question about building the plan the turn wrote is asked
+        # (class F), so a plain process question carries this test
+        self.turn("sırala")
+        asked = "Üç adım var.\n\nDevam edeyim mi?"
         out = self.stop(asked)
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Bu soruyu sorma", out["reason"])
@@ -3655,12 +3657,20 @@ class AskPolicy(unittest.TestCase):
     NONE = staticmethod(lambda: frozenset())
 
     def test_process_questions_are_needless_and_the_others_are_not(self):
-        for text in ("Plan hazır.\n\nBaşlayayım mı?", "hangisinden başlayayım?",
+        for text in ("Devam edeyim mi?", "hangisinden başlayayım?",
                      "Commit atmamı ister misin?", "Shall I proceed?", "Which first?"):
             self.assertTrue(ti.needless_ask(text, self.NONE), text)
         for text in ("Bu doğru mu?", "Testler geçti mi?", "Tamamlandı.",
                      "Prod veritabanını sileyim mi?", "Shall I force-push main?",
                      "Öneri: evet.\n1. Başlayayım mı?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+
+    def test_building_a_plan_the_reply_wrote_is_asked(self):
+        # plan 105: building a plan this turn wrote is a class-F step, so the
+        # question is the one the policy wants, not a needless ask
+        for text in ("Plan hazır.\n\nBaşlayayım mı?", "Plan 106 yazıldı.\n\nPlanı uygulamaya başlayayım mı?",
+                     "Plan 106'yı uygulayayım mı?", "I wrote plan 106.\n\nShall I proceed?",
+                     "Shall I build plan 106?", "Should I implement the plan?"):
             self.assertIsNone(ti.needless_ask(text, self.NONE), text)
 
     def test_an_ungranted_outward_question_waits_and_a_granted_one_does_not(self):

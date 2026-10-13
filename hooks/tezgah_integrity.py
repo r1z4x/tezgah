@@ -5827,6 +5827,9 @@ def _now_closed(item, label):
 QUESTION_END = re.compile(r"(?:\?|\b(?:%s)[.!]?)$" % alts("question_end"))
 PROCESS_ASK = re.compile(alts("ask", "process"), re.I)
 NEVER_DEFAULT = re.compile(alts("ask", "never_default"), re.I)
+# A reply that names a plan it wrote, or asks to build one: building a plan the
+# turn wrote is class F (plan 105), so asking it is the policy, not a needless ask
+PLAN_BUILD = re.compile(alts("ask", "plan_build"), re.I)
 SPEND = re.compile(alts("ask", "spend"), re.I)
 AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?(?:\$|usd\b|dolar)", re.I)
 DEFAULT_MARK = re.compile(alts("ask", "default_mark"), re.I)
@@ -5909,7 +5912,8 @@ def needless_ask(text, granted=frozenset):
     if not lines or not QUESTION_END.search(lines[-1]):
         return None
     last = lines[-1]
-    if never_default(last) or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1])):
+    if (never_default(last) or PLAN_BUILD.search(_tr_lower(t))
+            or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1]))):
         return None
     low = _tr_lower(last)
     outward = outward_classes(low)

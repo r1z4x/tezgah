@@ -49,6 +49,7 @@
  "needless-default": "test_integrity.AskPolicy.test_process_questions_are_needless_and_the_others_are_not",
  "needless-granted": "test_integrity.AskPolicy.test_a_granted_outward_step_is_not_asked_again",
  "needless-never-default": "test_integrity.AskPolicy.test_a_spend_is_never_default_only_over_the_cap",
+ "needless-plan-build": "test_integrity.AskPolicy.test_building_a_plan_the_reply_wrote_is_asked",
  "needless-process": "test_integrity.AskPolicy.test_a_spend_is_never_default_only_over_the_cap",
  "needless-wired": "test_integrity.StopHook.test_a_process_question_at_the_end_is_refused_once",
  "negated": "test_integrity.ResidualWork.test_a_failed_screen_check_is_the_attempt_the_screen_class_asks_for",

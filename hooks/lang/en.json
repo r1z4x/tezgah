@@ -211,6 +211,9 @@
   "never_default": [
    "force[- ]?push\\w*|--force\\b|rewrit\\w* (?:the )?history|reset --hard|\\bdelet\\w*|\\bdrop (?:the )?(?:table|database|volume)s?|unpublish\\w*|deprecat\\w*|production|\\bprod\\b|migrat\\w*|credential\\w*|password\\w*|secret\\w*|api key|\\baccount\\w*|e-?mail|send (?:it |this |them )?to\\b"
   ],
+  "plan_build": [
+   "\\bplans?\\b[^.?!\\n]{0,40}\\b(?:is ready|ready|written|drafted)\\b|\\b(?:wrote|opened|drafted|added|created) (?:the |a |this )?plans?\\b|\\b(?:build|implement|execute|start on|start) (?:the |this |that )?plans?\\b"
+  ],
   "spend": [
    "spend\\w*|\\bpaid\\b|billing|\\bcost\\w*|\\bbudget\\w*|\\busd\\b|\\$\\s?\\d"
   ],
