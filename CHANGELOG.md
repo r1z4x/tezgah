@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A release reuses the green CI of its commit.** It waits for the push run of `ci.yml` on the same commit to finish. It skips its own CI run only when that run succeeded, which saves about 12 minutes. Any other outcome runs CI as before.
+- **Fewer full-suite runs.** A change under `.tezgah/` runs no test module, and a workflow file runs the modules that read it. Both used to run all 100. Two large runs on one machine now take turns instead of slowing each other down.
+
 ### Fixed
 
 - **A release re-run no longer fails on a current Homebrew formula.** The tap job committed even when the formula already named the version. So a re-run stopped with "nothing to commit". It now commits and pushes only a change.

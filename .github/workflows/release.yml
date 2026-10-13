@@ -23,9 +23,38 @@ on:
 permissions: {}
 
 jobs:
-  # CI on the release commit, run here rather than looked up: a lookup of a past
-  # green run races CI, which is how v0.1.2 published while its CI went red.
+  # A finished, green push run of ci.yml on this exact commit is reused, so a
+  # release does not run the same suite twice (~12 min, 2026-10-13). It waits
+  # for that run to finish and counts only `success` on the release's own sha:
+  # v0.1.2 published while its CI went red because a lookup did not wait. No
+  # such run, or any other outcome, runs CI here as before.
+  green:
+    permissions:
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      ok: ${{ steps.find.outputs.ok }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          row=""
+          for _ in $(seq 1 50); do
+            row=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&event=push&per_page=1" \
+              --jq '.workflow_runs[0] | select(. != null) | "\(.status) \(.conclusion)"')
+            case "$row" in ""|completed*) break ;; esac
+            sleep 30
+          done
+          if [ "$row" = "completed success" ]; then ok=true; else ok=false; fi
+          echo "push CI on $SHA: ${row:-none}; reused: $ok"
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+
   ci:
+    needs: green
+    if: ${{ needs.green.outputs.ok != 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
@@ -36,7 +65,8 @@ jobs:
   # is a workflow-file parse failure and every event dies at 0s - the guards
   # live on the steps, where secrets read fine.
   npm-publish:
-    needs: ci
+    needs: [green, ci]
+    if: ${{ !cancelled() && (needs.green.outputs.ok == 'true' || needs.ci.result == 'success') }}
     permissions:
       contents: read
       id-token: write
@@ -96,7 +126,8 @@ jobs:
           exit 1
 
   brew-formula:
-    needs: ci
+    needs: [green, ci]
+    if: ${{ !cancelled() && (needs.green.outputs.ok == 'true' || needs.ci.result == 'success') }}
     # `gh release upload` below writes the asset with GITHUB_TOKEN; id-token and
     # attestations sign and store the tarball's build provenance.
     permissions:

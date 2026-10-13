@@ -82,6 +82,11 @@ class TheMap(unittest.TestCase):
                      ".tezgah/lessons.md"):
             self.assertEqual(self.modules(path), [], path)
 
+    def test_a_workflow_runs_the_modules_that_read_it(self):
+        mods = self.modules(".github/workflows/release.yml")
+        self.assertIn("test_packaging.py", mods)
+        self.assertLess(len(mods), 20)
+
     def test_the_neuter_matrix_and_its_cache_map_to_their_module(self):
         # both ran all 100 modules (2026-10-13); the matrix is CI's
         for path in ("tests/neuter_matrix.py", "tests/neuter_killers.json"):

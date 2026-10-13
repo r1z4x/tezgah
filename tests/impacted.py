@@ -146,6 +146,10 @@ def modules_for(path, cache):
     # readers check it, and a plan edit ran all 100 modules (2026-10-12/13)
     if path.startswith(".tezgah/"):
         return []
+    # a CI workflow is code only for the modules that read it by name; it ran
+    # all 100 modules (2026-10-13)
+    if path.startswith(".github/workflows/"):
+        return sorted(_tests_mentioning(name, cache)) or None
     if path.startswith("tests/"):
         if ext == ".py" and name.startswith("test_"):
             # a module the change deleted has nothing left to run: on 3.12+ an

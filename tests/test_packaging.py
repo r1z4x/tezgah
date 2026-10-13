@@ -277,9 +277,18 @@ class ReleaseWaitsForCi(unittest.TestCase):
         jobs = self.jobs(self.workflow("release.yml"))
         self.assertRegex(jobs.get("ci", ""),
                          r"(?m)^    uses: \./\.github/workflows/ci\.yml\s*$")
+        # CI runs here unless the push run of this very commit finished green
+        self.assertIn("if: ${{ needs.green.outputs.ok != 'true' }}", jobs["ci"])
+        green = jobs.get("green", "")
+        self.assertIn("head_sha=${SHA}&event=push", green)
+        self.assertIn('[ "$row" = "completed success" ]', green)
+        # a run still in progress is waited for, never read as green
+        self.assertIn('case "$row" in ""|completed*) break', green)
         for job in ("npm-publish", "brew-formula"):
-            self.assertTrue(re.search(r"(?m)^    needs: \[?ci\]?\s*$",
-                                      jobs.get(job, "")), job)
+            block = jobs.get(job, "")
+            self.assertTrue(re.search(r"(?m)^    needs: \[green, ci\]\s*$", block), job)
+            self.assertIn("needs.green.outputs.ok == 'true' || needs.ci.result == 'success'",
+                          block, job)
 
     def test_a_release_skips_only_the_serial_suite_the_shards_already_run(self):
         # The sharded job runs the suite on every push and release; the serial
