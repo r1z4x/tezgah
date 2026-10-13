@@ -1044,7 +1044,10 @@ def _keeps(root, path, branch, bases, agents):
         if rel != ".tezgah" and not REGENERABLE & set(rel.split("/")):
             return "ignored file %s may be the only copy" % rel
     ws = os.path.join(path, ".tezgah")
-    if os.path.isdir(ws):
+    # a link to the repository's one workspace (plans 098 and 100) is no data of
+    # the worktree's own: removing the worktree drops only the link
+    if os.path.isdir(ws) and os.path.realpath(ws) != os.path.realpath(
+            os.path.join(root, ".tezgah")):
         if set(os.listdir(ws)) - {".git"}:
             return "its .tezgah holds data"
         if os.path.isdir(os.path.join(ws, ".git")) and git_out(ws, "rev-parse", "-q", "--verify", "HEAD"):

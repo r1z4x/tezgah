@@ -527,6 +527,50 @@ class BareRepository(TempHome):
         self.assertIsNotNone(decide(os.path.join(plan, ".tezgah", "plans", "open",
                                                  "001-alpha.md")))
 
+    def test_close_lands_the_plan_and_prunes_its_worktree(self):
+        # the identity lives in the bare repository's own config, which the
+        # workspace copies at creation (`seed_identity`)
+        git("-C", self.bare, "config", "user.name", "t")
+        git("-C", self.bare, "config", "user.email", "t@example.invalid")
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        # no per-repo agent files from a Cursor installed on the machine: an
+        # ignored `.cursor` keeps a worktree in any repository, bare or not
+        self.touch(os.path.join(self.home, ".config", "tezgah", "agents-off"))
+        self.start(self.main)
+        os.makedirs(os.path.join(self.ws, "plans", "open"))
+        with open(os.path.join(self.ws, "plans", "open", "007-x.md"), "w") as fh:
+            fh.write("---\nid: 007\ntitle: x\nstatus: open\nbranch: plan/007-x\n"
+                     "phase: implementation\nallowed_paths:\n  - src/**\n---\n## Goal\nx\n"
+                     "## Acceptance\n- [x] it works - `python3 -c pass`\n")
+        git("-C", self.ws, "add", "-A")
+        git("-C", self.ws, "commit", "-qm", "plan: add 007")
+        plan = os.path.realpath(os.path.join(self.roots, "app-007"))
+        git("-C", self.bare, "worktree", "add", "-q", "-b", "plan/007-x", plan)
+        self.start(plan)
+        os.makedirs(os.path.join(plan, "src"))
+        with open(os.path.join(plan, "src", "x.txt"), "w") as fh:
+            fh.write("x\n")
+        git("-C", plan, "add", "src/x.txt")
+        git("-C", plan, "commit", "-qm", "feat: x")
+        proc = subprocess.run([sys.executable, TASK, "review", "007", "Rev", "approve"],
+                              cwd=plan, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        git("-C", self.main, "merge", "-q", "--no-ff", "-m", "merge", "plan/007-x")
+        merge = subprocess.run(["git", "-C", self.main, "rev-parse", "HEAD"],
+                               capture_output=True, text=True).stdout.strip()
+        proc = subprocess.run([sys.executable, TASK, "close", "007", "done"],
+                              cwd=self.main, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(os.path.join(self.ws, "plans", "done", "007-x.md")) as fh:
+            self.assertIn("landed: %s\n" % merge, fh.read())
+        log = subprocess.run(["git", "-C", self.ws, "log", "-1", "--format=%s"],
+                             capture_output=True, text=True).stdout
+        self.assertEqual(log.strip(), "plan: close 007 x")
+        # a worktree's `.tezgah` link to the workspace is no data of its own
+        self.assertFalse(os.path.exists(plan), proc.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(self.main, "src", "x.txt")))
+        self.assertTrue(os.path.isdir(os.path.join(self.ws, ".git")))
+
 
 class InsideWorkspace(TempHome):
     """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -
