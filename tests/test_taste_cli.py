@@ -103,7 +103,10 @@ class Mine(support.TempHome):
         jsonl(os.path.join(self.home, ".omp", "agent", "sessions", "-web-", "w1.jsonl"), [
             '{"type":"session","id":"w1","cwd":%s}' % json.dumps(web),
             omp_tool("write"), omp_user("fix the web login in %s/app.py" % web)])
-        self.assertNotIn("w1", self.run_cli("mine"))
+        # by session id: a substring check failed on CI when the random temp
+        # dir's name held "w1" (tmpt1w163p9)
+        self.assertNotIn("w1", [json.loads(line)["session"]
+                                for line in self.run_cli("mine").splitlines()])
         rows = [json.loads(line) for line in
                 self.run_cli("mine", "--host", "omp", "--all-projects").splitlines()]
         alias = {r["session"]: r for r in rows}["w1"]
