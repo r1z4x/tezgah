@@ -2255,8 +2255,9 @@ def context_for(event, cwd, payload=None, with_core=True):
         # the project and given its private git before anything writes there.
         # A root is not a project, and the helper returns None outside a work tree.
         if ws not in roots():
-            ensure_workspace(ws)
-            if ws != root:
+            # never link to a `.tezgah` ensure_workspace refused: one the
+            # project tracks or a link the clone placed (review of plan 100)
+            if ensure_workspace(ws) and ws != root:
                 link_workspace(root, ws)
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.

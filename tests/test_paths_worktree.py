@@ -279,6 +279,40 @@ class WorktreeBridge(TempHome):
         self.assertIn("%s (this checkout, uses the main checkout's `.tezgah`)"
                       % self.inside, line)
 
+    def test_a_worktree_with_its_own_workspace_keeps_it(self):
+        """Plan 100: session start links a worktree's `.tezgah` only where there
+        is none; one already there (data from before plan 097) stays as it is."""
+        os.makedirs(os.path.join(self.main, ".tezgah"))
+        own = os.path.join(self.inside, ".tezgah", "analysis")
+        os.makedirs(own)
+        with open(os.path.join(own, "old.md"), "w") as fh:
+            fh.write("kept\n")
+        _, proc = support.run_json(
+            [support.PROBE_CONTEXT], {"fn": "context_for", "event": "session_start",
+                                      "cwd": self.inside},
+            env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.islink(os.path.join(self.inside, ".tezgah")))
+        with open(os.path.join(own, "old.md")) as fh:
+            self.assertEqual(fh.read(), "kept\n")
+
+    def test_a_workspace_the_project_tracks_gets_no_link(self):
+        """Review of plan 100: a `.tezgah` the project commits is refused by
+        ensure_workspace (audit L-16), so a worktree must not link to it."""
+        tracked = os.path.join(self.main, ".tezgah")
+        os.makedirs(tracked)
+        with open(os.path.join(tracked, "x"), "w") as fh:
+            fh.write("x\n")
+        git("-C", self.main, "add", "-f", ".tezgah/x")
+        git("-C", self.main, "-c", "user.email=a@b", "-c", "user.name=t",
+            "commit", "-qm", "track")
+        _, proc = support.run_json(
+            [support.PROBE_CONTEXT], {"fn": "context_for", "event": "session_start",
+                                      "cwd": self.outside},
+            env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.lexists(os.path.join(self.outside, ".tezgah")))
+
     def test_research_init_in_a_worktree_survives_its_removal(self):
         """Plan 097: `init` in a worktree wrote the line into that worktree's
         `.tezgah`, and a plain `git worktree remove` deleted it."""
