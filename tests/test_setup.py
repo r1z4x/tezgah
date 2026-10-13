@@ -676,6 +676,44 @@ class Deps(SetupBase):
                 self.fail("grandchild %d outlived the Ctrl-C" % pid)
             time.sleep(0.1)
 
+    def test_ctrl_c_while_the_installer_starts_takes_its_group_with_it(self):
+        """Plan 103: a SIGINT that lands as Popen returns, before the wait's
+        cleanup is armed, left the new-session installer running; under load
+        the test above timed out on the grandchild holding its stderr."""
+        import time
+        pidfile = self.path("grandchild.pid")
+        runner = ("import importlib.machinery, importlib.util, os, signal, subprocess\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "real = subprocess.Popen\n"
+                  "def popen(*a, **k):\n"
+                  "    p = real(*a, **k)\n"
+                  "    os.kill(os.getpid(), signal.SIGINT)\n"
+                  "    return p\n"
+                  "subprocess.Popen = popen\n"
+                  "m._run_bounded(['sh', '-c', 'sleep 60 & echo $! > %s; wait'], 120)\n"
+                  % (SETUP, pidfile))
+        proc = subprocess.Popen([sys.executable, "-c", runner], env=self.env,
+                                stderr=subprocess.PIPE)
+        try:
+            _out, err = proc.communicate(timeout=30)
+        finally:
+            if os.path.exists(pidfile) and self.read_text(pidfile).strip():
+                pid = int(self.read_text(pidfile))
+                deadline = time.monotonic() + 5
+                while True:
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        break
+                    if time.monotonic() > deadline:
+                        os.kill(pid, 9)
+                        self.fail("grandchild %d outlived the Ctrl-C" % pid)
+                    time.sleep(0.1)
+        self.assertIn(b"KeyboardInterrupt", err)
+
 
 class CacheModes(SetupBase):
     """--install tightens a cache an earlier version left at the umask default:

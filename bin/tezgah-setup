@@ -2922,8 +2922,19 @@ def _run_bounded(argv, timeout):
     the group first: the new session puts the installer outside the terminal's
     process group, so the interrupt no longer reaches it and it would be left
     running as an orphan."""
-    proc = subprocess.Popen(argv, start_new_session=True)
+    # SIGINT is held across Popen and delivered inside the `try` below: one that
+    # landed as Popen returned skipped the group kill (plan 103). The child gets
+    # the old mask back before it execs, so the installer sees no change.
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
     try:
+        proc = subprocess.Popen(argv, start_new_session=True,
+                                preexec_fn=lambda: signal.pthread_sigmask(
+                                    signal.SIG_SETMASK, old))
+    except BaseException:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old)
+        raise
+    try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, old)
         return proc.wait(timeout=timeout)
     except BaseException:
         try:
