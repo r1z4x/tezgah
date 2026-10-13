@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""The Stop rule's evidence fold as a declared past-time temporal spec (plan 063,
-roadmap R16), run in shadow beside the imperative `_evidence_block`.
+"""The Stop rule's evidence fold, declared as a past-time temporal spec (plan 063,
+roadmap R16; the fold since plan 101 replaced the imperative one it ran in
+shadow beside).
 
 **What is declared.** `ROW_ATOMS` are the ten row-local predicates the spec reads,
 each computed once per row by the readers `tezgah_integrity` already has.
@@ -8,28 +9,26 @@ each computed once per row by the readers `tezgah_integrity` already has.
 of the trace: `("S", a, b)` is "a since b" (b held at some row and a at every row
 after it), `("O", a)` is "once a", plus `not`/`and`/`or`. `ORDER` is the
 decision list: the first class whose condition holds is the verdict, in the
-order the imperative fold returns them.
+order the Stop rule refuses them (docs/evidence.md, classes 5-10).
 
 **What is not a formula, stated so the bounds cannot be gamed.**
-- The scope selector is `tezgah_integrity._stop_block`, shared with the
-  imperative fold: which rows the fold reads (this turn, the session before this
-  turn, the settled-bookkeeping and idle-turn claim fallbacks), the lost-began
-  path, and the "evidence tampered" guard (a `ledger_damage` row says the trace
-  is not a trace; it is checked before any fold). The spec replaces only the
-  fold the selector calls.
+- The scope selector is `tezgah_integrity._stop_block`, which calls `fold`:
+  which rows the fold reads (this turn, the session before this turn, the
+  settled-bookkeeping and idle-turn claim fallbacks), the lost-began path, and
+  the "evidence tampered" guard (a `ledger_damage` row says the trace is not a
+  trace; it is checked before any fold).
 - `SCOPE_ATOMS`: the turn marker `T`, which scopes "partial failure" to the
   newest turn of the rows given (`_partial_state`).
 - The reply atoms - the external-state claim and the selector's work flag - are
   constants over one trace, passed in, never read off a row.
-- `ESCAPES` lists, before any shadow row exists, the predicates that are not
-  row-local and count against the "<= 3" bar; `NOT_COUNTED` lists the rest of
-  the candidates plan 063 named and why each does not count.
+- `ESCAPES` lists, fixed before the first shadow row, the predicates that are
+  not row-local and count against the "<= 3" bar; `NOT_COUNTED` lists the rest
+  of the candidates plan 063 named and why each does not count.
 
-**The monitor** (`fold`) is one in-process pass over the rows at Stop: atoms per
-row, then each formula's value from its value at the previous row. Nothing is
-persisted between Stops. `shadow` records its verdict beside the imperative one
-as a `stop_spec` row and never feeds the verdict; `TEZGAH_STOPSPEC_STRICT` turns a
-disagreement into an exception, for the test suite.
+**The monitor** (`verdict`) is one in-process pass over the rows at Stop: atoms
+per row, then each formula's value from its value at the previous row. Nothing
+is persisted between Stops. `fold` hands the class to
+`tezgah_integrity._evidence_text`, which words the refusal.
 """
 import os
 import sys
@@ -39,8 +38,6 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import tezgah_integrity as ti  # noqa: E402
 
-STRICT = "TEZGAH_STOPSPEC_STRICT"
-ROW_KIND = "stop_spec"
 
 ROW_ATOMS = (
     "Vany",   # a verify-family row: verify, verify_ok, verify_fail (`_last_verify`)
@@ -107,11 +104,7 @@ NOT_COUNTED = (
 # given (`tezgah_integrity._admitted`: a check-repair class cleared after a check
 # that failed since the newest change), and `residual work` is a selector verdict
 # asked at every exit that would end the turn (`_residual_block`). Both reach the
-# spec's verdict through the shared selector, so neither is a formula here.
-
-# GO 2's live floor: shadow rows needed before the 99% bar is read. At 400 a
-# 99% rate is 4 disagreements, so one more or less moves it by 0.25 pp.
-MIN_LIVE_N = 400
+# spec's verdict through the selector, so neither is a formula here.
 
 
 def _nodes(formula, out):
@@ -249,13 +242,22 @@ class Trace:
         return out
 
 
-def verdict(rows, worked, external, table=None):
+def verdict(rows, worked, external):
     """The class `ORDER` picks, or None to allow; a formula is evaluated only
-    when the list reaches it."""
-    table, trace = table or _TABLE, Trace(rows, external)
+    when the list reaches it. `worked` is the selector's work flag, `external`
+    the reply's external-state claim or None.
+
+    The order is the classes' contract: the newest check failing decides before
+    anything else; a partial failure, then a UI write with no screen or design
+    proof newer than it, are stricter questions about the same rows than
+    freshness; a stale pass has another repair than none at all; and the
+    external read is asked last, only where the turn would otherwise end, so
+    it never changes the class another rule refused under. A screen proof
+    stands where a pass stands, and an external read only for its own claim."""
+    trace = Trace(rows, external)
 
     def holds(name):
-        return table[name](trace)
+        return _TABLE[name](trace)
 
     for cls in ("check failed", "partial failure", "no ui_ok"):
         if holds(cls):
@@ -271,57 +273,8 @@ def verdict(rows, worked, external, table=None):
     return "no external read" if unread else None
 
 
-def fold(rows, worked, external, where="this turn", table=None):
-    """`_evidence_block`'s signature and contract, the class from the spec. The
-    text is the class itself: shadow reads only the class (part 10, the switch,
-    would carry the imperative texts over)."""
-    cls = verdict(rows, worked, external, table)
-    return (cls, cls)
-
-
-def judge(text, session_id, rows, cwd, shape, table=None):
-    """(the spec's verdict class, whether the selector reached the fold) for one
-    Stop: the shared selector with the spec as its fold. A verdict the selector
-    made alone (a shape class, "evidence tampered", a lost check) is the
-    imperative one by construction."""
-    reached = []
-
-    def spec_fold(r, w, e, where="this turn"):
-        reached.append(True)
-        return fold(r, w, e, where, table)
-
-    cls = ti._stop_block(text, session_id, rows=rows, cwd=cwd, shape=shape,
-                         fold=spec_fold)[0]
-    return cls, bool(reached)
-
-
-def check(imperative, text, session_id, rows, cwd, shape):
-    """(spec class, agree, fold reached) for one Stop; raises under
-    `TEZGAH_STOPSPEC_STRICT` when the two disagree."""
-    spec, reached = judge(text, session_id, rows, cwd, shape)
-    agree = spec == imperative
-    if not agree and os.environ.get(STRICT):
-        raise AssertionError("stop spec disagrees: imperative %r, spec %r"
-                             % (imperative, spec))
-    return spec, agree, reached
-
-
-def shadow(imperative, text, session_id, rows, cwd, shape, key):
-    """Record the spec's verdict beside the imperative one as one `stop_spec`
-    row per reply per turn: `agree fold: <class>`, `disagree selector: <imp> ->
-    <spec>` and so on, where `fold` says the selector reached the fold and
-    `selector` says it decided alone (GO 2 reads only the first). Never returns
-    a verdict: the caller's is final. A failure of the spec is recorded as
-    `error: <type>` and re-raised only under the strict switch."""
-    if any(r.get("kind") == ROW_KIND and r.get("id") == key for r in rows):
-        return
-    try:
-        spec, agree, reached = check(imperative, text, session_id, rows, cwd, shape)
-        where = "fold" if reached else "selector"
-        detail = ("agree %s: %s" % (where, imperative or "ok") if agree else
-                  "disagree %s: %s -> %s" % (where, imperative or "ok", spec or "ok"))
-    except Exception as exc:
-        if os.environ.get(STRICT):
-            raise
-        detail = "error: %s" % type(exc).__name__
-    ti.note(session_id, ROW_KIND, detail, id=key)
+def fold(rows, worked, external, where="this turn"):
+    """The evidence fold `tezgah_integrity._stop_block` calls: (class, block
+    text) or (None, None). The class is the spec's (`verdict`); the text is the
+    one `tezgah_integrity._evidence_text` words that class with."""
+    return ti._evidence_text(verdict(rows, worked, external), rows, external, where)

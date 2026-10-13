@@ -11,6 +11,7 @@ on:
       - hooks/tezgah_gate.py
       - hooks/tezgah_integrity.py
       - hooks/tezgah_context.py
+      - hooks/tezgah_stopspec.py
       - hooks/tezgah_task.py
       - hosts/opencode/plugins/tezgah.js
       - tests/neuter_matrix.py
@@ -23,6 +24,7 @@ on:
       - tests/test_control_plane.py
       - tests/test_omp_hook.py
       - tests/test_stop_after_block.py
+      - tests/test_stopspec.py
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:

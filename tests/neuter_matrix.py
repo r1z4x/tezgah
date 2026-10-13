@@ -35,15 +35,18 @@ anchor, is the address because one rule repeats the same `_deny` line (task four
 times, shortcut and attribution three).
 
 The Stop half is generated the same way: one `stop-<class>` mutant per `return
-("<class>", ...)` site of `_stop_block`, `_shape_block`, `_evidence_block` and
+("<class>", ...)` site of `_stop_block`, `_shape_block`, `_evidence_text` and
 `_residual_block` (the functions `stop_triggers` reads; `_stop_block` returns
 one class itself, `evidence tampered`), turned into `pass`, so the turn falls
 through to the branches below it. A class
 returned at two sites (`no ui_ok`, `no verify_ok`) gets a mutant per site. The
-guards around those classes - the pass predicate, the empty-run read, the
-"doğrulanmadı" clear and the failed check and classes it rests on, the lost
-call, the bookkeeping and session fallbacks, the refusal row, the residual
-class's work scope and its blocker types - are hand-written rows below.
+evidence classes are picked by the temporal spec (hooks/tezgah_stopspec.py):
+its formulas are mutated in-process (`--stop-generated`), its decision list's
+two guards by hand rows below. The guards around those classes - the pass
+predicate, the empty-run read, the "doğrulanmadı" clear and the failed check
+and classes it rests on, the lost call, the unseen pass, the bookkeeping and
+session fallbacks, the refusal row, the residual class's work scope and its
+blocker types - are hand-written rows below.
 ponytail: the hand-written rows cover a guard only once a row names it."""
 import ast
 import concurrent.futures
@@ -63,11 +66,12 @@ GATE = "hooks/tezgah_gate.py"
 TASK = "hooks/tezgah_task.py"
 PLUGIN = "hosts/opencode/plugins/tezgah.js"
 CONTEXT = "hooks/tezgah_context.py"
+STOPSPEC = "hooks/tezgah_stopspec.py"
 MODULES = ("test_integrity.py", "test_gate.py", "test_opencode_plugin.py",
            "test_cursor_hook.py", "test_codex_hook.py", "test_control_plane.py",
            "test_omp_hook.py", "test_stop_after_block.py")
 # the functions whose `return ("<class>", ...)` sites are the Stop classes
-STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_block", "_residual_block")
+STOP_FUNCS = ("_stop_block", "_shape_block", "_evidence_text", "_residual_block")
 
 
 def anchored(anchor, replacement):
@@ -470,6 +474,17 @@ MUTANTS = (
     ("lost-began", INTEGRITY,
      anchored("    if lost:\n", "    if False and lost:\n"),
      "a claim resting on a check whose result never arrived"),
+    ("unseen-pass", INTEGRITY,
+     anchored("    unseen = (done or verified) and any(\n",
+              "    unseen = False and any(\n"),
+     "a claim resting on a check nobody saw pass (plan 101)"),
+    ("spec-fresh-unread", STOPSPEC,
+     anchored("        if not unread:\n            return None\n",
+              "        return None\n"),
+     "a fresh tree still owes an unread external claim its read"),
+    ("spec-work-flag", STOPSPEC,
+     anchored("    elif worked or holds(\"worked\"):\n", "    elif holds(\"worked\"):\n"),
+     "the selector's work flag (a lost check, an unseen pass, the session paths)"),
     ("bookkeeping", INTEGRITY,
      anchored("def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):\n",
               "def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):\n"

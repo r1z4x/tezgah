@@ -113,6 +113,8 @@
  "secret-runner-script": "test_gate.Gate.test_an_env_prefix_to_a_program_that_prints_it_still_denies",
  "skip-edit": "test_integrity.ShortcutEdit.test_a_patch_is_read_file_by_file",
  "skip-env": "test_integrity.ShortcutCommand.test_skip_env_denied",
+ "spec-fresh-unread": "test_integrity.StopHook.test_a_fresh_check_does_not_license_an_external_claim",
+ "spec-work-flag": "test_integrity.StopFoldInProcess.test_a_claim_over_a_check_whose_pass_nobody_saw_is_refused",
  "sqlite-db-uri": "test_integrity.ResidualWork.test_s4_a_turn_of_reads_owes_no_check",
  "stop-check-failed": "test_integrity.ResidualWork.test_the_admission_is_read_outside_code",
  "stop-evidence-tampered-1": "test_integrity.CommittedBoundary.test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered",
@@ -136,5 +138,6 @@
  "stopped-slice-owner": "test_integrity.SliceJournalWiring.test_another_sessions_slice_the_switch_and_a_subagent_end_pass",
  "stopped-slice-switch": "test_integrity.SliceJournalWiring.test_another_sessions_slice_the_switch_and_a_subagent_end_pass",
  "subagent-dedupe-agent": "test_stop_after_block.AfterBlock.test_an_omp_subagent_s_untyped_items_reach_the_parent",
- "subagent-parent-ledger": "test_stop_after_block.AfterBlock.test_an_omp_subagent_s_untyped_items_reach_the_parent"
+ "subagent-parent-ledger": "test_stop_after_block.AfterBlock.test_an_omp_subagent_s_untyped_items_reach_the_parent",
+ "unseen-pass": "test_integrity.StopFoldInProcess.test_a_claim_over_a_check_whose_pass_nobody_saw_is_refused"
 }

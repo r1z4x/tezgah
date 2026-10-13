@@ -3771,9 +3771,7 @@ class ResidualWork(unittest.TestCase):
     "Doğrulanmadı:", "Sıradaki adım") is refused once as `residual work`, unless
     every item names a blocker the contract accepts; and the admission
     ("doğrulanmadı") clears only a class whose repair is a check, and only after
-    a check that ran and failed since the newest change. Every verdict here is
-    taken with the temporal spec in strict mode, so the live rule and the spec
-    agree on each case."""
+    a check that ran and failed since the newest change."""
 
     EDIT = {"kind": "edit", "detail": "app.py", "changed": True}
     PASS = [{"kind": "began", "id": "c1", "tool": "Bash", "check": 1},
@@ -3785,8 +3783,7 @@ class ResidualWork(unittest.TestCase):
     ADMITS = "Parser yazıldı; `pytest -q` AssertionError ile düşüyor, doğrulanmadı."
 
     def verdict(self, text, rows):
-        with mock.patch.dict(os.environ, {"TEZGAH_STOPSPEC_STRICT": "1"}):
-            return ti._stop_block(text, None, rows=rows)[0]
+        return ti._stop_block(text, None, rows=rows)[0]
 
     def test_a_label_is_read_at_a_line_start_in_each_shape(self):
         for text in ("## Açık kalanlar\n- README", "**Doğrulanmadı:** omp show() yolu",
@@ -5646,7 +5643,7 @@ class StopRuleReviewProbes(unittest.TestCase):
 
 class StopFoldInProcess(unittest.TestCase):
     """Stop shapes judged in-process, so the generated mutants of the spec table
-    (`tests/stop_spec_eval.py --mutants`, which swaps the fold only inside this
+    (`tests/stop_spec_eval.py --mutants`, which swaps the table only inside this
     process) can see them. The first two repeat StopHook's subprocess tests,
     which no in-process mutant reaches; the rest had no test at all."""
 
@@ -5690,6 +5687,47 @@ class StopFoldInProcess(unittest.TestCase):
         self.shell("pytest -q")
         self.assertIsNone(ti.stop_reason(
             "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok.", "s"))
+
+    def test_a_claim_over_a_check_whose_pass_nobody_saw_is_refused(self):
+        # plan 101: exit 0 with nothing returned is no pass (`passing_check`),
+        # so a work-free turn of that one check let the claim through on a
+        # result nobody saw. It owes the `no verify_ok` floor a lost check owes.
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=0)
+        row = ti.events("s")[-1]
+        self.assertEqual(row["kind"], "verify_ok", row)
+        self.assertFalse(ti.passing_check(row))
+        self.assertEqual(ti._stop_block(self.CLAIM, "s", rows=ti.events("s"))[0],
+                         "no verify_ok")
+        self.assertIn("no check ran successfully", ti.stop_reason(self.CLAIM, "s"))
+        # the floor is the claim's: a reply that claims nothing still ends
+        self.assertIsNone(ti._stop_block("Özet aşağıda.", "s", rows=ti.events("s"))[0])
+
+    def test_an_external_claim_over_an_unseen_check_owes_the_read(self):
+        # a check nobody saw pass is not work: the external claim's own class
+        # stands, and the generated `worked` W->Vany mutant reads it as work
+        ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False, out_bytes=0)
+        self.assertEqual(ti._stop_block(
+            "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok.", "s",
+            rows=ti.events("s"))[0], "no external read")
+
+    def test_bookkeeping_after_a_settled_pass_does_not_excuse_an_unseen_check(self):
+        # review of plan 101 (F1): the settled-bookkeeping exit ran before the
+        # unseen-pass floor, so a `git status` or a commit beside the silent
+        # check let the claim end on the earlier turn's pass
+        for command in (None, "git status", "git commit -m x"):
+            with self.subTest(command=command):
+                ti._path = lambda s, c=command: os.path.join(self.dir, "%s.jsonl" % c)
+                ti.note_turn("s", "a")
+                ti.note("s", "edit", "app.py", changed=True)
+                self.shell("pytest -q")
+                ti.note_turn("s", "b")
+                if command:
+                    self.shell(command)
+                ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                             out_bytes=0)
+                self.assertEqual(ti._stop_block(self.CLAIM, "s",
+                                                 rows=ti.turn_rows("s"))[0],
+                                 "no verify_ok")
 
 
 class OrphanPass(unittest.TestCase):
@@ -6047,10 +6085,6 @@ class SliceJournalWiring(unittest.TestCase):
         self.assertIn("`tezgah-task slice resume W1`", reason)
         self.assertIn("`tezgah-task slice done W1`", reason)
         self.journal.pending.assert_called_with(os.path.realpath(self.repo))
-        # the temporal spec shares the selector, so it agrees under the strict switch
-        with mock.patch.dict(os.environ, {"TEZGAH_STOPSPEC_STRICT": "1"}):
-            self.assertEqual(ti._stop_block(self.PLAN, "s", rows=[], cwd=self.repo)[0],
-                             "stopped slice")
         # through stop_reason: a refusal row, then the reply after it is record-only
         self.assertEqual(ti.stop_reason(self.PLAN, "s", cwd=self.repo), reason)
         self.assertEqual([r["detail"] for r in ti.events("s") if r["kind"] == "refusal"],

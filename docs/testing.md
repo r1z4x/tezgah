@@ -109,11 +109,13 @@ generates the gate half: one `gate-<rule>` mutant per rule `decision` refuses wi
 It reads HEAD with the AST reader of the `--citations` rule check. Each mutant turns
 every `return _deny(...)` of its rule into `pass` at its line span.
 The script generates the Stop half too. Each `return ("<class>", ...)` site of
-`_stop_block`, `_shape_block` and `_evidence_block` gets one `stop-<class>` mutant. Hand-written
-rows cover the guards around those classes: the pass predicate, the empty-run
-read and the "doğrulanmadı" clear. The lost call, the bookkeeping and idle-turn
-fallbacks and the refusal row have rows too. The shortcut half is still
-hand-written (`MUTANTS`), so a new guard there needs a row.
+`_stop_block`, `_shape_block`, `_evidence_text` and `_residual_block` gets one
+`stop-<class>` mutant. Hand-written rows cover the guards around those classes:
+the pass predicate, the empty-run read and the "doğrulanmadı" clear. The lost
+call, the unseen pass, the bookkeeping and idle-turn fallbacks and the refusal
+row have rows too. So do the two guards of the spec's decision list. The
+shortcut half is still hand-written (`MUTANTS`), so a new guard there needs a
+row.
 Each mutant first runs alone the test that killed it last time, read from
 `tests/neuter_killers.json`. When that test passes or is gone, the mutant runs
 every module in its own HOME and TMPDIR. The module that reads the mutated file
@@ -132,15 +134,11 @@ opencode plugin's ports. That step runs even when the core step failed.
 (`tests/fuzz_shell.py::main`). So a reader that misreads a bash 5 line fails
 the leg instead of printing a count. `tests/test_packaging.py` pins the job.
 
-The Stop rule's temporal spec (`hooks/tezgah_stopspec.py`, plan 063) has its own
-local script, `tests/stop_spec_eval.py`. `--replay` judges plan 055's replayed
-Stop events with both folds and reads GO 2 only on the events whose selector
-reached the fold. `--shadow-rows` reads the live `stop_spec` rows the same way.
-`--timing` times both folds in-process. `--stop-cost` times the whole
-`stop_reason`, shadow on and off, on copies of the real ledgers. `--mutants`, also reached through
-`tests/neuter_matrix.py --stop-generated`, runs seeded mutants of the formula
-table through the in-process Stop tests of `tests/test_integrity.py`. On any
-suite run, `TEZGAH_STOPSPEC_STRICT=1` fails the test that reached a disagreement.
+The Stop rule's temporal spec (`hooks/tezgah_stopspec.py`, plan 063) decides
+classes 5-10. Its formulas have their own local script, `tests/stop_spec_eval.py`.
+`--mutants`, also reached through `tests/neuter_matrix.py --stop-generated`, runs
+seeded mutants of the formula table through the in-process Stop tests of
+`tests/test_integrity.py`.
 
 The plan report (`render_table.py --acceptance --strict`) is not in CI: it reads
 the gitignored `.tezgah/`, so on a runner it reads nothing and cannot fail. Run
