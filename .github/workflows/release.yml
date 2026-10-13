@@ -185,7 +185,9 @@ jobs:
             end
           end
           RUBY
-          git add -A && git commit -m "tezgah ${VERSION}" && git push origin main
+          # a re-run finds the formula already current: that is done, not a failure
+          git add -A
+          git diff --cached --quiet || { git commit -m "tezgah ${VERSION}" && git push origin main; }
       # The brew twin of npm's --provenance: a signed SLSA statement binding the
       # tarball's digest to this repository, tag, workflow run and runner, so
       # "the digest matches the release page" extends to "the release page

@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A release re-run no longer fails on a current Homebrew formula.** The tap job committed even when the formula already named the version. So a re-run stopped with "nothing to commit". It now commits and pushes only a change.
+
 ## [1.8.2] - 2026-10-13
 
 ### Fixed
