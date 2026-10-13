@@ -1568,9 +1568,16 @@ class Cli(TempHome):
         linked = self.slice("slice-link")
         os.makedirs(os.path.join(linked, "cache"))
         os.symlink(self.home, os.path.join(linked, "cache", "elsewhere"))
+        locked = self.slice("slice-locked")
+        os.makedirs(os.path.join(locked, "cache", "shut"))
+        with open(os.path.join(locked, "cache", "tezgah-a.md"), "w") as fh:
+            fh.write("# tezgah: managed by tezgah-agents; do not edit\n")
+        os.chmod(os.path.join(locked, "cache", "shut"), 0)
+        self.addCleanup(os.chmod, os.path.join(locked, "cache", "shut"), 0o755)
         lines = self.close_lines()
         self.assertIn("ignored file .cursor/agents/tezgah-a.md", lines[os.path.realpath(piped)])
         self.assertIn("ignored file cache/elsewhere", lines[os.path.realpath(linked)])
+        self.assertIn("ignored file cache/shut", lines[os.path.realpath(locked)])
 
     def test_close_keeps_every_worktree_when_orca_does_not_answer(self):
         # Orca installed but down, or answering in a shape this reader does not

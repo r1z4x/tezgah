@@ -1037,8 +1037,10 @@ def _only_copy(path, rel):
     beside them is the user's."""
     from tezgah_agents import MARKER
     full = os.path.join(path, rel)
+    unread = []  # a directory the walk cannot list holds what it cannot tell
     walk = ([(os.path.dirname(full), [], [os.path.basename(full)])]
-            if not os.path.isdir(full) or os.path.islink(full) else os.walk(full))
+            if not os.path.isdir(full) or os.path.islink(full)
+            else os.walk(full, onerror=lambda exc: unread.append(exc.filename)))
     # lazily, stopping at the first file nobody regenerates: an ignored build
     # tree is walked only as far as its first entry (review of plan 102)
     for d, dirs, names in walk:
@@ -1057,7 +1059,9 @@ def _only_copy(path, rel):
                     pass
             if not managed:
                 return os.path.relpath(entry, path)
-    return None
+        if unread:
+            return os.path.relpath(unread[0], path)
+    return os.path.relpath(unread[0], path) if unread else None
 
 
 def _landed(root, branch, base):
