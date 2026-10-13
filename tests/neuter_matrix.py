@@ -563,6 +563,10 @@ def run(name, edit, work):
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
         last = "%s: %s" % (module, lines[-1] if lines else "")
         if proc.returncode:
+            if edit is None:
+                # a red control is read on a runner nobody can open: say why
+                last += "\n" + "\n".join(x for x in lines if x.startswith(("FAIL:", "ERROR:"))
+                                         or "Error" in x)[-4000:]
             return name, proc.returncode, last
     return name, status, last
 

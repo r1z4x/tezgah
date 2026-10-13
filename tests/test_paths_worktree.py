@@ -379,6 +379,9 @@ class InsideWorkspace(TempHome):
                  "commit", "-qm", "init")
         self.ws = os.path.join(self.repo, ".tezgah")
         self.git("init", "-q", self.ws)
+        # CI runners have no global identity, and close commits the record here
+        self.git("-C", self.ws, "config", "user.name", "t")
+        self.git("-C", self.ws, "config", "user.email", "t@localhost")
         self.open = os.path.join(self.ws, "plans", "open")
         os.makedirs(self.open)
         with open(os.path.join(self.open, "001-first.md"), "w") as fh:
