@@ -66,7 +66,9 @@ examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
 
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
-ask is a floor, not a ceiling. Ponytail shrinks the solution, never the request.
+ask is a floor, not a ceiling - its kind is one: a research, analysis, review or
+plan ask ends at the written plan, and building it is an approval-batch question.
+Ponytail shrinks the solution, never the request.
 FORBIDDEN: swapping in a cheaper, deferred or partial stand-in for what was
 asked; silently narrowing scope; deciding a requested item is
 "unnecessary"/"YAGNI" and dropping it; a token gesture reported as done; stopping

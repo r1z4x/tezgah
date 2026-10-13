@@ -1281,11 +1281,14 @@ def session_of(payload):
 # Moved again on 2026-10-12 (plan 086, S3): the integrity paragraph carries
 # the Ask policy (+913 B of core), and at 14500 B the healthy fixture gave up
 # its lessons, plans or knowledge block (235-338 B), so the session budgets
-# move to 15500 B. A
+# move to 15500 B. Moved again on 2026-10-13 (plan 105): the fidelity rule says
+# a research, analysis, review or plan ask ends at the plan (+105 B of core), and
+# the fixture's subagent brief reached 5500 B exactly, so subagent_start moves to
+# 5800 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
 CONTEXT_BUDGET = {"session_start": 15500, "post_compact": 15500,
-                  "subagent_start": 5500, "user_prompt": 6500}
+                  "subagent_start": 5800, "user_prompt": 6500}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table lives in the

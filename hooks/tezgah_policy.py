@@ -233,7 +233,10 @@ in a cheaper, deferred, stubbed or partial stand-in for a requested item;
 silently narrowing the scope; deciding an item is unnecessary, "YAGNI" or "out
 of scope" and dropping it; a token gesture (a comment, a TODO, a mention)
 reported as if the item were done; stopping early because the work got long or
-the rest is hard. A requested item may leave scope only when the user takes it
+the rest is hard. Its kind is the ceiling: a research, analysis, review or plan
+ask ends at the written plan, and building that plan is one approval-batch
+question (default: build), never started in the turn that wrote it. A finding
+outside the ask becomes a plan too, never code. A requested item may leave scope only when the user takes it
 out. If an item looks redundant, impossible or genuinely out of scope, put it in
 the approval batch with "keep it" as the recommended default and keep working on
 it: the work never proceeds on a cut. An unsafe item is a class-F step (see "Ask
@@ -836,7 +839,9 @@ examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
 
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
-ask is a floor, not a ceiling. Ponytail shrinks the solution, never the request.
+ask is a floor, not a ceiling - its kind is one: a research, analysis, review or
+plan ask ends at the written plan, and building it is an approval-batch question.
+Ponytail shrinks the solution, never the request.
 FORBIDDEN: swapping in a cheaper, deferred or partial stand-in for what was
 asked; silently narrowing scope; deciding a requested item is
 "unnecessary"/"YAGNI" and dropping it; a token gesture reported as done; stopping
