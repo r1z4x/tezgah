@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-13
+
+### Fixed
+
+- **A checkout under the temp dir is not scratch.** The gate treated any path under the temp dir as scratch. So the task scope, the race rule and the main-checkout rule skipped it, and a plan worktree there let a write outside its scope pass. A file inside a git checkout now meets those rules, and a plain temp file stays scratch.
+- **The test suite runs on CI runners.** A fixture had no git identity for the record commit that `close` now makes. The opencode capture test read only the SQLite ledger, so it missed the rows node 20 writes to the legacy file.
+
 ## [1.8.0] - 2026-10-13
 
 ### Changed
@@ -1142,7 +1149,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.1
 [1.8.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.0
 [1.7.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.7.0
 [1.6.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.6.0
