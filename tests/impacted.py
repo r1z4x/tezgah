@@ -274,6 +274,19 @@ def resolve(paths, cache):
     return sorted(mods), unmapped
 
 
+
+def _sweep_stale(hours=6):
+    """Remove the HOME and TMPDIR a killed run left behind. A module's own run
+    removes them; a run killed mid-way did not, and each held an omp install of
+    ~186 MB, so 92 of them filled the disk on 2026-10-13. No run lasts hours."""
+    base, cutoff = tempfile.gettempdir(), time.time() - hours * 3600
+    for name in os.listdir(base):
+        path = os.path.join(base, name)
+        if (name.startswith(("impacted-home-", "impacted-tmp-"))
+                and os.path.getmtime(path) < cutoff):
+            shutil.rmtree(path, ignore_errors=True)
+
+
 def _run_module(module, log_path):
     home = tempfile.mkdtemp(prefix="impacted-home-")
     tmp = tempfile.mkdtemp(prefix="impacted-tmp-")
@@ -320,6 +333,7 @@ def _wait_for_other_runs(modules):
 
 def run_pool(modules, work_dir, workers):
     lock = _wait_for_other_runs(modules)
+    _sweep_stale()
     log_path = os.path.join(work_dir, "impacted.log")
     open(log_path, "w").close()
     rows, failed, sections = [], [], {}
