@@ -910,6 +910,22 @@ class Cli(TempHome):
         self.assertEqual(tt.frontmatter(read(third))["phase"], "")
         self.assertEqual(tt.frontmatter(read(first))["phase"], "implementation")
 
+    def test_a_plan_worktree_whose_plan_has_no_phase_moves_no_other_plan(self):
+        # plan 102: `allow` run in the plan/098 worktree, 098 unphased, replaced
+        # plan 101's allowlist - the first phased plan the CLI's held reading
+        # answered. A plan/NNN worktree's commands act on plan NNN or refuse.
+        first = self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        self.plan("002-second.md", allowed=["docs/**"])
+        self.slice("plan/001-first", commit=False, merge=False)
+        wt2 = self.slice("plan/002-second", commit=False, merge=False)
+        before = read(first)
+        for args in (["allow", "src/**", "--why", "x"], ["phase", "verification"],
+                     ["stop"]):
+            proc = support.run([CLI] + args, env=self.env(), cwd=wt2)
+            self.assertEqual(proc.returncode, 1, args)
+            self.assertIn("plan 002", proc.stdout, args)
+            self.assertEqual(read(first), before, args)
+
     def test_start_of_a_plan_with_no_worktree_clears_a_held_plan(self):
         # the started plan runs in the main checkout, so the main checkout's
         # task is the one it reads: a held plan beside it would leave `phase`
@@ -1513,6 +1529,30 @@ class Cli(TempHome):
                                   capture_output=True, text=True).stdout
         self.assertNotIn("slice-done", branches)
         self.assertIn("slice-open", branches)
+
+    def test_close_removes_a_worktree_holding_only_generated_files(self):
+        # plan 102: session start writes tezgah's agents into a worktree
+        # (`.cursor/agents/tezgah-*`, ignored by the managed block) and
+        # codegraph its index; both regenerate, so they keep no landed worktree.
+        # A file of the user's own beside them still does.
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write("/.cursor/agents/\n/.codegraph/\n")
+        gen = self.slice("slice-gen")
+        own = self.slice("slice-own")
+        for top in (gen, own):
+            os.makedirs(os.path.join(top, ".cursor", "agents"))
+            with open(os.path.join(top, ".cursor", "agents", "tezgah-x.md"), "w") as fh:
+                fh.write("---\n# tezgah: managed by tezgah-agents; do not edit\n---\n")
+            os.makedirs(os.path.join(top, ".codegraph"))
+            with open(os.path.join(top, ".codegraph", "graph.db"), "w") as fh:
+                fh.write("x")
+        with open(os.path.join(own, ".cursor", "agents", "mine.md"), "w") as fh:
+            fh.write("my own agent\n")
+        lines = self.close_lines()
+        self.assertEqual(lines[os.path.realpath(gen)],
+                         "worktree removed: %s (slice-gen)" % os.path.realpath(gen))
+        self.assertIn("ignored file .cursor/agents/mine.md", lines[os.path.realpath(own)])
+        self.assertTrue(os.path.isdir(own))
 
     def test_close_keeps_every_worktree_when_orca_does_not_answer(self):
         # Orca installed but down, or answering in a shape this reader does not
