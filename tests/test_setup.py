@@ -714,6 +714,26 @@ class Deps(SetupBase):
                     time.sleep(0.1)
         self.assertIn(b"KeyboardInterrupt", err)
 
+    def test_the_installer_starts_with_sigint_unblocked(self):
+        # review of plan 103: the parent blocks SIGINT across Popen; an
+        # installer that inherited the block would ignore a Ctrl-C of its own
+        out = self.path("mask.txt")
+        child = self.path("child.py")
+        with open(child, "w") as fh:
+            fh.write("import signal, sys\nopen(sys.argv[1], 'w').write(str("
+                     "signal.SIGINT in signal.pthread_sigmask(signal.SIG_BLOCK, ())))\n")
+        runner = ("import importlib.machinery, importlib.util, sys\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "m._run_bounded([sys.executable, %r, %r], 60)\n"
+                  % (SETUP, child, out))
+        proc = subprocess.run([sys.executable, "-c", runner], env=self.env,
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(self.read_text(out), "False")
+
 
 class CacheModes(SetupBase):
     """--install tightens a cache an earlier version left at the umask default:

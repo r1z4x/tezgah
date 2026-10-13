@@ -2925,8 +2925,11 @@ def _run_bounded(argv, timeout):
     # SIGINT is held across Popen and delivered inside the `try` below: one that
     # landed as Popen returned skipped the group kill (plan 103). The child gets
     # the old mask back before it execs, so the installer sees no change.
-    old = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    # read without changing it, so a KeyboardInterrupt from the block call
+    # itself still restores the mask (review of plan 103)
+    old = signal.pthread_sigmask(signal.SIG_BLOCK, ())
     try:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
         proc = subprocess.Popen(argv, start_new_session=True,
                                 preexec_fn=lambda: signal.pthread_sigmask(
                                     signal.SIG_SETMASK, old))
