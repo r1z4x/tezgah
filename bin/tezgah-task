@@ -1182,6 +1182,11 @@ def prune_worktrees(root, keep=None):
                 gone = tezgah_orca.run(["worktree", "rm", "--worktree", "path:" + path],
                                        timeout=60) is not None
                 how = "orca worktree rm --worktree path:%s" % path
+                # Orca answers before the directory is gone, and git refuses to
+                # drop a branch a checkout on disk still holds (plan 104)
+                deadline = time.monotonic() + 10
+                while gone and os.path.exists(path) and time.monotonic() < deadline:
+                    time.sleep(0.1)
             else:
                 gone = git_out(root, "worktree", "remove", path) is not None
                 how = "git worktree remove %s" % path

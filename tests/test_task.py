@@ -1593,6 +1593,28 @@ class Cli(TempHome):
             self.assertIn("Orca did not answer", lines[os.path.realpath(done)], name)
             self.assertTrue(os.path.isdir(done))
 
+    def test_close_drops_the_branch_of_a_worktree_orca_removes_after_answering(self):
+        # plan 104: `orca worktree rm` answers before its directory is gone, so
+        # git still listed the checkout and refused to delete its branch
+        done = os.path.realpath(self.slice("slice-done"))
+        fake = os.path.join(self.home, "orca-late")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\ncase \"$1 $2\" in\n"
+                     "\"worktree ps\") echo '{\"ok\": true, \"result\": {\"worktrees\": "
+                     "[{\"path\": \"%s\", \"agents\": []}]}}' ;;\n"
+                     "\"worktree rm\") (sleep 1; rm -rf '%s') >/dev/null 2>&1 &\n"
+                     "  echo '{\"ok\": true, \"result\": {}}' ;;\nesac\n" % (done, done))
+        os.chmod(fake, 0o755)
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = support.run([CLI, "close", "001", "discarded"],
+                           env=dict(self.env(), TEZGAH_ORCA_BIN=fake), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("worktree removed: %s (slice-done)" % done, proc.stdout)
+        self.assertNotIn("branch kept", proc.stdout)
+        branches = subprocess.run(["git", "-C", self.repo, "branch", "--list"],
+                                  capture_output=True, text=True).stdout
+        self.assertNotIn("slice-done", branches)
+
     # ----------------------------------------------------------------- stop
 
     def test_stop_clears_the_phase_and_leaves_the_allowlist(self):
