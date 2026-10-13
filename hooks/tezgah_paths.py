@@ -267,7 +267,10 @@ def _toplevel(real):
 
 
 def linked_main(path):
-    """The main checkout of the nearest linked worktree holding `path`, else None.
+    """The main checkout of the nearest linked worktree holding `path`, else None;
+    for a worktree of a bare repository, which has no main checkout, the bare
+    git directory (`_bare_repo`): its `.tezgah` is the workspace no `git worktree
+    remove`, detach or switch touches (plan 098).
 
     Nearest only: `worktrees` asks it about the repository it was handed, so a
     repo nested inside a worktree (a vendored clone, a submodule) answers None and
@@ -275,8 +278,8 @@ def linked_main(path):
     uses. Read from the `.git` pointer file (`gitdir: <main>/.git/worktrees/
     <name>`), never from git: `root_for` runs on every gate call and a session
     start's git forks are pinned. A plain checkout (`.git` is a directory), a
-    submodule (a `/modules/` pointer) and a bare main (no `.git` component)
-    answer None."""
+    submodule (a `/modules/` pointer) and a worktree of a git directory kept
+    apart from its main checkout (`--separate-git-dir`) answer None."""
     top = _toplevel(os.path.realpath(path))
     if not top:
         return None
@@ -314,27 +317,61 @@ def _linked_main_at(top):
     gitdir = os.path.normpath(os.path.join(top, line[len("gitdir:"):].strip()))
     dotgit = os.path.dirname(os.path.dirname(gitdir))
     if os.path.basename(os.path.dirname(gitdir)) != "worktrees" \
-            or os.path.basename(dotgit) != ".git" \
             or not os.path.isfile(os.path.join(gitdir, "commondir")):
         return None
-    return os.path.realpath(os.path.dirname(dotgit))
+    if os.path.basename(dotgit) == ".git":
+        return os.path.realpath(os.path.dirname(dotgit))
+    return os.path.realpath(dotgit) if _bare_repo(dotgit) else None
+
+
+def _bare_repo(path):
+    """True when `path` is the git directory of a bare repository: a `HEAD`, an
+    `objects/` and `core.bare` set in its config, read without a git fork."""
+    if not (os.path.isfile(os.path.join(path, "HEAD"))
+            and os.path.isdir(os.path.join(path, "objects"))):
+        return False
+    section = ""
+    try:
+        with open(os.path.join(path, "config"), encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line[0] in "#;":
+                    continue
+                if line.startswith("["):
+                    section = line.strip("[]").split('"')[0].strip().lower()
+                    continue
+                key, eq, value = line.partition("=")
+                if section == "core" and key.strip().lower() == "bare":
+                    return not eq or value.strip().lower() in ("true", "yes", "on", "1")
+    except OSError:
+        pass
+    return False
+
+
+def _admin_dir(main):
+    """The git directory of the main checkout `main` (`<main>/.git`), or `main`
+    itself when it is a bare repository's; None for neither."""
+    dot = os.path.join(main, ".git")
+    if os.path.isdir(dot):
+        return dot
+    return main if _bare_repo(main) else None
 
 
 def worktrees(repo):
     """Every checkout of the repository `repo` is in, main first, as real paths;
-    [] outside a git checkout.
+    [] outside a git checkout. A bare repository's git directory stands first,
+    in the main checkout's place (`linked_main`).
 
     Fork-free, from `<main>/.git/worktrees/*/gitdir` (each names a linked
     worktree's `.git`). An entry whose target is gone - deleted without `git
     worktree remove` - is skipped: git itself keeps it, marked prunable, until
-    `git worktree prune`. Each checkout keeps its own `.tezgah`; this only names
-    them."""
-    main = linked_main(repo)
-    if not main:
-        main = _toplevel(os.path.realpath(repo))
-        if not main or not os.path.isdir(os.path.join(main, ".git")):
-            return []
-    base = os.path.join(main, ".git", "worktrees")
+    `git worktree prune`."""
+    real = os.path.realpath(repo)
+    main = linked_main(real) or (real if _bare_repo(real) else _toplevel(real))
+    admin = _admin_dir(main) if main else None
+    if not admin:
+        return []
+    base = os.path.join(admin, "worktrees")
     out = [main]
     try:
         names = sorted(os.listdir(base))
@@ -1225,14 +1262,18 @@ def _index_tracks_workspace(root):
 
 def ensure_workspace(repo):
     """`<repo>/.tezgah`, created, ignored by the project and holding its own git
-    repository; None when `repo` is not a git work tree or a step failed.
+    repository; None when `repo` is not a git work tree or a bare repository's
+    git directory, or a step failed.
 
     The ignore lines are appended to the project's `.gitignore` only when
-    missing, after every line the user wrote, and nothing is staged. A second
-    call costs three stats and one file read: the subprocess runs only when
-    `.tezgah/.git` does not exist yet. Fail-open: a read-only tree returns None
-    and the session goes on."""
-    if not os.path.exists(os.path.join(repo, ".git")):
+    missing, after every line the user wrote, and nothing is staged; a bare
+    repository gets none, since no worktree reads its git directory as content
+    (its worktrees' links are excluded by `link_workspace`). A second call costs
+    three stats and one file read: the subprocess runs only when `.tezgah/.git`
+    does not exist yet. Fail-open: a read-only tree returns None and the session
+    goes on."""
+    bare = _bare_repo(repo)
+    if not bare and not os.path.exists(os.path.join(repo, ".git")):
         return None
     ws = workspace(repo)
     # A `.tezgah` that is a symlink (or anything but a directory) came with the
@@ -1255,7 +1296,8 @@ def ensure_workspace(repo):
         except FileNotFoundError:
             body = ""
         have = {line.strip().strip("/") for line in body.splitlines()}
-        missing = [line for line in WORKSPACE_IGNORES if line.strip("/") not in have]
+        missing = [] if bare else [line for line in WORKSPACE_IGNORES
+                                   if line.strip("/") not in have]
         if missing:
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write(("\n" if body and not body.endswith("\n") else "")
@@ -1273,16 +1315,17 @@ def ensure_workspace(repo):
 
 def link_workspace(checkout, main):
     """`<checkout>/.tezgah` as a link to the main checkout's workspace, for a
-    linked worktree (plan 100): a relative `.tezgah/...` write from the worktree
-    then lands in the one workspace every checkout reads, instead of a second
+    linked worktree (plan 100), or to a bare repository's when `main` is its git
+    directory (plan 098): a relative `.tezgah/...` write from the worktree then
+    lands in the one workspace every checkout reads, instead of a second
     `.tezgah` that `git worktree remove` deletes. `/.tezgah` goes to the
     repository's `info/exclude`, since the project's `/.tezgah/` ignores only a
     directory. Leaves any existing `.tezgah` alone; None when nothing was made."""
     link, target = workspace(checkout), workspace(main)
-    exclude = os.path.join(main, ".git", "info", "exclude")
-    if (os.path.lexists(link) or not os.path.isdir(target)
-            or not os.path.isdir(os.path.join(main, ".git"))):
+    admin = _admin_dir(main)
+    if os.path.lexists(link) or not os.path.isdir(target) or not admin:
         return None
+    exclude = os.path.join(admin, "info", "exclude")
     try:
         os.makedirs(os.path.dirname(exclude), exist_ok=True)
         try:
@@ -1319,8 +1362,10 @@ def _git_config_paths(repo):
             gitdir = gitdir if os.path.isabs(gitdir) else os.path.join(repo, gitdir)
             out += [os.path.join(gitdir, "config"),
                     os.path.join(gitdir, "..", "..", "config")]
-    elif os.path.isdir(dot):
-        out.append(os.path.join(dot, "config"))
+    else:
+        admin = _admin_dir(repo)
+        if admin:
+            out.append(os.path.join(admin, "config"))
     out.append(os.path.join(HOME, ".gitconfig"))
     out.append(os.path.join(CONFIG_DIR_GIT, "git", "config"))
     return out

@@ -403,6 +403,131 @@ class WorktreeBridge(TempHome):
         self.assertNotEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
 
+class BareRepository(TempHome):
+    """Plan 098: a bare repository has no main checkout, so each of its worktrees
+    kept its own `.tezgah`, which `git worktree remove` deleted, and a plan
+    worktree there was held to no plan. The workspace is `<bare>/.tezgah`, in the
+    git directory no worktree removal, detach or switch touches. A stand-in
+    worktree (071e1b6, reverted) unlinked every worktree when it left its branch
+    (B1) and took the workspace with it when removed (B2)."""
+
+    def setUp(self):
+        super().setUp()
+        src = self.make_repo("src")
+        git("init", "-q", "-b", "main", src)
+        git("-C", src, "-c", "user.email=a@b", "-c", "user.name=t",
+            "commit", "-q", "--allow-empty", "-m", "x")
+        self.bare = os.path.realpath(os.path.join(self.roots, "app.git"))
+        git("clone", "-q", "--bare", src, self.bare)
+        self.main = os.path.join(self.roots, "app-main")
+        self.feature = os.path.join(self.roots, "app-feature")
+        git("-C", self.bare, "worktree", "add", "-q", self.main, "main")
+        git("-C", self.bare, "worktree", "add", "-q", "-b", "feature", self.feature)
+        self.main, self.feature = map(os.path.realpath, (self.main, self.feature))
+        self.ws = os.path.join(self.bare, ".tezgah")
+        patch = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.roots})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def start(self, cwd):
+        out, proc = support.run_json(
+            [support.PROBE_CONTEXT], {"fn": "context_for", "event": "session_start",
+                                      "cwd": cwd},
+            env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_every_worktree_resolves_to_the_bare_git_directory(self):
+        with mock.patch("subprocess.Popen", side_effect=AssertionError("git forked")):
+            for checkout in (self.main, self.feature):
+                self.assertEqual(tp.linked_main(checkout), self.bare, checkout)
+            for repo in (self.bare, self.main, self.feature):
+                got = tp.worktrees(repo)
+                self.assertEqual(got[0], self.bare, repo)
+                self.assertEqual(sorted(got[1:]), sorted([self.main, self.feature]), repo)
+        # a git directory of a repository with a main checkout elsewhere
+        # (`--separate-git-dir`) is no bare repository: it keeps its answer
+        sep = os.path.join(self.home, "sep")
+        git("init", "-q", "--separate-git-dir", os.path.join(self.home, "sep.git"), sep)
+        git("-C", sep, "-c", "user.email=a@b", "-c", "user.name=t",
+            "commit", "-q", "--allow-empty", "-m", "x")
+        wt = os.path.join(self.home, "sep-wt")
+        git("-C", sep, "worktree", "add", "-q", "--detach", wt)
+        self.assertIsNone(tp.linked_main(wt))
+
+    def test_the_workspace_survives_any_worktree_leaving(self):
+        for checkout in (self.main, self.feature):
+            out = self.start(checkout)
+            self.assertIn("Worktrees: 2 checkouts of this repository share the bare "
+                          "repository's `.tezgah`", out)
+            self.assertIn("%s (this checkout, uses the bare repository's `.tezgah`)"
+                          % checkout, out)
+            link = os.path.join(checkout, ".tezgah")
+            self.assertTrue(os.path.islink(link), checkout)
+            self.assertEqual(os.path.realpath(link), self.ws)
+            status = subprocess.run(["git", "-C", checkout, "status", "--short"],
+                                    capture_output=True, text=True).stdout
+            self.assertEqual(status, "", checkout)
+        # its own private repository, and nothing written into the git directory
+        # a worktree would read as project content
+        self.assertTrue(os.path.isdir(os.path.join(self.ws, ".git")))
+        self.assertFalse(os.path.exists(os.path.join(self.bare, ".gitignore")))
+        with open(os.path.join(self.feature, ".tezgah", "lessons.md"), "w") as fh:
+            fh.write("- written in a worktree\n")
+        # B1: the worktree on the HEAD branch leaves it, another switches
+        git("-C", self.main, "checkout", "-q", "--detach")
+        git("-C", self.feature, "switch", "-q", "-c", "other")
+        for checkout in (self.main, self.feature):
+            self.assertEqual(tp.linked_main(checkout), self.bare, checkout)
+        # B2: every worktree removed, the HEAD-branch one first
+        for checkout in (self.main, self.feature):
+            git("-C", self.bare, "worktree", "remove", checkout)
+            self.assertTrue(os.path.isdir(os.path.join(self.ws, ".git")), checkout)
+        with open(os.path.join(self.ws, "lessons.md")) as fh:
+            self.assertIn("written in a worktree", fh.read())
+
+    def test_research_init_in_a_bare_worktree_survives_its_removal(self):
+        proc = subprocess.run([sys.executable, RESEARCH, "init", "bare-line", "--ask", "q"],
+                              cwd=self.feature, capture_output=True, text=True,
+                              env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        git("-C", self.bare, "worktree", "remove", "--force", self.feature)
+        line = os.path.join(self.ws, "research", "open", "bare-line")
+        self.assertTrue(os.path.isfile(os.path.join(line, "state.json")), proc.stdout)
+
+    def test_a_plan_worktree_is_held_to_its_plan(self):
+        import tezgah_task as tt
+        os.makedirs(os.path.join(self.ws, "plans", "open"))
+        with open(os.path.join(self.ws, "plans", "open", "001-alpha.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: alpha\nstatus: open\nphase: implementation\n"
+                     "allowed_paths:\n  - src/**\n---\n## Goal\nx\n")
+        plan = os.path.realpath(os.path.join(self.roots, "app-001"))
+        git("-C", self.bare, "worktree", "add", "-q", "-b", "plan/001-alpha", plan)
+        task = tt.active(plan, self.roots)
+        self.assertEqual((task["id"], task["allowed_paths"]), ("001", ["src/**"]))
+        # every phased plan held: the other worktrees have no task of their own
+        self.assertIsNone(tt.active(self.feature, self.roots))
+        self.assertEqual(tt.worktree_task(os.path.join(plan, "docs", "a.md"),
+                                          self.feature, self.roots)["id"], "001")
+        self.start(plan)
+
+        def decide(path):
+            out, proc = support.run_json(
+                [support.PROBE_GATE],
+                {"tool": "Write", "input": {"file_path": path, "content": "x\n"},
+                 "cwd": plan, "session_id": "bare-plan"},
+                env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return out
+        reason = decide(os.path.join(plan, "docs", "a.md"))
+        self.assertIsNotNone(reason)
+        self.assertIn("001", reason)
+        self.assertIsNone(decide(os.path.join(plan, "src", "a.py")))
+        # the record itself is bin/tezgah-task's to write, through the link too
+        self.assertIsNotNone(decide(os.path.join(plan, ".tezgah", "plans", "open",
+                                                 "001-alpha.md")))
+
+
 class InsideWorkspace(TempHome):
     """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -
     its own git repository - works on the project and never writes a `.tezgah`,

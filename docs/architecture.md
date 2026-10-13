@@ -187,6 +187,12 @@ the `tezgah-research import` that moves its lines (`hooks/tezgah_context.py::sib
 Session start in a linked worktree makes its `.tezgah` a link to the main one
 (`hooks/tezgah_paths.py::link_workspace`). A relative `.tezgah/...` write lands
 there, and `/.tezgah` goes to the repository's `info/exclude`.
+A bare repository (`app.git`, or `app/.bare` with its worktrees beside it) has no
+main checkout. Its workspace is `<bare git dir>/.tezgah`, a private repository in
+the git directory itself, with no `.gitignore` written there
+(`hooks/tezgah_paths.py::linked_main`, `hooks/tezgah_paths.py::ensure_workspace`).
+Every worktree's `.tezgah` links to it. No `git worktree remove`, detach or
+switch in any worktree takes it, and a plan worktree reads its plan there.
 A second clone is another repository, with a workspace of its own.
 A path inside `.tezgah` belongs to the repository around it, never to `.tezgah`.
 The workspace keeps its own `.git`, so git's top-level answers `.tezgah` there.

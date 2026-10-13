@@ -538,11 +538,13 @@ def open_plans(root):
 def sibling_line(root):
     """One line naming every checkout of this repository, or "" when it has one.
     The main checkout's `.tezgah` is the repository's one workspace (plan 097),
-    named with its open plan and research line counts. A linked checkout whose
-    own `.tezgah` still holds data is named with what it holds, because `git
-    worktree remove` deletes it with the checkout. Fork-free (the pinned
-    session-start git budget): `worktrees` reads `.git/worktrees/*/gitdir`, and
-    the counts are directory listings."""
+    named with its open plan and research line counts; a bare repository's git
+    directory holds it in the main checkout's place (plan 098), and is named as
+    that, not counted as a checkout. A linked checkout whose own `.tezgah` still
+    holds data is named with what it holds, because `git worktree remove`
+    deletes it with the checkout. Fork-free (the pinned session-start git
+    budget): `worktrees` reads `.git/worktrees/*/gitdir`, and the counts are
+    directory listings."""
     checkouts = worktrees(root)
     here = os.path.realpath(root)
     if here not in checkouts:
@@ -550,6 +552,8 @@ def sibling_line(root):
     if len(checkouts) < 2:
         return ""
     main = checkouts[0]
+    bare = not os.path.lexists(os.path.join(main, ".git"))
+    owner = "the bare repository" if bare else "the main checkout"
     items = []
     for checkout in checkouts:
         ws = workspace(checkout)
@@ -567,19 +571,20 @@ def sibling_line(root):
             except OSError:
                 held = []
             lines = tezgah_research.slugs(checkout) if held else []
-            state = ("uses the main checkout's `.tezgah`" if not held else
+            state = ("uses %s's `.tezgah`" % owner if not held else
                      "its own `.tezgah` still holds %s, which `git worktree remove` "
                      "deletes: move each research line with `%s import %s <slug>` "
-                     "from the main checkout, and the rest by hand"
-                     % (", ".join(held), tool("tezgah-research"), checkout))
+                     "from %s, and the rest by hand"
+                     % (", ".join(held), tool("tezgah-research"), checkout,
+                        "another worktree" if bare else "the main checkout"))
             if lines:
                 state += " (lines: %s)" % ", ".join(lines)
         items.append("%s (%s%s)" % (checkout, "this checkout, " if checkout == here
                                     else "", state))
-    return ("Worktrees: %d checkouts of this repository share the main checkout's "
-            "`.tezgah` - plans, lessons, research and analysis are written there, "
-            "never into a worktree's own: %s. Detail: `%s --all`."
-            % (len(checkouts), "; ".join(items), tool("tezgah-research")))
+    return ("Worktrees: %d checkouts of this repository share %s's `.tezgah` - "
+            "plans, lessons, research and analysis are written there, never into a "
+            "worktree's own: %s. Detail: `%s --all`."
+            % (len(checkouts) - bare, owner, "; ".join(items), tool("tezgah-research")))
 
 
 def task_line(task):
