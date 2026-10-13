@@ -709,6 +709,20 @@ class Gate(TempHome):
                              session_id="mine")
         self.assertIn("Concurrent write refused", reason)
 
+    def test_a_checkout_under_the_temp_dir_still_races(self):
+        # plan 099: a path outside cwd under the temp dir read as scratch, so a
+        # race on a checkout there (CI's /tmp) went unseen; a plain temp file
+        # is still no one's shared work
+        other = self.make_repo("other")
+        os.makedirs(os.path.join(other, ".git"))
+        self.envv["TMPDIR"] = self.home
+        shared, scratch = os.path.join(other, "x.py"), os.path.join(self.home, "x.log")
+        for path in (shared, scratch):
+            self.wrote("writer", path, other)
+        self.assertIn("Concurrent write refused", self.decide(
+            "Write", {"file_path": shared}, session_id="mine") or "")
+        self.assertIsNone(self.decide("Write", {"file_path": scratch}, session_id="mine"))
+
     def test_a_damaged_foreign_ledger_does_not_turn_the_write_gate_off(self):
         # audit GAP-02 / M-7: one `[1,2]` row in any recent ledger raised out of
         # the race reader, and every write of every session went through; the
@@ -1468,6 +1482,11 @@ class Gate(TempHome):
             "old_string": "a", "new_string": "b"}, session_id="kidM"))
         # the parent's own write into its checkout is not a slice's
         self.assertIsNone(self.decide("Edit", main_edit, session_id="P3"))
+        # plan 099: with the checkouts under the temp dir, a main-checkout write
+        # from the worktree's own cwd is still the main checkout's, not scratch
+        self.envv["TMPDIR"] = self.home
+        self.assertIn("is in the main checkout", self.decide(
+            "Edit", main_edit, cwd=tree, session_id="kidT") or "")
 
     def test_a_write_into_another_repository_is_noticed_once_per_repository(self):
         # finding 7: cwd decides which project's rules apply, so a write into
@@ -2606,6 +2625,22 @@ class TaskGate(TempHome):
                      os.path.join(self.repo, "docs", "a.md"), "/var/tmp/x.txt"):
             self.assertIsNone(self.write_path(path), path)
         self.assertIsNone(self.bash("echo x > docs/a.md && sed -i '' s/a/b/ src/a.py"))
+
+    def test_a_plan_worktree_under_the_temp_dir_is_still_held(self):
+        # plan 099: CI's fixture lives under /tmp, where every path outside cwd
+        # read as the session's scratch, so a write outside a held plan
+        # worktree's scope passed on every route. A checkout under the temp dir
+        # is a checkout; a plain temp file stays scratch.
+        one, _ = self.two_plan_worktrees()
+        self.envv["TMPDIR"] = self.home
+        outside = os.path.join(one, "docs", "a.md")
+        self.assertIn("task 017", self.write_path(outside) or "")
+        self.assertIn("task 017", self.bash("echo x > %s" % outside) or "")
+        self.assertIsNone(self.write_path(os.path.join(one, "hooks", "a.py")))
+        for path in (os.path.join(self.home, "x.log"),
+                     os.path.join(self.home, "new", "x.log")):
+            self.assertIsNone(self.write_path(path), path)
+            self.assertIsNone(self.bash("echo x > %s" % path), path)
 
     def test_a_held_plan_in_a_reading_phase_does_not_hold_the_main_checkout(self):
         self.plan(phase="discovery", allowed=("hooks/**",))

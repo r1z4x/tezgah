@@ -1243,6 +1243,15 @@ def _text_after(inp, path):
                                if isinstance(inp.get(k), str)])
 
 
+def _scratch(path, cwd):
+    """`scratch_target`, unless a git checkout holds `path`: a checkout under the
+    temp dir (CI's /tmp, a worktree beside one) is a checkout, and its files meet
+    the race, lease and task rules like any other's. A plain temp file stays
+    scratch (plan 099)."""
+    return scratch_target(path, cwd) and not _toplevel(
+        os.path.realpath(os.path.join(cwd or os.getcwd(), path)))
+
+
 def race_reason(inp, session_id, cwd=None):
     """A deny reason when another session wrote one of this call's files inside
     RACE_WINDOW_MIN, else None.
@@ -1263,7 +1272,7 @@ def race_reason(inp, session_id, cwd=None):
         # real target two sessions both write, and stays guarded.
         # a shell target whose `$VAR` has no known value names no file the
         # ledger could hold either (unnamed_target)
-        if (URI_CHANNEL.match(path) or scratch_target(path, cwd)
+        if (URI_CHANNEL.match(path) or _scratch(path, cwd)
                 or (not URI_TARGET.match(path) and unnamed_target(path, inp))):
             continue    # a temp file or a device is no one's shared work
         others = [w for w in writers_elsewhere(path, session_id, RACE_WINDOW_MIN,
@@ -1410,7 +1419,7 @@ def lease_reason(inp, session_id, cwd=None, agent=None):
         if inp.get("command") or inp.get("cmd"):
             here = _shell_dir(inp, here)
         for path in write_paths(inp):
-            if (URI_CHANNEL.match(path) or scratch_target(path, here)
+            if (URI_CHANNEL.match(path) or _scratch(path, here)
                     or unnamed_target(path, inp)):
                 continue
             real = os.path.realpath(os.path.join(here, os.path.expanduser(path)))
@@ -1777,7 +1786,9 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
     allowlist must not reach out of the repo - unless it is the session's own
     scratch (`scratch_target`: a temp file, a device), which is no task's work,
     or is no repository's at all (`_no_repo`), which is no plan's;
-    build output inside the repo is a repo path and stays held. The refusal
+    build output inside the repo is a repo path and stays held, and so is a path
+    in the repo or its worktrees when the checkout lives under the temp dir
+    (plan 099: CI's /tmp). The refusal
     names the file as the call spelled it, because the agent has to recognize
     its own argument.
 
@@ -1827,7 +1838,7 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
                                       " or ".join(tezgah_task.WRITE_PHASES))
     for spelled, path, rel, own in project:
         patterns = own["allowed_paths"]
-        if not patterns or scratch_target(spelled, cwd):
+        if not patterns or (rel is None and scratch_target(spelled, cwd)):
             continue
         if rel is None or not any(tezgah_task.match(rel, p) for p in patterns):
             # the call's own spelling: the agent has to recognize its argument
@@ -3477,9 +3488,9 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     # one. A shell command that writes a file through a redirect or `tee` is a
     # write here too: the rules below read its target from `write_paths`, the
     # reader `capture` and the PostToolUse row already share - unless all it
-    # writes is its own scratch (`scratch_target`), such as a `> /tmp/check.log`.
+    # writes is its own scratch (`_scratch`), such as a `> /tmp/check.log`.
     writes = t in WRITE_TOOLS or (t in BASH_TOOLS and any(
-        not scratch_target(p, cwd) for p in write_paths(inp)))
+        not _scratch(p, cwd) for p in write_paths(inp)))
     if writes and RACE_REFUSE:
         reason = race_reason(inp, session_id, cwd)
         if reason:
