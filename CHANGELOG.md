@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-10-13
+
+### Fixed
+
+- **The v1.8.1 release builds.** A packaging test still pinned the serial suite step that 1.8.1 removed from CI. So the release workflow stopped before it built the artifact. `tests/impacted.py` no longer crashes on a deleted test module. Each neuter fall-through module runs in its own HOME, as the control does.
+
 ## [1.8.1] - 2026-10-13
 
 ### Changed
@@ -1155,7 +1161,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.2...HEAD
+[1.8.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.2
 [1.8.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.1
 [1.8.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.0
 [1.7.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.7.0
