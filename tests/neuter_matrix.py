@@ -537,11 +537,19 @@ def stop_mutants(text):
     return rows
 
 
+# the module that reads a mutated file runs first, so a killed mutant stops
+# there; the order only moves time, every module still runs on a survivor
+FIRST = {GATE: "test_gate.py", INTEGRITY: "test_integrity.py",
+         PLUGIN: "test_opencode_plugin.py"}
+
+
 def run(name, edit, work):
     """(name, exit status, last line) for one clone of HEAD, mutated by `edit`
     ((file, apply) or None); status 2 with the reason when the edit cannot apply."""
     tree = os.path.join(work, name)
-    subprocess.run(["git", "clone", "-q", "--no-hardlinks", HERE, tree], check=True)
+    # --shared borrows HEAD's objects instead of copying them: the clone only
+    # reads them, and nothing collects garbage in HERE while the matrix runs
+    subprocess.run(["git", "clone", "-q", "--shared", HERE, tree], check=True)
     if edit:
         path = os.path.join(tree, edit[0])
         with open(path, encoding="utf-8") as fh:
@@ -555,9 +563,11 @@ def run(name, edit, work):
     os.makedirs(tmp)
     env = dict(os.environ, HOME=home, TMPDIR=tmp, TEZGAH_UPDATE_CHECK="0")
     status, last = 0, ""
-    for module in MODULES:
+    first = FIRST.get(edit[0]) if edit else None
+    for module in ((first,) if first else ()) + tuple(m for m in MODULES if m != first):
+        # -f: a mutant is killed by its first failing test, not by the module's last
         proc = subprocess.run(
-            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", module],
+            [sys.executable, "-m", "unittest", "discover", "-f", "-s", "tests", "-p", module],
             cwd=tree, env=env, capture_output=True, text=True,
             stdin=subprocess.DEVNULL)  # a hook test reading an inherited tty hangs
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
@@ -589,13 +599,16 @@ def main():
     skipped = [m[0] for m in mutants if m not in rows]
     work = tempfile.mkdtemp(prefix="tezgah-neuter-")
     try:
-        name, status, last = run("control", None, work)
+        # the control runs beside the mutants rather than before them: its
+        # verdict is read first, and a red control discards every result
+        workers = max(1, os.cpu_count() or 2)
+        with concurrent.futures.ThreadPoolExecutor(workers) as pool:
+            control = pool.submit(run, "control", None, work)
+            results = list(pool.map(lambda m: run(m[0], m[1:3], work), rows))
+            name, status, last = control.result()
         if status:
             print("FAIL: the unmutated control is red, so no mutant can be read (%s)" % last)
             return 1
-        workers = max(1, (os.cpu_count() or 2) // 2)
-        with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-            results = list(pool.map(lambda m: run(m[0], m[1:3], work), rows))
     finally:
         shutil.rmtree(work, ignore_errors=True)
     survivors = 0
