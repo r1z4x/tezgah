@@ -76,6 +76,12 @@ class TheMap(unittest.TestCase):
         self.assertEqual(self.modules("tests/test_gate.py"), ["test_gate.py"])
         self.assertEqual(self.modules("tests/test_deleted_by_this_change.py"), [])
 
+    def test_the_private_workspace_runs_no_module(self):
+        # a plan record or a research row ran all 100 modules (2026-10-12/13)
+        for path in (".tezgah/plans/open/001-x.md", ".tezgah/research/open/l/claims.jsonl",
+                     ".tezgah/lessons.md"):
+            self.assertEqual(self.modules(path), [], path)
+
     def test_the_neuter_matrix_and_its_cache_map_to_their_module(self):
         # both ran all 100 modules (2026-10-13); the matrix is CI's
         for path in ("tests/neuter_matrix.py", "tests/neuter_killers.json"):

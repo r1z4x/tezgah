@@ -142,6 +142,10 @@ def modules_for(path, cache):
     stem, ext = os.path.splitext(name)
     if path == "tests/support.py" or path.startswith("tests/_probe_"):
         return None
+    # the private workspace (plans, research lines, lessons) is no code: its own
+    # readers check it, and a plan edit ran all 100 modules (2026-10-12/13)
+    if path.startswith(".tezgah/"):
+        return []
     if path.startswith("tests/"):
         if ext == ".py" and name.startswith("test_"):
             # a module the change deleted has nothing left to run: on 3.12+ an
@@ -288,7 +292,30 @@ def _run_module(module, log_path):
     return module, proc.returncode, seconds, section
 
 
+def _wait_for_other_runs(modules):
+    """Hold a machine-wide lock while a large set runs: two full suites at once
+    (two worktrees, two slices) each ran about twice as slow, and a run on a
+    loaded machine fails timing tests (2026-10-13). A small set never waits.
+    ponytail: no lock on Windows, which has no fcntl."""
+    if len(modules) < 20:
+        return None
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    fh = open(os.path.join("/tmp" if os.path.isdir("/tmp") else tempfile.gettempdir(),
+                           "tezgah-impacted.lock"), "a")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another large impacted run holds the lock; waiting for it to finish",
+              flush=True)
+        fcntl.flock(fh, fcntl.LOCK_EX)
+    return fh
+
+
 def run_pool(modules, work_dir, workers):
+    lock = _wait_for_other_runs(modules)
     log_path = os.path.join(work_dir, "impacted.log")
     open(log_path, "w").close()
     rows, failed, sections = [], [], {}
@@ -308,6 +335,8 @@ def run_pool(modules, work_dir, workers):
             if rc:
                 failed.append(module)
                 sections[module] = section
+    if lock:
+        lock.close()
     rows.sort()
     for module in sorted(sections):
         print(sections[module], end="")
