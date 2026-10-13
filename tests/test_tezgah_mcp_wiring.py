@@ -80,24 +80,29 @@ def dsh_entry(text, name):
 
 class WiringBase(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.home = os.path.realpath(self._tmp.name)
+        self.addCleanup(self.build_home(self).cleanup)
+
+    @staticmethod
+    def build_home(obj):
+        """A throwaway HOME on `obj`: a test, or a class that shares one."""
+        tmp = tempfile.TemporaryDirectory()
+        obj.home = home = os.path.realpath(tmp.name)
         for d in (".claude", ".codex", ".cursor", ".dsh", ".config/opencode", ".omp"):
-            os.makedirs(os.path.join(self.home, d), exist_ok=True)
-        self.env = {
+            os.makedirs(os.path.join(home, d), exist_ok=True)
+        obj.env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "HOME": self.home,
+            "HOME": home,
             "LANG": "C.UTF-8",
             # no graph binary, no orx, no dependency installs: this file is about
             # the MCP rows, and the graph row is written by every host either way
-            "TEZGAH_CODEGRAPH_BIN": self.path("no-such-codegraph"),
-            "TEZGAH_ORX_BIN": self.path("no-such-orx"),
-            "TEZGAH_CLAUDE_BIN": self.path("no-such-claude"),
+            "TEZGAH_CODEGRAPH_BIN": os.path.join(home, "no-such-codegraph"),
+            "TEZGAH_ORX_BIN": os.path.join(home, "no-such-orx"),
+            "TEZGAH_CLAUDE_BIN": os.path.join(home, "no-such-claude"),
             "TEZGAH_NO_DEPS": "1",
             "TEZGAH_UPDATE_CHECK": "0",  # no detached release check in this HOME
         }
-        self.copy = self.path(*COPY_PARTS)
+        obj.copy = os.path.join(home, *COPY_PARTS)
+        return tmp
 
     def path(self, *parts):
         return os.path.join(self.home, *parts)
@@ -204,28 +209,6 @@ class WiringBase(unittest.TestCase):
 
 
 class Rows(WiringBase):
-    def test_every_host_carries_the_row_with_the_one_argv(self):
-        self.make_plugin_copy()
-        proc = self.setup("--install", "--hosts", ALL)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        for host in HOSTS:
-            entry = self.entry(host)
-            self.assertIsNotNone(entry, "%s has no tezgah MCP row" % host)
-            want = (self.expected_argv(self.copy) if host == "claude"
-                    else self.expected_argv())
-            self.assertEqual(self.argv_of(host, entry), want, host)
-        # opencode is the host whose schema takes the whole argv as a list
-        opencode = self.read_json(self.config_paths()["opencode"])["mcp"][SERVER]
-        self.assertEqual(opencode["type"], "local")
-        self.assertTrue(opencode["enabled"])
-        # omp spawns `command` as one executable: a list there is ENOENT
-        omp = self.read_json(self.config_paths()["omp"])["mcpServers"][SERVER]
-        self.assertEqual(omp["type"], "stdio")
-        self.assertIsInstance(omp["command"], str)
-        # Claude's file is its only MCP channel, so the graph row rides it too
-        claude = self.read_json(self.config_paths()["claude"])["mcpServers"]
-        self.assertIn(GRAPH, claude)
-
     def test_the_interpreter_comes_from_the_paths_resolver(self):
         """The row is `tp.python_cmd()`, not `python3` spelled out: a machine
         whose interpreter is pinned has to see the pin in every host."""
@@ -235,20 +218,6 @@ class Rows(WiringBase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         for host in HOSTS:
             self.assertEqual(self.argv_of(host, self.entry(host))[0], pinned, host)
-
-    def test_a_second_install_writes_the_same_bytes_and_one_row(self):
-        self.make_plugin_copy()
-        self.setup("--install", "--hosts", ALL)
-        before = {h: self.read_text(p) for h, p in self.config_paths().items()}
-        proc = self.setup("--install", "--hosts", ALL)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        for host, path in self.config_paths().items():
-            self.assertEqual(self.read_text(path), before[host],
-                             "%s was rewritten by a second install" % host)
-        # the two generated-text hosts are where a duplicate could hide: a JSON
-        # object cannot hold the same key twice
-        self.assertEqual(before["codex"].count("[mcp_servers.%s]" % SERVER), 1)
-        self.assertEqual(before["dsh"].count("serverName: %s" % SERVER), 1)
 
     def test_uninstall_removes_only_the_tezgah_row(self):
         self.make_plugin_copy()
@@ -345,7 +314,52 @@ class Rows(WiringBase):
         self.assertIn("official", markets)
 
 
-class Report(WiringBase):
+class Installed(WiringBase):
+    """One `--install --hosts all` into a HOME the class shares: these tests
+    read it, and the one that breaks a row puts the bytes back."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.addClassCleanup(WiringBase.build_home(cls).cleanup)
+        WiringBase.make_plugin_copy(cls)
+        cls.installed = WiringBase.setup(cls, "--install", "--hosts", ALL)
+
+    def setUp(self):
+        pass  # the class HOME, not a fresh one per test
+
+    def test_every_host_carries_the_row_with_the_one_argv(self):
+        proc = self.installed
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for host in HOSTS:
+            entry = self.entry(host)
+            self.assertIsNotNone(entry, "%s has no tezgah MCP row" % host)
+            want = (self.expected_argv(self.copy) if host == "claude"
+                    else self.expected_argv())
+            self.assertEqual(self.argv_of(host, entry), want, host)
+        # opencode is the host whose schema takes the whole argv as a list
+        opencode = self.read_json(self.config_paths()["opencode"])["mcp"][SERVER]
+        self.assertEqual(opencode["type"], "local")
+        self.assertTrue(opencode["enabled"])
+        # omp spawns `command` as one executable: a list there is ENOENT
+        omp = self.read_json(self.config_paths()["omp"])["mcpServers"][SERVER]
+        self.assertEqual(omp["type"], "stdio")
+        self.assertIsInstance(omp["command"], str)
+        # Claude's file is its only MCP channel, so the graph row rides it too
+        claude = self.read_json(self.config_paths()["claude"])["mcpServers"]
+        self.assertIn(GRAPH, claude)
+
+    def test_a_second_install_writes_the_same_bytes_and_one_row(self):
+        before = {h: self.read_text(p) for h, p in self.config_paths().items()}
+        proc = self.setup("--install", "--hosts", ALL)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for host, path in self.config_paths().items():
+            self.assertEqual(self.read_text(path), before[host],
+                             "%s was rewritten by a second install" % host)
+        # the two generated-text hosts are where a duplicate could hide: a JSON
+        # object cannot hold the same key twice
+        self.assertEqual(before["codex"].count("[mcp_servers.%s]" % SERVER), 1)
+        self.assertEqual(before["dsh"].count("serverName: %s" % SERVER), 1)
+
     def sections(self, text):
         """The report's per-host sections, keyed by host name."""
         out, current = {}, None
@@ -358,8 +372,7 @@ class Report(WiringBase):
         return out
 
     def test_the_report_prints_one_wired_row_per_host(self):
-        self.make_plugin_copy()
-        self.setup("--install", "--hosts", ALL)
+        self.assertEqual(self.installed.returncode, 0, self.installed.stderr)
         proc = self.setup("--report", "--hosts", ALL)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         sections = self.sections(proc.stdout)
@@ -378,10 +391,14 @@ class Report(WiringBase):
     def test_a_missing_row_reads_miss_in_the_report(self):
         """The row is a check, not a decoration: a host whose row is gone has to
         report MISS, which is what makes it worth a line."""
-        self.make_plugin_copy()
-        self.setup("--install", "--hosts", ALL)
         config = self.config_paths()["cursor"]
-        broken = self.read_json(config)
+        original = self.read_text(config)
+
+        def restore():
+            with open(config, "w") as fh:
+                fh.write(original)
+        self.addCleanup(restore)
+        broken = json.loads(original)
         broken["mcpServers"][SERVER]["args"] = ["/somewhere/else/tezgah-mcp"]
         self.write_json(config, broken)
         proc = self.setup("--report", "--hosts", "cursor")

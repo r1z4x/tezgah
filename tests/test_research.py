@@ -92,8 +92,10 @@ class Workspace(TempHome):
     def repo(self, name="repo"):
         path = self.make_repo(name)
         self.git(path, "init", "-q")
-        self.git(path, "config", "user.email", "test@example.invalid")
-        self.git(path, "config", "user.name", "Test")
+        # what `git config user.email` and `user.name` write, without two more
+        # git processes per fixture repo (357 repos in this file)
+        with open(os.path.join(path, ".git", "config"), "a") as fh:
+            fh.write("[user]\n\temail = test@example.invalid\n\tname = Test\n")
         return path
 
     def git(self, repo, *args, when=None):

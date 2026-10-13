@@ -130,13 +130,14 @@ class PostToolUseProvenance(TempHome):
                   "a network read")]
         for i, (tool, inp, channel) in enumerate(cases):
             with self.subTest(tool=tool, inp=inp):
-                text = self.line(tool, inp, session="s-label-%d" % i)
+                out = self.post(tool, inp, session="s-label-%d" % i)
+                text = out.get("hookSpecificOutput", {}).get("additionalContext", "")
                 self.assertIn("untrusted content", text)
                 self.assertIn(channel, text)
                 self.assertTrue(text.startswith("tezgah:"), text)
-                self.assertEqual(
-                    self.post(tool, inp, session="s-label-%d" % i)["hookSpecificOutput"],
-                    {"hookEventName": "PostToolUse", "additionalContext": text})
+                self.assertEqual(out["hookSpecificOutput"],
+                                 {"hookEventName": "PostToolUse",
+                                  "additionalContext": text})
 
     def test_a_workspace_result_wears_no_label(self):
         # The label names an exception. An ordinary result must not wear one, or

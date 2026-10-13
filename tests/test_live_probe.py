@@ -19,7 +19,9 @@ hosts/opencode/plugins/tezgah.js (its own deny row).
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -49,19 +51,32 @@ else:
 
 
 class LiveDeny(ClaudeHome):
-    def setUp(self):
-        super().setUp()
+    """One release tree and one six-host install for the class; every test
+    starts from that installed HOME restored at the same path, so each one's
+    edits and ledger rows are its own."""
+
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(tmp.cleanup)
+        ClaudeHome.build(cls, os.path.realpath(tmp.name))
         for d in (".codex", ".cursor", ".dsh", ".config/opencode", ".omp/agent"):
-            os.makedirs(os.path.join(self.home, d), exist_ok=True)
-        omp = os.path.join(os.path.dirname(self.home), "omp")
+            os.makedirs(os.path.join(cls.home, d), exist_ok=True)
+        omp = os.path.join(os.path.dirname(cls.home), "omp")
         with open(omp, "w") as fh:
             fh.write(OMP_STUB)
         os.chmod(omp, 0o755)
-        self.env["TEZGAH_OMP_BIN"] = omp
-        proc = self.setup("--install", "--hosts", ",".join(HOSTS))
-        self.assertTrue(os.path.isfile(os.path.join(self.home, ".codex", "hooks.json")),
-                        proc.stdout + proc.stderr)
-        self.trust_codex()
+        cls.env["TEZGAH_OMP_BIN"] = omp
+        proc = ClaudeHome.setup(cls, "--install", "--hosts", ",".join(HOSTS))
+        if not os.path.isfile(os.path.join(cls.home, ".codex", "hooks.json")):
+            raise AssertionError(proc.stdout + proc.stderr)
+        cls.trust_codex(cls)
+        cls.installed = os.path.join(os.path.dirname(cls.home), "installed")
+        shutil.copytree(cls.home, cls.installed, symlinks=True)
+
+    def setUp(self):
+        shutil.rmtree(self.home)
+        shutil.copytree(self.installed, self.home, symlinks=True)
 
     def trust_codex(self):
         """Write the [hooks.state] keys an interactive codex run would, one per

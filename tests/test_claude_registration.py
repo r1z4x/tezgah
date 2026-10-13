@@ -95,24 +95,29 @@ class ClaudeHome(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        base = os.path.realpath(self._tmp.name)
-        self.home = os.path.join(base, "home")
-        os.makedirs(os.path.join(self.home, ".claude"))
-        with open(os.path.join(self.home, ".claude", "settings.json"), "w") as fh:
+        self.build(self, os.path.realpath(self._tmp.name))
+
+    @staticmethod
+    def build(obj, base):
+        """The HOME, tree and stub under `base`, on `obj`: a test, or a class
+        that shares one."""
+        obj.home = os.path.join(base, "home")
+        os.makedirs(os.path.join(obj.home, ".claude"))
+        with open(os.path.join(obj.home, ".claude", "settings.json"), "w") as fh:
             fh.write("{}\n")
-        self.tree = release_tree(os.path.join(base, "tree"))
-        self.stub = os.path.join(base, "claude")
-        with open(self.stub, "w") as fh:
+        obj.tree = release_tree(os.path.join(base, "tree"))
+        obj.stub = os.path.join(base, "claude")
+        with open(obj.stub, "w") as fh:
             fh.write(STUB)
-        os.chmod(self.stub, 0o755)
-        self.env = {
+        os.chmod(obj.stub, 0o755)
+        obj.env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "HOME": self.home,
+            "HOME": obj.home,
             "LANG": "C.UTF-8",
             "TEZGAH_CODEGRAPH_BIN": os.path.join(base, "no-such-codegraph"),
             "TEZGAH_ORX_BIN": os.path.join(base, "no-such-orx"),
             "TEZGAH_OMP_BIN": os.path.join(base, "no-such-omp"),
-            "TEZGAH_CLAUDE_BIN": self.stub,
+            "TEZGAH_CLAUDE_BIN": obj.stub,
             "TEZGAH_NO_DEPS": "1",
             "TEZGAH_UPDATE_CHECK": "0",
         }

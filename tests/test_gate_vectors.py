@@ -80,6 +80,7 @@ class GateVectors(TempHome):
         # opencode asks the core through bin/tezgah-gate under its config dir,
         # linked the way tezgah-setup links it; without it the ask fails open
         support.linked(os.path.join(support.REPO, "bin", "tezgah-gate"), self.home)
+        self.spawned = {}
 
     def hook(self, script, payload, extract):
         out, proc = run_json([script], payload, env=self.envv)
@@ -97,10 +98,16 @@ class GateVectors(TempHome):
             return out or None
         if host in ("claude", "dsh", "codex"):
             script = support.CODEX_HOOK if host == "codex" else support.PRETOOLUSE
-            return self.hook(script, dict(ids, hook_event_name="PreToolUse",
-                                          tool_name=name, tool_input=inp),
-                             lambda out: out.get("hookSpecificOutput", {}).get(
-                                 "permissionDecisionReason"))
+            # claude and dsh run the same entry point on the same envelope, so
+            # a fresh session's answer is spawned once and read by both
+            key = (script, name, json.dumps(inp, sort_keys=True))
+            if key not in self.spawned:
+                self.spawned[key] = self.hook(
+                    script, dict(ids, hook_event_name="PreToolUse",
+                                 tool_name=name, tool_input=inp),
+                    lambda out: out.get("hookSpecificOutput", {}).get(
+                        "permissionDecisionReason"))
+            return self.spawned[key]
         if host == "cursor":
             return self.hook(support.CURSOR_HOOK,
                              dict(ids, hook_event_name="preToolUse",

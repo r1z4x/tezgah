@@ -2658,10 +2658,32 @@ class ArmingConformance(TempHome):
     def armed(self, text):
         return {k for k, label in self.LABELS.items() if label in text}
 
+    # every host wrapper hands the prompt to the same `context_for`, so the
+    # prompt table runs once through it (one child: HOME is fixed at import),
+    # and each host's wrapper runs on a multi-rule non-ASCII prompt, a
+    # multi-line one and one that arms nothing (84 hook spawns took 91 s)
+    HOST_PROMPTS = ("Bu ekranı daha kullanıcı dostu yap",
+                    "1. fix the parser\n2. write the release notes",
+                    "add a docstring to parse_quantity")
+
+    def test_every_prompt_arms_its_rules(self):
+        repo = self.make_repo()
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             "import json, sys\nsys.path.insert(0, %r)\nimport tezgah_context as tc\n"
+             "print(json.dumps([tc.context_for('user_prompt', %r, {'prompt': p})"
+             " for p in %r]))\n" % (support.HOOKS, repo, list(self.PROMPTS))],
+            capture_output=True, text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for (prompt, expected), text in zip(self.PROMPTS.items(),
+                                            json.loads(proc.stdout)):
+            self.assertEqual(self.armed(text), expected, repr(prompt))
+
     def test_all_hosts_arm_the_same_rules(self):
         repo = self.make_repo()
         env = self.env()
-        for prompt, expected in self.PROMPTS.items():
+        for prompt in self.HOST_PROMPTS:
+            expected = self.PROMPTS[prompt]
             payload = {"hook_event_name": "UserPromptSubmit", "cwd": repo,
                        "prompt": prompt}
             got = {}

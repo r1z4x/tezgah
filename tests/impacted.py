@@ -20,6 +20,7 @@ Changed paths map to test modules (tests/test_<name>.py) by five rules, in order
   5. any other path (`hosts/**`, `packaging/**`, config files): the modules
      that name the path itself, its `os.path.join` spelling or the
      tests/support.py constant built from it - never its basename alone.
+     `benchmarks/arm-bench/**` maps to `test_arm_bench.py` plus those modules.
 
 `tests/support.py`, `tests/_probe_*.py` and any path no rule maps are the fail
 safe: the FULL suite runs. A docs-only change maps to the docs modules only.
@@ -57,7 +58,10 @@ OVERRIDES = {
                     "dsh_hooks", "integrity", "taste"),
     "tezgah_lang": ("gate",),
     "tezgah_policy": ("skills", "context", "setup"),
-    "tezgah_paths": None,  # None means FULL: every module imports the paths
+    # None means FULL. Measured 2026-10-13: 32 test modules import it, and the
+    # modules that import it, directly or through another hooks module, map to
+    # 97 of 100 - tezgah_store among them, itself FULL
+    "tezgah_paths": None,
     "tezgah_context": ("gate", "skills", "agents", "taste"),
     # the lessons block and the docs fallback rank through it
     "tezgah_rank": ("context", "docs_router", "embed"),
@@ -142,6 +146,12 @@ def modules_for(path, cache):
         if ext == ".py" and name.startswith("test_"):
             return [name]
         return _helper_importers(stem, cache) if ext == ".py" else None
+    # the arm-bench lab is a maintainer instrument no shipped code imports:
+    # its own module, plus any module that names the changed file (the map's
+    # own test names paths as data, so it is not a hit)
+    if path.startswith("benchmarks/arm-bench/"):
+        hits = set(_tests_mentioning(path, cache)) - {"test_impacted.py"}
+        return sorted(hits | {"test_arm_bench.py"})
     # docs-only changes exercise the docs modules alone
     if path.startswith("docs/") or path in ("docs/index.json",):
         mods = [m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, m))]
@@ -278,7 +288,11 @@ def run_pool(modules, work_dir, workers):
     rows, failed, sections = [], [], {}
     start = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_run_module, m, log_path) for m in modules]
+        # longest first, so the slowest module never starts last and sets the
+        # wall time alone; source size is the proxy (the six slowest modules are
+        # the six largest, measured 2026-10-13)
+        order = sorted(modules, key=lambda m: -os.path.getsize(os.path.join(TESTS, m)))
+        futures = [pool.submit(_run_module, m, log_path) for m in order]
         for fut in concurrent.futures.as_completed(futures):
             module, rc, seconds, section = fut.result()
             rows.append((module, rc, seconds))

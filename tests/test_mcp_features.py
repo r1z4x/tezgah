@@ -15,9 +15,10 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
+
+from install_cache import InstallCache
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
@@ -60,13 +61,13 @@ def setup_module():
 
 
 class FeaturesBase(unittest.TestCase):
+    # 20 tests start from the same `--install --hosts all`: it runs once per
+    # process and its HOME is laid back down after that
+    cache = InstallCache()
+
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.home = os.path.realpath(self._tmp.name)
-        for d in (".claude", ".codex", ".cursor", ".dsh", ".config/opencode",
-                  ".omp/agent"):
-            os.makedirs(os.path.join(self.home, d), exist_ok=True)
+        self.home = self.cache.fresh((".claude", ".codex", ".cursor", ".dsh",
+                                      ".config/opencode", ".omp/agent"))
         self.env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": self.home,
@@ -136,7 +137,9 @@ class FeaturesBase(unittest.TestCase):
                 else "serverName: %s" % name) in text
 
     def install(self, *args, **kwargs):
-        proc = self.setup("--install", "--hosts", ALL, *args, **kwargs)
+        proc = self.cache.run(None if args or kwargs else "install",
+                              lambda: self.setup("--install", "--hosts", ALL,
+                                                 *args, **kwargs))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         return proc
 
@@ -180,23 +183,21 @@ class Selection(FeaturesBase):
         self.install()
         proc = self.setup("--disable", MOBILE)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # one report over every host, read per host section
+        sections, current = {}, None
+        for line in self.setup("--report", "--hosts", ALL).stdout.splitlines():
+            if line.endswith(":") and line.strip().rstrip(":").isalpha():
+                current = sections.setdefault(line.strip().rstrip(":"), [])
+            elif current is not None:
+                current.append(line)
         for host in HOST_FILES:
             self.assertFalse(self.wired(host), "%s kept the disabled row" % host)
-            report = self.setup("--report", "--hosts", host).stdout
-            row = self.row(report, "app MCP mobile-mcp")
+            row = self.row("\n".join(sections.get(host, [])), "app MCP mobile-mcp")
             self.assertTrue(row.strip().startswith("ok"),
-                            "a disabled, unwired server is not a green row: %r" % row)
+                            "%s: a disabled, unwired server is not a green row: %r"
+                            % (host, row))
             self.assertIn("deselected", row)
         self.assertNotIn(MOBILE, self.features_key())
-
-    def test_enable_puts_it_back(self):
-        self.install()
-        self.setup("--disable", MOBILE)
-        proc = self.setup("--enable", MOBILE)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        for host in HOST_FILES:
-            self.assertTrue(self.wired(host), "%s did not get the row back" % host)
-        self.assertIn(MOBILE, self.features_key())
 
     def test_an_unknown_id_exits_one_and_names_the_known_ids(self):
         for flag in ("--enable", "--disable"):
@@ -326,27 +327,13 @@ class Ghosts(FeaturesBase):
 
 
 class Idempotence(FeaturesBase):
-    def test_a_repeated_disable_writes_nothing(self):
-        self.install()
-        self.setup("--disable", MOBILE)
-        path = self.path(".omp", "agent", "mcp.json")
-        before_mtime = os.stat(path).st_mtime_ns
-        backups = [p for p in os.listdir(os.path.dirname(path))
-                   if p.endswith(".tezgah-bak")]
-        time.sleep(0.01)
-        proc = self.setup("--disable", MOBILE)
-        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(os.stat(path).st_mtime_ns, before_mtime,
-                         "a repeated disable rewrote the host file")
-        self.assertEqual([p for p in os.listdir(os.path.dirname(path))
-                          if p.endswith(".tezgah-bak")], backups)
-
-    # Every generated artifact a disable re-renders: the always-on omp contract
-    # and the three files opencode reads. Their writers had no content guard
-    # (unlike write_json/set_managed_block), so a repeated --disable rewrote all
-    # four and left an identical RULES.md.tezgah-bak behind while the host-JSON
-    # case above passed - which is why that case missed this.
-    GENERATED = ((".omp", "agent", "RULES.md"),
+    # Every file a disable re-renders: omp's host JSON, the always-on omp
+    # contract and the three files opencode reads. The last four had no content
+    # guard (unlike write_json/set_managed_block), so a repeated --disable
+    # rewrote all four and left an identical RULES.md.tezgah-bak behind while a
+    # case that watched the host JSON alone passed.
+    GENERATED = ((".omp", "agent", "mcp.json"),
+                 (".omp", "agent", "RULES.md"),
                  (".config", "tezgah", "opencode-contract.md"),
                  (".config", "tezgah", "opencode-skills.md"),
                  (".config", "tezgah", "opencode-skills.full.md"))
@@ -390,7 +377,10 @@ class Idempotence(FeaturesBase):
         path = self.path(".omp", "agent", "mcp.json")
         before = json.loads(self.read_text(path))
         self.setup("--disable", MOBILE)
-        self.setup("--enable", MOBILE)
+        proc = self.setup("--enable", MOBILE)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for host in HOST_FILES:
+            self.assertTrue(self.wired(host), "%s did not get the row back" % host)
         self.assertEqual(json.loads(self.read_text(path)), before)
         self.assertEqual(sorted(self.features_key()),
                          sorted(tezgah_apps.defaults()))

@@ -54,8 +54,19 @@ class TheMap(unittest.TestCase):
             self.assertIn(expected, mods)
 
     def test_a_paths_change_is_the_full_suite(self):
-        # every module imports tezgah_paths, so a targeted set would lie
+        # nearly every hooks module imports tezgah_paths, so a targeted set
+        # would lie
         self.assertIsNone(self.modules("hooks/tezgah_paths.py"))
+
+    def test_an_arm_bench_file_maps_to_its_lab_module_not_the_suite(self):
+        # measured 2026-10-13: every file under benchmarks/arm-bench (652) ran
+        # all 100 modules
+        self.assertEqual(
+            self.modules("benchmarks/arm-bench/tasks/c01-root-cause-discount/meta.json"),
+            ["test_arm_bench.py"])
+        # a module that names the file still runs
+        self.assertIn("test_research.py",
+                      self.modules("benchmarks/arm-bench/orx-run.sh"))
 
     def test_the_shared_support_layer_is_the_full_suite(self):
         self.assertIsNone(self.modules("tests/support.py"))

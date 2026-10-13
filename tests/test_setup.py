@@ -17,6 +17,8 @@ import time
 import unittest
 from unittest import mock
 
+from install_cache import InstallCache
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
 ALL = "claude,codex,opencode,cursor,dsh,omp"
@@ -42,13 +44,13 @@ def setup_module():
 
 
 class SetupBase(unittest.TestCase):
+    # an `--install` into an untouched HOME under the default environment runs
+    # once per argv per process; later tests get its HOME laid back down
+    cache = InstallCache()
+
     def setUp(self):
-        import tempfile
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.home = os.path.realpath(self._tmp.name)
-        for d in (".claude", ".codex", ".cursor", ".dsh", ".config/opencode"):
-            os.makedirs(os.path.join(self.home, d), exist_ok=True)
+        self.home = self.cache.fresh((".claude", ".codex", ".cursor", ".dsh",
+                                      ".config/opencode"))
         self.env = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": self.home,
@@ -73,6 +75,7 @@ class SetupBase(unittest.TestCase):
             # detached check writing into this HOME races the temp dir cleanup
             "TEZGAH_UPDATE_CHECK": "0",
         }
+        self.default_env = dict(self.env)
 
     def path(self, *parts):
         return os.path.join(self.home, *parts)
@@ -95,9 +98,11 @@ class SetupBase(unittest.TestCase):
         # the wizard path and then block on the real terminal instead of
         # printing the report this suite asserts on. The timeout turns a hang
         # into a failure, which is what the no-hang tests are about.
-        return subprocess.run([sys.executable, SETUP] + list(args),
-                              capture_output=True, text=True, env=self.env,
-                              input=stdin, timeout=120)
+        key = (args, stdin) if (args[:1] == ("--install",)
+                                and self.env == self.default_env) else None
+        return self.cache.run(key, lambda: subprocess.run(
+            [sys.executable, SETUP] + list(args), capture_output=True, text=True,
+            env=self.env, input=stdin, timeout=120))
 
     def tree(self):
         """Every path under the fake HOME, for before/after comparisons."""

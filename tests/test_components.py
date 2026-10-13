@@ -19,6 +19,7 @@ a layer rots without anything failing. Each check's escapes are named in the
 class docstring, so its ceiling stays visible.
 """
 import ast
+import collections
 import glob
 import json
 import os
@@ -425,16 +426,22 @@ class Tree(unittest.TestCase):
         this fires only on a def nothing anywhere mentions."""
         corpus = self.corpus()
         names = {p: code_names(p) for p in corpus}
+        token = re.compile(r"[A-Za-z0-9_]+")
+        def_line = re.compile(r"\s*def ([A-Za-z0-9_]+)\s*\(")
         for module in self.candidates():
             source = source_of(module)
+            # a name's whole-word uses in its module, less those on its own
+            # `def` line: counted once per module, not rebuilt per def (75 s)
+            uses = collections.Counter(token.findall(source))
+            on_def = collections.Counter()
+            for line in source.splitlines():
+                own = def_line.match(line)
+                if own:
+                    on_def[own.group(1)] += token.findall(line).count(own.group(1))
             for name in self.top_level_defs(module):
                 if name.startswith("__") or name in ENTRY_POINTS:
                     continue
-                body = "".join(line for line in source.splitlines(True)
-                               if not re.match(r"\s*def %s\s*\(" % re.escape(name),
-                                               line))
-                if re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % re.escape(name),
-                             body):
+                if uses[name] > on_def[name]:
                     continue  # called inside its own module
                 callers = [p for p in corpus if p != module and name in names[p]]
                 self.assertTrue(callers,
