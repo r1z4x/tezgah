@@ -99,9 +99,10 @@ No matrix cancels its other legs when one fails (`fail-fast: false`).
   opencode live probe and `--uninstall` from the installed tree. Any residue
   under the prefix fails it.
 
-`.github/workflows/neuter.yml` runs two jobs weekly (and on demand). The first,
-`neuter`, asks the question the suite cannot ask of itself - would a test fail
-if a guard went?
+`.github/workflows/neuter.yml` runs two jobs weekly, on demand, and on a push to
+`main` that changes a guard, the matrix or a test module it runs. The matrix is
+CI's, not the local loop's. The first job, `neuter`, asks the question the suite
+cannot ask of itself - would a test fail if a guard went?
 `tests/neuter_matrix.py` clones HEAD once per anti-shortcut guard, reverts that
 guard, and runs the gate's test modules; a mutant that still passes is a guard no
 test notices, and an unmutated control that fails voids the run. The script
@@ -114,6 +115,12 @@ rows cover the guards around those classes: the pass predicate, the empty-run
 read and the "doğrulanmadı" clear. The lost call, the bookkeeping and idle-turn
 fallbacks and the refusal row have rows too. The shortcut half is still
 hand-written (`MUTANTS`), so a new guard there needs a row.
+Each mutant first runs alone the test that killed it last time, read from
+`tests/neuter_killers.json`. When that test passes or is gone, the mutant runs
+the modules as before and the first failing test becomes its new entry. The
+control runs every module, then every cached killer alone, so a killer that
+fails without a mutant voids the run. A session that adds a deny rule checks its
+one mutant with `python3 tests/neuter_matrix.py --only <name>`.
 
 The second, `fuzz-shell`, runs the bash-oracle fuzzer (`tests/fuzz_shell.py`)
 under the ubuntu runner's bash 5.x. Locally, macOS ships bash 3.2. A first step

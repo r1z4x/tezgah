@@ -29,7 +29,6 @@ python3 tests/impacted.py --run <changed paths>           # the impacted set of 
 # once per final tree, at the merge step and in CI - never inside a turn
 # (~105 s + the e2e scripts and the audits)
 python3 tests/impacted.py --all                           # the whole suite, sharded
-TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py        # every guard still fails when neutered (reads HEAD)
 python3 bin/tezgah-docs --citations                       # every docs citation lands in its symbol
 python3 bin/tezgah-docs --clarity                         # the docs prose audit
 python3 skills/plan-add/render_table.py --acceptance --strict
@@ -90,12 +89,17 @@ printed. No model call, no network. It is in the CI `test` job; it prints
 
 ### Anti-shortcut guards, mutated
 
-`TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py` clones HEAD once per guard
-in the gate's mechanical integrity half, reverts that one guard and runs the
-gate's test modules; it fails if a mutant survives or the unmutated control is
-red. It reads HEAD, so commit first. Run it after adding or changing a deny rule
-(and add the rule's row to `MUTANTS`); CI runs it weekly
-(`.github/workflows/neuter.yml`), not per push.
+`tests/neuter_matrix.py` clones HEAD once per guard in the gate's mechanical
+integrity half, reverts that one guard and runs the gate's test modules; it
+fails if a mutant survives or the unmutated control is red. It is CI's, not the
+local loop's: `.github/workflows/neuter.yml` runs it weekly and on a push to
+`main` that changes a guard, the matrix or one of the test modules it runs.
+Each mutant first runs alone the test that killed it last time
+(`tests/neuter_killers.json`, rewritten by every run), and falls back to the
+modules when that test passes or is gone. A session that adds a deny rule adds
+its row to `MUTANTS` (a `decision` rule's `gate-<rule>` row is generated) and
+checks that one mutant after a commit, since the matrix reads HEAD:
+`TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py --only <name>`.
 
 ### Shell readers against real bash
 

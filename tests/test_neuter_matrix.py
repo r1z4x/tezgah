@@ -1,10 +1,11 @@
-"""tests/neuter_matrix.py's generated halves: one mutant per gate rule and one
-per Stop-class return site.
+"""tests/neuter_matrix.py's generated halves - one mutant per gate rule and one
+per Stop-class return site - and its killer cache.
 
-The weekly matrix (`.github/workflows/neuter.yml`) is too slow for the suite, so
-this module checks only the generator: the rows come from the same AST reader
-`bin/tezgah-docs --citations` uses for the rule list, and each one applies by
-line span to the gate's text without touching any other rule."""
+The matrix itself runs in CI (`.github/workflows/neuter.yml`), too slow for the
+suite, so this module checks the generator and the cache path: the rows come
+from the same AST reader `bin/tezgah-docs --citations` uses for the rule list,
+each one applies by line span to the gate's text without touching any other
+rule, and a cached killer kills only when that very test fails."""
 import ast
 import os
 import re
@@ -81,6 +82,72 @@ class GeneratedStopMutants(unittest.TestCase):
                 with open(os.path.join(support.REPO, path), encoding="utf-8") as fh:
                     _mutated, error = apply(fh.read())
                 self.assertIsNone(error)
+
+
+class KillerCache(unittest.TestCase):
+    """`verdict` driven by a stub runner: no clone, no subprocess."""
+
+    def stub(self, failing):
+        """A runner where each test id in `failing` fails; records each argv."""
+        calls = []
+
+        def runner(argv, _cwd, _env):
+            calls.append(argv)
+            module = argv[argv.index("-p") + 1][:-len(".py")]
+            only = [argv[i + 1] for i, a in enumerate(argv) if a == "-k"]
+            hit = [t for t in failing if t.startswith(module + ".")
+                   and (not only or t in only)]
+            # 3.10's line shape: `FAIL: method (module.Class)`
+            stderr = "".join("FAIL: %s (%s)\n" % (t.rsplit(".", 1)[1], t.rsplit(".", 1)[0])
+                             for t in hit[:1]) + ("FAILED (failures=1)\n" if hit else "OK\n")
+            return type("Proc", (), {"returncode": 1 if hit else 0, "stderr": stderr})()
+        return runner, calls
+
+    def verdict(self, known, failing):
+        runner, calls = self.stub(failing)
+        return neuter_matrix.verdict("test_gate.py", known, "tree", {}, runner), calls
+
+    def test_a_cached_killer_that_still_fails_is_the_only_run(self):
+        (status, _last, killer), calls = self.verdict(
+            "test_gate.G.test_old", ["test_gate.G.test_old"])
+        self.assertEqual((bool(status), killer), (True, "test_gate.G.test_old"))
+        self.assertEqual(len(calls), 1)
+
+    def test_a_stale_entry_falls_back_and_is_replaced(self):
+        (status, _last, killer), calls = self.verdict(
+            "test_gate.G.test_old", ["test_integrity.I.test_new"])
+        self.assertEqual((bool(status), killer), (True, "test_integrity.I.test_new"))
+        # the cached test, then the target module first, then the rest in order
+        modules = [c[c.index("-p") + 1] for c in calls]
+        self.assertEqual(modules[:3], ["test_gate.py", "test_gate.py", "test_integrity.py"])
+        results = [("m", status, _last, killer), ("gone-from-run", 0, "", None)]
+        self.assertEqual(
+            neuter_matrix.updated({"m": "test_gate.G.test_old", "dropped": "x.Y.test_z",
+                                   "kept": "test_gate.G.test_k"},
+                                  results, {"m", "kept", "gone-from-run"}),
+            {"m": "test_integrity.I.test_new", "kept": "test_gate.G.test_k"})
+
+    def test_a_missing_entry_runs_the_modules_and_records_the_killer(self):
+        (status, _last, killer), calls = self.verdict(None, ["test_gate.G.test_a"])
+        self.assertEqual((bool(status), killer), (True, "test_gate.G.test_a"))
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("-k", calls[0])
+
+    def test_a_cached_run_that_fails_for_another_reason_is_no_kill(self):
+        # a renamed test: the module's import error is not the cached id failing
+        def runner(argv, _cwd, _env):
+            stderr = ("ERROR: test_gate (unittest.loader._FailedTest)\n"
+                      if "-k" in argv else "OK\n")
+            return type("Proc", (), {"returncode": 1 if "-k" in argv else 0,
+                                     "stderr": stderr})()
+        status, _last, killer = neuter_matrix.verdict(
+            "test_gate.py", "test_gate.G.test_gone", "tree", {}, runner)
+        self.assertEqual((status, killer), (0, None))
+
+    def test_a_survivor_runs_every_module(self):
+        (status, _last, killer), calls = self.verdict("test_gate.G.test_old", [])
+        self.assertEqual((status, killer), (0, None))
+        self.assertEqual(len(calls), 1 + len(neuter_matrix.MODULES))
 
 
 if __name__ == "__main__":

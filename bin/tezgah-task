@@ -410,7 +410,6 @@ def changed_lines(root, base):
 # tier"): (the file that marks the repo has it, the command), in run order.
 MERGE_CHECKS = (
     ("tests/impacted.py", "python3 tests/impacted.py --all"),
-    ("tests/neuter_matrix.py", "TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py"),
     ("bin/tezgah-docs", "python3 bin/tezgah-docs --citations"),
     ("bin/tezgah-docs", "python3 bin/tezgah-docs --clarity"),
     ("skills/plan-add/render_table.py",

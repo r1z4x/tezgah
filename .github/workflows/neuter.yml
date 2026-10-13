@@ -1,9 +1,28 @@
 name: neuter
 
-# Weekly, not per push: each mutant runs the gate's test modules in its own
-# clone, so the matrix costs several suite runs. It answers a different question
+# Weekly, and on a push to main that touches a guard, the matrix or a test
+# module it runs: each mutant runs the gate's test modules in its own clone, so
+# the matrix is CI's, not the local loop's. It answers a different question
 # from ci.yml - not "do the tests pass" but "would they fail if a guard went".
 on:
+  push:
+    branches: [main]
+    paths:
+      - hooks/tezgah_gate.py
+      - hooks/tezgah_integrity.py
+      - hooks/tezgah_context.py
+      - hooks/tezgah_task.py
+      - hosts/opencode/plugins/tezgah.js
+      - tests/neuter_matrix.py
+      - tests/neuter_killers.json
+      - tests/test_integrity.py
+      - tests/test_gate.py
+      - tests/test_opencode_plugin.py
+      - tests/test_cursor_hook.py
+      - tests/test_codex_hook.py
+      - tests/test_control_plane.py
+      - tests/test_omp_hook.py
+      - tests/test_stop_after_block.py
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
