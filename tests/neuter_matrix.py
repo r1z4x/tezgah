@@ -9,6 +9,14 @@ scoped to tezgah's mechanical integrity half (an internal adoption study,
 decision d1, experiment E1).
 
     python3 tests/neuter_matrix.py            # exit 0 all killed, 1 a survivor or a red control
+    python3 tests/neuter_matrix.py --only gate-task,no-verify   # those mutants (and the control)
+
+Each mutant first runs alone the test that killed it last run, cached in
+tests/neuter_killers.json; that test failing is the kill. When it passes or is
+gone the mutant runs the modules (the one reading the mutated file first,
+fail-fast) and its first failing test is the new entry; a survivor runs them
+all. The cache only moves time: the control runs every cached killer alone too,
+and one failing on the unmutated tree voids the run and leaves the cache.
 
 It reads HEAD, not the working tree: commit first. A mutant on the opencode
 plugin needs `node`; without it that mutant prints `SKIP` (the plugin tests skip
