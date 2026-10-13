@@ -55,9 +55,9 @@ the Stop rule owes no check for a prose edit at all
 - CI (`.github/workflows/ci.yml`) runs on a push to `main` and on a pull
   request, cancels a run a newer push to the same ref supersedes, and runs only
   the citations audit and the docs modules when every changed path is prose.
-  Its `test` matrix is the floor and the ceiling, 3.10 and 3.14; the serial
-  suite runs there on `main` only, and a pull request runs the impacted set in
-  `test-sharded`. Its ubuntu legs also measure the heredoc reader against bash
+  Its `test` matrix is the floor and the ceiling, 3.10 and 3.14; it lints,
+  audits the docs and runs the plan e2e, and `test-sharded` runs the suite (the
+  impacted set on a pull request). Its ubuntu legs also measure the heredoc reader against bash
   5.x. An `apps-e2e` job runs the app-MCP handshake below on node 20. The
   citations audit is the check the suite is silent about: a green run says
   nothing about a citation that moved with a file. The plan report

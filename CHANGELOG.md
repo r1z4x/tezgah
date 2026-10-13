@@ -12,6 +12,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The neuter matrix runs in CI, and in minutes.** Each mutant first runs the one test that killed it last time, kept in `tests/neuter_killers.json`. A full search runs only when that test passes. A cached run took 240 s, against about an hour before. CI runs it on a push that changes a guarded file, and weekly. A session checks a new rule's mutant with `--only <name>`.
 - **The suite is faster.** It starts the largest modules first. Slow tests share their expensive installs per class, and one test now covers each duplicated path. A change under `benchmarks/arm-bench/` runs that lab's module, not all 100.
+- **CI runs the suite once per Python.** The serial `unittest discover` step is gone. The sharded job runs the same modules, and both caught the same failures. A push to `main` now takes about 11 minutes, not 30.
 
 ### Fixed
 

@@ -125,11 +125,6 @@ jobs:
           cache-dependency-path: requirements-dev.txt
       - name: Byte-compile every script
         run: python3 -m compileall -q hooks hosts bin statusline.py
-      # A pull request runs the impacted set in `test-sharded` instead; the
-      # serial run stays on main for the plan 045 shadow.
-      - name: Run the stdlib test suite
-        if: ${{ !inputs.release && github.event_name != 'pull_request' }}
-        run: python3 -m unittest discover -s tests -v
       - name: Install ruff
         run: pip install -r requirements-dev.txt
       - name: Lint
@@ -141,9 +136,9 @@ jobs:
       - name: The plan and decision rules, in a real project
         run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
 
-  # Shadow (plan 045, from 2026-10-05): the sharded suite on the floor and the
-  # ceiling, with node for the plugin tests. It runs beside the `test` matrix for
-  # four weeks; the matrix is cut only if this job missed no failure it caught.
+  # The suite, sharded, on the floor and the ceiling, with node for the plugin
+  # tests. It replaced the serial `unittest discover` run on 2026-10-13 (plan
+  # 099): both caught the same failures, and the serial run took about 30 min.
   # On a pull request it runs the modules the change maps to (tests/impacted.py
   # --ref, whose unmapped paths fall back to the whole suite); main runs it all.
   test-sharded:
