@@ -1136,7 +1136,10 @@ def drop_branch(root, branch):
         return None
     done = subprocess.run(["git", "-C", root, "branch", "-D", branch],
                           capture_output=True, text=True)
-    if done.returncode == 0:
+    # Orca deletes the branch of a checkout it removes: one gone by the time
+    # `-D` ran was deleted, not kept (review of plan 104)
+    if done.returncode == 0 or not git_out(root, "rev-parse", "-q", "--verify",
+                                          "refs/heads/" + branch):
         return None
     return ("branch kept: %s (`git branch -D %s` refused: %s)"
             % (branch, branch, ((done.stderr or "").strip().splitlines() or ["?"])[0]))
@@ -1182,10 +1185,18 @@ def prune_worktrees(root, keep=None):
                 gone = tezgah_orca.run(["worktree", "rm", "--worktree", "path:" + path],
                                        timeout=60) is not None
                 how = "orca worktree rm --worktree path:%s" % path
+                # Orca answers before the directory is gone, and git refuses to
+                # drop a branch a checkout on disk still holds (plan 104)
+                deadline = time.monotonic() + 10
+                while gone and os.path.exists(path) and time.monotonic() < deadline:
+                    time.sleep(0.1)
             else:
                 gone = git_out(root, "worktree", "remove", path) is not None
                 how = "git worktree remove %s" % path
             why = None if gone else "`%s` failed; run it and report its error" % how
+            if gone and os.path.exists(path):
+                why = ("`%s` answered but the checkout is still on disk after 10 s; "
+                       "run close again" % how)
         out.append("worktree %s: %s (%s)" % ("kept" if why else "removed", path,
                                              why or branch))
         if why is None:

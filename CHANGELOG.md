@@ -18,6 +18,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A plan worktree moves only its own plan's record.** In a `plan/NNN-*` worktree whose plan is not active, `allow`, `phase` and `stop` refuse. They used to change the main checkout's first phased plan.
 - **`close` prunes a worktree of generated files.** Managed agent files and the `.codegraph` index regenerate, so they keep no landed worktree. Any other ignored file still keeps it. So do a FIFO, a directory link and a directory `close` cannot list.
 - **A Ctrl-C as an installer starts still stops it.** `--deps` armed its group kill only after the installer had started. A Ctrl-C in that gap left the installer running on its own, and a test timed out on it under load.
+- **`close` drops the branch of a worktree Orca removed.** Orca answers before the checkout is gone. Git then refused to delete the branch, and close printed `branch kept`. Close now waits up to 10 seconds for the directory to go. A checkout still there after that is reported kept.
 
 ## [1.8.3] - 2026-10-13
 

@@ -7,6 +7,7 @@ assertions read the record back through the parser the gate uses, which is the
 thing an agent's write is refused by.
 """
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1592,6 +1593,74 @@ class Cli(TempHome):
             lines = self.close_lines(dict(self.env(), TEZGAH_ORCA_BIN=fake))
             self.assertIn("Orca did not answer", lines[os.path.realpath(done)], name)
             self.assertTrue(os.path.isdir(done))
+
+    def test_close_drops_the_branch_of_a_worktree_orca_removes_after_answering(self):
+        # plan 104: `orca worktree rm` answers before its directory is gone, so
+        # git still listed the checkout and refused to delete its branch
+        done = os.path.realpath(self.slice("slice-done"))
+        fake = os.path.join(self.home, "orca-late")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\ncase \"$1 $2\" in\n"
+                     "\"worktree ps\") echo '{\"ok\": true, \"result\": {\"worktrees\": "
+                     "[{\"path\": \"%s\", \"agents\": []}]}}' ;;\n"
+                     "\"worktree rm\") (sleep 1; rm -rf '%s') >/dev/null 2>&1 &\n"
+                     "  echo '{\"ok\": true, \"result\": {}}' ;;\nesac\n" % (done, done))
+        os.chmod(fake, 0o755)
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = support.run([CLI, "close", "001", "discarded"],
+                           env=dict(self.env(), TEZGAH_ORCA_BIN=fake), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("worktree removed: %s (slice-done)" % done, proc.stdout)
+        self.assertNotIn("branch kept", proc.stdout)
+        branches = subprocess.run(["git", "-C", self.repo, "branch", "--list"],
+                                  capture_output=True, text=True).stdout
+        self.assertNotIn("slice-done", branches)
+
+    def orca_fake(self, path, rm):
+        fake = os.path.join(self.home, "orca-fake")
+        with open(fake, "w") as fh:
+            fh.write("#!/bin/sh\ncase \"$1 $2\" in\n"
+                     "\"worktree ps\") echo '{\"ok\": true, \"result\": {\"worktrees\": "
+                     "[{\"path\": \"%s\", \"agents\": []}]}}' ;;\n"
+                     "\"worktree rm\") %s\n"
+                     "  echo '{\"ok\": true, \"result\": {}}' ;;\nesac\n" % (path, rm))
+        os.chmod(fake, 0o755)
+        return fake
+
+    def test_a_branch_orca_deleted_first_is_not_reported_kept(self):
+        # review of plan 104: Orca deletes the branch too, and one gone between
+        # the check and `git branch -D` is not a kept branch
+        done = os.path.realpath(self.slice("slice-done"))
+        fake = self.orca_fake(done, "rm -rf '%s'; git -C '%s' worktree prune;"
+                              % (done, self.repo))
+        real = shutil.which("git")
+        shim = os.path.join(self.home, "shim")
+        os.makedirs(shim)
+        with open(os.path.join(shim, "git"), "w") as fh:
+            fh.write("#!/bin/sh\nfor a; do [ \"$a\" = -D ] && { %s \"$@\" >/dev/null 2>&1;"
+                     " echo \"error: branch 'slice-done' not found\" >&2; exit 1; }; done\n"
+                     "exec %s \"$@\"\n" % (real, real))
+        os.chmod(os.path.join(shim, "git"), 0o755)
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        env = dict(self.env(), TEZGAH_ORCA_BIN=fake,
+                   PATH=shim + os.pathsep + os.environ["PATH"])
+        proc = support.run([CLI, "close", "001", "discarded"], env=env, cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("worktree removed: %s (slice-done)" % done, proc.stdout)
+        self.assertNotIn("branch kept", proc.stdout)
+
+    def test_a_checkout_orca_leaves_on_disk_is_reported_kept(self):
+        # review of plan 104: an Orca that answers and never deletes left a
+        # "worktree removed" line for a checkout still there
+        done = os.path.realpath(self.slice("slice-done"))
+        fake = self.orca_fake(done, ":")
+        self.plan("001-first.md", phase="implementation", allowed=["**"])
+        proc = support.run([CLI, "close", "001", "discarded"],
+                           env=dict(self.env(), TEZGAH_ORCA_BIN=fake), cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertIn("worktree kept: %s" % done, proc.stdout)
+        self.assertIn("still on disk", proc.stdout)
+        self.assertTrue(os.path.isdir(done))
 
     # ----------------------------------------------------------------- stop
 
