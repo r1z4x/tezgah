@@ -2840,6 +2840,18 @@ class TaskGate(TempHome):
             target = os.path.join(self.repo, rel)
             self.assertIn("outside", self.decide({"file_path": target}, cwd=wt) or "", rel)
 
+    def test_a_write_through_the_worktree_workspace_link_is_the_workspace(self):
+        # plan 100: session start links <worktree>/.tezgah to the main one, so a
+        # relative `.tezgah/...` write from a worktree session goes through it
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        wt = self.sibling("proj-017", branch="plan/017-gate-rule")
+        os.symlink(os.path.join(self.repo, ".tezgah"), os.path.join(wt, ".tezgah"))
+        for rel in (".tezgah/lessons.md", ".tezgah/analysis/x.md"):
+            self.assertIsNone(self.decide({"file_path": os.path.join(wt, rel)}, cwd=wt), rel)
+            self.assertIsNone(self.bash("echo x >> %s" % rel, cwd=wt), rel)
+        record = os.path.join(wt, ".tezgah", "plans", "open", "017-gate-rule.md")
+        self.assertIn("record", self.decide({"file_path": record}, cwd=wt) or "")
+
     def test_a_plans_slice_worktree_is_held_to_that_plan_beside_its_declared_branch(self):
         # a plan fans out to slices on other plan/NNN-* branches (plan 097 ran
         # plan/097-records beside plan/097-workspace-integrity): each slice is

@@ -1271,6 +1271,34 @@ def ensure_workspace(repo):
     return ws
 
 
+def link_workspace(checkout, main):
+    """`<checkout>/.tezgah` as a link to the main checkout's workspace, for a
+    linked worktree (plan 100): a relative `.tezgah/...` write from the worktree
+    then lands in the one workspace every checkout reads, instead of a second
+    `.tezgah` that `git worktree remove` deletes. `/.tezgah` goes to the
+    repository's `info/exclude`, since the project's `/.tezgah/` ignores only a
+    directory. Leaves any existing `.tezgah` alone; None when nothing was made."""
+    link, target = workspace(checkout), workspace(main)
+    exclude = os.path.join(main, ".git", "info", "exclude")
+    if (os.path.lexists(link) or not os.path.isdir(target)
+            or not os.path.isdir(os.path.join(main, ".git"))):
+        return None
+    try:
+        os.makedirs(os.path.dirname(exclude), exist_ok=True)
+        try:
+            with open(exclude, encoding="utf-8") as fh:
+                body = fh.read()
+        except FileNotFoundError:
+            body = ""
+        if "/.tezgah" not in {line.strip() for line in body.splitlines()}:
+            with open(exclude, "a", encoding="utf-8") as fh:
+                fh.write(("\n" if body and not body.endswith("\n") else "") + "/.tezgah\n")
+        os.symlink(target, link)
+    except OSError:
+        return None
+    return link
+
+
 def _git_config_paths(repo):
     """The config files that could hold this project's identity, most local first.
 

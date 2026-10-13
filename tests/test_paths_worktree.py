@@ -258,7 +258,22 @@ class WorktreeBridge(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("MAIN-LESSON-1", out)
         self.assertIn("alpha plan", out)
-        self.assertFalse(os.path.exists(os.path.join(self.inside, ".tezgah")))
+        # the worktree's `.tezgah` is a link to the main one (plan 100): a
+        # relative `.tezgah/...` write from the worktree lands in the workspace
+        # every checkout reads, and git sees nothing to commit or keep
+        link = os.path.join(self.inside, ".tezgah")
+        self.assertTrue(os.path.islink(link))
+        self.assertEqual(os.path.realpath(link), os.path.realpath(
+            os.path.join(self.main, ".tezgah")))
+        with open(os.path.join(link, "lessons.md"), "a") as fh:
+            fh.write("- written in the worktree\n")
+        with open(os.path.join(self.main, ".tezgah", "lessons.md")) as fh:
+            self.assertIn("written in the worktree", fh.read())
+        status = subprocess.run(["git", "-C", self.inside, "status", "--short"],
+                                capture_output=True, text=True).stdout
+        self.assertEqual(status, "")
+        git("-C", self.main, "worktree", "remove", self.inside)
+        self.assertTrue(os.path.isfile(os.path.join(self.main, ".tezgah", "lessons.md")))
         self.assertTrue(os.path.isdir(os.path.join(self.main, ".tezgah", ".git")))
         line = next(x for x in out.splitlines() if x.startswith("Worktrees:"))
         self.assertIn("%s (this checkout, uses the main checkout's `.tezgah`)"

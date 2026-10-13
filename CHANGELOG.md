@@ -10,6 +10,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A release reuses the green CI of its commit.** It waits for the push run of `ci.yml` on the same commit to finish. It skips its own CI run only when that run succeeded, which saves about 12 minutes. Any other outcome runs CI as before.
 - **Fewer full-suite runs.** A change under `.tezgah/` runs no test module, and a workflow file runs the modules that read it. Both used to run all 100. Two large runs on one machine now take turns instead of slowing each other down.
+- **A worktree shows the main checkout's `.tezgah`.** Session start in a linked worktree makes its `.tezgah` a link to the main checkout's workspace. A relative `.tezgah/...` write from a worktree session or subagent now lands there. It used to create a second `.tezgah` that `git worktree remove` deleted.
 
 ### Fixed
 

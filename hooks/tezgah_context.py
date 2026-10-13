@@ -33,6 +33,7 @@ from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
                           ai_research_dir, alts, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, language,
+                          link_workspace,
                           off, orx_bin, packs, pony_level, project_top, root_for,
                           roots, say, tool,
                           workspace, workspace_from_repo, worktrees, writable_dir)
@@ -2255,6 +2256,8 @@ def context_for(event, cwd, payload=None, with_core=True):
         # A root is not a project, and the helper returns None outside a work tree.
         if ws not in roots():
             ensure_workspace(ws)
+            if ws != root:
+                link_workspace(root, ws)
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.
         resume = resume_state(root, session_of(payload))

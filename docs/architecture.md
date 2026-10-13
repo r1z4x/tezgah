@@ -184,6 +184,9 @@ line names every checkout through `worktrees`, which lists
 checkout is gone, as git's own `prunable` does (`hooks/tezgah_paths.py::worktrees`).
 It also names a worktree whose own `.tezgah` still holds data from before, with
 the `tezgah-research import` that moves its lines (`hooks/tezgah_context.py::sibling_line`).
+Session start in a linked worktree makes its `.tezgah` a link to the main one
+(`hooks/tezgah_paths.py::link_workspace`). A relative `.tezgah/...` write lands
+there, and `/.tezgah` goes to the repository's `info/exclude`.
 A second clone is another repository, with a workspace of its own.
 A path inside `.tezgah` belongs to the repository around it, never to `.tezgah`.
 The workspace keeps its own `.git`, so git's top-level answers `.tezgah` there.
