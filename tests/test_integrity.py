@@ -5710,6 +5710,25 @@ class StopFoldInProcess(unittest.TestCase):
             "npm 0.22.0 yayımlanmadı, registry'de böyle bir sürüm yok.", "s",
             rows=ti.events("s"))[0], "no external read")
 
+    def test_bookkeeping_after_a_settled_pass_does_not_excuse_an_unseen_check(self):
+        # review of plan 101 (F1): the settled-bookkeeping exit ran before the
+        # unseen-pass floor, so a `git status` or a commit beside the silent
+        # check let the claim end on the earlier turn's pass
+        for command in (None, "git status", "git commit -m x"):
+            with self.subTest(command=command):
+                ti._path = lambda s, c=command: os.path.join(self.dir, "%s.jsonl" % c)
+                ti.note_turn("s", "a")
+                ti.note("s", "edit", "app.py", changed=True)
+                self.shell("pytest -q")
+                ti.note_turn("s", "b")
+                if command:
+                    self.shell(command)
+                ti.note_tool("s", "Bash", {"command": "pytest -q"}, failed=False,
+                             out_bytes=0)
+                self.assertEqual(ti._stop_block(self.CLAIM, "s",
+                                                 rows=ti.turn_rows("s"))[0],
+                                 "no verify_ok")
+
 
 class OrphanPass(unittest.TestCase):
     """Plan 051 part 8: a `verify_ok` the gate never saw begin is an orphan.
