@@ -17,6 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`close` prunes a worktree whose `.tezgah` is a link.** It read the link to the workspace as the worktree's own data and kept the worktree. The merge step's deferred checks are now looked up in the plan's own worktree when one holds the plan.
 - **A plan worktree moves only its own plan's record.** In a `plan/NNN-*` worktree whose plan is not active, `allow`, `phase` and `stop` refuse. They used to change the main checkout's first phased plan.
 - **`close` prunes a worktree of generated files.** Managed agent files and the `.codegraph` index regenerate, so they keep no landed worktree. Any other ignored file still keeps it. So do a FIFO, a directory link and a directory `close` cannot list.
+- **A Ctrl-C as an installer starts still stops it.** `--deps` armed its group kill only after the installer had started. A Ctrl-C in that gap left the installer running on its own, and a test timed out on it under load.
 
 ## [1.8.3] - 2026-10-13
 
