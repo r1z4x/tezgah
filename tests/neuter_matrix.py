@@ -702,6 +702,9 @@ def main(argv=None):
         # the control runs beside the mutants rather than before them: its
         # verdict is read first, and a red control discards every result.
         # Its checks go in first, so they end early instead of in the tail.
+        # Half the cores: every worker forks a unittest process of its own,
+        # and cpu_count workers ran the cached matrix slower (304 s against
+        # 240 s, one session on 10 cores, 2026-10-13)
         workers = max(1, (os.cpu_count() or 2) // 2)
         alone = sorted({killers[m[0]] for m in rows if m[0] in killers})
         checks = [(m, None) for m in MODULES] + [(t.split(".")[0] + ".py", t) for t in alone]
