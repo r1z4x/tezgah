@@ -3556,7 +3556,9 @@ def check_line(repo, slug, git=True, strict=False, code=None):
     `strict=True` turns every guarantee the checker cannot decide into an error.
     `code` is the checkout the check runs in when it is not `repo`: the line
     lives in the main checkout's workspace (plan 097) and its citations and
-    proofs resolve against the checkout whose branch holds the code."""
+    proofs resolve against the checkout whose branch holds the code; unnamed, a
+    bare repository's worktree holding the cwd (`tp.work_tree`, plan 098)."""
+    code = code or tp.work_tree(repo)
     base = line_dir(repo, slug)
     errors, warnings = [], []
     if not os.path.isdir(base):
@@ -3723,12 +3725,13 @@ def done_seal(repo, slug):
     return _check_seal(base)[0], True
 
 
-def failing(repo, git=False):
+def failing(repo, git=False, code=None):
     """(slug, error) pairs, for a one-line session note. Structural only by
     default: the session context must not pay for git history. A line under
     `done/` is read by its seal hashes alone (`check` with `all_lines=False`), and
-    an unsealed one adds nothing (plan 058 part 4)."""
-    return [(slug, err) for slug, row in check(repo, git=git, all_lines=False).items()
+    an unsealed one adds nothing (plan 058 part 4). `code` as for `check_line`."""
+    return [(slug, err) for slug, row in check(repo, git=git, all_lines=False,
+                                               code=code).items()
             for err in row["errors"]]
 
 
@@ -4337,6 +4340,7 @@ def check_orx(repo, orx, strict=False):
         return {"errors": [], "warnings":
                 ["orx is not installed, so the run command registered against this "
                  "repository was not read (TEZGAH_ORX_BIN overrides the lookup)"]}
+    repo = tp.work_tree(repo)
     out, err = _run([orx, "projects", "--json"], cwd=repo)
     if err:
         return {"errors": [], "warnings": ["orx projects could not be read (%s)" % err]}
@@ -5498,7 +5502,8 @@ def arena_record(repo, problem, budget, evaluator="", metric=""):
     arena = {"problem": problem, "budget": budget}
     if evaluator:
         arena.update({"evaluator": evaluator,
-                      "evaluator_sha256": _digest(os.path.join(repo, evaluator)),
+                      "evaluator_sha256": _digest(os.path.join(tp.work_tree(repo),
+                                                               evaluator)),
                       "metric": metric})
     return arena
 
@@ -5544,7 +5549,7 @@ def evaluator_problem(repo, state):
     if not _text(path):
         return None
     try:
-        now = _digest(os.path.join(repo, path))
+        now = _digest(os.path.join(tp.work_tree(repo), path))
     except OSError:
         now = None
     locked = str(arena.get("evaluator_sha256") or "")

@@ -571,6 +571,84 @@ class BareRepository(TempHome):
         self.assertTrue(os.path.isfile(os.path.join(self.main, "src", "x.txt")))
         self.assertTrue(os.path.isdir(os.path.join(self.ws, ".git")))
 
+    def test_a_dirty_worktree_gets_a_pending_checkpoint_the_gate_holds(self):
+        # review of plan 098, F1: the checkpoint was read from `<bare>`, where
+        # `git status` fails, so a dirty tree got a plain sha and the gate let
+        # the work start on top of changes no commit names
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        os.makedirs(os.path.join(self.ws, "plans", "open"))
+        with open(os.path.join(self.ws, "plans", "open", "001-alpha.md"), "w") as fh:
+            fh.write("---\nid: 001\ntitle: alpha\nstatus: open\nallowed_paths:\n"
+                     "  - src/**\n---\n## Goal\nx\n"
+                     "## Acceptance\n- [ ] it works - `python3 -c pass`\n")
+        self.start(self.main)
+        with open(os.path.join(self.main, "dirty.txt"), "w") as fh:
+            fh.write("x\n")
+        proc = subprocess.run([sys.executable, TASK, "start", "001", "--phase",
+                               "implementation"], cwd=self.main, capture_output=True,
+                              text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("checkpoint: pending on ", proc.stdout)
+        with open(os.path.join(self.ws, "plans", "open", "001-alpha.md")) as fh:
+            self.assertIn("\ncheckpoint: pending ", fh.read())
+        out, proc = support.run_json(
+            [support.PROBE_GATE],
+            {"tool": "Write", "input": {"file_path": os.path.join(self.main, "src", "a.py"),
+                                        "content": "x\n"},
+             "cwd": self.main, "session_id": "bare-checkpoint"}, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Checkpoint gate", out or "")
+
+    def test_research_reads_project_files_in_the_worktree(self):
+        # review of plan 098, F2: research resolved the files a line cites and
+        # the arena evaluator against `<bare>`, which holds no project file
+        env = self.env(extra={"TEZGAH_ROOTS": self.roots})
+        os.makedirs(os.path.join(self.feature, "src"))
+        with open(os.path.join(self.feature, "src", "eval.py"), "w") as fh:
+            fh.write("print(1)\n")
+        proc = subprocess.run([sys.executable, RESEARCH, "init", "code-line", "--ask", "q",
+                               "--question", "q", "--in", "the eval"],
+                              cwd=self.feature, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        line = os.path.join(self.ws, "research", "open", "code-line")
+        with open(os.path.join(line, "claims.jsonl"), "w") as fh:
+            fh.write(json.dumps({"id": "c1", "statement": "s", "status": "untested",
+                                 "provenance": "ai-executed", "kind": "code",
+                                 "falsification": "f", "proof": "see src/eval.py",
+                                 "trace": ["S1"]}) + "\n")
+        self.assertNotIn("src/eval.py", self.start(self.feature))
+        # `--allow-open` checks the open line beside it, and the evaluator is the
+        # worktree's file
+        proc = subprocess.run([sys.executable, RESEARCH, "init", "ex-line", "--ask",
+                               "explore", "--question", "which variant scores best",
+                               "--method", "exploratory",
+                               "--arena", "p", "--budget", "3 ideas", "--evaluator",
+                               "src/eval.py", "--metric", "m", "--allow-open", "two"],
+                              cwd=self.feature, capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
+    def test_taste_mine_reads_the_worktrees_sessions(self):
+        # review of plan 098, F3: `mine` kept the sessions under `<bare>`, and
+        # every session runs in a worktree
+        sessions = os.path.join(self.home, ".omp", "agent", "sessions", "-app-")
+        os.makedirs(sessions)
+        with open(os.path.join(sessions, "s1.jsonl"), "w") as fh:
+            fh.write('{"type":"session","id":"s1","cwd":%s}\n' % json.dumps(self.feature))
+        proc = subprocess.run([sys.executable, os.path.join(support.REPO, "bin",
+                                                            "tezgah-taste"),
+                               "mine", "--stats", "--host", "omp"],
+                              cwd=self.feature, capture_output=True, text=True,
+                              env=self.env(extra={"TEZGAH_ROOTS": self.roots}))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("omp: sessions=1 ", proc.stdout)
+
+    def test_one_worktree_is_no_worktrees_line(self):
+        # review of plan 098, F4: the bare directory is no checkout
+        import tezgah_context as tc
+        self.assertIn("Worktrees: 2 checkouts", tc.sibling_line(self.main))
+        git("-C", self.bare, "worktree", "remove", self.feature)
+        self.assertEqual(tc.sibling_line(self.main), "")
+
 
 class InsideWorkspace(TempHome):
     """Plan 097 item 1: a command or a session whose cwd is inside `.tezgah` -

@@ -193,6 +193,8 @@ the git directory itself, with no `.gitignore` written there
 (`hooks/tezgah_paths.py::linked_main`, `hooks/tezgah_paths.py::ensure_workspace`).
 Every worktree's `.tezgah` links to it. No `git worktree remove`, detach or
 switch in any worktree takes it, and a plan worktree reads its plan there.
+The git directory holds no project file. A checkpoint, a cited file or an arena
+evaluator is read in the worktree the command runs in (`hooks/tezgah_paths.py::work_tree`).
 A second clone is another repository, with a workspace of its own.
 A path inside `.tezgah` belongs to the repository around it, never to `.tezgah`.
 The workspace keeps its own `.git`, so git's top-level answers `.tezgah` there.

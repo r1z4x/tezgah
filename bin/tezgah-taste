@@ -305,7 +305,9 @@ def mine_session(events):
 
 
 def cmd_mine(args):
-    here = (tezgah_paths.linked_main(os.getcwd()) or repo_root(os.getcwd())
+    # sessions run in checkouts, never in a bare repository's git directory
+    main = tezgah_paths.linked_main(os.getcwd())
+    here = ((main and tezgah_paths.work_tree(main)) or repo_root(os.getcwd())
             or os.getcwd())
     root = os.path.abspath(os.path.expanduser(
         args.root or ("~/Projects" if args.all_projects else here)))

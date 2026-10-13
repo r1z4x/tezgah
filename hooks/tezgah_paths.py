@@ -357,6 +357,17 @@ def _admin_dir(main):
     return main if _bare_repo(main) else None
 
 
+def work_tree(repo, cwd=None):
+    """The checkout whose project files a command about `repo` reads: `repo`
+    itself, unless it is a bare repository's git directory, which holds the
+    workspace and no project file (plan 098) - then the worktree of it holding
+    `cwd` (the process's by default), else `repo`."""
+    if not _bare_repo(repo):
+        return repo
+    top = _toplevel(os.path.realpath(cwd or os.getcwd()))
+    return top if top and linked_main(top) == os.path.realpath(repo) else repo
+
+
 def worktrees(repo):
     """Every checkout of the repository `repo` is in, main first, as real paths;
     [] outside a git checkout. A bare repository's git directory stands first,

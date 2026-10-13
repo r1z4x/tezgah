@@ -36,7 +36,8 @@ from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
                           link_workspace,
                           off, orx_bin, packs, pony_level, project_top, root_for,
                           roots, say, tool,
-                          workspace, workspace_from_repo, worktrees, writable_dir)
+                          work_tree, workspace, workspace_from_repo, worktrees,
+                          writable_dir)
 
 try:  # The task record is the active plan's frontmatter (see tezgah_task), read
     # once per user prompt for the phase line. The module is newer than some
@@ -549,10 +550,10 @@ def sibling_line(root):
     here = os.path.realpath(root)
     if here not in checkouts:
         checkouts.append(here)
-    if len(checkouts) < 2:
-        return ""
     main = checkouts[0]
     bare = not os.path.lexists(os.path.join(main, ".git"))
+    if len(checkouts) - bare < 2:
+        return ""
     owner = "the bare repository" if bare else "the main checkout"
     items = []
     for checkout in checkouts:
@@ -2338,7 +2339,9 @@ def context_for(event, cwd, payload=None, with_core=True):
         # bulk import at most daily (tezgah_store.import_later).
         if event == "session_start":
             tezgah_store.import_later(cache_dir())
-        broken = tezgah_research.failing(ws) if not off("research-off") else []
+        # the line's cited files are the session checkout's in a bare repository
+        broken = (tezgah_research.failing(ws, code=work_tree(ws, root))
+                  if not off("research-off") else [])
         if broken:
             line_slug, err = broken[0]
             parts.append(("research_broken",

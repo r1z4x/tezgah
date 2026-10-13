@@ -212,8 +212,8 @@ def cmd_init(args):
                           "candidate and the number it returns")
         evaluator = arena.get("--evaluator", "").strip()
         if evaluator and (os.path.isabs(evaluator) or ".." in evaluator.split("/")
-                          or not os.path.isfile(os.path.join(repo_root(os.getcwd()),
-                                                             evaluator))):
+                          or not os.path.isfile(os.path.join(
+                              tp.work_tree(repo_root(os.getcwd())), evaluator))):
             return misuse("--evaluator %r is not a file under the repository" % evaluator)
     elif arena:
         return misuse("--arena, --budget, --evaluator and --metric belong to "

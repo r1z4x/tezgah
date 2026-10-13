@@ -134,7 +134,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import project_top, say  # noqa: E402
+from tezgah_paths import project_top, say, work_tree  # noqa: E402
 
 
 def repo_root(path):
@@ -271,7 +271,7 @@ def checkpoint_state(value, path):
         # a plan held by its own worktree waits on that checkout's commit, the
         # one the gate reads (tezgah_gate.checkpoint_reason)
         holder = holder_of(path)
-        root = holder or repo_root(os.path.dirname(path) or ".")
+        root = holder or work_tree(repo_root(os.path.dirname(path) or "."))
         head = git_out(root, "rev-parse", "HEAD")
         listed = git_out(root, "status", "--porcelain")
         if not head or head != sha or not listed:
@@ -451,7 +451,7 @@ def verification_steps(text, path):
         print("     - %s" % item)
     # the deferred tier: never inside a turn, run once here at the merge step
     deferred = [cmd for rel, cmd in MERGE_CHECKS
-                if os.path.isfile(os.path.join(root, rel))]
+                if os.path.isfile(os.path.join(work_tree(where), rel))]
     if deferred:
         print("     the merge step's one run of the deferred checks: %s"
               % ", ".join("`%s`" % c for c in deferred))
@@ -569,7 +569,7 @@ def cmd_start(args):
     # the plan's own worktree, when one holds it: the gate reads the checkpoint
     # against that checkout's HEAD and tree, so it is recorded from there
     here = holders.get(tt._plan_id(tt.frontmatter(text), os.path.basename(path)))
-    fields.update(checkpoint_fields(here or root, phase))
+    fields.update(checkpoint_fields(here or work_tree(root), phase))
     for other in plans(root):
         if other == path:
             continue
