@@ -10,6 +10,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The temporal spec decides the Stop rule's evidence classes.** Its shadow run agreed on all 420 live Stops it reached. `_stop_block` now asks `tezgah_stopspec`, and the refusal texts stay the same. The `stop_spec` shadow row and `TEZGAH_STOPSPEC_STRICT` are gone. `tests/stop_spec_eval.py` keeps only `--mutants`, and the neuter workflow also runs on a change to the spec.
 - **A claim needs a check someone saw pass.** A done or tested claim over a `verify_ok` row with no passing output now owes `no verify_ok`. An earlier pass and a turn of git bookkeeping no longer excuse it.
+- **A research, analysis, review or plan ask ends at the plan.** The contract now says so. Building that plan is a question in the approval batch, and a finding outside the ask becomes a plan, not code.
+- **No plan, no third product file, on any branch.** The no-plan rule held only `main` and `master`. It now holds every branch that no open plan binds, so an Orca worktree on `r1z4x/<name>` meets it too. A worktree on the branch a plan names in `branch:` answers to that plan, as a `plan/NNN-*` one does.
 
 ### Fixed
 
