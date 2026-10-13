@@ -41,7 +41,9 @@ import ast
 import concurrent.futures
 import importlib.machinery
 import importlib.util
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -541,11 +543,61 @@ def stop_mutants(text):
 # there; the order only moves time, every module still runs on a survivor
 FIRST = {GATE: "test_gate.py", INTEGRITY: "test_integrity.py",
          PLUGIN: "test_opencode_plugin.py"}
+# {mutant: the test id that killed it last run}: a cache, never a verdict
+KILLERS = os.path.join(HERE, "tests", "neuter_killers.json")
+FAILED = re.compile(r"^(?:FAIL|ERROR): (\w+) \(([\w.]+)\)", re.M)
 
 
-def run(name, edit, work):
-    """(name, exit status, last line) for one clone of HEAD, mutated by `edit`
-    ((file, apply) or None); status 2 with the reason when the edit cannot apply."""
+def failed_ids(stderr):
+    """The test ids unittest names FAIL/ERROR in `stderr`, in order. A module
+    that failed to import (`unittest.loader._FailedTest`) or a class fixture is
+    no test id to rerun."""
+    out = []
+    for method, where in FAILED.findall(stderr):
+        # 3.11+ prints `(module.Class.method)`, 3.10 `(module.Class)`
+        test = where if where.endswith("." + method) else where + "." + method
+        if method.startswith("test") and not test.startswith("unittest."):
+            out.append(test)
+    return out
+
+
+def unittest_argv(module, *tests):
+    # -f: a mutant is killed by its first failing test, not by the module's last
+    argv = [sys.executable, "-m", "unittest", "discover", "-f", "-s", "tests", "-p", module]
+    for test in tests:
+        argv += ["-k", test]
+    return argv
+
+
+def subprocess_runner(argv, cwd, env):
+    return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)  # a hook test reading an inherited tty hangs
+
+
+def verdict(first, known, tree, env, runner=subprocess_runner):
+    """(exit status, last line, killer test id or None) for one mutated tree.
+    The test that killed this mutant last run (`known`) goes alone first; it
+    kills only when that very id fails, so a renamed or deleted test falls
+    through to the modules - `first` at the front, fail-fast - where the first
+    failing test is the new killer. A survivor runs every module."""
+    if known:
+        proc = runner(unittest_argv(known.split(".")[0] + ".py", known), tree, env)
+        if known in failed_ids(proc.stderr):
+            return proc.returncode or 1, "%s failed (cached killer)" % known, known
+    last = ""
+    for module in ((first,) if first else ()) + tuple(m for m in MODULES if m != first):
+        proc = runner(unittest_argv(module), tree, env)
+        lines = [x for x in proc.stderr.splitlines() if x.strip()]
+        last = "%s: %s" % (module, lines[-1] if lines else "")
+        if proc.returncode:
+            ids = failed_ids(proc.stderr)
+            return proc.returncode, last, ids[0] if ids else None
+    return 0, last, None
+
+
+def prepare(name, edit, work):
+    """(tree, env, error) for one clone of HEAD mutated by `edit` ((file, apply)
+    or None); error is the reason when the edit cannot apply."""
     tree = os.path.join(work, name)
     # --shared borrows HEAD's objects instead of copying them: the clone only
     # reads them, and nothing collects garbage in HERE while the matrix runs
@@ -555,34 +607,64 @@ def run(name, edit, work):
         with open(path, encoding="utf-8") as fh:
             text, error = edit[1](fh.read())
         if error:
-            return name, 2, "edit: %s in %s" % (error, edit[0])
+            return tree, None, "edit: %s in %s" % (error, edit[0])
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
     home, tmp = os.path.join(work, name + "-home"), os.path.join(work, name + "-tmp")
     os.makedirs(home)
     os.makedirs(tmp)
-    env = dict(os.environ, HOME=home, TMPDIR=tmp, TEZGAH_UPDATE_CHECK="0")
-    status, last = 0, ""
-    first = FIRST.get(edit[0]) if edit else None
-    for module in ((first,) if first else ()) + tuple(m for m in MODULES if m != first):
-        # -f: a mutant is killed by its first failing test, not by the module's last
-        proc = subprocess.run(
-            [sys.executable, "-m", "unittest", "discover", "-f", "-s", "tests", "-p", module],
-            cwd=tree, env=env, capture_output=True, text=True,
-            stdin=subprocess.DEVNULL)  # a hook test reading an inherited tty hangs
+    return tree, dict(os.environ, HOME=home, TMPDIR=tmp, TEZGAH_UPDATE_CHECK="0"), None
+
+
+def run(name, edit, known, work):
+    """(name, exit status, last line, killer) for one mutant; status 2 with the
+    reason when the edit cannot apply."""
+    tree, env, error = prepare(name, edit, work)
+    if error:
+        return name, 2, error, None
+    return (name,) + verdict(FIRST.get(edit[0]), known, tree, env)
+
+
+def control(work, killers, runner=subprocess_runner):
+    """(exit status, last line, lonely) for the unmutated clone: every module,
+    then every cached killer alone. A killer that fails alone on the unmutated
+    tree (it leans on an earlier test) proves nothing on a mutant: it is in
+    `lonely`, and the run is void."""
+    tree, env, _error = prepare("control", None, work)
+    last = ""
+    for module in MODULES:
+        proc = runner(unittest_argv(module), tree, env)
         lines = [x for x in proc.stderr.splitlines() if x.strip()]
         last = "%s: %s" % (module, lines[-1] if lines else "")
         if proc.returncode:
-            if edit is None:
-                # a red control is read on a runner nobody can open: say why
-                last += "\n" + "\n".join(x for x in lines if x.startswith(("FAIL:", "ERROR:"))
-                                         or "Error" in x)[-4000:]
-            return name, proc.returncode, last
-    return name, status, last
+            # a red control is read on a runner nobody can open: say why
+            last += "\n" + "\n".join(x for x in lines if x.startswith(("FAIL:", "ERROR:"))
+                                     or "Error" in x)[-4000:]
+            return proc.returncode, last, []
+    lonely = []
+    for test in sorted(set(killers.values())):
+        # the very command a mutant's cached run is, on the unmutated tree
+        proc = runner(unittest_argv(test.split(".")[0] + ".py", test), tree, env)
+        lonely += [t for t in failed_ids(proc.stderr) if t == test]
+    return (1 if lonely else 0), last, lonely
 
 
-def main():
-    if "--stop-generated" in sys.argv[1:]:
+def updated(killers, results, names):
+    """The cache after a run: entries of mutants not in `names` dropped, each
+    killed mutant's killer recorded, the entry of a mutant with none (a survivor,
+    an edit that did not apply, a kill no test id names) dropped."""
+    out = {k: v for k, v in killers.items() if k in names}
+    for name, _status, _last, killer in results:
+        if killer:
+            out[name] = killer
+        else:
+            out.pop(name, None)
+    return out
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--stop-generated" in argv:
         # the temporal spec's table mutants: in-process, no clone (plan 063)
         import stop_spec_eval
         return stop_spec_eval.main(["--mutants"])
@@ -595,24 +677,51 @@ def main():
                               capture_output=True, text=True, check=True).stdout
     mutants = MUTANTS + tuple(gate_mutants(head(GATE))) \
         + tuple(stop_mutants(head(INTEGRITY)))
+    names = {m[0] for m in mutants}
+    if "--only" in argv:
+        # one mutant (a new deny rule's row) without the whole matrix; the
+        # control still runs every module
+        only = set(argv[argv.index("--only") + 1].split(",")) \
+            if argv.index("--only") + 1 < len(argv) else set()
+        if not only or only - names:
+            print("--only: no mutant named %s" % ",".join(sorted(only - names) or ["(none)"]))
+            return 2
+        mutants = tuple(m for m in mutants if m[0] in only)
     rows = [m for m in mutants if m[1] != PLUGIN or shutil.which("node")]
     skipped = [m[0] for m in mutants if m not in rows]
+    try:
+        with open(KILLERS, encoding="utf-8") as fh:
+            killers = json.load(fh)
+    except FileNotFoundError:
+        killers = {}
     work = tempfile.mkdtemp(prefix="tezgah-neuter-")
     try:
         # the control runs beside the mutants rather than before them: its
-        # verdict is read first, and a red control discards every result
-        workers = max(1, os.cpu_count() or 2)
+        # verdict is read first, and a red control discards every result.
+        # Half the cores, not all: each worker forks test subprocesses of its
+        # own, and cpu_count workers measured slower (tests/neuter_matrix.py
+        # docstring)
+        workers = max(1, (os.cpu_count() or 2) // 2)
         with concurrent.futures.ThreadPoolExecutor(workers) as pool:
-            control = pool.submit(run, "control", None, work)
-            results = list(pool.map(lambda m: run(m[0], m[1:3], work), rows))
-            name, status, last = control.result()
+            control_run = pool.submit(control, work, killers)
+            results = list(pool.map(lambda m: run(m[0], m[1:3], killers.get(m[0]), work),
+                                    rows))
+            status, last, lonely = control_run.result()
         if status:
+            if lonely:
+                # dropped from the cache, so the next run reads those mutants
+                # through their modules
+                write_killers(killers, {k: v for k, v in killers.items() if v not in lonely})
+                last = "cached killer(s) fail alone on the unmutated tree, dropped " \
+                       "from tests/neuter_killers.json - rerun: %s" % ", ".join(lonely)
             print("FAIL: the unmutated control is red, so no mutant can be read (%s)" % last)
             return 1
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    # a `--only` or node-less run keeps every other mutant's entry
+    write_killers(killers, updated(killers, results, names))
     survivors = 0
-    for (name, status, last), mutant in zip(results, rows):
+    for (name, status, last, _killer), mutant in zip(results, rows):
         if status == 2 and last.startswith("edit:"):
             print("FAIL %-24s %s" % (name, last))
             survivors += 1
@@ -626,6 +735,12 @@ def main():
     print("%d mutant(s), %d killed, %d failed, %d skipped" % (
         len(mutants), len(rows) - survivors, survivors, len(skipped)))
     return 1 if survivors or (strict and skipped) else 0
+
+
+def write_killers(old, new):
+    if new != old:
+        with open(KILLERS, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(new, indent=1, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
