@@ -14,8 +14,12 @@ __pycache__/
 # tezgah: end generated agents
 
 # local state: the lessons ledger, the research lines, and the local plugin
-# manifest are the maintainer's, not repository content.
-/.tezgah/
+# manifest are the maintainer's, not repository content. No trailing slash: a
+# linked worktree shows `.tezgah` as a symlink to the main checkout's workspace,
+# and `/.tezgah/` matches a directory only, so every worktree read as dirty and
+# its implementation phase began with a `checkpoint: pending` that only a commit
+# adding the link to the repository could clear (plan 108).
+/.tezgah
 /.claude-plugin/
 
 # codegraph index (an internal spike; the directory carries its own .gitignore that

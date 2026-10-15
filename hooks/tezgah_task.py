@@ -1716,7 +1716,13 @@ def pending(root):
                 except OSError:
                     pass
         if rec.get("status") == "open" and idle is not None and idle > limit:
-            rec = close_slice(root, rec["id"], "stale") or rec
+            # a job's result is in the parent transcript the record names, so an
+            # idle job closes `stale`; a slice that went idle with no end is work
+            # nobody finished, and it closes `stopped` - `pending` keeps offering
+            # its resume brief instead of forgetting it (plan 108).
+            job = rec.get("kind") == "job"
+            rec = close_slice(root, rec["id"], "stale" if job else "stopped",
+                              "" if job else "cut_off") or rec
         if rec.get("status") in ("open", "stopped"):
             out.append(rec)
     return out

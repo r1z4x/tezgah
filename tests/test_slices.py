@@ -376,15 +376,18 @@ class Pending(Journal):
         self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["job-new"])
         self.assertEqual(self.record("job-old")["status"], "stale")
 
-    def test_an_open_record_nothing_moved_goes_stale_and_never_refuses(self):
-        # a Codex child reports no end: after SLICE_IDLE_SECONDS it leaves the
-        # list as stale, read neither as done nor as stopped
+    def test_an_open_record_nothing_moved_stays_owed_and_never_refuses(self):
+        # a Codex child reports no end: after SLICE_IDLE_SECONDS the record is
+        # still owed work - `stopped`/`cut_off`, offered for resume - because
+        # closing it `stale` forgot a slice nobody finished (plan 108); only a
+        # job record, whose result the parent transcript already holds, leaves
+        # the list that way
         rec = tt.open_slice(self.repo, "review", host="codex", brief="b")
         rec["updated"] = "2026-10-10T00:00:00Z"
         tt._write_record(self.repo, rec)
-        self.assertEqual(tt.pending(self.repo), [])
+        self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["review"])
         self.assertEqual((self.record("review")["status"],
-                          self.record("review")["failure"]), ("stale", ""))
+                          self.record("review")["failure"]), ("stopped", "cut_off"))
 
     def test_a_respawn_of_the_same_name_is_read_from_its_newest_transcript(self):
         # omp writes a same-name re-dispatch to `<name>-2.jsonl`; the first
