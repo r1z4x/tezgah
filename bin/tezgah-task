@@ -642,9 +642,13 @@ def cmd_phase(args):
             fields["allowed_why"] = ""
     granted = (any_path or tt.frontmatter(text).get("allowed_from")
                == ANY_PATH)
-    bad = (scope_problem(phase, task["allowed_paths"], granted)
-           or phase_problems(phase, text, task["path"])
-           or (held_overlap(root, task["id"], []) if any_path else []))
+    # one pre-flight list, not one refusal per attempt: a plan that owes the
+    # scope, the Acceptance and the spike learns all three from one run
+    # (plan 108)
+    bad = list(scope_problem(phase, task["allowed_paths"], granted) or [])
+    bad += phase_problems(phase, text, task["path"])
+    if any_path:
+        bad += held_overlap(root, task["id"], [])
     if bad:
         return problems(bad)
     where = task.get("worktree") or tt.plan_holders(main_root(root)).get(task["id"])
@@ -983,8 +987,18 @@ def cmd_close(args):
         print(line)
     # the checkout this runs in stays, even when it is a landed plan worktree:
     # removing it would pull the session's own cwd from under it
-    for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
+    pruning = prune_worktrees(root, keep=repo_root(os.getcwd()))
+    for line in pruning:
         print(line)
+    kept = [line for line in pruning
+            if line.startswith(("worktree kept:", "branch kept:"))]
+    if kept:
+        # the reason a checkout stayed goes on the record: printed once, the
+        # next session re-derived the same decision. Written after the move -
+        # the record is in done/ now - and, like the other body writers, this
+        # one commits nothing (plan 108)
+        for line in write_fields(target, worktrees_kept=kept, updated=today()):
+            print(line)
     return 0 if committed else 1
 
 

@@ -6130,8 +6130,13 @@ def ready_left(text, rows, session_id, cwd=None):
 def open_left(text, row, session_id=None, cwd=None):
     """The heads of the in-progress items a done claim leaves (the `open todo`
     class): the row's `open - blocked - ready` count, named by its `taken`
-    heads, when the reply claims done (`asserted_claims`). A blocked item is
-    not counted, an in-progress one a running slice of this session works on
+    heads, when the reply claims done (`asserted_claims`); a turn that did work
+    and leaves an in-progress item without a claim is not judged here, because a
+    session waiting on a running suite and a session that stopped are the same
+    row - the `ready steps` class covers the ready ones (tests/test_integrity.py
+    StopHook.test_a_done_claim_over_an_in_progress_todo_is_refused_once, plan
+    097). A blocked item is not counted, an in-progress one a running slice of
+    this session works on
     (`_not_running`: Claude's TodoWrite has no blocked status, so a dispatched
     step reads in_progress) is not either, and one the reply types with its
     blocker (`_untyped`) passes. A `partial` row (Cursor `merge: true`) holds

@@ -745,6 +745,40 @@ class Cli(TempHome):
         self.assertEqual(refused.returncode, 1, refused.stderr)
         self.assertEqual(self.status()["phase"], "verification")
 
+    def test_a_phase_move_reports_every_precondition_in_one_list(self):
+        # plan 108: the move reported the first group it met - the scope, the
+        # Acceptance or the spike - so a plan owing more than one learned them
+        # one refused attempt at a time
+        self.plan("001-first.md", phase="discovery", allowed=["hooks/**"],
+                  spike="does the loader see it?",
+                  body="the goal\n## Acceptance\n"
+                       "- [ ] The reader lives in the loader.\n")
+        proc = self.task("phase", "implementation")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        self.assertIn("name no command", proc.stdout)
+        self.assertIn("its spike is unanswered", proc.stdout)
+        # refused, so the record did not move
+        self.assertEqual(tt.frontmatter(read(os.path.join(
+            self.open, "001-first.md")))["phase"], "discovery")
+
+    def test_close_records_why_a_worktree_stayed(self):
+        # plan 108: close printed the reason once and the print is gone with the
+        # session, so the next one re-derived the same decision
+        self.plan("001-first.md")
+        tree = os.path.join(self.repo, "wt-kept")
+        subprocess.run(["git", "-C", self.repo, "worktree", "add", "-q", "-b",
+                        "slice-kept", tree], check=True, capture_output=True,
+                       env=dict(os.environ, **GIT_ENV))
+        with open(os.path.join(tree, "wip.txt"), "w") as fh:
+            fh.write("uncommitted\n")
+        proc = self.task("close", "001", "discarded")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("worktree kept:", proc.stdout)
+        moved = read(os.path.join(self.repo, ".tezgah", "plans", "done",
+                                  "001-first.md"))
+        self.assertIn("worktrees_kept:", moved)
+        self.assertIn("worktree kept:", moved)
+
     def test_phase_and_allow_refuse_when_no_task_is_active(self):
         self.plan("001-first.md")
         for proc in (self.task("phase", "implementation"),
