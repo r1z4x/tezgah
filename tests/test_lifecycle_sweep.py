@@ -19,6 +19,7 @@ from test_slices import Journal  # the fixture this module reuses
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_task as tt
+import plan_orphans  # the census the close-over-open-item bar is read from
 
 
 def old_stamp(hours=7):
@@ -92,6 +93,24 @@ class Sweep(Journal):
         # the one that closes `stale` and leaves the owed list
         self.assertNotIn("IdleJob", rows)
         self.assertEqual(self.record("IdleJob")["status"], "stale")
+
+    def test_the_census_counts_only_the_class_that_rises(self):
+        # a record with an unticked box and no `UNMET:` is the class the bar is
+        # about; an `UNMET: <reason>` item is the sanctioned form and is not
+        folder = os.path.join(self.home, "done")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "001-open.md"), "w") as fh:
+            fh.write("---\nid: 001\n---\n## Acceptance\n- [ ] one\n- [x] two\n")
+        with open(os.path.join(folder, "002-unmet.md"), "w") as fh:
+            fh.write("---\nid: 002\n---\n## Acceptance\n- [ ] one\n"
+                     "      UNMET: the owner accepted it\n")
+        with open(os.path.join(folder, "003-clean.md"), "w") as fh:
+            fh.write("---\nid: 003\n---\n## Acceptance\n- [x] one\n")
+        stats = plan_orphans.census(folder)
+        self.assertEqual((stats["done"], stats["open_box"],
+                          stats["open_box_no_unmet"]), (3, 2, 1))
+        self.assertEqual([row["record"] for row in stats["records"]
+                          if not row["unmet"]], ["001-open.md"])
 
     def test_the_workspace_link_of_a_linked_worktree_is_ignored(self):
         # a linked worktree shows `.tezgah` as a symlink to the main checkout's
