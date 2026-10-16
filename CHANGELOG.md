@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-17
+
 ### Added
 
 - **The opencode plugin loads on opencode v2.** v2 validates a plugin's default export: an object with an `id` and a `setup(ctx)`. It rejects a module that only exports a callable, which is why opencode v2 refused both tezgah entrypoints at load. The module now carries both shapes, and opencode 1 keeps the callable it uses. The v2 `setup` registers the tool envelopes, the shell env hook and the event subscription. It passes the v2 event as the v1 `input`. It rebuilds the `args` field the v1 callback reads, so a refusal stays the same thrown error. The session, permission, compaction and TUI hooks follow once a probe measures their v2 event.
@@ -1204,7 +1206,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.8.3...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.0
 [1.8.3]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.3
 [1.8.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.2
 [1.8.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.1
