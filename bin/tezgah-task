@@ -11,6 +11,7 @@
   tezgah-task tick <NNN|path> <n> [--undo]                   tick (or untick) Acceptance item n, counted from 1
   tezgah-task note <NNN|path> state|next "<text>"            replace the body of `## State` (the newest one) or `## Next`
   tezgah-task spike <NNN|path> "<answer>"                    record the spike's answer (`spike_recorded:`)
+  tezgah-task unmet <NNN|path> <n> "<reason, who accepted it>"  annotate Acceptance item n with `UNMET:`, the form close accepts
   tezgah-task slice open --id ID [--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]
                                                               record a delegated slice (a re-open counts one more attempt)
   tezgah-task slice done ID | slice stop ID [--class C]      close a slice record
@@ -19,6 +20,7 @@
   tezgah-task slice stats [--window DAYS] [--json]            counts per status, failure class and host, and the RSI lever candidates
   tezgah-task slice board [--parent P]                        the open sibling slices: what each owns, its worktree, branch and last commit
   tezgah-task slice merge-plan [--base REF]                   the done slice branches in merge order, with their forecast conflicts
+  tezgah-task sweep                                           the last session's leftovers: pending slices, landed worktrees and branches, an orphan phase
 
 The record is the plan file itself: `phase:` activates it, `allowed_paths:` is
 the scope a write has to stay inside, and `start` clears every other plan's
@@ -37,7 +39,7 @@ and this CLI is the record's only writer: the gate refuses a write to the plan
 file, because the checks below are made here and a retyped frontmatter would
 skip them. `phase implementation` (or `verification`) is what lets a write
 through, so the phase changes when the work reaches that point and not before.
-`tick`, `note` and `spike` are the record's body writers for the same reason:
+`tick`, `note`, `spike` and `unmet` are the record's body writers for the same reason:
 they write an Acceptance box, the State/Next text or the spike's answer on any
 open plan, active or not, keep the rest of the frontmatter but `updated:`, and
 commit nothing.
@@ -641,9 +643,13 @@ def cmd_phase(args):
             fields["allowed_why"] = ""
     granted = (any_path or tt.frontmatter(text).get("allowed_from")
                == ANY_PATH)
-    bad = (scope_problem(phase, task["allowed_paths"], granted)
-           or phase_problems(phase, text, task["path"])
-           or (held_overlap(root, task["id"], []) if any_path else []))
+    # one pre-flight list, not one refusal per attempt: a plan that owes the
+    # scope, the Acceptance and the spike learns all three from one run
+    # (plan 108)
+    bad = list(scope_problem(phase, task["allowed_paths"], granted) or [])
+    bad += phase_problems(phase, text, task["path"])
+    if any_path:
+        bad += held_overlap(root, task["id"], [])
     if bad:
         return problems(bad)
     where = task.get("worktree") or tt.plan_holders(main_root(root)).get(task["id"])
@@ -689,6 +695,52 @@ def cmd_allow(args):
     if bad:
         return problems(bad)
     return show(task["path"])
+
+
+def cmd_unmet(args):
+    """Annotate one Acceptance item with `UNMET: <reason, who accepted it>` - the
+    form `close NNN done` accepts in place of a ticked box, and until now the one
+    the CLI could not write: the gate refuses a write to the record, so an item
+    the owner accepted as not met could only be annotated by hand and the plan
+    could not close (plan 110). The record's fifth body writer beside `tick`,
+    `note`, `spike` and `sweep`; it commits nothing."""
+    if len(args) != 3:
+        return misuse('unmet takes <NNN|path> <n> "<reason, who accepted it>"')
+    ref, number, reason = args
+    if not number.isdigit() or int(number) < 1:
+        return misuse("unmet takes the item's number, counted from 1")
+    reason = " ".join(reason.split())
+    if not reason:
+        return misuse("unmet takes the reason, and who accepted it")
+    # the same resolver `tick` and `note` take: `plan_path` accepts any existing
+    # file, which let `unmet README.md 1 x` rewrite a README, and it resolved the
+    # wrong checkout from a linked worktree (review of plan 110, F2)
+    path, problem = open_plan(ref)
+    if problem:
+        return problems([problem])
+    n = int(number)
+    items = tt.acceptance_items(read(path))
+    if n > len(items):
+        return problems(["%s has %d Acceptance item(s), so item %d names none"
+                         % (path, len(items), n)])
+    if items[n - 1]["checked"]:
+        return problems(["%s item %d is ticked already: `UNMET:` is for an item the "
+                         "owner accepted as not met, so untick it first "
+                         "(`tezgah-task tick %s %d --undo`)" % (path, n, ref, n)])
+    if tt._UNMET.search(items[n - 1]["text"]):
+        return problems(["%s item %d carries an `UNMET:` line already (%s)"
+                         % (path, n, items[n - 1]["text"][:64])])
+    try:
+        item = tt.set_unmet(path, n, reason)
+    except OSError as exc:
+        return problems(["cannot write %s: %s" % (path, exc)])
+    if item is None:
+        return problems(["%s has no Acceptance item %d" % (path, n)])
+    bad = write_fields(path, updated=today())
+    if bad:
+        return problems(bad)
+    print("%s: item %d -> UNMET: %s" % (path, n, reason))
+    return 0
 
 
 def cmd_stop(args):
@@ -982,8 +1034,18 @@ def cmd_close(args):
         print(line)
     # the checkout this runs in stays, even when it is a landed plan worktree:
     # removing it would pull the session's own cwd from under it
-    for line in prune_worktrees(root, keep=repo_root(os.getcwd())):
+    pruning = prune_worktrees(root, keep=repo_root(os.getcwd()))
+    for line in pruning:
         print(line)
+    kept = [line for line in pruning
+            if line.startswith(("worktree kept:", "branch kept:"))]
+    if kept:
+        # the reason a checkout stayed goes on the record: printed once, the
+        # next session re-derived the same decision. Written after the move -
+        # the record is in done/ now - and, like the other body writers, this
+        # one commits nothing (plan 108)
+        for line in write_fields(target, worktrees_kept=kept, updated=today()):
+            print(line)
     return 0 if committed else 1
 
 
@@ -1679,6 +1741,74 @@ def cmd_slice(args):
     return misuse(usage)
 
 
+def orphan_phases(root):
+    """[(path, id, branch)] for phased open plans whose checkout branch is gone.
+    Plan-add declares a branch before creating it, so absence alone is not an
+    orphan: checkpoint, landed or reviewed_sha must show the phase ran in a
+    checkout. A failed git query proves nothing. Query the current refs rather
+    than this sweep's deletions: a checkout may have been removed by hand."""
+    listed = git_out(root, "for-each-ref", "--format=%(refname)", "refs/heads")
+    if listed is None:
+        return []
+    branches = set(listed.splitlines())
+    out = []
+    for path in plans(root):
+        fields = tt.frontmatter(read(path))
+        phase, branch = fields.get("phase") or "", fields.get("branch") or ""
+        if not phase or not branch or not any(fields.get(key) for key in
+                                              ("checkpoint", "landed", "reviewed_sha")):
+            continue
+        if "refs/heads/" + branch not in branches:
+            out.append((path, fields.get("id") or os.path.basename(path).split("-")[0],
+                        branch))
+    return out
+
+
+def cmd_sweep(args):
+    """One idempotent pass over what a session left behind: every pending slice
+    as one line naming its `slice resume` command, the landed worktrees and
+    branches `reconcile --prune` removes, and a `phase:` whose branch is gone. It
+    prints one line per change and closes with the count, so a second run over the
+    same tree reports `0 change(s)`. The pending slices are printed, never
+    touched: resuming one is the session's move, and closing it here would be the
+    forgetting this exists to stop."""
+    if args:
+        return misuse("sweep takes nothing")
+    # the shared checkout: the worktrees and branches this prunes live in the
+    # repository, not in whichever worktree the command ran from
+    root = main_root(repo_root(os.getcwd()))
+    rows = tt.pending(root)
+    for rec in rows:
+        # one line each: the full brief is `slice resume <id>`'s, and a session
+        # coming back to ten dead slices wants the list, not ten briefs
+        print(tt.slice_line(rec))
+    if not rows:
+        print("no open or stopped slice")
+    changed = 0
+    bases = landing_bases(root)
+    for line in prune_worktrees(root, keep=repo_root(os.getcwd())) + prune_branches(root, bases):
+        print(line)
+        # a "kept" line is a report, not a change: a tree holding one long-lived
+        # worktree still has to reach `0 change(s)` on the second run. A slice a
+        # removed worktree closed is one too (review of plan 108).
+        if line.startswith(("worktree removed", "branch deleted", "slice ")):
+            changed += 1
+    for path, ident, branch in orphan_phases(root):
+        # the same empty-value shape `stop` writes, so one parser reads both, and
+        # the same wrapper the other record writers use: a plan that cannot be
+        # written is a problem with the plan, not a traceback (review of plan 108)
+        bad = write_fields(path, phase="", updated=today())
+        if bad:
+            for problem in bad:
+                print("FAIL %s" % problem)
+            continue
+        print("phase cleared: %s (%s no longer exists, so no worktree can move it)"
+              % (ident, branch))
+        changed += 1
+    print("swept: %d change(s)" % changed)
+    return 0
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
@@ -1704,10 +1834,14 @@ def main(argv):
         return cmd_note(rest)
     if cmd == "spike":
         return cmd_spike(rest)
+    if cmd == "unmet":
+        return cmd_unmet(rest)
     if cmd == "slice":
         return cmd_slice(rest)
+    if cmd == "sweep":
+        return cmd_sweep(rest)
     return misuse("unknown command %r (start, phase, allow, stop, status, review, "
-                  "close, tick, note, spike, slice)" % cmd)
+                  "close, tick, note, spike, unmet, slice, sweep)" % cmd)
 
 
 class ReaderMayLeave:

@@ -918,6 +918,35 @@ def set_box(path, n, checked):
         return items[n - 1]
 
 
+def set_unmet(path, n, reason):
+    """Append `UNMET: <reason>` to the last line of Acceptance item `n` (1-based,
+    as `tick` counts) and return the item, or None when the plan has no item `n`.
+
+    The marker has to land inside the item's own text - `open_items` reads it
+    there, and it is the predicate `close NNN done` refuses on - and an item
+    wraps onto the lines below its box, up to the next item or a blank line, so
+    the anchor is the item's last line and not its first (plan 110). Raises
+    OSError."""
+    with plans_lock(path):
+        lines = _lines(path)
+        items = acceptance_items("\n".join(lines))
+        if not 1 <= n <= len(items):
+            return None
+        end = items[n - 1]["line"] - 1
+        for i in range(end + 1, len(lines)):
+            # the section ends at the next `## ` heading as well, which is where
+            # `acceptance_items` stops: without it an item that ended straight at
+            # a heading swallowed the line under it into the item's own text
+            # (review of plan 110, F1)
+            if (not lines[i].strip() or _ITEM.match(lines[i])
+                    or lines[i].lstrip().startswith("## ")):
+                break
+            end = i
+        lines[end] = lines[end].rstrip() + " UNMET: " + reason
+        _write(path, "\n".join(lines))
+        return acceptance_items("\n".join(lines))[n - 1]
+
+
 def set_section(path, heading, body):
     """Replace the body of the last `## <heading>` section - the newest, since
     a plan appends a dated `## State (...)` - with `body` and one blank line,
@@ -950,10 +979,8 @@ def set_section(path, heading, body):
 
 SLICE_KINDS = ("agent", "job")
 SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh")
-# `stale`: no terminal status was observed within SLICE_IDLE_SECONDS - a host
-# that reports none (Codex `spawn_agent` returns at once and tezgah sees no child
-# event) or a child that died without writing its end. It leaves the pending
-# list without being read as finished or as failed.
+# `stale`: an idle background job whose result stays in its parent transcript.
+# An agent with no observed end stays owed as stopped with no failure class.
 SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")
 SLICE_CLOSED = ("done", "stopped", "resumed", "stale")
 SLICE_IDLE_SECONDS = 6 * 3600
@@ -1685,8 +1712,9 @@ def pending(root):
     omp record still open whose child transcript has ended is closed first:
     stopped with its failure class, or done when it ended normally. An open
     record nothing has moved for SLICE_IDLE_SECONDS (an omp child's transcript
-    included) - or a `job` past SLICE_JOB_SECONDS - closes `stale`. One stat and
-    at most one SLICE_TAIL read per open omp record."""
+    included) closes stopped with no failure class; only a `job` past
+    SLICE_JOB_SECONDS closes stale. One stat and at most one SLICE_TAIL read per
+    open omp record."""
     out = []
     for rec in slices(root):
         if rec.get("status") != "open":
@@ -1716,7 +1744,12 @@ def pending(root):
                 except OSError:
                     pass
         if rec.get("status") == "open" and idle is not None and idle > limit:
-            rec = close_slice(root, rec["id"], "stale") or rec
+            # A job's result stays in its parent transcript; an agent with no
+            # observed end stays stopped and offered for resume. Unknown is not
+            # cut_off: slice_stats skips a class it cannot name, so signature
+            # counts go quiet for hosts whose ends tezgah cannot observe.
+            job = rec.get("kind") == "job"
+            rec = close_slice(root, rec["id"], "stale" if job else "stopped", "") or rec
         if rec.get("status") in ("open", "stopped"):
             out.append(rec)
     return out
