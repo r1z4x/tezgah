@@ -369,20 +369,32 @@ class BrewTapWaitsForItsAsset(unittest.TestCase):
         # an Accept plus a bearer. So the formula names that endpoint, carries
         # both headers, and pins `version` - the endpoint writes no version into
         # the URL for brew to parse. The asset's id is read after the upload,
-        # because the `--clobber` above may renumber it.
+        # because the `--clobber` above may renumber it. The template is rendered
+        # as the step renders it, an unquoted heredoc: a backtick in its text runs
+        # as a command and leaves a hole while the step stays green (2026-10-17).
         block = self.block()
         import re
+        import textwrap
         template = re.search(r"cat > Formula/tezgah\.rb <<RUBY\n(.*?)\n\s*RUBY\n",
                              block, re.S)
         self.assertIsNotNone(template, "the formula template is gone")
-        formula = template.group(1)
-        self.assertIn('releases/assets/${ASSET_ID}', formula)
+        done = subprocess.run(
+            ["bash", "-eo", "pipefail", "-c",
+             "cat <<RUBY\n%s\nRUBY\n" % textwrap.dedent(template.group(1))],
+            env={"PATH": os.environ["PATH"], "VERSION": "9.9.9",
+                 "ASSET_ID": "3497", "SHA": "0" * 64},
+            capture_output=True, text=True)
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        formula = done.stdout
+        self.assertIn("releases/assets/3497", formula)
         self.assertNotIn("releases/download/", formula)
         self.assertIn("using: CurlDownloadStrategy", formula)
         self.assertIn("Accept: application/octet-stream", formula)
         self.assertIn('Authorization: Bearer #{ENV["HOMEBREW_GITHUB_API_TOKEN"]}',
                       formula)
-        self.assertIn('version "${VERSION}"', formula)
+        self.assertIn('version "9.9.9"', formula)
+        self.assertIn('fine-grained token with "Contents: read":', formula)
+        self.assertIn("fails with: curl: (56) ... 401", formula)
         self.assertLess(block.find("gh release upload"),
                         block.find("ASSET_ID=$(gh api"))
 
