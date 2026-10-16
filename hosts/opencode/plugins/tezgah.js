@@ -3244,6 +3244,22 @@ export default {
         before(event, { args: event && event.input }))
     }
 
+    const after = hooks["tool.execute.after"]
+    if (typeof after === "function") {
+      await ctx.tool.hook("execute.after", (event) => {
+        // On the "error" status the v2 event carries a Tool.Error, not a
+        // result object, so the v1 labels (labelResult) and rows
+        // (recordEvidence) have no carrier for a failed call: skipped, not
+        // faked. On "completed" it translates onto the v1 pair: the callback
+        // reads `tool` and `sessionID` from its input, `args` from
+        // `input.args` and the result from its second argument, which it
+        // labels in place.
+        if (event && event.status === "completed")
+          after({ sessionID: event.sessionID, tool: event.tool,
+                  args: event.input }, event.result)
+      })
+    }
+
     const shellEnv = hooks["shell.env"]
     if (typeof shellEnv === "function") {
       // v2's shell event carries `env` in place, and v1's callback fills
@@ -3251,6 +3267,10 @@ export default {
       await ctx.shell.hook("create.before", (event) => shellEnv(event, event))
     }
 
+    // Every other host runs the graph auto-index and the one-shot contract
+    // entries from its SessionStart hook; v1 did it on the first chat message.
+    // The v2 session hook that replaces `chat.message` is a piece-2 port - it
+    // is left unregistered rather than guessed.
     if (typeof hooks.event === "function" && ctx.event && ctx.event.subscribe) {
       // v1 reads `input.event`; v2 hands the event itself to the subscription.
       await ctx.event.subscribe((event) => hooks.event({ event }))

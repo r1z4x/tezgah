@@ -2257,18 +2257,18 @@ process.stdout.write(JSON.stringify({
 
 
 # The v2 probe: import the plugin, call the DEFAULT definition's setup with a
-# context that records every registration, then drive the registered tool hook
-# with one v2 event. It prints what the module exports, what it registered and
-# whether the call threw - the shape opencode 2.0.30 validates before it loads a
-# plugin, and the adapter that has to carry the v1 decision.
+# context that records every registration, then drive the registered tool hooks
+# with v2 events. It prints what the module exports, what it registered and
+# what each driven call threw or labelled - the shape opencode 2.0.30 validates
+# before it loads a plugin, and the adapters that carry the v1 decisions.
 V2_PROBE = """
 import { pathToFileURL } from "node:url"
-const [plugin, dir, calls] = process.argv.slice(1)
+const [plugin, dir, spec] = process.argv.slice(1)
 const mod = await import(pathToFileURL(plugin).href)
 const def = mod.default
 const out = { definition: !!def && typeof def === "object", id: (def && def.id) || "",
               static_export: typeof mod.Tezgah === "function",
-              registered: [], results: [] }
+              registered: [], before: [], after: [] }
 if (def && typeof def.setup === "function") {
   const registry = []
   const ctx = {
@@ -2279,58 +2279,91 @@ if (def && typeof def.setup === "function") {
   }
   await def.setup(ctx)
   out.registered = registry.map((r) => r[0] + "." + r[1])
-  const before = registry.find((r) => r[0] === "tool" && r[1] === "execute.before")
-  for (const call of JSON.parse(calls)) {
-    try {
-      await before[2](call)
-      out.results.push({ threw: "" })
-    } catch (err) {
-      out.results.push({ threw: String((err && err.message) || err) })
-    }
+  const find = (kind, name) => registry.find((r) => r[0] === kind && r[1] === name)
+  const drive = async (hook, event) => { try { await hook[2](event); return "" }
+    catch (err) { return String((err && err.message) || err) } }
+  const calls = JSON.parse(spec)
+  const before = find("tool", "execute.before")
+  for (const event of calls.before || []) {
+    out.before.push({ threw: await drive(before, event) })
+  }
+  const after = find("tool", "execute.after")
+  for (const event of calls.after || []) {
+    out.after.push({
+      threw: await drive(after, event),
+      output: (event.result && event.result.output) || "",
+    })
   }
 }
 console.log(JSON.stringify(out))
 """
 
 
-class PluginV2(TempHome):
-    """The default definition opencode 2 loads, and the adapter it registers."""
-
-    def setUp(self):
-        if not NODE:
-            self.skipTest("node not installed")
-        super().setUp()
+class PluginV2(OpenCodePlugin):
+    """The default definition opencode 2 loads, and the adapters it registers."""
 
     def probe(self, calls):
         # inside the configured root, so the plugin's own `rootFor` resolves and
-        # the hook runs instead of returning early
+        # the hooks run instead of returning early
         work = os.path.join(self.roots, "probe-repo")
         os.makedirs(work, exist_ok=True)
         proc = subprocess.run(
             [NODE, "--input-type=module", "-e", V2_PROBE,
              support.OPENCODE_PLUGIN, work, json.dumps(calls)],
-            capture_output=True, text=True, env=self.env(), cwd=work, timeout=60)
+            capture_output=True, text=True, env=self.envv, cwd=work, timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout)
 
-    def test_the_default_definition_registers_what_v2_calls(self):
+    def test_the_default_definition_registers_both_tool_hooks(self):
         # the module opencode 2 validates: a default object with an id and a
         # setup, and the one callable opencode 1 keeps using
-        got = self.probe([])
+        got = self.probe({"before": [], "after": []})
         self.assertTrue(got["definition"], got)
         self.assertEqual(got["id"], "tezgah")
         self.assertTrue(got["static_export"])
         self.assertIn("tool.execute.before", got["registered"])
+        self.assertIn("tool.execute.after", got["registered"])
         self.assertIn("shell.create.before", got["registered"])
         self.assertIn("event.subscribe", got["registered"])
 
-    def test_the_tool_adapter_carries_the_v1_decision(self):
-        # a credit line in a commit message is what the v1 callback refuses; the
-        # v2 event carries the args under `input`, and the deny is the v1 throw
-        got = self.probe([{"tool": "bash", "sessionID": "s1", "agent": "build",
-                           "messageID": "m1", "id": "c1",
-                           "input": {"command": "git commit -m 'Generated with Claude'"}}])
-        self.assertTrue(got["results"][0]["threw"], got)
+    def test_the_before_adapter_denies_what_the_v1_one_denies(self):
+        # an `explore` task is what the v1 callback refuses (its own test above),
+        # and the v2 event carries the call args under `input`: the translating
+        # callback must throw the same message the v1 pair throws for it
+        event = {"tool": "task", "sessionID": "explorer", "agent": "build",
+                 "messageID": "m1", "id": "c1",
+                 "input": {"subagent_type": "explore"}}
+        got = self.probe({"before": [event], "after": []})
+        self.assertTrue(got["before"][0]["threw"], got)
+        v1 = self.denied(self.before("task", {"subagent_type": "explore"},
+                                     session="explorer"))
+        self.assertEqual(got["before"][0]["threw"], v1)
+
+    def test_the_after_adapter_records_what_the_v1_one_records(self):
+        # the label rides the result object in place, the ledger row on its
+        # own session key: both must be exactly what the v1 pair produced
+        fetched = {"tool": "webfetch", "sessionID": "web", "agent": "build",
+                   "messageID": "m1", "id": "c1", "status": "completed",
+                   "input": {"query": "x"},
+                   "result": {"metadata": {}, "output": "page text"}}
+        checked = {"tool": "bash", "sessionID": "checked", "agent": "build",
+                   "messageID": "m1", "id": "c2", "status": "completed",
+                   "input": {"command": "pytest -q"},
+                   "result": {"metadata": {"exit": 0}, "output": ""}}
+        got = self.probe({"before": [], "after": [fetched, checked]})
+        self.assertEqual(got["after"][0]["threw"], got["after"][1]["threw"])
+        self.assertEqual(got["after"][0]["output"],
+                         tu.untrusted_label("web") + "\n\npage text")
+        # the v1 pair, through the harness, on twin sessions: the rows the
+        # after-hook writes must not drift between the two generations
+        self.after("webfetch", {"query": "x"}, result="page text", session="web1")
+        self.after("bash", {"command": "pytest -q"}, exit=0, session="checked1")
+        self.assertEqual(got["after"][0]["threw"], "")
+        self.assertEqual(got["after"][1]["threw"], "")
+        self.assertEqual(self.kinds("web"), self.kinds("web1"))
+        self.assertEqual(self.kinds("checked"), self.kinds("checked1"))
+        self.assertEqual(self.used("web"), self.used("web1"))
+        self.assertEqual(self.used("checked"), self.used("checked1"))
 
 
 class PluginPaths(TempHome):
