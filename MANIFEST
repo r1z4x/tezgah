@@ -673,6 +673,7 @@ tests/install_cache.py
 tests/neuter_killers.json
 tests/neuter_matrix.py
 tests/replay_context.py
+tests/replay_optimize.py
 tests/routing-fixtures.md
 tests/stop_spec_eval.py
 tests/support.py

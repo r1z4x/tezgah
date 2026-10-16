@@ -87,6 +87,18 @@ class Optimize(TempHome):
                      "and `--files <paths>` is a placeholder.\n")
         self.assertEqual(sorted(self.verdicts()), sorted([FAST, SLOW]))
 
+    def test_the_replay_counts_a_repeat_and_the_failure_it_would_lose(self):
+        import replay_optimize as ro
+        # green then the same command again: the rule saves one, and loses nothing
+        self.assertEqual(ro.replay([("pytest -q", 0), ("pytest -q", 0)]),
+                         (2, 1, 1, 0))
+        # the repeat that failed is the failure the rule would have skipped
+        self.assertEqual(ro.replay([("pytest -q", 0), ("pytest -q", 1)]),
+                         (2, 1, 1, 1))
+        # a first run that fails is not green, so the next one is not a repeat
+        self.assertEqual(ro.replay([("pytest -q", 1), ("pytest -q", 0)]),
+                         (2, 0, 0, 0))
+
     def test_push_coalesces_one_change(self):
         first = self.opt("push")
         self.assertEqual(first.returncode, 0, first.stderr)
