@@ -54,6 +54,13 @@ TASTE_ROWS = {
     "defects": ("id", "session", "day"),
     "labels": ("id", "provider", "day"),
     "injected": ("session", "day"),
+    # the verification-cost decision (plan 109): one row per measured run of one
+    # command at one sha, and one row per push of one sha. The tier map is read
+    # from these measured medians rather than declared, and the coalescing window
+    # is read from the pushes - so a second session in the same checkout reads the
+    # first one's measurements instead of re-deriving them.
+    "checks": ("repo", "sha", "command", "seconds", "exit", "ts"),
+    "pushes": ("repo", "sha", "branch", "at"),
 }
 IMPORT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS imported (name TEXT NOT NULL, dev INTEGER NOT NULL,
