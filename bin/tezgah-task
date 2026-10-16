@@ -1742,17 +1742,23 @@ def cmd_slice(args):
 
 
 def orphan_phases(root):
-    """[(path, id, branch)] for every open plan whose `phase:` no worktree can
-    move any more: the branch its task lives on is gone, so nothing can write
-    there and the plan reads as active forever. A plan whose branch still exists
-    is left alone - a worktree may hold it, or this checkout may be running it."""
+    """[(path, id, branch)] for phased open plans whose checkout branch is gone.
+    Plan-add declares a branch before creating it, so absence alone is not an
+    orphan: checkpoint, landed or reviewed_sha must show the phase ran in a
+    checkout. A failed git query proves nothing. Query the current refs rather
+    than this sweep's deletions: a checkout may have been removed by hand."""
+    listed = git_out(root, "for-each-ref", "--format=%(refname)", "refs/heads")
+    if listed is None:
+        return []
+    branches = set(listed.splitlines())
     out = []
     for path in plans(root):
         fields = tt.frontmatter(read(path))
         phase, branch = fields.get("phase") or "", fields.get("branch") or ""
-        if not phase or not branch:
+        if not phase or not branch or not any(fields.get(key) for key in
+                                              ("checkpoint", "landed", "reviewed_sha")):
             continue
-        if git_out(root, "rev-parse", "-q", "--verify", "refs/heads/" + branch) is None:
+        if "refs/heads/" + branch not in branches:
             out.append((path, fields.get("id") or os.path.basename(path).split("-")[0],
                         branch))
     return out
@@ -1780,7 +1786,7 @@ def cmd_sweep(args):
         print("no open or stopped slice")
     changed = 0
     bases = landing_bases(root)
-    for line in prune_worktrees(root) + prune_branches(root, bases):
+    for line in prune_worktrees(root, keep=repo_root(os.getcwd())) + prune_branches(root, bases):
         print(line)
         # a "kept" line is a report, not a change: a tree holding one long-lived
         # worktree still has to reach `0 change(s)` on the second run

@@ -979,10 +979,8 @@ def set_section(path, heading, body):
 
 SLICE_KINDS = ("agent", "job")
 SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh")
-# `stale`: no terminal status was observed within SLICE_IDLE_SECONDS - a host
-# that reports none (Codex `spawn_agent` returns at once and tezgah sees no child
-# event) or a child that died without writing its end. It leaves the pending
-# list without being read as finished or as failed.
+# `stale`: an idle background job whose result stays in its parent transcript.
+# An agent with no observed end stays owed as stopped with no failure class.
 SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")
 SLICE_CLOSED = ("done", "stopped", "resumed", "stale")
 SLICE_IDLE_SECONDS = 6 * 3600
@@ -1714,8 +1712,9 @@ def pending(root):
     omp record still open whose child transcript has ended is closed first:
     stopped with its failure class, or done when it ended normally. An open
     record nothing has moved for SLICE_IDLE_SECONDS (an omp child's transcript
-    included) - or a `job` past SLICE_JOB_SECONDS - closes `stale`. One stat and
-    at most one SLICE_TAIL read per open omp record."""
+    included) closes stopped with no failure class; only a `job` past
+    SLICE_JOB_SECONDS closes stale. One stat and at most one SLICE_TAIL read per
+    open omp record."""
     out = []
     for rec in slices(root):
         if rec.get("status") != "open":
@@ -1745,13 +1744,12 @@ def pending(root):
                 except OSError:
                     pass
         if rec.get("status") == "open" and idle is not None and idle > limit:
-            # a job's result is in the parent transcript the record names, so an
-            # idle job closes `stale`; a slice that went idle with no end is work
-            # nobody finished, and it closes `stopped` - `pending` keeps offering
-            # its resume brief instead of forgetting it (plan 108).
+            # A job's result stays in its parent transcript; an agent with no
+            # observed end stays stopped and offered for resume. Unknown is not
+            # cut_off: slice_stats skips a class it cannot name, so signature
+            # counts go quiet for hosts whose ends tezgah cannot observe.
             job = rec.get("kind") == "job"
-            rec = close_slice(root, rec["id"], "stale" if job else "stopped",
-                              "" if job else "cut_off") or rec
+            rec = close_slice(root, rec["id"], "stale" if job else "stopped", "") or rec
         if rec.get("status") in ("open", "stopped"):
             out.append(rec)
     return out

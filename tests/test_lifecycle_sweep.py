@@ -9,10 +9,12 @@ leaves a landed branch or an orphan `phase:` behind, and an idle slice record
 that `pending` used to forget instead of offering its resume brief.
 """
 import os
+import runpy
 import subprocess
 import sys
 import time
 import unittest
+import unittest.mock
 
 import support
 from test_slices import Journal  # the fixture this module reuses
@@ -42,7 +44,8 @@ class Sweep(Journal):
         # the orphan `phase:` and one pending slice, then the same tree twice
         path = plan_file(self.repo, "001-gone.md",
                          "---\nid: 001\ntitle: gone\nstatus: open\n"
-                         "branch: plan/001-gone\nphase: implementation\n---\n"
+                         "branch: plan/001-gone\nphase: implementation\n"
+                         "checkpoint: a99d77e\n---\n"
                          "## Goal\nx\n")
         tt.open_slice(self.repo, "Kept", host="omp", brief="a slice nobody finished")
         first = self.task("sweep")
@@ -66,6 +69,61 @@ class Sweep(Journal):
         self.assertEqual(slice_lines(first.stdout), listed)
         self.assertEqual(self.record("Kept")["status"], "open")
 
+    def test_sweep_keeps_its_own_landed_checkout_and_branch(self):
+        tree = self.worktree("sweep-here")
+        self.commit_file("here.txt", cwd=tree)
+        self.git("merge", "-q", "--no-edit", "sweep-here")
+        other = self.worktree("sweep-away")
+        self.commit_file("away.txt", cwd=other)
+        self.git("merge", "-q", "--no-edit", "sweep-away")
+        out = support.run([os.path.join(support.REPO, "bin", "tezgah-task"), "sweep"],
+                          env=self.env(), cwd=tree)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertTrue(os.path.isdir(tree), out.stdout)
+        self.assertEqual(self.git("branch", "--list", "sweep-here"), "+ sweep-here")
+        self.assertFalse(os.path.exists(other), out.stdout)
+        self.assertEqual(self.git("branch", "--list", "sweep-away"), "")
+
+    def test_a_declared_branch_that_never_existed_keeps_its_phase(self):
+        path = plan_file(self.repo, "001-live.md",
+                         "---\nid: 001\nstatus: open\nbranch: plan/001-live\n"
+                         "phase: discovery\n---\n## Goal\nx\n")
+        out = self.task("sweep")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(path) as fh:
+            self.assertEqual(tt.frontmatter(fh.read())["phase"], "discovery")
+        self.assertNotIn("phase cleared:", out.stdout)
+
+    def test_a_missing_branch_with_checkout_evidence_loses_its_phase(self):
+        for field in ("checkpoint", "landed", "reviewed_sha"):
+            with self.subTest(field=field):
+                path = plan_file(self.repo, "001-gone.md",
+                                 "---\nid: 001\nstatus: open\nbranch: plan/001-gone\n"
+                                 "phase: implementation\n%s: a99d77e\n---\n" % field)
+                out = self.task("sweep")
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertIn("phase cleared: 001", out.stdout)
+                with open(path) as fh:
+                    self.assertEqual(tt.frontmatter(fh.read()).get("phase") or "", "")
+
+    def test_an_existing_branch_keeps_its_phase_despite_checkout_evidence(self):
+        path = plan_file(self.repo, "001-live.md",
+                         "---\nid: 001\nstatus: open\nbranch: main\n"
+                         "phase: implementation\ncheckpoint: a99d77e\n---\n")
+        out = self.task("sweep")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        with open(path) as fh:
+            self.assertEqual(tt.frontmatter(fh.read())["phase"], "implementation")
+
+    def test_an_unanswered_git_query_keeps_the_phase(self):
+        plan_file(self.repo, "001-unknown.md",
+                  "---\nid: 001\nstatus: open\nbranch: plan/001-unknown\n"
+                  "phase: implementation\ncheckpoint: a99d77e\n---\n")
+        cli = runpy.run_path(os.path.join(support.REPO, "bin", "tezgah-task"))
+        with unittest.mock.patch.dict(cli["orphan_phases"].__globals__,
+                                      {"git_out": unittest.mock.Mock(return_value=None)}):
+            self.assertEqual(cli["orphan_phases"](self.repo), [])
+
     def test_a_landed_branch_is_deleted(self):
         self.commit_file("one.txt", message="one")
         self.git("checkout", "-q", "-b", "slice-branch")
@@ -79,8 +137,9 @@ class Sweep(Journal):
 
     def test_an_idle_slice_stays_owed_and_an_idle_job_is_stale(self):
         tt.open_slice(self.repo, "IdleOmp", host="omp", brief="stopped mid-flight")
+        tt.open_slice(self.repo, "IdleCodex", host="codex", brief="no observed end")
         tt.open_slice(self.repo, "IdleJob", kind="job", host="omp", brief="a job")
-        for sid in ("IdleOmp", "IdleJob"):
+        for sid in ("IdleOmp", "IdleCodex", "IdleJob"):
             rec = self.record(sid)
             rec["updated"] = old_stamp()
             tt._write_record(self.repo, rec)
@@ -88,7 +147,9 @@ class Sweep(Journal):
         # a slice that went idle with no end is work nobody finished
         self.assertIn("IdleOmp", rows)
         self.assertEqual(rows["IdleOmp"]["status"], "stopped")
-        self.assertEqual(rows["IdleOmp"]["failure"], "cut_off")
+        self.assertEqual(rows["IdleOmp"]["failure"], "")
+        self.assertEqual((rows["IdleCodex"]["status"], rows["IdleCodex"]["failure"]),
+                         ("stopped", ""))
         # a job's result is in the parent transcript the record names, so it is
         # the one that closes `stale` and leaves the owed list
         self.assertNotIn("IdleJob", rows)
@@ -100,17 +161,48 @@ class Sweep(Journal):
         folder = os.path.join(self.home, "done")
         os.makedirs(folder)
         with open(os.path.join(folder, "001-open.md"), "w") as fh:
-            fh.write("---\nid: 001\n---\n## Acceptance\n- [ ] one\n- [x] two\n")
+            fh.write("---\nid: 001\nstatus: done\n---\n## Acceptance\n- [ ] one\n- [x] two\n")
         with open(os.path.join(folder, "002-unmet.md"), "w") as fh:
-            fh.write("---\nid: 002\n---\n## Acceptance\n- [ ] one\n"
+            fh.write("---\nid: 002\nstatus: done\n---\n## Acceptance\n- [ ] one\n"
                      "      UNMET: the owner accepted it\n")
         with open(os.path.join(folder, "003-clean.md"), "w") as fh:
-            fh.write("---\nid: 003\n---\n## Acceptance\n- [x] one\n")
+            fh.write("---\nid: 003\nstatus: done\n---\n## Acceptance\n- [x] one\n")
         stats = plan_orphans.census(folder)
         self.assertEqual((stats["done"], stats["open_box"],
                           stats["open_box_no_unmet"]), (3, 2, 1))
         self.assertEqual([row["record"] for row in stats["records"]
                           if not row["unmet"]], ["001-open.md"])
+
+    def test_the_census_uses_the_close_predicate_per_done_acceptance_item(self):
+        folder = os.path.join(self.home, "done")
+        os.makedirs(folder)
+        records = {
+            "001-mixed.md": ("done", "## Acceptance\n"
+                             "- [ ] a UNMET: owner accepted it\n- [ ] b\n"),
+            "002-discarded.md": ("discarded", "## Acceptance\n- [ ] discarded\n"),
+            "003-other-section.md": ("done", "## Goal\n- [ ] not Acceptance\n"),
+            "004-open.md": ("open", "## Acceptance\n- [ ] still live\n"),
+            "005-bare-marker.md": ("done", "## Acceptance\n- [ ] a UNMET:\n"),
+        }
+        for name, (status, body) in records.items():
+            with open(os.path.join(folder, name), "w") as fh:
+                fh.write("---\nstatus: %s\n---\n%s" % (status, body))
+        stats = plan_orphans.census(folder)
+        self.assertEqual((stats["done"], stats["open_box"],
+                          stats["open_box_no_unmet"]), (3, 2, 2))
+        for row in stats["records"]:
+            with open(os.path.join(folder, row["record"])) as fh:
+                self.assertEqual(row["unaccounted"], len(tt.open_items(fh.read())))
+        mixed = next(row for row in stats["records"] if row["record"] == "001-mixed.md")
+        self.assertEqual((mixed["open_box"], mixed["unmet"], mixed["unaccounted"]), (2, 1, 1))
+
+    def test_one_items_unmet_marker_cannot_account_for_another(self):
+        folder = os.path.join(self.home, "done")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "001-mixed.md"), "w") as fh:
+            fh.write("---\nstatus: done\n---\n## Acceptance\n"
+                     "- [ ] a UNMET: owner accepted it\n- [ ] b\n")
+        self.assertEqual(plan_orphans.census(folder)["open_box_no_unmet"], 1)
 
     def test_the_workspace_link_of_a_linked_worktree_is_ignored(self):
         # a linked worktree shows `.tezgah` as a symlink to the main checkout's

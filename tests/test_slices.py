@@ -376,18 +376,15 @@ class Pending(Journal):
         self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["job-new"])
         self.assertEqual(self.record("job-old")["status"], "stale")
 
-    def test_an_open_record_nothing_moved_stays_owed_and_never_refuses(self):
-        # a Codex child reports no end: after SLICE_IDLE_SECONDS the record is
-        # still owed work - `stopped`/`cut_off`, offered for resume - because
-        # closing it `stale` forgot a slice nobody finished (plan 108); only a
-        # job record, whose result the parent transcript already holds, leaves
-        # the list that way
+    def test_an_unobserved_end_stays_owed_without_a_failure_class(self):
+        # Codex reports no end: idle means unknown, not a known cut-off. The
+        # record stays stopped and offered for resume; only an idle job is stale.
         rec = tt.open_slice(self.repo, "review", host="codex", brief="b")
         rec["updated"] = "2026-10-10T00:00:00Z"
         tt._write_record(self.repo, rec)
         self.assertEqual([r["id"] for r in tt.pending(self.repo)], ["review"])
         self.assertEqual((self.record("review")["status"],
-                          self.record("review")["failure"]), ("stopped", "cut_off"))
+                          self.record("review")["failure"]), ("stopped", ""))
 
     def test_a_respawn_of_the_same_name_is_read_from_its_newest_transcript(self):
         # omp writes a same-name re-dispatch to `<name>-2.jsonl`; the first
@@ -795,6 +792,20 @@ class Cli(Journal):
         text = self.task("slice", "stats").stdout
         self.assertIn("candidate: rate_limit+omp - 3 events (10% of slices) - lever: "
                       "hooks/tezgah_models.py fallback chain", text)
+
+    def test_idle_codex_records_do_not_invent_failure_signatures(self):
+        for n in range(3):
+            rec = tt.open_slice(self.repo, "idle-%d" % n, host="codex", brief="b")
+            rec["updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                           time.gmtime(time.time() - 7 * 3600))
+            tt._write_record(self.repo, rec)
+        self.assertEqual(len(tt.pending(self.repo)), 3)
+        proc = self.task("slice", "stats", "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        stats = json.loads(proc.stdout)
+        self.assertEqual(stats["status"], {"stopped": 3})
+        self.assertEqual(stats["failure"], {})
+        self.assertEqual(stats["candidates"], [])
 
     def test_a_small_window_flags_no_share_alone(self):
         # one stop in two slices is 50%, and still no pattern below the floor
