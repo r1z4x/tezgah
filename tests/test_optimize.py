@@ -101,6 +101,17 @@ class Optimize(TempHome):
         self.assertEqual(ro.replay([check(0), ("edit", "", 0), check(0)]), (2, 0, 0))
         self.assertEqual(ro.replay([check(0), ("edit", "", 0), check(1)]), (2, 0, 0))
 
+    def test_baseline_compares_the_rule_against_the_policy(self):
+        # review of plan 109, round 2: --baseline ran the baseline policy twice and
+        # never the guarded one, so its two printed lines were the same numbers.
+        # They differ on exactly this corpus shape - an edit between two green runs
+        # of one command, which clears the guarded rule's green row and not the
+        # baseline's.
+        import replay_optimize as ro
+        rows = [("verify", "pytest -q", 0), ("edit", "", 0), ("verify", "pytest -q", 0)]
+        self.assertEqual(ro.replay(rows, guard=True), (2, 0, 0))
+        self.assertEqual(ro.replay(rows, guard=False), (2, 1, 0))
+
     def test_a_green_row_over_a_dirty_tree_is_not_spent(self):
         # review of plan 109, F2: inside a turn the edits are uncommitted, so HEAD
         # does not move and a green row for that sha can describe a tree the

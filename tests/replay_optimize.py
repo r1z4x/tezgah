@@ -2,7 +2,7 @@
 """Replay recorded turns through the planner's `already green` rule.
 
     python3 tests/replay_optimize.py            # the counts, exit 1 on a lost failure
-    python3 tests/replay_optimize.py --baseline # the same line, as the plan names it
+    python3 tests/replay_optimize.py --baseline # the rule beside the policy it is measured against
     python3 tests/replay_optimize.py --limit 200 --json
 
 The rule under test is `bin/tezgah-optimize next`'s second half: a check whose
@@ -106,19 +106,22 @@ def main(argv):
                   file=sys.stderr)
             return 2
     cache = tp.cache_dir()
-    guarded = "--baseline" not in argv
+    # `--baseline` adds the policy this one is measured against; it never replaces
+    # the guarded pass, or the two lines print the same numbers and compare
+    # nothing (review of plan 109, round 2)
+    baseline = "--baseline" in argv
     totals = {"sessions": 0, "checks": 0, "saving": 0, "lost": 0}
     other = {"saving": 0, "lost": 0}
     worst = []
     for name, rows in turns(cache, limit):
-        checked, saving, lost = replay(rows, guard=guarded)
+        checked, saving, lost = replay(rows, guard=True)
         if not checked:
             continue
         totals["sessions"] += 1
         totals["checks"] += checked
         totals["saving"] += saving
         totals["lost"] += lost
-        if not guarded:
+        if baseline:
             _c, base_saving, base_lost = replay(rows, guard=False)
             other["saving"] += base_saving
             other["lost"] += base_lost
@@ -127,7 +130,7 @@ def main(argv):
     worst.sort(reverse=True)
     if "--json" in argv:
         print(json.dumps({"totals": totals,
-                          "baseline": other if not guarded else {},
+                          "baseline": other if baseline else {},
                           "sessions": [{"session": n, "saving": s, "lost": lost}
                                        for s, lost, n in worst[:10]]},
                          indent=2, sort_keys=True))
@@ -136,7 +139,7 @@ def main(argv):
               "between: %d; saving: %d; lost failures: %d"
               % (totals["sessions"], totals["checks"], totals["saving"],
                  totals["saving"], totals["lost"]))
-        if not guarded:
+        if baseline:
             # the comparison the plan's baseline item asks for: the same corpus
             # through the policy that skips a repeat whatever moved in between
             print("baseline policy (skips a repeat whatever moved in between): "
