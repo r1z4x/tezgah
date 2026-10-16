@@ -43,7 +43,7 @@ else
     up=$work/upgrade.sh
     url="https://raw.githubusercontent.com/$REPO/$ref/packaging/upgrade.sh"
     if [ -n "$token" ]; then
-        curl -fsSL -H "Authorization: Bearer $token" "$url" -o "$up" \
+        printf 'Authorization: Bearer %s\n' "$token" | curl -fsSL -H @- "$url" -o "$up" \
             || { echo "tezgah: cannot fetch packaging/upgrade.sh at $ref - if $REPO is private, set TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN" >&2; exit 1; }
     else
         curl -fsSL "$url" -o "$up" \

@@ -48,10 +48,11 @@ die() {
 # URL is read, and a public repository - no token - keeps exactly the URL it had.
 token=${TEZGAH_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}
 
-# Every read goes through here, so the bearer cannot be forgotten on one call.
+# Every read goes through here, so the bearer cannot be forgotten on one call. It
+# reaches curl on stdin (`-H @-`, curl 7.55+): an argument is in every user's `ps`.
 get() {   # get <url> [curl args...]
     if [ -n "$token" ]; then
-        curl -fsSL -H "Authorization: Bearer $token" "$@"
+        printf 'Authorization: Bearer %s\n' "$token" | curl -fsSL -H @- "$@"
     else
         curl -fsSL "$@"
     fi
@@ -132,11 +133,9 @@ name=tezgah-$VERSION.tar.gz
 if [ -n "$assets" ]; then
     # Both files come from the same release, and neither blob is served without
     # this Accept: the endpoint answers JSON metadata otherwise.
-    curl -fsSL -H "Accept: application/octet-stream" \
-        -H "Authorization: Bearer $token" "$assets/$id" -o "$work/$name" \
+    get -H "Accept: application/octet-stream" "$assets/$id" -o "$work/$name" \
         || die "cannot fetch $name from $assets/$id"
-    curl -fsSL -H "Accept: application/octet-stream" \
-        -H "Authorization: Bearer $token" "$assets/$id_sidecar" -o "$work/$name.sha256" \
+    get -H "Accept: application/octet-stream" "$assets/$id_sidecar" -o "$work/$name.sha256" \
         || die "cannot fetch $name.sha256 from $assets/$id_sidecar"
 else
     get "$base/$name" -o "$work/$name" \
