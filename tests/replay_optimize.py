@@ -67,19 +67,22 @@ def turns(cache, limit):
     return [(sid, per[sid]) for sid in newest if per.get(sid)]
 
 
-def replay(rows):
+def replay(rows, guard=True):
     """(checks, saving, lost) for one session's rows in order.
 
     `green` is the set of commands whose last run in this session passed. An `edit`
-    clears it: the tree moved, so no recorded pass describes what is in front of
-    the session - which is the rule's own dirty-tree guard, read from the ledger's
-    own rows. A check whose command is still in `green` is a repeat the rule would
-    skip; one that fails is a lost failure."""
+    clears it when `guard` is on: the tree moved, so no recorded pass describes
+    what is in front of the session - which is the rule's own dirty-tree guard,
+    read from the ledger's own rows. `guard` off is the baseline policy the plan
+    compares against, which skips a repeat whatever moved in between. A check
+    whose command is still in `green` is a repeat the rule would skip; one that
+    fails is a lost failure."""
     green = set()
     checks = saving = lost = 0
     for kind, command, code in rows:
         if kind == "edit":
-            green.clear()
+            if guard:
+                green.clear()
             continue
         checks += 1
         if command in green:
@@ -103,21 +106,28 @@ def main(argv):
                   file=sys.stderr)
             return 2
     cache = tp.cache_dir()
+    guarded = "--baseline" not in argv
     totals = {"sessions": 0, "checks": 0, "saving": 0, "lost": 0}
+    other = {"saving": 0, "lost": 0}
     worst = []
     for name, rows in turns(cache, limit):
-        checked, saving, lost = replay(rows)
+        checked, saving, lost = replay(rows, guard=guarded)
         if not checked:
             continue
         totals["sessions"] += 1
         totals["checks"] += checked
         totals["saving"] += saving
         totals["lost"] += lost
+        if not guarded:
+            _c, base_saving, base_lost = replay(rows, guard=False)
+            other["saving"] += base_saving
+            other["lost"] += base_lost
         if saving:
             worst.append((saving, lost, name))
     worst.sort(reverse=True)
     if "--json" in argv:
         print(json.dumps({"totals": totals,
+                          "baseline": other if not guarded else {},
                           "sessions": [{"session": n, "saving": s, "lost": lost}
                                        for s, lost, n in worst[:10]]},
                          indent=2, sort_keys=True))
@@ -126,6 +136,12 @@ def main(argv):
               "between: %d; saving: %d; lost failures: %d"
               % (totals["sessions"], totals["checks"], totals["saving"],
                  totals["saving"], totals["lost"]))
+        if not guarded:
+            # the comparison the plan's baseline item asks for: the same corpus
+            # through the policy that skips a repeat whatever moved in between
+            print("baseline policy (skips a repeat whatever moved in between): "
+                  "saving: %d; lost failures: %d"
+                  % (other["saving"], other["lost"]))
         for saving, lost, name in worst[:3]:
             print("  %s: %d repeat(s), %d lost" % (name, saving, lost))
         if not totals["sessions"]:
