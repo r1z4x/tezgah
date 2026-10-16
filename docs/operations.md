@@ -92,12 +92,14 @@ in the URL and a plain bearer header answered the same. So a token in
 `TEZGAH_GITHUB_TOKEN`, `GITHUB_TOKEN` or `GH_TOKEN` sends the fetch to the REST
 asset endpoint instead. That endpoint wants `Accept: application/octet-stream` plus
 `Authorization: Bearer`, and the script reads the asset's id out of the release
-JSON of the tag. `packaging/install.sh` carries the same bearer for the
+JSON of the tag. The bearer reaches curl on stdin (`-H @-`). No other user's `ps`
+shows it as an argument. `packaging/install.sh` carries the same bearer for the
 `raw.githubusercontent.com` bootstrap. `packaging/install.ps1` carries it for the
 release JSON and the asset blobs. With no token, the public URLs stand and a failed
 fetch names the token to set. The brew formula takes the same shape. It names the
-asset endpoint and reads `HOMEBREW_GITHUB_API_TOKEN`. Homebrew substitutes that
-token at download time rather than while evaluating the formula.
+asset endpoint and reads `HOMEBREW_GITHUB_API_TOKEN`. Homebrew leaves that variable
+in the environment it reads a formula with, so the token resolves at evaluation.
+Homebrew redacts it from the commands it logs.
 
 Windows goes through `packaging/install.ps1`, which assumes no `sh`, no `python3`
 and no symlink privilege: it unpacks with the `tar.exe` that Windows 10 1803+

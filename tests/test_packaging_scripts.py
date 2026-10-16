@@ -324,7 +324,8 @@ class PrivateReleaseFetch(Base):
 
     def stub(self, fixture, tag):
         """A curl stand-in that logs its argv and refuses an asset URL with no
-        bearer - the private endpoint's own answer to an anonymous session."""
+        bearer - the private endpoint's own answer to an anonymous session. A
+        header file on stdin (`-H @-`) is read the way curl reads it."""
         stub = os.path.join(self.tmp, "private-stub-%s" % tag)
         os.makedirs(stub, exist_ok=True)
         log = os.path.join(self.tmp, "curl-argv-%s" % tag)
@@ -339,7 +340,7 @@ class PrivateReleaseFetch(Base):
                      "while [ $# -gt 0 ]; do\n"
                      "  case $1 in\n"
                      "    -o) out=$2; shift 2 ;;\n"
-                     "    -H) shift 2 ;;\n"
+                     "    -H) [ \"$2\" = @- ] && all=\"$all $(cat)\"; shift 2 ;;\n"
                      "    *) url=$1; shift ;;\n"
                      "  esac\n"
                      "done\n"
@@ -375,7 +376,9 @@ class PrivateReleaseFetch(Base):
         self.assertIn("releases/assets/3497", argv)
         self.assertIn("releases/assets/3499", argv)
         self.assertIn("Accept: application/octet-stream", argv)
-        self.assertIn("Authorization: Bearer %s" % self.TOKEN, argv)
+        # the bearer reaches curl on stdin: an argument is in every user's `ps`
+        self.assertIn("-H @-", argv)
+        self.assertNotIn(self.TOKEN, argv)
         # the public URL is not tried at all when the token is there to be used
         self.assertNotIn("releases/download", argv)
         self.assertTrue(os.path.realpath(os.path.join(prefix, "current"))
