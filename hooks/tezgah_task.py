@@ -918,6 +918,30 @@ def set_box(path, n, checked):
         return items[n - 1]
 
 
+def set_unmet(path, n, reason):
+    """Append `UNMET: <reason>` to the last line of Acceptance item `n` (1-based,
+    as `tick` counts) and return the item, or None when the plan has no item `n`.
+
+    The marker has to land inside the item's own text - `open_items` reads it
+    there, and it is the predicate `close NNN done` refuses on - and an item
+    wraps onto the lines below its box, up to the next item or a blank line, so
+    the anchor is the item's last line and not its first (plan 110). Raises
+    OSError."""
+    with plans_lock(path):
+        lines = _lines(path)
+        items = acceptance_items("\n".join(lines))
+        if not 1 <= n <= len(items):
+            return None
+        end = items[n - 1]["line"] - 1
+        for i in range(end + 1, len(lines)):
+            if not lines[i].strip() or _ITEM.match(lines[i]):
+                break
+            end = i
+        lines[end] = lines[end].rstrip() + " UNMET: " + reason
+        _write(path, "\n".join(lines))
+        return acceptance_items("\n".join(lines))[n - 1]
+
+
 def set_section(path, heading, body):
     """Replace the body of the last `## <heading>` section - the newest, since
     a plan appends a dated `## State (...)` - with `body` and one blank line,

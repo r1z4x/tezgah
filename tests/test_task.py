@@ -745,6 +745,47 @@ class Cli(TempHome):
         self.assertEqual(refused.returncode, 1, refused.stderr)
         self.assertEqual(self.status()["phase"], "verification")
 
+    def test_unmet_annotates_the_item_where_close_reads_it(self):
+        # plan 110: `open_items` is the predicate `close NNN done` refuses on, and
+        # it reads the marker from the item's own text - which wraps onto the
+        # lines below the box, so the anchor is the item's last line
+        path = self.plan("001-first.md")
+        with open(path, "w") as fh:
+            fh.write("---\nid: 001\ntitle: a plan\nstatus: open\n---\n"
+                     "## Goal\nthe goal\n## Acceptance\n"
+                     "- [ ] The counts it read are printed. "
+                     "Proof: `bin/x`.\n"
+                     "- [ ] The reader lives in the module that already owns the\n"
+                     "      plan record, so there is one reader.\n")
+        for n, why in ((1, "the box is handled elsewhere"),
+                       (2, "owner accepted 2026-10-16")):
+            proc = self.task("unmet", "001", str(n), why)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        after = read(path)
+        self.assertEqual(tt.open_items(after), [])
+        # the marker landed inside the wrapped item, on its last line
+        self.assertIn("plan record, so there is one reader. "
+                      "UNMET: owner accepted 2026-10-16", after)
+
+    def test_unmet_refuses_a_ticked_item_a_missing_number_and_no_reason(self):
+        self.plan("001-first.md",
+                  body="the goal\n## Acceptance\n- [x] one.\n- [ ] two.\n")
+        path = os.path.join(self.open, "001-first.md")
+        for argv in (("unmet", "001", "1", "x"), ("unmet", "001", "9", "x")):
+            proc = self.task(*argv)
+            self.assertEqual(proc.returncode, 1, proc.stdout)
+            self.assertIn("FAIL", proc.stdout)
+        # an empty reason is misuse, as `allow`'s missing --why is
+        self.assertEqual(self.task("unmet", "001", "2", "   ").returncode, 2)
+        self.assertEqual(self.task("unmet", "001", "2").returncode, 2)
+        self.assertNotIn("UNMET:", read(path))
+        self.assertEqual(self.task("unmet", "001", "2",
+                                   "owner accepted it").returncode, 0)
+        self.assertIn("UNMET: owner accepted it", read(path))
+        # a second annotation on the same item is refused, so the reason stays
+        # the owner's first word
+        self.assertEqual(self.task("unmet", "001", "2", "again").returncode, 1)
+
     def test_phase_and_allow_refuse_when_no_task_is_active(self):
         self.plan("001-first.md")
         for proc in (self.task("phase", "implementation"),

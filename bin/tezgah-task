@@ -11,6 +11,7 @@
   tezgah-task tick <NNN|path> <n> [--undo]                   tick (or untick) Acceptance item n, counted from 1
   tezgah-task note <NNN|path> state|next "<text>"            replace the body of `## State` (the newest one) or `## Next`
   tezgah-task spike <NNN|path> "<answer>"                    record the spike's answer (`spike_recorded:`)
+  tezgah-task unmet <NNN|path> <n> "<reason, who accepted it>"  annotate Acceptance item n with `UNMET:`, the form close accepts
   tezgah-task slice open --id ID [--kind agent|job] [--host H] [--agent A] [--brief TEXT|--brief-file F] [--parent P] [--cwd PATH]
                                                               record a delegated slice (a re-open counts one more attempt)
   tezgah-task slice done ID | slice stop ID [--class C]      close a slice record
@@ -689,6 +690,47 @@ def cmd_allow(args):
     if bad:
         return problems(bad)
     return show(task["path"])
+
+
+def cmd_unmet(args):
+    """Annotate one Acceptance item with `UNMET: <reason, who accepted it>` - the
+    form `close NNN done` accepts in place of a ticked box, and until now the one
+    the CLI could not write: the gate refuses a write to the record, so an item
+    the owner accepted as not met could only be annotated by hand and the plan
+    could not close (plan 110). The record's fifth body writer beside `tick`,
+    `note`, `spike` and `sweep`; it commits nothing."""
+    if len(args) != 3:
+        return misuse('unmet takes <NNN|path> <n> "<reason, who accepted it>"')
+    ref, number, reason = args
+    if not number.isdigit() or int(number) < 1:
+        return misuse("unmet takes the item's number, counted from 1")
+    reason = " ".join(reason.split())
+    if not reason:
+        return misuse("unmet takes the reason, and who accepted it")
+    root = repo_root(os.getcwd())
+    path, bad = plan_path(root, ref)
+    if bad:
+        return problems([bad])
+    n = int(number)
+    items = tt.acceptance_items(read(path))
+    if n > len(items):
+        return problems(["%s has %d Acceptance item(s), so item %d names none"
+                         % (path, len(items), n)])
+    if items[n - 1]["checked"]:
+        return problems(["%s item %d is ticked already: `UNMET:` is for an item the "
+                         "owner accepted as not met, so untick it first "
+                         "(`tezgah-task tick %s %d --undo`)" % (path, n, ref, n)])
+    if tt._UNMET.search(items[n - 1]["text"]):
+        return problems(["%s item %d carries an `UNMET:` line already (%s)"
+                         % (path, n, items[n - 1]["text"][:64])])
+    try:
+        item = tt.set_unmet(path, n, reason)
+    except OSError as exc:
+        return problems(["cannot write %s: %s" % (path, exc)])
+    if item is None:
+        return problems(["%s has no Acceptance item %d" % (path, n)])
+    print("%s: item %d -> UNMET: %s" % (path, n, reason))
+    return 0
 
 
 def cmd_stop(args):
@@ -1704,10 +1746,12 @@ def main(argv):
         return cmd_note(rest)
     if cmd == "spike":
         return cmd_spike(rest)
+    if cmd == "unmet":
+        return cmd_unmet(rest)
     if cmd == "slice":
         return cmd_slice(rest)
     return misuse("unknown command %r (start, phase, allow, stop, status, review, "
-                  "close, tick, note, spike, slice)" % cmd)
+                  "close, tick, note, spike, unmet, slice)" % cmd)
 
 
 class ReaderMayLeave:
