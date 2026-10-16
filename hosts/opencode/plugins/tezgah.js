@@ -3222,9 +3222,9 @@ export const Tezgah = async ({ directory }) => {
 // the same object and no decision is rewritten here.
 //
 // Registered in this piece: the tool envelopes (the enforcement path), the shell
-// env hook and the event subscription. session/prompt, permission/evaluate, the
-// compaction hook and the TUI plugin still need their own probe of the v2 event
-// before they are registered - guessing a field there would silently drop a
+// env hook, the session prompt and the event subscription. permission/evaluate,
+// the compaction hook and the TUI plugin still need their own probe of the v2
+// event before they are registered - guessing a field there would silently drop a
 // decision.
 export default {
   id: "tezgah",
@@ -3293,10 +3293,9 @@ export default {
         event))
     }
 
-    // Every other host runs the graph auto-index and the one-shot contract
-    // entries from its SessionStart hook; v1 did it on the first chat message.
-    // The v2 session hook that replaces `chat.message` is a piece-2 port - it
-    // is left unregistered rather than guessed.
+    // The v1 `event` hook joins a subagent's ledger to its parent's on
+    // `session.created`, and v2 delivers host events through a subscription
+    // rather than a callback, so this block consumes it.
     if (typeof hooks.event === "function" && ctx.event && ctx.event.subscribe) {
       // v2's subscription returns an async iterable of {type, data} and never
       // calls a callback - the sibling plugin consumes it with `for await` - so
