@@ -6,12 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-10-17
+
+### Fixed
+
+- **1.9.2 ships what 1.9.1 carried.** The v1.9.1 release run failed its own CI on the changelog's prose. So npm and Homebrew never received 1.9.1. This release carries the same changes.
+
 ## [1.9.1] - 2026-10-17
 
 ### Fixed
 
-- **A private repository's release is fetched with a token.** GitHub answers `404` to `releases/download/...` from a session without one, so `brew install`, `upgrade.sh` and the `curl | sh` first install all broke when the repository went private. `upgrade.sh` and `install.sh` read `TEZGAH_GITHUB_TOKEN`, `GITHUB_TOKEN` or `GH_TOKEN`. With a token, they read the tarball through the REST asset endpoint. `install.ps1` sends the same header. The Homebrew formula names that endpoint and reads `HOMEBREW_GITHUB_API_TOKEN`, and its caveats say so. With no token, the public URLs stand and a failed fetch names the token to set. The bearer reaches curl on stdin (`-H @-`), so no other user's `ps` shows it. An install still on 1.9.0 has no token support: install 1.9.1 with the token set. See `docs/operations.md`.
-- **The formula's caveats keep their text.** Backticks in the template ran as commands in the release step's unquoted heredoc, so the caveats lost the token scope and the failure line while the step stayed green. The test now renders the template the way the step does.
+- **A token fetches a private repository's release.** GitHub answers `404` to `releases/download/...` from a session without one. So `brew install`, `upgrade.sh` and the `curl | sh` first install all broke when the repository went private. `upgrade.sh` and `install.sh` read `TEZGAH_GITHUB_TOKEN`, `GITHUB_TOKEN` or `GH_TOKEN`. With a token, they read the tarball through the REST asset endpoint. `install.ps1` sends the same header. The Homebrew formula names that endpoint and reads `HOMEBREW_GITHUB_API_TOKEN`, and its caveats say so. With no token, the public URLs stand and a failed fetch names the token to set. The bearer reaches curl on stdin (`-H @-`), so no other user's `ps` shows it. An install still on 1.9.0 has no token support: install the new release with the token set.
+- **The formula's caveats keep their text.** Backticks in the template ran as commands in the release step's unquoted heredoc. The caveats lost the token scope and the failure line, and the step stayed green. The test now renders the template the way the step does.
 
 ## [1.9.0] - 2026-10-17
 
@@ -1213,7 +1219,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.2
 [1.9.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.1
 [1.9.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.0
 [1.8.3]: https://github.com/r1z4x/tezgah/releases/tag/v1.8.3
