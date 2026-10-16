@@ -175,6 +175,32 @@ def check_acceptance_gap(project):
     return "; ".join(problems)
 
 
+def check_preflight_lists_every_gap(project):
+    """12: a plan owing both an unproven Acceptance item and an unanswered spike
+    learns both from ONE refused move instead of one refusal per attempt (the
+    pre-flight list plan 108 added; the unit test in test_task.py pins the same
+    rule through the CLI)."""
+    project.write(".tezgah/plans/open/012-preflight.md",
+                  "---\nid: 012\ntitle: a plan\nstatus: open\n"
+                  "allowed_paths:\n  - '**'\n"
+                  "spike: does the loader see it?\nspike_box: one focused session\n"
+                  "spike_recorded:\nspike_throwaway: true\n---\n"
+                  "## Goal\nthe goal\n## Acceptance\n"
+                  "- [ ] The reader lives in the loader.\n")
+    started = project.cli(TASK, "start", "012", "--phase", "discovery")
+    moved = project.cli(TASK, "phase", "implementation")
+    problems = []
+    if started.returncode != 0:
+        problems.append("start refused: %s" % first_line(started))
+    if moved.returncode == 0:
+        problems.append("the move was allowed")
+    if "name no command" not in moved.stdout:
+        problems.append("the Acceptance gap was not reported: %s" % first_line(moved))
+    if "its spike is unanswered" not in moved.stdout:
+        problems.append("the spike was not reported: %s" % first_line(moved))
+    return "; ".join(problems)
+
+
 def check_move_and_checkpoint(project):
     """2: with one item naming the command the move succeeds and writes the
     checkpoint - the record the phase returns to."""
@@ -401,6 +427,8 @@ def check_close_records_and_commits(project):
 CHECKS = (
     ("a plan whose Acceptance names no command cannot enter implementation",
      check_acceptance_gap),
+    ("one refused move reports every precondition, not the first one",
+     check_preflight_lists_every_gap),
     ("one command-bearing item moves the phase and writes the checkpoint",
      check_move_and_checkpoint),
     ("a dirty tree records pending, and the commit clears it",
