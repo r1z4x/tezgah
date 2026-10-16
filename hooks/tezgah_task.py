@@ -934,7 +934,12 @@ def set_unmet(path, n, reason):
             return None
         end = items[n - 1]["line"] - 1
         for i in range(end + 1, len(lines)):
-            if not lines[i].strip() or _ITEM.match(lines[i]):
+            # the section ends at the next `## ` heading as well, which is where
+            # `acceptance_items` stops: without it an item that ended straight at
+            # a heading swallowed the line under it into the item's own text
+            # (review of plan 110, F1)
+            if (not lines[i].strip() or _ITEM.match(lines[i])
+                    or lines[i].lstrip().startswith("## ")):
                 break
             end = i
         lines[end] = lines[end].rstrip() + " UNMET: " + reason

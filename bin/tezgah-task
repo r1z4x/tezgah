@@ -39,7 +39,7 @@ and this CLI is the record's only writer: the gate refuses a write to the plan
 file, because the checks below are made here and a retyped frontmatter would
 skip them. `phase implementation` (or `verification`) is what lets a write
 through, so the phase changes when the work reaches that point and not before.
-`tick`, `note` and `spike` are the record's body writers for the same reason:
+`tick`, `note`, `spike` and `unmet` are the record's body writers for the same reason:
 they write an Acceptance box, the State/Next text or the spike's answer on any
 open plan, active or not, keep the rest of the frontmatter but `updated:`, and
 commit nothing.
@@ -712,10 +712,12 @@ def cmd_unmet(args):
     reason = " ".join(reason.split())
     if not reason:
         return misuse("unmet takes the reason, and who accepted it")
-    root = repo_root(os.getcwd())
-    path, bad = plan_path(root, ref)
-    if bad:
-        return problems([bad])
+    # the same resolver `tick` and `note` take: `plan_path` accepts any existing
+    # file, which let `unmet README.md 1 x` rewrite a README, and it resolved the
+    # wrong checkout from a linked worktree (review of plan 110, F2)
+    path, problem = open_plan(ref)
+    if problem:
+        return problems([problem])
     n = int(number)
     items = tt.acceptance_items(read(path))
     if n > len(items):
@@ -734,6 +736,9 @@ def cmd_unmet(args):
         return problems(["cannot write %s: %s" % (path, exc)])
     if item is None:
         return problems(["%s has no Acceptance item %d" % (path, n)])
+    bad = write_fields(path, updated=today())
+    if bad:
+        return problems(bad)
     print("%s: item %d -> UNMET: %s" % (path, n, reason))
     return 0
 
