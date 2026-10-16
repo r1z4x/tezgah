@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`tezgah-optimize` decides what a change costs to check.** `next` reads the commands the active plan's Acceptance names and answers `run now`, `defer` or `already green`. The planner spends a green row for the same change on a clean tree. A command whose recorded median is at or above 105 s defers to the merge step. Everything else runs now. `record` appends the row `next` reads. `push` prints the one push a change gets, and a second push of the same sha inside 300 s refuses. The rows live in the repository's own store. Measurement sets the tiers rather than a declaration, so a project that never adopted `AGENTS.md` still gets a batch. See `docs/testing.md`.
+
 ### Changed
 
 - **The temporal spec decides the Stop rule's evidence classes.** Its shadow run agreed on all 420 live Stops it reached. `_stop_block` now asks `tezgah_stopspec`, and the refusal texts stay the same. The `stop_spec` shadow row and `TEZGAH_STOPSPEC_STRICT` are gone. `tests/stop_spec_eval.py` keeps only `--mutants`, and the neuter workflow also runs on a change to the spec.

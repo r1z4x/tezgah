@@ -17,6 +17,12 @@ ruff check .                                              # lint; config in pypr
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) repeats the same three before a pull
 request (`CONTRIBUTING.md:15-20`).
 
+`bin/tezgah-optimize next` decides which checks a change owes, and when
+(`AGENTS.md`, "Checks, by tier"). It spends a green row for the same change on a
+clean tree. It defers a command whose recorded median is at or above 105 s to the
+merge step. Everything else runs now. `bin/tezgah-optimize push` coalesces the CI
+run: one push per change.
+
 | Check | What it catches that the other two do not |
 |---|---|
 | `compileall` | A syntax error in any `.py` under `hooks/` and `hosts/`, plus `statusline.py`, without running a line of it and with no environment set up. The `bin/` CLIs are Python sources with no `.py` suffix, so only running one compiles it (`test_setup.py::SetupBase.setup`). |

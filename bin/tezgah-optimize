@@ -43,11 +43,12 @@ import tezgah_task as tt  # noqa: E402
 from tezgah_paths import project_top  # noqa: E402
 
 # A command whose recorded median is at or above this belongs to the merge step.
-# The measured in-turn tier of this repository (AGENTS.md) is compileall, ruff and
-# the impacted tests, and its full suite is about 105 s. One number, not a table:
-# the plan's decision rejected a declared per-repository map (d1v2) because a
-# second project would have to write one before the planner helped it at all.
-TURN_SECONDS = 60.0
+# The repository's own measured tiers (AGENTS.md) put the impacted set in a turn
+# at about 10-95 s and the whole suite, about 105 s, at the merge step, so the bar
+# is the line between them. One number, not a table: the plan's decision rejected
+# a declared per-repository map (d1v2) because a second project would have to
+# write one before the planner helped it at all.
+TURN_SECONDS = 105.0
 # One push per sha inside this window. A second push of the same change pays the
 # same CI minutes again, which is the cost this command coalesces; the window is
 # long enough for a session's next edit to join the first push.
@@ -143,16 +144,24 @@ def median(values):
     return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
+PROGRAM = re.compile(
+    r"^(?:python3?|pytest|ruff|mypy|bash|sh|zsh|make|npm|npx|yarn|pnpm|cargo|go|gradle|"
+    r"\./gradlew|mvn|dotnet|swift|xcodebuild|git|gh|docker|bundle|rake|nox|tox|"
+    r"\./bin/[a-z][a-z-]*|bin/[a-z][a-z-]*)$")
+
+
 def plan_commands(root):
     """The commands the active plan's Acceptance items name in backticks, in
     order, deduplicated. The plan format asks each item for the command that
     proves it, so this is the list the session would otherwise retype.
 
-    A backticked token counts only when it names a file or a flag - it carries a
-    `/`, or a word that starts with `-`. An item's prose is backticked too
-    (`stale`, `tezgah-optimize push`, `--files <paths>`), and a planner that read
-    every token would hand the session those as checks (plan 109). A command the
-    rule cannot see is what `--cmd` is for."""
+    A backticked token counts when its first word is a program - `python3`, `ruff
+    check .`, `pytest`, `package.json`'s `npm test`, or a script under `bin/` - and
+    it carries no placeholder. An item's prose is backticked too (`stale`, a file
+    path such as `hooks/tezgah_store.py`), and a planner that took every token, or
+    every token with a slash in it, would hand the session a path as a check and
+    drop `ruff check .` (review of plan 109, F3). A command the rule cannot see is
+    what `--cmd` is for."""
     task = tt.active(root, root, held=True)
     if not task:
         return []
@@ -165,30 +174,46 @@ def plan_commands(root):
     for item in tt.acceptance_items(text):
         for found in BACKTICK.findall(item["text"]):
             command = " ".join(found.split())
-            if "<" in command or ">" in command or command in out:
+            words = command.split()
+            if "<" in command or ">" in command or command in out or not words:
                 continue
-            if "/" not in command and not any(word.startswith("-")
-                                              for word in command.split()):
+            if not PROGRAM.match(words[0]):
                 continue
             out.append(command)
     return out
 
 
+def same_commit(one, other):
+    """True when two sha spellings name the same commit. Git prints a short sha
+    that grows as the repository does, so a row recorded with the full one would
+    never match the short one `next` reads (review of plan 109)."""
+    one, other = str(one or ""), str(other or "")
+    return bool(one) and bool(other) and (one.startswith(other) or other.startswith(one))
+
+
 def decide(root, command, sha):
-    """(verdict, why) for one command: the three answers `next` gives. A green row
-    for this exact sha outranks the tier, because running it again would add
-    nothing; the tier is read from the recorded median, and no row means the
-    command has never been measured, which is `run now`."""
+    """(verdict, why) for one command: the three answers `next` gives.
+
+    A green row for this change outranks the tier, because running it again would
+    add nothing - but only while the working tree is clean. Inside a turn the
+    edits are usually uncommitted, so HEAD does not move, and a row for that sha
+    can describe a tree this session has already changed: on a dirty tree the
+    answer is `run now` whatever the rows say (review of plan 109, F2)."""
     history = [row for row in recorded(root, "checks")
                if row.get("command") == command]
-    if sha:
-        for row in history:
-            if row.get("sha") == sha and not int(row.get("exit") or 0):
-                return "already green", "recorded exit 0 for %s at %s" % (
-                    sha, row.get("ts") or "?")
+    dirty = bool(git_out(root, "status", "--porcelain")) if sha else False
+    green = [row for row in history
+             if same_commit(row.get("sha"), sha) and not int(row.get("exit") or 0)
+             and row.get("tree") == "clean"]
+    if green and not dirty:
+        return "already green", "recorded exit 0 for %s at %s" % (
+            sha, green[-1].get("ts") or "?")
     seconds = [float(row["seconds"]) for row in history
                if isinstance(row.get("seconds"), (int, float))]
     middle = median(seconds)
+    if green:
+        return "run now", ("a green row exists for %s, but the working tree holds "
+                           "uncommitted edits, so that pass is not this change" % sha)
     if middle is None:
         return "run now", "nothing measured for it yet"
     if middle >= TURN_SECONDS:
@@ -247,7 +272,11 @@ def cmd_record(args):
     root = repo_root(os.getcwd())
     sha = plain.get("--sha") or git_out(root, "rev-parse", "--short", "HEAD") or ""
     row = {"repo": root, "sha": sha, "command": command, "seconds": seconds,
-           "exit": code, "ts": now()}
+           "exit": code, "ts": now(),
+           # the tree the run describes: a green row recorded over uncommitted
+           # edits describes a tree nobody else has, and `decide` will not spend
+           # it as a pass (review of plan 109, F2)
+           "tree": "clean" if not git_out(root, "status", "--porcelain") else "dirty"}
     try:
         with store.taste(store_dir(root)) as db:
             store.append(db, "checks", row)
@@ -267,7 +296,10 @@ def cmd_push(args):
     sha = plain.get("--sha") or git_out(root, "rev-parse", "--short", "HEAD") or ""
     if not sha:
         return problems(["%s has no commit to push" % root])
-    name = git_out(root, "symbolic-ref", "-q", "--short", "HEAD") or "(detached HEAD)"
+    name = git_out(root, "symbolic-ref", "-q", "--short", "HEAD")
+    if not name:
+        return problems(["%s is on a detached HEAD: name the branch to push (check "
+                         "it out, or push an explicit ref)" % root])
     at = time.time()
     for row in reversed(recorded(root, "pushes")):
         if row.get("sha") != sha or not isinstance(row.get("at"), (int, float)):

@@ -89,15 +89,46 @@ class Optimize(TempHome):
 
     def test_the_replay_counts_a_repeat_and_the_failure_it_would_lose(self):
         import replay_optimize as ro
+        check = lambda code: ("verify", "pytest -q", code)  # noqa: E731
         # green then the same command again: the rule saves one, and loses nothing
-        self.assertEqual(ro.replay([("pytest -q", 0), ("pytest -q", 0)]),
-                         (2, 1, 1, 0))
+        self.assertEqual(ro.replay([check(0), check(0)]), (2, 1, 0))
         # the repeat that failed is the failure the rule would have skipped
-        self.assertEqual(ro.replay([("pytest -q", 0), ("pytest -q", 1)]),
-                         (2, 1, 1, 1))
+        self.assertEqual(ro.replay([check(0), check(1)]), (2, 1, 1))
         # a first run that fails is not green, so the next one is not a repeat
-        self.assertEqual(ro.replay([("pytest -q", 1), ("pytest -q", 0)]),
-                         (2, 0, 0, 0))
+        self.assertEqual(ro.replay([check(1), check(0)]), (2, 0, 0))
+        # an edit between them clears the green row: the tree moved, so the rule's
+        # dirty-tree guard would have run the check again
+        self.assertEqual(ro.replay([check(0), ("edit", "", 0), check(0)]), (2, 0, 0))
+        self.assertEqual(ro.replay([check(0), ("edit", "", 0), check(1)]), (2, 0, 0))
+
+    def test_a_green_row_over_a_dirty_tree_is_not_spent(self):
+        # review of plan 109, F2: inside a turn the edits are uncommitted, so HEAD
+        # does not move and a green row for that sha can describe a tree the
+        # session has already changed
+        sha = self.git("rev-parse", "--short", "HEAD")
+        self.opt("record", FAST, "--seconds", "5", "--exit", "0", "--sha", sha)
+        self.assertEqual(self.verdicts()[FAST], "already green")
+        with open(os.path.join(self.repo, "a.py"), "w") as fh:
+            fh.write("x = 1\n")
+        self.assertEqual(self.verdicts()[FAST], "run now")
+
+    def test_a_program_is_a_check_and_a_path_is_not(self):
+        # review of plan 109, F3: the old rule kept `hooks/tezgah_store.py`, a path,
+        # and dropped `ruff check .`
+        path = os.path.join(self.repo, ".tezgah", "plans", "open", "001-a-plan.md")
+        with open(path, "a") as fh:
+            fh.write("- [ ] Linted: `ruff check .`, and `hooks/tezgah_store.py` is a "
+                     "path rather than a check.\n")
+        verdicts = self.verdicts()
+        self.assertIn("ruff check .", verdicts)
+        self.assertNotIn("hooks/tezgah_store.py", verdicts)
+
+    def test_a_full_sha_row_matches_the_short_one(self):
+        # review of plan 109, F4: `record --sha $(git rev-parse HEAD)` used to be
+        # invisible to `next`, which reads the short sha
+        full = self.git("rev-parse", "HEAD")
+        self.opt("record", FAST, "--seconds", "5", "--exit", "0", "--sha", full)
+        self.assertEqual(self.verdicts()[FAST], "already green")
 
     def test_push_coalesces_one_change(self):
         first = self.opt("push")
