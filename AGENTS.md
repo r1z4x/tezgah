@@ -45,6 +45,16 @@ hook, measured 2026-10-07), not every module that says `hook.py`. A change to
 runs the full suite - that is the fail-safe, not a bug. Never run `--all` in the
 edit loop, and never twice on one revision.
 
+`bin/tezgah-optimize next` answers what to run from measurement rather than from
+this page: a command whose recorded median is at or above 105 s defers to the
+merge step, a green row for the same change on a clean tree is `already green`,
+and everything else runs now. The tiers above stay the session's judgement where a
+command's cost is not what makes it heavy, such as the audits.
+`tezgah-optimize record <command> --seconds N --exit N` appends the row it reads.
+`tezgah-optimize push` prints the one push a change gets; a second push of the
+same sha inside 300 s refuses. The rows live in
+`<repo>/.tezgah/taste/taste.db`.
+
 A prose-only change (`docs/`, a `*.md` page that is not a skill, agent or
 command) needs no suite: `--run <page>` maps it to the docs modules, and
 the Stop rule owes no check for a prose edit at all

@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **The opencode plugin loads on opencode v2.** v2 validates a plugin's default export: an object with an `id` and a `setup(ctx)`. It rejects a module that only exports a callable, which is why opencode v2 refused both tezgah entrypoints at load. The module now carries both shapes, and opencode 1 keeps the callable it uses. The v2 `setup` registers the tool envelopes, the shell env hook and the event subscription. It passes the v2 event as the v1 `input`. It rebuilds the `args` field the v1 callback reads, so a refusal stays the same thrown error. The session, permission, compaction and TUI hooks follow once a probe measures their v2 event.
+- **`tezgah-optimize` decides what a change costs to check.** `next` reads the commands the active plan's Acceptance names and answers `run now`, `defer` or `already green`. The planner spends a green row for the same change on a clean tree. A command whose recorded median is at or above 105 s defers to the merge step. Everything else runs now. `record` appends the row `next` reads. `push` prints the one push a change gets, and a second push of the same sha inside 300 s refuses. The rows live in the repository's own store. Measurement sets the tiers rather than a declaration, so a project that never adopted `AGENTS.md` still gets a batch. See `docs/testing.md`.
 
 ### Changed
 

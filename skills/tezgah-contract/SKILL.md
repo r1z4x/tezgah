@@ -266,6 +266,20 @@ code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
 the graph, grep only for literal text"; never a grep-only explorer (observed).
 Subagents never orchestrate: no nested harnesses, no sub-subagents.
 
+### The verification batch: `tezgah-optimize`
+`~/.config/tezgah/bin/tezgah-optimize next [--files PATH ...]` answers, per command
+the active plan's Acceptance names, one of `run now`, `defer` or `already green` -
+the first from no measurement or a median below the in-turn bar, the second from a
+median at or above it, the third from a green row recorded for the same sha. The
+router calls it at a phase move and before it spends a check the same change
+already passed, and calls `push` once at the end of a step instead of pushing
+every iteration: a build or a CI run paid once per attempt is the cost this
+decides. `record <command> --seconds N --exit N` is how a measurement gets in, so
+the session that runs a check hands the number back. The tiers are measured, not
+declared, so a project that never adopted this repository's `AGENTS.md` still gets
+a batch. See `docs/testing.md` and, for the decision behind it, the research line
+`tezgah-optimization`.
+
 ### Tier 2 - codegen (cheap model via OpenRouter)
 `~/.config/tezgah/bin/codegen "task" --files a.py b.py` drafts a bounded edit on a cheap model
 (override with --model or CODEGEN_MODEL) for a fraction of the cost. On Claude
