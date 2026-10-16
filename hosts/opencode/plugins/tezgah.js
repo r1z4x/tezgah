@@ -3260,6 +3260,25 @@ export default {
       })
     }
 
+    const chatMessage = hooks["chat.message"]
+    if (typeof chatMessage === "function" && ctx.session && ctx.session.hook) {
+      // v2 hands the plugin `{sessionID, messageID, prompt: {text, files}}` and
+      // gives it no parts array, while the v1 callback reaches the model by
+      // pushing a synthetic text part. So the adapter builds the v1 `parts`
+      // array from the prompt text, runs the same callback, and appends whatever
+      // it pushed to the v2 prompt text: the reminder lands in the message either
+      // way, and the decision (which rule it arms) is the callback's own.
+      await ctx.session.hook("prompt", async (event) => {
+        if (!event) return
+        const prompt = event.prompt || (event.prompt = {})
+        const parts = [{ type: "text", text: String(prompt.text || "") }]
+        await chatMessage({ sessionID: event.sessionID, messageID: event.messageID },
+                          { parts, message: { id: event.messageID, sessionID: event.sessionID } })
+        const extra = parts.slice(1).map((p) => p && p.text).filter(Boolean).join("\n")
+        if (extra) prompt.text = (prompt.text ? prompt.text + "\n" : "") + extra
+      })
+    }
+
     const shellEnv = hooks["shell.env"]
     if (typeof shellEnv === "function") {
       // v2's shell event carries `env` in place, and v1's callback fills

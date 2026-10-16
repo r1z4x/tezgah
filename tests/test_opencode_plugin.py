@@ -2268,12 +2268,13 @@ const mod = await import(pathToFileURL(plugin).href)
 const def = mod.default
 const out = { definition: !!def && typeof def === "object", id: (def && def.id) || "",
               static_export: typeof mod.Tezgah === "function",
-              registered: [], before: [], after: [] }
+              registered: [], before: [], after: [], prompt: [] }
 if (def && typeof def.setup === "function") {
   const registry = []
   const ctx = {
     location: { directory: dir },
     tool: { hook: async (name, cb) => { registry.push(["tool", name, cb]) } },
+    session: { hook: async (name, cb) => { registry.push(["session", name, cb]) } },
     shell: { hook: async (name, cb) => { registry.push(["shell", name, cb]) } },
     event: { subscribe: async (cb) => { registry.push(["event", "subscribe", cb]) } },
   }
@@ -2293,6 +2294,11 @@ if (def && typeof def.setup === "function") {
       threw: await drive(after, event),
       output: (event.result && event.result.output) || "",
     })
+  }
+  const prompt = find("session", "prompt")
+  for (const event of calls.prompt || []) {
+    out.prompt.push({ threw: await drive(prompt, event),
+                      text: (event.prompt && event.prompt.text) || "" })
   }
 }
 console.log(JSON.stringify(out))
@@ -2325,6 +2331,31 @@ class PluginV2(OpenCodePlugin):
         self.assertIn("tool.execute.after", got["registered"])
         self.assertIn("shell.create.before", got["registered"])
         self.assertIn("event.subscribe", got["registered"])
+        self.assertIn("session.prompt", got["registered"])
+
+    def test_the_prompt_adapter_carries_the_v1_reminder_into_the_v2_event(self):
+        # v2 hands the plugin a prompt text and no parts array, while the v1
+        # callback reaches the model by pushing a synthetic part. The adapter
+        # appends what it pushed to `prompt.text`, so the v2 text is compared
+        # with the part the v1 pair actually pushed rather than assumed non-empty:
+        # a fixture session may have no reminder to add.
+        event = {"sessionID": "prompt-1", "messageID": "m1",
+                 "prompt": {"text": "hello", "files": []}, "metadata": {},
+                 "delivery": "immediate"}
+        got = self.probe({"prompt": [event]})
+        self.assertEqual(got["prompt"][0]["threw"], "")
+        v1 = self.drive([{"hook": "chat.message",
+                          "input": {"sessionID": "prompt-1", "messageID": "m1"},
+                          "output": {"parts": [{"type": "text", "text": "hello"}]}}])[0]
+        self.assertTrue(v1["ok"], v1)
+        pushed = [part.get("text") for part in (v1["output"].get("parts") or [])
+                  if part.get("text") and part.get("synthetic")]
+        text = got["prompt"][0]["text"]
+        if pushed:
+            for part in pushed:
+                self.assertIn(part, text)
+        else:
+            self.assertEqual(text, "hello")
 
     def test_the_before_adapter_denies_what_the_v1_one_denies(self):
         # an `explore` task is what the v1 callback refuses (its own test above),
