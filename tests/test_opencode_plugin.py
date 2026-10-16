@@ -2256,6 +2256,83 @@ process.stdout.write(JSON.stringify({
 """
 
 
+# The v2 probe: import the plugin, call the DEFAULT definition's setup with a
+# context that records every registration, then drive the registered tool hook
+# with one v2 event. It prints what the module exports, what it registered and
+# whether the call threw - the shape opencode 2.0.30 validates before it loads a
+# plugin, and the adapter that has to carry the v1 decision.
+V2_PROBE = """
+import { pathToFileURL } from "node:url"
+const [plugin, dir, calls] = process.argv.slice(1)
+const mod = await import(pathToFileURL(plugin).href)
+const def = mod.default
+const out = { definition: !!def && typeof def === "object", id: (def && def.id) || "",
+              static_export: typeof mod.Tezgah === "function",
+              registered: [], results: [] }
+if (def && typeof def.setup === "function") {
+  const registry = []
+  const ctx = {
+    location: { directory: dir },
+    tool: { hook: async (name, cb) => { registry.push(["tool", name, cb]) } },
+    shell: { hook: async (name, cb) => { registry.push(["shell", name, cb]) } },
+    event: { subscribe: async (cb) => { registry.push(["event", "subscribe", cb]) } },
+  }
+  await def.setup(ctx)
+  out.registered = registry.map((r) => r[0] + "." + r[1])
+  const before = registry.find((r) => r[0] === "tool" && r[1] === "execute.before")
+  for (const call of JSON.parse(calls)) {
+    try {
+      await before[2](call)
+      out.results.push({ threw: "" })
+    } catch (err) {
+      out.results.push({ threw: String((err && err.message) || err) })
+    }
+  }
+}
+console.log(JSON.stringify(out))
+"""
+
+
+class PluginV2(TempHome):
+    """The default definition opencode 2 loads, and the adapter it registers."""
+
+    def setUp(self):
+        if not NODE:
+            self.skipTest("node not installed")
+        super().setUp()
+
+    def probe(self, calls):
+        # inside the configured root, so the plugin's own `rootFor` resolves and
+        # the hook runs instead of returning early
+        work = os.path.join(self.roots, "probe-repo")
+        os.makedirs(work, exist_ok=True)
+        proc = subprocess.run(
+            [NODE, "--input-type=module", "-e", V2_PROBE,
+             support.OPENCODE_PLUGIN, work, json.dumps(calls)],
+            capture_output=True, text=True, env=self.env(), cwd=work, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_the_default_definition_registers_what_v2_calls(self):
+        # the module opencode 2 validates: a default object with an id and a
+        # setup, and the one callable opencode 1 keeps using
+        got = self.probe([])
+        self.assertTrue(got["definition"], got)
+        self.assertEqual(got["id"], "tezgah")
+        self.assertTrue(got["static_export"])
+        self.assertIn("tool.execute.before", got["registered"])
+        self.assertIn("shell.create.before", got["registered"])
+        self.assertIn("event.subscribe", got["registered"])
+
+    def test_the_tool_adapter_carries_the_v1_decision(self):
+        # a credit line in a commit message is what the v1 callback refuses; the
+        # v2 event carries the args under `input`, and the deny is the v1 throw
+        got = self.probe([{"tool": "bash", "sessionID": "s1", "agent": "build",
+                           "messageID": "m1", "id": "c1",
+                           "input": {"command": "git commit -m 'Generated with Claude'"}}])
+        self.assertTrue(got["results"][0]["threw"], got)
+
+
 class PluginPaths(TempHome):
     """roots(), under() and shell.env read the platform's own separators."""
 

@@ -3201,3 +3201,60 @@ export const Tezgah = async ({ directory }) => {
     // (TEZGAH_STATUS_BIN) is the safe path today.
   }
 }
+
+// opencode 2 validates a plugin module's DEFAULT export: an object with a string
+// `id` and a `setup(ctx)` that registers hooks through the v2 context - it calls
+// nothing else, so a module with only the callable above is rejected at load
+// with `PluginModule.LoadError: Plugin must export a default definition with an
+// id and an effect or setup function` (measured on opencode v2.0.30, and the
+// reason the host showed both entrypoints as failed plugins). opencode 1 calls
+// the exported callable and uses the hook map it returns. One file serves both,
+// as the sibling plugin on this machine does
+// (~/.config/opencode/plugins/orca-opencode-status.js).
+//
+// v2 merged the v1 `input` and `output` objects into ONE mutable event
+// (services/www/src/docs/content/build/plugins/migrate-v1.mdx), so the adapter
+// passes the event as the v1 `input` and rebuilds the v1 `output` field the v1
+// callback reads (`args` from `output.args`). The fields below are the ones a
+// probe plugin measured on opencode v2.0.30: `execute.before` carries
+// {tool, sessionID, agent, messageID, id, input}. A refusal is a thrown Error in
+// both generations and the v1 callback already throws it, so the deny path is
+// the same object and no decision is rewritten here.
+//
+// Registered in this piece: the tool envelopes (the enforcement path), the shell
+// env hook and the event subscription. session/prompt, permission/evaluate, the
+// compaction hook and the TUI plugin still need their own probe of the v2 event
+// before they are registered - guessing a field there would silently drop a
+// decision.
+export default {
+  id: "tezgah",
+
+  async setup(ctx) {
+    const directory = (ctx.location && ctx.location.directory) || process.cwd()
+    const hooks = await Tezgah({ directory })
+    // The same double-load guard the callable keeps: opencode 1 and 2 both scan
+    // `plugin/` and `plugins/`, and the second instance returns no hook map. A
+    // registration without a hook would raise at load and fail the whole plugin,
+    // which is the one state this file must never reach.
+    if (!hooks || typeof hooks !== "object") return
+
+    const before = hooks["tool.execute.before"]
+    if (typeof before === "function") {
+      await ctx.tool.hook("execute.before", (event) =>
+        before(event, { args: event && event.input }))
+    }
+
+    const shellEnv = hooks["shell.env"]
+    if (typeof shellEnv === "function") {
+      // v2's shell event carries `env` in place, and v1's callback fills
+      // `output.env`, so one object serves both roles.
+      await ctx.shell.hook("create.before", (event) => shellEnv(event, event))
+    }
+
+    if (typeof hooks.event === "function" && ctx.event && ctx.event.subscribe) {
+      // v1 reads `input.event`; v2 hands the event itself to the subscription.
+      await ctx.event.subscribe((event) => hooks.event({ event }))
+    }
+  },
+}
+
