@@ -2268,15 +2268,24 @@ const mod = await import(pathToFileURL(plugin).href)
 const def = mod.default
 const out = { definition: !!def && typeof def === "object", id: (def && def.id) || "",
               static_export: typeof mod.Tezgah === "function",
-              registered: [], before: [], after: [], prompt: [] }
+              registered: [], before: [], after: [], prompt: [], shell: [], events: [] }
 if (def && typeof def.setup === "function") {
   const registry = []
+  const seen = []
   const ctx = {
     location: { directory: dir },
     tool: { hook: async (name, cb) => { registry.push(["tool", name, cb]) } },
     session: { hook: async (name, cb) => { registry.push(["session", name, cb]) } },
     shell: { hook: async (name, cb) => { registry.push(["shell", name, cb]) } },
-    event: { subscribe: async (cb) => { registry.push(["event", "subscribe", cb]) } },
+    // v2 returns an async iterable and never calls a callback, so the fake does
+    // the same: an adapter written for the callback form would pull nothing and
+    // `out.events` stays empty.
+    event: { subscribe: async () => {
+      registry.push(["event", "subscribe"])
+      return (async function* () {
+        for (const ev of (JSON.parse(spec).events || [])) { seen.push(ev.type); yield ev }
+      })()
+    } },
   }
   await def.setup(ctx)
   out.registered = registry.map((r) => r[0] + "." + r[1])
@@ -2300,6 +2309,14 @@ if (def && typeof def.setup === "function") {
     out.prompt.push({ threw: await drive(prompt, event),
                       text: (event.prompt && event.prompt.text) || "" })
   }
+  const shell = find("shell", "create.before")
+  for (const event of calls.shell || []) {
+    out.shell.push({ threw: await drive(shell, event),
+                     session: (event.env && event.env.TEZGAH_SESSION) || "" })
+  }
+  // the event subscription is consumed in the background; give it a turn
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  out.events = seen
 }
 console.log(JSON.stringify(out))
 """
@@ -2356,6 +2373,22 @@ class PluginV2(OpenCodePlugin):
                 self.assertIn(part, text)
         else:
             self.assertEqual(text, "hello")
+
+    def test_the_event_subscription_is_consumed_not_called_back(self):
+        # v2's subscription returns an async iterable; an adapter written for the
+        # v1 callback form pulls nothing from it and the v1 event hook never runs
+        # (review of plan 111, F1). The fake iterable records what was pulled.
+        got = self.probe({"events": [{"type": "session.created", "data": {}}]})
+        self.assertEqual(got["events"], ["session.created"])
+
+    def test_the_shell_adapter_lifts_the_session_from_the_metadata(self):
+        # the v2 shell event carries no sessionID of its own; the runtime puts it
+        # under metadata, and the v1 callback reads input.sessionID (F3)
+        event = {"command": "echo x", "cwd": "/tmp", "timeout": 1000,
+                 "shell": "bash", "env": {}, "metadata": {"sessionID": "shell-1"}}
+        got = self.probe({"shell": [event]})
+        self.assertEqual(got["shell"][0]["threw"], "")
+        self.assertEqual(got["shell"][0]["session"], "shell-1")
 
     def test_the_before_adapter_denies_what_the_v1_one_denies(self):
         # an `explore` task is what the v1 callback refuses (its own test above),

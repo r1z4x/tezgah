@@ -3282,8 +3282,15 @@ export default {
     const shellEnv = hooks["shell.env"]
     if (typeof shellEnv === "function") {
       // v2's shell event carries `env` in place, and v1's callback fills
-      // `output.env`, so one object serves both roles.
-      await ctx.shell.hook("create.before", (event) => shellEnv(event, event))
+      // `output.env`, so one object serves both roles. The session id sits under
+      // `metadata` at runtime rather than on the event, and the v1 callback reads
+      // `input.sessionID`, so it is lifted where it exists (review of plan 111,
+      // F3): a shell event with neither skips the session variable, as it did
+      // before.
+      await ctx.shell.hook("create.before", (event) => shellEnv(
+        Object.assign({}, event,
+                      { sessionID: event.sessionID || (event.metadata && event.metadata.sessionID) }),
+        event))
     }
 
     // Every other host runs the graph auto-index and the one-shot contract
@@ -3291,8 +3298,24 @@ export default {
     // The v2 session hook that replaces `chat.message` is a piece-2 port - it
     // is left unregistered rather than guessed.
     if (typeof hooks.event === "function" && ctx.event && ctx.event.subscribe) {
-      // v1 reads `input.event`; v2 hands the event itself to the subscription.
-      await ctx.event.subscribe((event) => hooks.event({ event }))
+      // v2's subscription returns an async iterable of {type, data} and never
+      // calls a callback - the sibling plugin consumes it with `for await` - so
+      // this reads it the same way and hands the v1 callback the shape it reads
+      // (`input.event`, with the v1 `properties`). The loop runs for the life of
+      // the plugin; a failed subscription costs the v1 event hook and nothing
+      // else. Review of plan 111, F1.
+      const consume = async () => {
+        // `await` because the subscription may hand back a promise of the
+        // iterable: `for await` takes the iterable itself, and on a promise it
+        // throws where a bare `catch` would hide it (review of plan 111, F1).
+        for await (const input of await ctx.event.subscribe({})) {
+          if (!input || !input.type) continue
+          try {
+            await hooks.event({ event: { type: input.type, properties: input.data } })
+          } catch {}
+        }
+      }
+      consume().catch(() => {})
     }
 
     // Not registered on v2, each with its reason rather than a stub:
