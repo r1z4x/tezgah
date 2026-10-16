@@ -96,14 +96,18 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    the scope with `tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
    the gate refuses a write to it, because the CLI's checks would be skipped.
    Tick an Acceptance box with `tezgah-task tick NNN <n>` (`--undo` unticks),
-   rewrite State or Next with `tezgah-task note NNN state|next "<text>"`, and
+   rewrite State or Next with `tezgah-task note NNN state|next "<text>"`,
    record the spike's answer with `tezgah-task spike NNN "<answer>"`, which
-   writes `spike_recorded:` on the plan, active or not. These three work from
-   the main checkout or from any of its worktrees.
+   writes `spike_recorded:` on the plan, active or not, and annotate an item the
+   owner accepted as not met with `tezgah-task unmet NNN <n> "<reason, who
+   accepted it>"`, which writes `UNMET:` and is the form `close done` takes in
+   place of a tick. These four work from the main checkout or from any of its
+   worktrees.
    After the merge, `tezgah-task close NNN done` deactivates the plan,
    moves it to done and removes every merged worktree. It refuses while an
    Acceptance box is open: tick it, or, only when the owner accepted the item
-   as not met, end it with `UNMET: <reason, who accepted it>`.
+   as not met, end it with `tezgah-task unmet NNN <n> "<reason, who accepted
+   it>"`, which writes the `UNMET:` line and leaves the box open.
 
 10. If the work settles a decision that is hard to reverse, spans components, or
     keeps being re-explained, record it as an ADR under `.tezgah/decisions/` with

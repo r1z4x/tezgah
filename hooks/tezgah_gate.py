@@ -1549,7 +1549,8 @@ TASK_SCOPE_OUTSIDE = (
 TASK_RECORD_DENY = (
     "Task gate: %s is the active task's own record; only `tezgah-task` writes it, checking the plan's "
     "Acceptance, spike and review on the way. The phase and allowlist: `tezgah-task phase|allow`; an "
-    "Acceptance box: `tezgah-task tick NNN <n>`; State/Next: `tezgah-task note NNN state|next \"...\"`.")
+    "Acceptance box: `tezgah-task tick NNN <n>`; an item the owner accepted unmet: "
+    "`tezgah-task unmet NNN <n> \"<reason>\"`; State/Next: `tezgah-task note NNN state|next \"...\"`.")
 # The shapes that make a shell command a write, for the phase rule below. The
 # tools are not the only way to change a file, and E7b measured the other one:
 # with `edit` and `write` refused twelve and six times, the armed arm wrote the
