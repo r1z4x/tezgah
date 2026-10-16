@@ -786,6 +786,32 @@ class Cli(TempHome):
         # the owner's first word
         self.assertEqual(self.task("unmet", "001", "2", "again").returncode, 1)
 
+    def test_unmet_stops_at_the_next_section(self):
+        # review of plan 110, F1: an item that ends straight at a heading used to
+        # swallow the line under it into the item's own text, and the marker
+        # landed in the next section
+        path = os.path.join(self.open, "002-headed.md")
+        with open(path, "w") as fh:
+            fh.write("---\nid: 002\nstatus: open\n---\n## Goal\ng\n"
+                     "## Acceptance\n- [ ] one: `bin/x --y`\n"
+                     "## State\nthe real state\n")
+        self.assertEqual(tt.set_unmet(path, 1, "owner accepted it")["text"],
+                         "one: `bin/x --y` UNMET: owner accepted it")
+        after = read(path)
+        self.assertIn("## State\nthe real state\n", after)
+        self.assertNotIn("real state UNMET", after)
+
+    def test_unmet_refuses_a_file_that_is_not_an_open_plan(self):
+        # review of plan 110, F2: the resolver accepted any existing file, so
+        # `unmet` could rewrite a README that `tick` refuses
+        readme = os.path.join(self.repo, "README.md")
+        with open(readme, "w") as fh:
+            fh.write("## Acceptance\n- [ ] keep me\n")
+        proc = self.task("unmet", readme, "1", "x")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("is not an open plan", proc.stdout)
+        self.assertNotIn("UNMET", read(readme))
+
     def test_phase_and_allow_refuse_when_no_task_is_active(self):
         self.plan("001-first.md")
         for proc in (self.task("phase", "implementation"),
