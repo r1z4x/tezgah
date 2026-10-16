@@ -61,9 +61,22 @@ later does not reach them. So no release goes back below 1.0.0
      dist/tezgah-X.Y.Z.tar.gz dist/tezgah-X.Y.Z.tar.gz.sha256
    ```
 
+   **A private repository publishes neither artifact.** `npm publish
+   --provenance` refuses a private source (`422 ... Only public source repositories
+   are supported when publishing with provenance`) and
+   `actions/attest-build-provenance` refuses one too (`Failed to persist
+   attestation: Feature not available for user-owned private repositories`) - both
+   measured 2026-10-17 on v1.9.0's release run. Make the repository public for this
+   step, then set it back with `gh repo edit --visibility private`; the two publish
+   jobs are re-runnable alone with `gh run rerun <run-id> --failed`.
+
 6. Publishing the release is what ships npm and Homebrew: `release.yml` runs on
    `release: published` - a pushed tag alone triggers nothing - and publishes
-   `package.json`'s version to npm and rewrites the tap formula to this tarball.
+   `package.json`'s version to npm and rewrites the tap formula to this tarball. A
+   private repository's formula names the REST asset endpoint rather than
+   `releases/download/...`, so the user installing it needs
+   `HOMEBREW_GITHUB_API_TOKEN` with read access to `r1z4x/tezgah`; the formula's
+   caveats say so.
    Check both afterwards: `npm view @r1z4x/tezgah version` and the formula's
    `url` in `r1z4x/homebrew-tezgah`. **A client's own cache answers this
    wrongly:** `brew info r1z4x/tezgah/tezgah` read the previous version a minute

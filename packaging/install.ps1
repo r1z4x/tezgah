@@ -27,6 +27,11 @@
 
       $env:TEZGAH_VERSION = '0.1.0'; irm https://raw.githubusercontent.com/r1z4x/tezgah/main/packaging/install.ps1 | iex
 
+  The tezgah repository is private, so that fetch and the release below need a
+  token with read access, in `TEZGAH_GITHUB_TOKEN`, `GITHUB_TOKEN` or `GH_TOKEN`:
+
+      $env:GITHUB_TOKEN = 'ghp_...'
+
 .EXAMPLE
   .\install.ps1 -Version 0.1.0 -Prefix D:\tezgah
 #>
@@ -59,16 +64,29 @@ function Remove-Current([string]$Path) {
 }
 
 if ($env:TEZGAH_REPO) { $Repo = $env:TEZGAH_REPO }
+# A private repository serves no release file to an anonymous session, so the
+# token decides which URL is read: the REST asset endpoint with it, the plain
+# download URL without. `releases/download/...` answers 404 to both a token in
+# the URL and a bearer header (measured 2026-10-17), so the id comes first.
+$Token = $env:TEZGAH_GITHUB_TOKEN
+if (-not $Token) { $Token = $env:GITHUB_TOKEN }
+if (-not $Token) { $Token = $env:GH_TOKEN }
+$Headers = @{}
+$AssetHeaders = @{ Accept = 'application/octet-stream' }
+if ($Token) {
+    $Headers.Authorization = "Bearer $Token"
+    $AssetHeaders.Authorization = "Bearer $Token"
+}
 if (-not $Version) { $Version = $env:TEZGAH_VERSION }
 if (-not $Prefix) { $Prefix = $env:TEZGAH_PREFIX }
 if (-not $Prefix) { $Prefix = Join-Path $env:LOCALAPPDATA 'tezgah' }   # Windows' data dir
 $Prefix = Resolve-Full $Prefix
 if (-not $Version) {
     try {
-        $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
+        $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers $Headers
         $Version = "$($rel.tag_name)".TrimStart('v')
     } catch {
-        throw "tezgah: cannot read the newest release of $Repo (no release yet, or no network): $_"
+        throw "tezgah: cannot read the newest release of $Repo (no release yet, or no network; a private repository needs TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN): $_"
     }
 }
 if (-not $Version -or $Version -match '[\\/]' -or $Version -in @('.', '..')) {
@@ -86,13 +104,28 @@ try {
     if ($env:TEZGAH_DIST) {
         $archive = Join-Path (Resolve-Full $env:TEZGAH_DIST) $name
         if (-not (Test-Path -LiteralPath $archive)) { throw "tezgah: no $archive" }
+    } elseif ($Token) {
+        $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/tags/v$Version" -Headers $Headers
+        $asset = $release.assets | Where-Object { $_.name -eq $name }
+        $sidecarAsset = $release.assets | Where-Object { $_.name -eq "$name.sha256" }
+        if (-not $asset -or -not $sidecarAsset) {
+            throw "tezgah: release v$Version of $Repo carries no $name"
+        }
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+        Invoke-WebRequest -UseBasicParsing -Headers $AssetHeaders `
+            "https://api.github.com/repos/$Repo/releases/assets/$($asset.id)" -OutFile $archive
     } else {
         $base = "https://github.com/$Repo/releases/download/v$Version"
         try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
         Invoke-WebRequest -UseBasicParsing "$base/$name" -OutFile $archive
     }
     $sidecar = "$archive.sha256"
-    if (-not $env:TEZGAH_DIST) {
+    if ($env:TEZGAH_DIST) {
+        # already beside the archive
+    } elseif ($Token) {
+        Invoke-WebRequest -UseBasicParsing -Headers $AssetHeaders `
+            "https://api.github.com/repos/$Repo/releases/assets/$($sidecarAsset.id)" -OutFile $sidecar
+    } else {
         Invoke-WebRequest -UseBasicParsing "$base/$name.sha256" -OutFile $sidecar
     }
 

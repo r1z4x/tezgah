@@ -172,6 +172,15 @@ jobs:
           echo "$ASSETS" | grep -qx "tezgah-${VERSION}.tar.gz"
           echo "$ASSETS" | grep -qx "tezgah-${VERSION}.tar.gz.sha256"
 
+          # The formula names the asset by id, because the repository is private:
+          # `releases/download/...` answers 404 to a session without a token, while
+          # the REST asset endpoint serves the blob to one that carries the bearer.
+          # `--clobber` re-uploading above may have given the asset a new id, so this
+          # is read after the upload, never before it.
+          ASSET_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+            --jq ".assets[] | select(.name == \"tezgah-${VERSION}.tar.gz\") | .id")
+          [ -n "$ASSET_ID" ] || { echo "no asset id for tezgah-${VERSION}.tar.gz" >&2; exit 1; }
+
           # the runner has no git identity; the tap commit needs one
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
@@ -189,7 +198,18 @@ jobs:
           class Tezgah < Formula
             desc "One shared working contract for every AI coding assistant you run"
             homepage "https://github.com/r1z4x/tezgah"
-            url "https://github.com/r1z4x/tezgah/releases/download/v${VERSION}/tezgah-${VERSION}.tar.gz"
+            # The repository is private, so this is the REST asset endpoint rather
+            # than releases/download: that URL answers 404 to a session without a
+            # token (measured 2026-10-17), while this one serves the blob for an
+            # Accept plus a bearer. Homebrew replaces the token reference with the
+            # real value at download time, never while evaluating the formula.
+            url "https://api.github.com/repos/r1z4x/tezgah/releases/assets/${ASSET_ID}",
+                using: CurlDownloadStrategy,
+                headers: [
+                  "Accept: application/octet-stream",
+                  "Authorization: Bearer #{ENV["HOMEBREW_GITHUB_API_TOKEN"]}",
+                ]
+            version "${VERSION}"
             sha256 "${SHA}"
             license "MIT"
             depends_on "python@3.10"
@@ -202,6 +222,13 @@ jobs:
 
             def caveats
               <<~EOS
+                The tezgah repository is private, so the tarball this formula
+                fetches needs a token with read access to it - a classic PAT or a
+                fine-grained token with `Contents: read`:
+
+                  export HOMEBREW_GITHUB_API_TOKEN=ghp_...
+
+                Without one the download fails with `curl: (56) ... 401`.
                 Upgrading from 0.1.2: its hooks name the old Cellar/tezgah/0.1.2
                 keg, which brew's cleanup deletes. Re-arm once so they name
                 opt/tezgah instead:

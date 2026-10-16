@@ -6,10 +6,14 @@
 # Runs packaging/upgrade.sh (the one place a version is fetched, verified,
 # unpacked and made current), then the installer from the tree it made current.
 # Needs sh and curl; tar and sha256sum are upgrade.sh's. Env, unlike its flags:
-# TEZGAH_REPO, TEZGAH_DIST, TEZGAH_PREFIX, as in upgrade.sh.
+# TEZGAH_REPO, TEZGAH_DIST, TEZGAH_PREFIX, as in upgrade.sh, and the token below
+# (a private TEZGAH_REPO serves no file without one).
 set -eu
 
 REPO=${TEZGAH_REPO:-r1z4x/tezgah}
+# raw.githubusercontent.com answers 404 to a session without a token when the
+# repository is private, and serves the same file to one that carries the bearer.
+token=${TEZGAH_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}
 VERSION_ARG=
 PREFIX_ARG=
 REPLY_ARG=
@@ -37,8 +41,14 @@ else
     [ -z "$VERSION_ARG" ] || ref=v$VERSION_ARG
     work=$(mktemp -d "${TMPDIR:-/tmp}/tezgah-install.XXXXXX") || exit 1
     up=$work/upgrade.sh
-    curl -fsSL "https://raw.githubusercontent.com/$REPO/$ref/packaging/upgrade.sh" -o "$up" \
-        || { echo "tezgah: cannot fetch packaging/upgrade.sh at $ref" >&2; exit 1; }
+    url="https://raw.githubusercontent.com/$REPO/$ref/packaging/upgrade.sh"
+    if [ -n "$token" ]; then
+        curl -fsSL -H "Authorization: Bearer $token" "$url" -o "$up" \
+            || { echo "tezgah: cannot fetch packaging/upgrade.sh at $ref - if $REPO is private, set TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN" >&2; exit 1; }
+    else
+        curl -fsSL "$url" -o "$up" \
+            || { echo "tezgah: cannot fetch packaging/upgrade.sh at $ref - if $REPO is private, set TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN" >&2; exit 1; }
+    fi
 fi
 
 set -- --prefix "$PREFIX"                  # explicit flags: a prefix may hold a space

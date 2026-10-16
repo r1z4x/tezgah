@@ -3,15 +3,17 @@
 
 A synthetic tree and its own MANIFEST are handed to the real `packaging/build.sh`
 and `packaging/upgrade.sh`; nothing here reaches into either script's internals.
-Four promises are checked: the artifact carries exactly the listing (plus the two
+Five promises are checked: the artifact carries exactly the listing (plus the two
 generated root files), a rebuild of an untouched tree is byte-identical (and
 `--check` names a file that changed), a bad checksum or an unpack that fails
-leaves the previous version current, and a good version flips `current` while the
-replaced tree stays on disk for a rollback.
+leaves the previous version current, a good version flips `current` while the
+replaced tree stays on disk for a rollback, and a private repository's files are
+read through the token-bearing asset endpoint the anonymous 404 forces.
 
 `sh` runs the scripts, so the check skips cleanly where there is none.
 """
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -287,6 +289,112 @@ class Upgrade(Base):
                                env={"TEZGAH_DIST": self.dist("0.2.0")})
         self.assertEqual(done.returncode, 0, done.stdout)
         self.assertIn("installed --install --reply-lang en", done.stdout)
+
+
+class PrivateReleaseFetch(Base):
+    """A private repository serves no release file to an anonymous session.
+
+    Measured 2026-10-17 against the real private repository: `releases/download/...`
+    answered 404 with no token, with the token as URL userinfo and with a plain
+    bearer header alike; `api.github.com/.../releases/assets/<id>` returned the blob
+    to `Accept: application/octet-stream` plus `Authorization: Bearer`. These run
+    that shape through a stand-in curl, so what is checked is the URL and the headers
+    the script itself chooses - no network, no real token.
+    """
+
+    TOKEN = "test-token"
+
+    def fixture(self, version):
+        """A real artifact, its sidecar, and the release JSON that names both."""
+        out = os.path.join(self.tmp, "private-dist")
+        done = self.build(out, version)
+        self.assertEqual(done.returncode, 0, done.stdout)
+        fx = os.path.join(self.tmp, "private-fixture")
+        os.makedirs(fx, exist_ok=True)
+        shutil.copy(self.tarball(out, version), os.path.join(fx, "tarball"))
+        shutil.copy(self.tarball(out, version) + ".sha256", os.path.join(fx, "sidecar"))
+        with open(os.path.join(fx, "release.json"), "w") as fh:
+            json.dump({"tag_name": "v%s" % version,
+                       "assets": [
+                           {"url": "https://api.github.com/repos/r1z4x/tezgah/releases/assets/3497",
+                            "id": 3497, "name": "tezgah-%s.tar.gz" % version},
+                           {"url": "https://api.github.com/repos/r1z4x/tezgah/releases/assets/3499",
+                            "id": 3499, "name": "tezgah-%s.tar.gz.sha256" % version}]}, fh)
+        return fx
+
+    def stub(self, fixture, tag):
+        """A curl stand-in that logs its argv and refuses an asset URL with no
+        bearer - the private endpoint's own answer to an anonymous session."""
+        stub = os.path.join(self.tmp, "private-stub-%s" % tag)
+        os.makedirs(stub, exist_ok=True)
+        log = os.path.join(self.tmp, "curl-argv-%s" % tag)
+        guarded = ("    case \"$all\" in *\"Bearer %s\"*) cat %s/%s ;; "
+                   "*) echo 'curl: (56) The requested URL returned error: 404' >&2; "
+                   "exit 56 ;; esac ;;\n")
+        with open(os.path.join(stub, "curl"), "w") as fh:
+            fh.write(("#!/bin/sh\n"
+                     "printf '%%s\\n' \"$*\" >> %s\n"
+                     "all=$*\n"
+                     "out=\nurl=\n"
+                     "while [ $# -gt 0 ]; do\n"
+                     "  case $1 in\n"
+                     "    -o) out=$2; shift 2 ;;\n"
+                     "    -H) shift 2 ;;\n"
+                     "    *) url=$1; shift ;;\n"
+                     "  esac\n"
+                     "done\n"
+                     "case $url in\n"
+                     "  */releases/tags/*) cat %s/release.json ;;\n"
+                     "  */releases/assets/3497)\n" + guarded +
+                     "  */releases/assets/3499)\n" + guarded +
+                     "  *) echo 'curl: (56) The requested URL returned error: 404' >&2; exit 56 ;;\n"
+                     "esac > \"${out:-/dev/stdout}\"\n")
+                     % (log, fixture,
+                        self.TOKEN, fixture, "tarball",
+                        self.TOKEN, fixture, "sidecar"))
+        os.chmod(os.path.join(stub, "curl"), 0o755)
+        return stub, log
+
+    def env(self, stub, tokens):
+        return {"PATH": stub + os.pathsep + os.environ["PATH"],
+                "TEZGAH_GH": os.path.join(self.tmp, "no-such-gh"),
+                **tokens}
+
+    def test_the_token_reads_the_asset_endpoint_with_both_headers(self):
+        version = "1.9.9"
+        fx = self.fixture(version)
+        stub, log = self.stub(fx, "token")
+        prefix = os.path.join(self.tmp, "private-prefix-token")
+        done = self.run_script("upgrade.sh", "--version", version, "--prefix", prefix,
+                               env=self.env(stub, {"TEZGAH_GITHUB_TOKEN": self.TOKEN,
+                                                   "GITHUB_TOKEN": "", "GH_TOKEN": ""}))
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("ok      verified tezgah-%s.tar.gz" % version, done.stdout)
+        with open(log) as fh:
+            argv = fh.read()
+        self.assertIn("releases/assets/3497", argv)
+        self.assertIn("releases/assets/3499", argv)
+        self.assertIn("Accept: application/octet-stream", argv)
+        self.assertIn("Authorization: Bearer %s" % self.TOKEN, argv)
+        # the public URL is not tried at all when the token is there to be used
+        self.assertNotIn("releases/download", argv)
+        self.assertTrue(os.path.realpath(os.path.join(prefix, "current"))
+                        == os.path.realpath(os.path.join(prefix, version)))
+
+    def test_no_token_reads_the_public_url_and_names_the_token_it_needs(self):
+        version = "1.9.9"
+        fx = self.fixture(version)
+        stub, log = self.stub(fx, "anon")
+        done = self.run_script("upgrade.sh", "--version", version, "--prefix",
+                               os.path.join(self.tmp, "private-prefix-anon"),
+                               env=self.env(stub, {"TEZGAH_GITHUB_TOKEN": "",
+                                                   "GITHUB_TOKEN": "", "GH_TOKEN": ""}))
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("releases/download/v%s" % version, done.stdout)
+        self.assertIn("tezgah-%s.tar.gz" % version, done.stdout)
+        self.assertIn("GITHUB_TOKEN", done.stdout)
+        with open(log) as fh:
+            self.assertNotIn("api.github.com", fh.read())
 
 
 class InstallPs1(unittest.TestCase):

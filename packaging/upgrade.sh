@@ -12,13 +12,15 @@
 # Callers: packaging/install.sh (a first install) and `tezgah-setup --upgrade`.
 # Neither re-implements the fetch, the checksum or the flip.
 #
-# Needs: sh, curl, tar, and sha256sum or shasum. No python. Uses `gh` when it
+# Needs: sh, curl, tar, awk, and sha256sum or shasum. No python. Uses `gh` when it
 # is on PATH to check the release's build provenance; without it, says so.
 # Env: TEZGAH_PREFIX, XDG_DATA_HOME, TEZGAH_VERSION, TEZGAH_REPO, TEZGAH_DIST
 #      (a directory holding tezgah-<V>.tar.gz + .sha256 - what build.sh --out
 #      writes; it swaps the release URL for that directory, one code path, and
 #      is how upgrade.sh is exercised without a published release), TEZGAH_GH
-#      (the gh to run for the provenance check; default `gh` on PATH).
+#      (the gh to run for the provenance check; default `gh` on PATH),
+#      TEZGAH_GITHUB_TOKEN / GITHUB_TOKEN / GH_TOKEN (the first one set is sent
+#      as the bearer a private $TEZGAH_REPO needs; with none, the public URLs).
 set -eu
 
 REPO=${TEZGAH_REPO:-r1z4x/tezgah}
@@ -39,10 +41,39 @@ die() {
     exit 1
 }
 
+# A private repository answers 404 to `releases/download/...` from a session without
+# a token (measured 2026-10-17, with the token as URL userinfo and as a header
+# alike), while the REST asset endpoint returns the blob for `Accept:
+# application/octet-stream` plus `Authorization: Bearer`. So the token decides which
+# URL is read, and a public repository - no token - keeps exactly the URL it had.
+token=${TEZGAH_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GH_TOKEN:-}}}
+
+# Every read goes through here, so the bearer cannot be forgotten on one call.
+get() {   # get <url> [curl args...]
+    if [ -n "$token" ]; then
+        curl -fsSL -H "Authorization: Bearer $token" "$@"
+    else
+        curl -fsSL "$@"
+    fi
+}
+
+# The id of asset `$2` in the JSON of one release (`$1`). An asset's id is written
+# down in one place, its own `url` field, so the JSON is flattened, split at each
+# `"url":` - one fragment per asset, from its url to the next one - and the id read
+# from the fragment that names the file wanted. Empty, not an error, when the
+# release carries no such asset; the caller says so.
+asset_id() {
+    printf '%s\n' "$1" | tr -d '[:space:]' | awk -v want="\"name\":\"$2\"" '
+        { n = split($0, o, "\"url\":")
+          for (i = 1; i <= n; i++)
+              if (index(o[i], want) && match(o[i], /"id":[0-9]+/))
+                  { print substr(o[i], RSTART + 5, RLENGTH - 5); exit } }'
+}
+
 # The newest release tag. The API answers `tag_name`; the raw redirect would
 # too, but GitHub answers this without a rate-limit surprise on a repeat run.
 latest_release() {
-    body=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null) \
+    body=$(get "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null) \
         || return 1
     tag=$(printf '%s\n' "$body" \
         | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
@@ -77,18 +108,42 @@ if [ -n "${TEZGAH_DIST:-}" ]; then
         *)  dist=$PWD/$TEZGAH_DIST ;;
     esac
     base="file://$dist"
+    assets=
+elif [ -n "$token" ]; then
+    # The asset endpoint is addressed by id, and the release JSON is the only
+    # place that id is written down.
+    rel=$(get "https://api.github.com/repos/$REPO/releases/tags/v$VERSION") \
+        || die "cannot read release v$VERSION of $REPO with the token in TEZGAH_GITHUB_TOKEN/GITHUB_TOKEN/GH_TOKEN"
+    id=$(asset_id "$rel" "tezgah-$VERSION.tar.gz")
+    id_sidecar=$(asset_id "$rel" "tezgah-$VERSION.tar.gz.sha256")
+    [ -n "$id" ] && [ -n "$id_sidecar" ] \
+        || die "release v$VERSION of $REPO carries no tezgah-$VERSION.tar.gz"
+    base="https://api.github.com/repos/$REPO/releases/assets"
+    assets=$base
 else
     base="https://github.com/$REPO/releases/download/v$VERSION"
+    assets=
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/tezgah-upgrade.XXXXXX") || die "cannot create a temp dir"
 trap 'rm -rf "$work"' EXIT INT TERM
 
 name=tezgah-$VERSION.tar.gz
-curl -fsSL "$base/$name" -o "$work/$name" \
-    || die "cannot fetch $name from $base"
-curl -fsSL "$base/$name.sha256" -o "$work/$name.sha256" \
-    || die "cannot fetch $name.sha256 from $base"
+if [ -n "$assets" ]; then
+    # Both files come from the same release, and neither blob is served without
+    # this Accept: the endpoint answers JSON metadata otherwise.
+    curl -fsSL -H "Accept: application/octet-stream" \
+        -H "Authorization: Bearer $token" "$assets/$id" -o "$work/$name" \
+        || die "cannot fetch $name from $assets/$id"
+    curl -fsSL -H "Accept: application/octet-stream" \
+        -H "Authorization: Bearer $token" "$assets/$id_sidecar" -o "$work/$name.sha256" \
+        || die "cannot fetch $name.sha256 from $assets/$id_sidecar"
+else
+    get "$base/$name" -o "$work/$name" \
+        || die "cannot fetch $name from $base - if $REPO is private, set TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN"
+    get "$base/$name.sha256" -o "$work/$name.sha256" \
+        || die "cannot fetch $name.sha256 from $base - if $REPO is private, set TEZGAH_GITHUB_TOKEN, GITHUB_TOKEN or GH_TOKEN"
+fi
 
 want=$(sed -n '1s/[[:space:]].*//p' "$work/$name.sha256")
 got=$(sha256_of "$work/$name")

@@ -362,6 +362,30 @@ class BrewTapWaitsForItsAsset(unittest.TestCase):
         self.assertLess(upload, min(verified))
         self.assertLess(max(verified), clone)
 
+    def test_the_formula_reads_a_private_asset_through_the_api(self):
+        # The repository is private: `releases/download/...` answers 404 to a
+        # session without a token (measured 2026-10-17, token in the URL and
+        # bearer header alike), while the REST asset endpoint serves the blob for
+        # an Accept plus a bearer. So the formula names that endpoint, carries
+        # both headers, and pins `version` - the endpoint writes no version into
+        # the URL for brew to parse. The asset's id is read after the upload,
+        # because the `--clobber` above may renumber it.
+        block = self.block()
+        import re
+        template = re.search(r"cat > Formula/tezgah\.rb <<RUBY\n(.*?)\n\s*RUBY\n",
+                             block, re.S)
+        self.assertIsNotNone(template, "the formula template is gone")
+        formula = template.group(1)
+        self.assertIn('releases/assets/${ASSET_ID}', formula)
+        self.assertNotIn("releases/download/", formula)
+        self.assertIn("using: CurlDownloadStrategy", formula)
+        self.assertIn("Accept: application/octet-stream", formula)
+        self.assertIn('Authorization: Bearer #{ENV["HOMEBREW_GITHUB_API_TOKEN"]}',
+                      formula)
+        self.assertIn('version "${VERSION}"', formula)
+        self.assertLess(block.find("gh release upload"),
+                        block.find("ASSET_ID=$(gh api"))
+
     def test_the_formula_tells_a_0_1_2_keg_to_re_arm(self):
         # 0.1.2 armed hooks with Cellar/tezgah/0.1.2 paths; the upgrade's cleanup
         # deletes that keg, and only a re-arm from opt/tezgah rewrites them

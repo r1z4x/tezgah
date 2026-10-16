@@ -19,12 +19,12 @@ the kill switches are files, not variables, and live in
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
-| `TEZGAH_PREFIX` | `packaging/install.sh:26`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup::default_prefix` | `$XDG_DATA_HOME/tezgah`, else `%LOCALAPPDATA%\tezgah` on Windows, else `~/.local/share/tezgah` | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
+| `TEZGAH_PREFIX` | `packaging/install.sh:30`, `packaging/upgrade.sh`, `packaging/install.ps1`, `bin/tezgah-setup::default_prefix` | `$XDG_DATA_HOME/tezgah`, else `%LOCALAPPDATA%\tezgah` on Windows, else `~/.local/share/tezgah` | Where the artifact install unpacks its versions and the `current` link; `tezgah-setup` treats it as the install prefix. |
 | `TEZGAH_VERSION` | `packaging/install.sh`, `packaging/upgrade.sh`, `packaging/install.ps1`, `packaging/build.sh:70` | the newest GitHub release; `build.sh` falls back to `VERSION`/the CHANGELOG | The version to install, or the version `build.sh` stamps when `--version` is not given. |
-| `TEZGAH_REPO` | `packaging/install.sh:12`, `packaging/upgrade.sh`, `packaging/install.ps1` | `r1z4x/tezgah` | The GitHub repository releases are fetched from. |
+| `TEZGAH_REPO` | `packaging/install.sh:13`, `packaging/upgrade.sh`, `packaging/install.ps1` | `r1z4x/tezgah` | The GitHub repository releases are fetched from. |
 | `TEZGAH_UPDATE_URL` | `hooks/tezgah_update.py` | `https://github.com/<TEZGAH_REPO>/releases/latest` | Where the daily release check reads the newest tag: from the redirect, or from a JSON body's `tag_name`. Tests point it at a `file://` fixture. |
 | `TEZGAH_UPDATE_CHECK` | `hooks/tezgah_update.py` | unset | `0` turns off the update chip and the daily check. The test suite sets it, so no test reaches the network. |
-| `TEZGAH_DIST` | `packaging/upgrade.sh:74`, `packaging/install.ps1` | unset: the release URL | A directory holding `tezgah-<V>.tar.gz` and its `.sha256` (what `build.sh --out` writes) used instead of the release download; CI exercises the real fetch-verify-unpack path with it. |
+| `TEZGAH_DIST` | `packaging/upgrade.sh:105`, `packaging/install.ps1` | unset: the release URL | A directory holding `tezgah-<V>.tar.gz` and its `.sha256` (what `build.sh --out` writes) used instead of the release download; CI exercises the real fetch-verify-unpack path with it. |
 | `TEZGAH_GH` | `packaging/upgrade.sh` | `gh` on PATH | The `gh` that checks the tarball's build provenance (`gh attestation verify`). A path that does not exist reads as no `gh`: the upgrade prints `provenance not checked` and goes on. Tests point it at a stand-in. |
 | `TEZGAH_NO_DEPS` | `bin/tezgah-setup::main` | unset | Any value but empty or `0` is `--no-deps`: the optional tools (codegraph, orx, host CLIs) are not installed. |
 | `TEZGAH_NO_SYMLINK` | `bin/tezgah-setup::symlinks_refused` | unset | Any value but empty or `0` writes the copy layout a machine without symlinks gets, on a machine that has them. |

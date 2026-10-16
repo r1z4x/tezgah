@@ -58,8 +58,8 @@ built by `packaging/build.sh` from the tracked `MANIFEST` plus a generated
 team can stay on one version and a rollback is one tree away: the older version is
 never removed, and going back is
 `ln -sfn <prefix>/<previous> <prefix>/current` (`packaging/upgrade.sh:9-11`,
-`packaging/upgrade.sh:118-137`). The prefix is `~/.local/share/tezgah` unless
-`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:63`),
+`packaging/upgrade.sh:176-196`). The prefix is `~/.local/share/tezgah` unless
+`TEZGAH_PREFIX` or `$XDG_DATA_HOME` says otherwise (`packaging/upgrade.sh:94`),
 and `bin/tezgah-setup --prefix DIR` wins over both (`bin/tezgah-setup::INSTALL_PREFIX`).
 A farm link counts as tezgah's when it resolves into the checkout **or** into the
 install root, which is what keeps an upgrade from orphaning the wiring
@@ -68,30 +68,43 @@ install root, which is what keeps an upgrade from orphaning the wiring
 | Step | Command |
 |---|---|
 | first install, POSIX | `curl -fsSL https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.sh \| sh -s -- --version <version>` |
-| from a tarball you hold | unpack it, then `sh packaging/install.sh --version <version>` — it finds `upgrade.sh` beside itself (`packaging/install.sh:30-32`) |
+| from a tarball you hold | unpack it, then `sh packaging/install.sh --version <version>` — it finds `upgrade.sh` beside itself (`packaging/install.sh:34-36`) |
 | first install, Windows | `$env:TEZGAH_VERSION = '<version>'; irm https://raw.githubusercontent.com/r1z4x/tezgah/v<version>/packaging/install.ps1 \| iex` |
 | upgrade | `tezgah update` (any channel), `bin/tezgah-setup --upgrade [VERSION]` from the installed tree, or `sh packaging/upgrade.sh --version X.Y.Z` |
 
 `packaging/install.sh` is a bootstrap, never a second implementation: it runs
 `packaging/upgrade.sh` — the one place a version is fetched, checksum-verified,
 unpacked and made current — and then starts `bin/tezgah-setup --install` from the
-tree that just became current (`packaging/install.sh:44-56`). `upgrade.sh`
+tree that just became current (`packaging/install.sh:54-66`). `upgrade.sh`
 compares the digest it fetched against the artifact before unpacking anything and
-stops, printing both, on a mismatch (`packaging/upgrade.sh:88-96`). It then
+stops, printing both, on a mismatch (`packaging/upgrade.sh:148-152`). It then
 checks the tarball's build provenance with `gh attestation verify` when `gh` is
 on PATH. Without `gh` it prints `provenance not checked`, and a `gh` that cannot
 answer is a warning: the checksum stays the gate.
 `TEZGAH_DIST` points `upgrade.sh` and `install.ps1` at a directory holding
 `tezgah-<version>.tar.gz` + `.sha256` instead of the release URL — the seam that
 installs a locally built artifact with no published release, which is what CI
-uses (`packaging/upgrade.sh:17-21`, `packaging/upgrade.sh:74-78`).
+uses (`packaging/upgrade.sh:17-24`, `packaging/upgrade.sh:105-111`).
+
+**A private `TEZGAH_REPO` needs a token.** GitHub answers `404` to
+`releases/download/...` from a session without one. Measured 2026-10-17: the token
+in the URL and a plain bearer header answered the same. So a token in
+`TEZGAH_GITHUB_TOKEN`, `GITHUB_TOKEN` or `GH_TOKEN` sends the fetch to the REST
+asset endpoint instead. That endpoint wants `Accept: application/octet-stream` plus
+`Authorization: Bearer`, and the script reads the asset's id out of the release
+JSON of the tag. `packaging/install.sh` carries the same bearer for the
+`raw.githubusercontent.com` bootstrap. `packaging/install.ps1` carries it for the
+release JSON and the asset blobs. With no token, the public URLs stand and a failed
+fetch names the token to set. The brew formula takes the same shape. It names the
+asset endpoint and reads `HOMEBREW_GITHUB_API_TOKEN`. Homebrew substitutes that
+token at download time rather than while evaluating the formula.
 
 Windows goes through `packaging/install.ps1`, which assumes no `sh`, no `python3`
 and no symlink privilege: it unpacks with the `tar.exe` that Windows 10 1803+
 ships, materialises `current` as a directory junction, copies the tree where a
 junction is refused, and starts the installer with the first of `py -3`,
 `python`, `python3` it finds, passing `--prefix` on (`packaging/install.ps1:12-23`,
-`packaging/install.ps1:128-163`). The installer knows both shapes of `current`
+`packaging/install.ps1:179-195`). The installer knows both shapes of `current`
 (`bin/tezgah-setup::running_prefix`). A junction answers to
 `os.path.isjunction`, or to its reparse tag below Python 3.12. A copy is the
 running tree at `<prefix>/current` with no `.git`, whose `VERSION` names a
