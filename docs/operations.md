@@ -701,11 +701,14 @@ background child. That child's SubagentStop closes it as `done`
 record settles from the newest child transcript in the parent's session dir.
 omp names a same-name re-dispatch `<name>-2.jsonl`. The last 64 KB of that file
 decide `stopped` or `done` (`hooks/tezgah_task.py::pending`). A record
-nothing moved for six hours closes `stale`, and a background `job` after
-omp's 3600 s deadline. Codex reports no child end tezgah can see, so its
-records end `stale`. Every prompt lists up to three pending records, newest
-first, each with the command that resumes it (`hooks/tezgah_task.py::slice_lines`).
-They are the records this session spawned or nobody owns, such as one opened by hand. The resume block at
+nothing moved for six hours closes `stopped` with no failure class. It stays
+owed, because an end this machine cannot see is not a finished slice. A
+background `job` past omp's 3600 s deadline closes `stale`, since the parent
+transcript already holds its result. Codex reports no child end tezgah can see,
+so its records take the `stopped` path too. Every prompt lists up to three
+pending records, newest first, each with the command that resumes it
+(`hooks/tezgah_task.py::slice_lines`). They are the records this session spawned
+or nobody owns, such as one opened by hand. The resume block at
 session start and after a compaction adds one line that counts the other
 sessions' records. `tezgah-task slice reconcile` lists them all.
 
@@ -718,6 +721,7 @@ sessions' records. `tezgah-task slice reconcile` lists them all.
 | `tezgah-task slice stats [--window DAYS] [--json]` | counts records per status, failure class and host. A `class+host` signature with 3 or more events is an RSI lever candidate, and so is one with 5% of a window that holds 20 or more slices. The line names the lever |
 | `tezgah-task slice board [--parent P]` | lists the open slices one parent spawned - the session's own, or for a subagent its parent's - newest first: the `Owns:` globs, worktree, branch and last commit of each, bounded to 12 lines (`hooks/tezgah_task.py::board`) |
 | `tezgah-task slice merge-plan [--base REF]` | forecasts every done slice branch that carries unmerged work against REF (HEAD) and against the others with `git merge-tree`, and leaves out a `merge=union` file such as CHANGELOG.md. A branch touching `MANIFEST` or the citation baseline comes last, the rest fewest conflicts first. A branch merge-tree cannot forecast is printed as `not judged` and the exit is 1 (`bin/tezgah-task::merge_plan`) |
+| `tezgah-task sweep` | one idempotent pass over what the last session left behind: every pending slice as one line with its resume command, the landed worktrees and branches `reconcile --prune` removes, and a `phase:` whose branch is gone while the record carries a `checkpoint` (`bin/tezgah-task::cmd_sweep`). It prints the pending slices rather than closing them, and a second run reports `0 change(s)` |
 
 `tezgah-task review NNN <reviewer> approve` refuses while an open, stopped or
 stale record names that reviewer as its id, agent or spawned name. Under

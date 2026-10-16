@@ -1789,12 +1789,19 @@ def cmd_sweep(args):
     for line in prune_worktrees(root, keep=repo_root(os.getcwd())) + prune_branches(root, bases):
         print(line)
         # a "kept" line is a report, not a change: a tree holding one long-lived
-        # worktree still has to reach `0 change(s)` on the second run
-        if line.startswith(("worktree removed", "branch deleted")):
+        # worktree still has to reach `0 change(s)` on the second run. A slice a
+        # removed worktree closed is one too (review of plan 108).
+        if line.startswith(("worktree removed", "branch deleted", "slice ")):
             changed += 1
     for path, ident, branch in orphan_phases(root):
-        # the same empty-value shape `stop` writes, so one parser reads both
-        tt.set_fields(path, phase="", updated=today())
+        # the same empty-value shape `stop` writes, so one parser reads both, and
+        # the same wrapper the other record writers use: a plan that cannot be
+        # written is a problem with the plan, not a traceback (review of plan 108)
+        bad = write_fields(path, phase="", updated=today())
+        if bad:
+            for problem in bad:
+                print("FAIL %s" % problem)
+            continue
         print("phase cleared: %s (%s no longer exists, so no worktree can move it)"
               % (ident, branch))
         changed += 1

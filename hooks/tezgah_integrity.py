@@ -3483,8 +3483,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
 # so the call's outcome is the slice's: Claude/dsh/Cursor `Agent`/`Task`. omp's
 # `task` and Codex `spawn_agent` return while the child still runs (a Codex
 # rollout shows the call answered with its `task_name` alone), so their records
-# stay open: omp's for `tezgah_task.pending` to close from the child
-# transcripts, Codex's until `pending` closes them `stale`.
+# stay open: omp's for `tezgah_task.pending` to close from the child transcripts,
+# and Codex's until `pending` closes them `stopped` with no failure class - an
+# end this machine cannot see is owed work, not a `stale` record (plan 108).
 SYNC_SPAWN_HOSTS = frozenset(("claude", "dsh", "cursor"))
 
 
