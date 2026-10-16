@@ -3294,6 +3294,24 @@ export default {
       // v1 reads `input.event`; v2 hands the event itself to the subscription.
       await ctx.event.subscribe((event) => hooks.event({ event }))
     }
+
+    // Not registered on v2, each with its reason rather than a stub:
+    //
+    // `permission.ask` - the v1 callback decides from the call's tool and its
+    // args (`permissionToolArgs`: metadata.tool, metadata.pattern, the pattern
+    // list), and v2's evaluate event carries `action`, `resources`, `metadata`
+    // and `source` instead; whether the host fills `metadata` with the tool and
+    // the pattern is unverified, and a wrong reading there would deny a call the
+    // before-hook allows. The same decisions are already enforced by
+    // `tool.execute.before`, which is registered above and runs on every call,
+    // so nothing is left unenforced - only the redundancy is dropped.
+    // `experimental.session.compacting` - v1 reaches the model by mutating
+    // `output.parts`; v2's compaction event carries `messages` and a
+    // `result = {summary}` to set, so this is a different hook, not a rename.
+    // `config` - v1 mutates one global config object to register the repository's
+    // generated subagents; v2 has no global config and registers them through
+    // `ctx.agent.transform`, which needs the agents' own shape.
+    // The TUI plugin (`hosts/opencode/tui/`) has its own v2 definition to port.
   },
 }
 
