@@ -659,7 +659,10 @@ class Deps(SetupBase):
                                 stderr=subprocess.PIPE)
         deadline = time.monotonic() + 30
         while not (os.path.exists(pidfile) and self.read_text(pidfile).strip()):
-            self.assertLess(time.monotonic(), deadline, "the stub never started")
+            if time.monotonic() > deadline:
+                proc.send_signal(signal.SIGINT)  # its cleanup takes the installer group
+                proc.communicate(timeout=30)
+                self.fail("the stub never started")
             time.sleep(0.05)
         pid = int(self.read_text(pidfile))
         proc.send_signal(signal.SIGINT)
@@ -740,7 +743,10 @@ class Deps(SetupBase):
                                 stderr=subprocess.PIPE)
         deadline = time.monotonic() + 30
         while not (os.path.exists(pidfile) and self.read_text(pidfile).strip()):
-            self.assertLess(time.monotonic(), deadline, "the stub never started")
+            if time.monotonic() > deadline:
+                proc.send_signal(signal.SIGINT)  # its cleanup takes the installer group
+                proc.communicate(timeout=30)
+                self.fail("the stub never started")
             time.sleep(0.05)
         pid = int(self.read_text(pidfile))
         proc.send_signal(signal.SIGINT)
