@@ -1089,9 +1089,12 @@ class Cli(TempHome):
 
     def test_start_refuses_to_bind_a_trunk(self):
         # plan 113: `start 112 --branch main` succeeded, and the gate, which reads
-        # every PLAN_TRUNKS name as unplanned, refused the next write on main again
+        # every PLAN_TRUNKS name as unplanned, refused the next write on main again.
+        # The names come from the gate itself: bin/tezgah-task keeps a copy, and a
+        # trunk added to the gate alone would otherwise bind here and nowhere else.
+        import tezgah_gate
         second = self.plan("002-second.md", allowed=["docs/**"])
-        for trunk in ("main", "master"):
+        for trunk in tezgah_gate.PLAN_TRUNKS:
             before = read(second)
             proc = self.task("start", "002", "--phase", "implementation",
                              "--branch", trunk)
