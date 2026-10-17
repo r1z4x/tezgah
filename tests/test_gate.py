@@ -3508,8 +3508,15 @@ class PlanGate(TempHome):
         self.seed_write(self.path("tests", "test_one.py"))
         self.assertIn("plan-add", self.write(self.path("docs", "one.md")) or "")
 
+    def test_a_file_uri_still_counts_as_the_third(self):
+        # `file://` names a checkout file (URI_TARGET), so it is no channel here
+        self.seed_write("file://" + self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIn("plan-add",
+                      self.write("file://" + self.path("docs", "one.md")) or "")
+
     def test_a_windows_drive_path_is_a_path_not_a_uri(self):
-        # one scheme letter is a drive: `C:\x` and `C:/x` stay checkout paths
+        # a drive path carries no `://`: `C:\x` and `C:/x` stay checkout paths
         self.seed_write("C:\\x")
         self.seed_write("C:/x")
         self.assertIn("plan-add", self.write(self.path("docs", "one.md")) or "")

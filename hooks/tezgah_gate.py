@@ -1061,7 +1061,8 @@ URI_CHANNEL = re.compile(
 # nowhere (a user session, 2026-10-11: `xd://` and `conflict://` writes refused
 # as outside the allowlist).
 # `file://` is the one scheme that names a checkout file, so it stays guarded,
-# as the race rule already reads it.
+# as the race rule already reads it. The no-plan rule reads it the same way
+# (`_checkout`, plan 116).
 URI_TARGET = re.compile(r"^(?!file://)[A-Za-z][A-Za-z0-9+.-]*://", re.I)
 # A shell target still holding a variable or a substitution once write_paths
 # expanded what it could: the shell names the file at run time, the gate cannot.
@@ -2457,10 +2458,6 @@ PLAN_SKIP = (".tezgah", ".codegraph", ".git")
 PLAN_AGENT_HOSTS = (".claude", ".codex", ".cursor", ".opencode")   # their agents/
 # The third file: two writes in a turn are a fix, three are work that spans files.
 PLAN_WRITES = 3
-# A write path with a URI scheme (`agent://<id>`, `local://x.md`) is no file in
-# any checkout (plan 116). Two scheme letters at least: `C:\x` and `C:/x` are
-# drive paths.
-PLAN_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]+://")
 # git's marks of an operation in progress, in the checkout's own gitdir
 PLAN_MERGING = ("MERGE_HEAD", "rebase-merge", "rebase-apply")
 PLAN_DENY = (
@@ -2584,7 +2581,8 @@ def _checkout(path, cwd):
     """`(top, rel)` for a write target: the nearest git checkout holding it and
     its path inside that checkout, or None when no checkout holds it, the path
     lies under a `.tezgah/` (which keeps a repository of its own and is never a
-    product path), or it is a URI (`PLAN_URI`).
+    product path), or it carries a non-`file://` URI scheme (`URI_TARGET`:
+    `agent://<id>`, `local://x.md` are no files, plan 116).
 
     The branch question belongs to this checkout, not to the session's cwd: a
     session on `main` writing into a linked worktree on a plan branch is plan
@@ -2592,7 +2590,7 @@ def _checkout(path, cwd):
     relative path is resolved against the call's own `cwd`."""
     # `~/x` is a home path, not one under the cwd (plan 106)
     text = os.path.expanduser(str(path or "").strip())
-    if not text or PLAN_URI.match(text) or not cwd and not os.path.isabs(text):
+    if not text or URI_TARGET.match(text) or not cwd and not os.path.isabs(text):
         return None
     full = os.path.realpath(os.path.join(cwd or "", text))
     if ".tezgah" in full.split(os.sep):
@@ -2661,7 +2659,7 @@ def plan_reason(inp, cwd, session_id):
             # is read off its own spelling in `detail`.
             rows = [_checkout(row.get("target") or row.get("detail"), cwd)
                     for row in turn_rows(session_id) if row.get("kind") == "edit"
-                    and not PLAN_URI.match(str(row.get("detail") or ""))]
+                    and not URI_TARGET.match(str(row.get("detail") or ""))]
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:
