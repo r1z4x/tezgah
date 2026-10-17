@@ -2945,6 +2945,20 @@ def _run_bounded(argv, timeout):
         except OSError:
             pass
         proc.wait()
+        # a member mid-fork as the kill swept the group can come out of the
+        # fork unsignalled (macOS under load: the orphan held the caller's
+        # pipes, plan 115), so signal the group again until it is empty. Each
+        # round catches what forked since the last and a healthy group is gone
+        # within a few; the 2 s cap only bounds one that will not die (a member
+        # stuck in uninterruptible I/O, a zombie nobody reaps) so the Ctrl-C
+        # still returns.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:  # ESRCH: nothing left in the group
+                break
+            time.sleep(0.01)
         raise
 
 
