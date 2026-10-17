@@ -2457,6 +2457,10 @@ PLAN_SKIP = (".tezgah", ".codegraph", ".git")
 PLAN_AGENT_HOSTS = (".claude", ".codex", ".cursor", ".opencode")   # their agents/
 # The third file: two writes in a turn are a fix, three are work that spans files.
 PLAN_WRITES = 3
+# A write path with a URI scheme (`agent://<id>`, `local://x.md`) is no file in
+# any checkout (plan 116). Two scheme letters at least: `C:\x` and `C:/x` are
+# drive paths.
+PLAN_URI = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]+://")
 # git's marks of an operation in progress, in the checkout's own gitdir
 PLAN_MERGING = ("MERGE_HEAD", "rebase-merge", "rebase-apply")
 PLAN_DENY = (
@@ -2578,9 +2582,9 @@ def _head(root):
 
 def _checkout(path, cwd):
     """`(top, rel)` for a write target: the nearest git checkout holding it and
-    its path inside that checkout, or None when no checkout holds it or the path
+    its path inside that checkout, or None when no checkout holds it, the path
     lies under a `.tezgah/` (which keeps a repository of its own and is never a
-    product path).
+    product path), or it is a URI (`PLAN_URI`).
 
     The branch question belongs to this checkout, not to the session's cwd: a
     session on `main` writing into a linked worktree on a plan branch is plan
@@ -2588,7 +2592,7 @@ def _checkout(path, cwd):
     relative path is resolved against the call's own `cwd`."""
     # `~/x` is a home path, not one under the cwd (plan 106)
     text = os.path.expanduser(str(path or "").strip())
-    if not text or not cwd and not os.path.isabs(text):
+    if not text or PLAN_URI.match(text) or not cwd and not os.path.isabs(text):
         return None
     full = os.path.realpath(os.path.join(cwd or "", text))
     if ".tezgah" in full.split(os.sep):
@@ -2652,9 +2656,12 @@ def plan_reason(inp, cwd, session_id):
             continue
         if rows is None:
             # a row's `target` is already absolute against the cwd it was
-            # recorded from; an older row without one resolves against this cwd
+            # recorded from; an older row without one resolves against this cwd.
+            # The writer absolutizes a URI too (`<cwd>/agent:/x`), so a URI row
+            # is read off its own spelling in `detail`.
             rows = [_checkout(row.get("target") or row.get("detail"), cwd)
-                    for row in turn_rows(session_id) if row.get("kind") == "edit"]
+                    for row in turn_rows(session_id) if row.get("kind") == "edit"
+                    and not PLAN_URI.match(str(row.get("detail") or ""))]
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:

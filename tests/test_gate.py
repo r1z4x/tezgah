@@ -3484,6 +3484,41 @@ class PlanGate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("plan-add", reason)
 
+    def test_an_internal_uri_write_never_counts(self):
+        # plan 116: `agent://<id>` (a subagent message) and `local://x.md` are no
+        # files here, but the writer stores their target as `<cwd>/agent:/A`;
+        # three of them in the turn's earlier rows plus one product file passed
+        # into the third-file refusal
+        for uri in ("agent://A", "agent://B", "local://x.md"):
+            self.seed_write(uri)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+        self.assertEqual(self.deny_rows(), [])
+
+    def test_an_internal_uri_in_hand_is_not_the_third(self):
+        # the call in hand: two product files, then a subagent message
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIsNone(self.write("agent://Review115"))
+        self.assertIsNone(self.write("local://x.md"))
+
+    def test_uri_writes_leave_the_third_real_product_file_refused(self):
+        self.seed_write("agent://A")
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        self.assertIn("plan-add", self.write(self.path("docs", "one.md")) or "")
+
+    def test_a_windows_drive_path_is_a_path_not_a_uri(self):
+        # one scheme letter is a drive: `C:\x` and `C:/x` stay checkout paths
+        self.seed_write("C:\\x")
+        self.seed_write("C:/x")
+        self.assertIn("plan-add", self.write(self.path("docs", "one.md")) or "")
+
+    def test_a_windows_drive_path_in_hand_counts(self):
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write("C:\\x")
+        self.assertIn("plan-add", self.write("C:/x") or "")
+
     # ---- the checkout that holds the file ----------------------------------
     def checkout(self, name, branch):
         """A linked worktree of `self.repo` on `branch`: a second checkout
