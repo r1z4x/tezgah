@@ -1444,11 +1444,15 @@ function fileUrlPath(text) {
 
 // `path` resolved against `cwd` and through its symlinks, as Python's
 // os.path.realpath does - including for a file that is not there, where the
-// longest existing parent is resolved and the rest kept as written.
+// longest existing parent is resolved and the rest kept as written. A local
+// file URL is the file it names, a URI naming no local file keeps its own
+// spelling (hooks/tezgah_integrity._abs_target).
 function absTarget(path, cwd) {
-  path = path ? fileUrlPath(String(path).trim()) : null
-  if (!path) return null
-  const full = resolve(cwd || process.cwd(), path)
+  const raw = path ? String(path).trim() : ""
+  if (!raw) return null
+  const local = fileUrlPath(raw)
+  if (local === null) return raw
+  const full = resolve(cwd || process.cwd(), local)
   let head = full, tail = ""
   for (;;) {
     try {

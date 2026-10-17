@@ -1611,9 +1611,9 @@ class WriteRowPath(unittest.TestCase):
 
     def test_a_file_url_write_records_the_file_it_names(self):
         # plan 116: `<cwd>/file:/x` put a URL into another checkout under the
-        # cwd's, for the race guard and the no-plan rule alike; a path that
-        # names no local file (another URI, a remote or malformed host, no path)
-        # records no target, from a write tool or a shell redirect
+        # cwd's, for the race guard and the no-plan rule alike. A URI that names
+        # no local file (another scheme, a remote or malformed host, no path)
+        # keeps its own spelling: two sessions writing one `s3://` key still race
         repo = os.path.realpath(os.path.join(self.dir, "repo"))
         other = os.path.realpath(os.path.join(self.dir, "other dir"))
         os.makedirs(repo)
@@ -1625,16 +1625,17 @@ class WriteRowPath(unittest.TestCase):
                             ("file://[x/y", None),
                             ("file://", None),
                             ("agent://Main", None),
-                            ("local://x.md", None)):
+                            ("s3://bucket/key", None)):
             with self.subTest(url=url):
                 ti.note_tool("s", "Write", {"file_path": url}, failed=False, cwd=repo)
-                self.assertEqual(ti.events("s")[-1].get("target"), target)
+                self.assertEqual(ti.events("s")[-1].get("target"), target or url)
                 if target is None:
-                    # review 116d C1: a shell row's scratch check read the
-                    # missing target and raised, so the row was never written
-                    ti.note_tool("s", "Bash", {"command": "echo x > %s" % url},
+                    # review 116d C1: a shell row's scratch check read a missing
+                    # target and raised, so the row was never written
+                    ti.note_tool("s", "Bash", {"command": "echo x > '%s'" % url},
                                  failed=False, cwd=repo)
-                    self.assertEqual(ti.events("s")[-1].get("detail"), "echo x > %s" % url)
+                    self.assertEqual(ti.events("s")[-1].get("detail"),
+                                     "echo x > '%s'" % url)
 
     def test_a_shell_write_records_its_absolute_real_target(self):
         # plan 057 (a)5: the race guard counts rows with a target, so a shell

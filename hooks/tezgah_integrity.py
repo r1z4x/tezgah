@@ -1153,16 +1153,22 @@ def file_url_path(text):
 
 
 def _abs_target(path, cwd):
-    """`path` as an absolute real path, resolved against `cwd` when relative;
-    None when it names no local file (`file_url_path`).
+    """`path` as an absolute real path, resolved against `cwd` when relative, a
+    local `file://` URL as the file it names; a URI that names no local file
+    (`s3://b/k`, `agent://<id>`, a remote file URL) as its own spelling.
 
     The form both halves of the cross-session write guard compare: the writer
     stores it in an `edit` row's `target`, the gate resolves its own call's path
     the same way. A file that does not exist yet still resolves (realpath leaves
-    the missing tail as it is), so a new file two sessions both create matches."""
-    path = file_url_path(str(path or "").strip())
-    if not path:
+    the missing tail as it is), so a new file two sessions both create matches,
+    and two sessions writing one `s3://` key match on its spelling, whatever
+    their cwds. The no-plan rule skips such a target (`file_url_path` is None)."""
+    raw = str(path or "").strip()
+    if not raw:
         return None
+    path = file_url_path(raw)
+    if path is None:
+        return raw
     if not os.path.isabs(path):
         path = os.path.join(cwd or os.getcwd(), path)
     return os.path.realpath(path)

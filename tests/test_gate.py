@@ -709,6 +709,23 @@ class Gate(TempHome):
                              session_id="mine")
         self.assertIn("Concurrent write refused", reason)
 
+    def test_a_uri_naming_no_local_file_still_races_on_its_spelling(self):
+        # review 116e F1: with no target for `s3://`, the race guard saw no
+        # writer; the URI's own spelling is its identity, whatever the cwd
+        other = self.make_repo("other")
+        self.wrote("writer", "s3://bucket/key", other)
+        self.assertIn("Concurrent write refused", self.decide(
+            "Write", {"file_path": "s3://bucket/key"}, cwd=self.repo,
+            session_id="mine") or "")
+
+    def test_a_file_url_races_with_the_path_it_names(self):
+        # plan 116: a file URL is the file it names, for the race guard too
+        other = self.make_repo("other")
+        shared = os.path.join(os.path.realpath(other), "x.py")
+        self.wrote("writer", "file://" + shared, self.repo)
+        self.assertIn("Concurrent write refused", self.decide(
+            "Write", {"file_path": shared}, cwd=other, session_id="mine") or "")
+
     def test_a_checkout_under_the_temp_dir_still_races(self):
         # plan 099: a path outside cwd under the temp dir read as scratch, so a
         # race on a checkout there (CI's /tmp) went unseen; a plain temp file
