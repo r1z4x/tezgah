@@ -1087,6 +1087,19 @@ class Cli(TempHome):
         self.assertEqual(tt.active(wt, self.roots)["id"], "002")
         self.assertEqual(tt.plan_holders(self.repo)["002"], wt)
 
+    def test_start_refuses_to_bind_a_trunk(self):
+        # plan 113: `start 112 --branch main` succeeded, and the gate, which reads
+        # every PLAN_TRUNKS name as unplanned, refused the next write on main again
+        second = self.plan("002-second.md", allowed=["docs/**"])
+        for trunk in ("main", "master"):
+            before = read(second)
+            proc = self.task("start", "002", "--phase", "implementation",
+                             "--branch", trunk)
+            self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+            self.assertIn("never binds a plan", proc.stderr)
+            self.assertIn("PLAN_TRUNKS", proc.stderr)
+            self.assertEqual(read(second), before)
+
     def test_start_of_a_plan_with_no_worktree_clears_a_held_plan(self):
         # the started plan runs in the main checkout, so the main checkout's
         # task is the one it reads: a held plan beside it would leave `phase`

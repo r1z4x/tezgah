@@ -3406,6 +3406,20 @@ class PlanGate(TempHome):
         # the bind route is a command, not a hand edit of a phased record
         self.assertIn("--branch feature-x", reason)
 
+    def test_the_refusal_on_a_trunk_offers_no_bind_route(self):
+        # plan 113: `_unplanned` reads every PLAN_TRUNKS name as unplanned
+        # whatever a plan declares, so `--branch main` could never bind
+        for trunk in ("main", "master"):
+            subprocess.run(["git", "-C", self.repo, "checkout", "-q", "-B", trunk],
+                           check=True)
+            self.seed_write(self.path("hooks", "one.py"))
+            self.seed_write(self.path("tests", "test_one.py"))
+            reason = self.write(self.path("docs", "one.md")) or ""
+            self.assertIn("`%s`" % trunk, reason)
+            self.assertIn("plan/NNN-slug", reason)
+            self.assertIn("never binds a plan", reason)
+            self.assertNotIn("--branch", reason)
+
     def test_a_branch_an_open_plan_declares_is_its_plans_not_this_rules(self):
         wt = self.checkout("wt", "r1z4x/foo")
         record = self.open_plan("007", "r1z4x/foo")

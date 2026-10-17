@@ -2464,11 +2464,16 @@ PLAN_DENY = (
     "on `%(branch)s`, a branch that binds no open plan. Work that spans files there "
     "has no plan to review or close, so the third product file in one turn is "
     "refused: open a plan with the `plan-add` skill (`/tezgah:plan-add "
-    "<description>`) and do the work on the `plan/NNN-slug` branch it creates, or "
-    "bind this branch to the open plan with `tezgah-task start NNN --phase P "
-    "--branch %(branch)s` (it writes the plan's `branch:`). A one- or two-file fix "
-    "stays free. Every path in the checkout counts except `.tezgah/`, "
-    "`.codegraph/`, `.git/` and the generated `<host>/agents/` sets.")
+    "<description>`) and do the work on the `plan/NNN-slug` branch it creates, %(bind)s. "
+    "A one- or two-file fix stays free. Every path in the checkout counts except "
+    "`.tezgah/`, `.codegraph/`, `.git/` and the generated `<host>/agents/` sets.")
+# The second way out: off a trunk, bind the branch in hand; on a trunk that bind
+# would be ignored (`_unplanned` reads every PLAN_TRUNKS name as unplanned), so
+# the text names only another branch.
+PLAN_BIND = ("or bind this branch to the open plan with `tezgah-task start NNN "
+             "--phase P --branch %s` (it writes the plan's `branch:`)")
+PLAN_BIND_TRUNK = ("or work on a non-trunk branch an open plan declares in its "
+                   "`branch:`; a trunk (%s) never binds a plan")
 
 
 def _gitdir(root):
@@ -2653,7 +2658,9 @@ def plan_reason(inp, cwd, session_id):
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:
-            return PLAN_DENY % {"count": len(written), "branch": branch}
+            bind = (PLAN_BIND_TRUNK % ", ".join("`%s`" % t for t in PLAN_TRUNKS)
+                    if branch in PLAN_TRUNKS else PLAN_BIND % branch)
+            return PLAN_DENY % {"count": len(written), "branch": branch, "bind": bind}
     return None
 
 

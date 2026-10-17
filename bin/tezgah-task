@@ -138,6 +138,11 @@ sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
 from tezgah_paths import project_top, say, work_tree  # noqa: E402
 
+# Mirrors hooks/tezgah_gate.py::PLAN_TRUNKS: the gate reads these as unplanned
+# whatever a plan declares, so `start --branch` refuses them (plan 113). Not
+# imported: the gate hook pulls in every rule module for this one tuple.
+PLAN_TRUNKS = ("main", "master")
+
 
 def repo_root(path):
     """The repository this run is about: git's own answer, else the directory the
@@ -552,6 +557,11 @@ def cmd_start(args):
             if i + 1 >= len(rest) or rest[i + 1].startswith("--"):
                 return misuse("--branch needs the branch name to bind the plan to")
             branch = rest[i + 1]
+            if branch in PLAN_TRUNKS:
+                return misuse("--branch %s: a trunk (%s) never binds a plan - the gate "
+                              "reads every PLAN_TRUNKS name as unplanned; bind a "
+                              "plan/NNN-slug branch instead"
+                              % (branch, ", ".join(PLAN_TRUNKS)))
             i += 2
             continue
         if rest[i] == ANY_PATH:
