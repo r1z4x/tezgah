@@ -671,6 +671,46 @@ class ReplayWriters(TempHome):
         self.assertEqual(channel, [])
         self.assertEqual(len(key), 1, key)
 
+    def test_writers_skip_what_the_live_race_rule_skips(self):
+        # plan 117 (review 116g): the replay lists the writers the live race
+        # rule would refuse on - a temp file, an unexpanded `$VAR` target and a
+        # file last written by an ended child of this session list none, while
+        # a checkout file another session wrote still lists that session
+        here = self.make_repo("here")
+        os.makedirs(os.path.join(here, ".git"))
+        script = (
+            "import json, sys; sys.path.insert(0, %r)\n"
+            "import tezgah_gate as tg, tezgah_integrity as ti, tezgah_replay as tr\n"
+            "import tezgah_task as tt\n"
+            "here = %r\n"
+            "scratch = '/tmp/tezgah-plan117-writers.log'\n"
+            "unnamed = 'printf x > $OUT/a.log'\n"
+            "ended, shared = here + '/ended.py', here + '/shared.py'\n"
+            "ti.note_tool('other', 'Write', {'file_path': scratch}, failed=False, cwd=here)\n"
+            "ti.note_tool('other', 'Bash', {'command': unnamed}, failed=False, cwd=here)\n"
+            "ti.note_tool('other', 'Write', {'file_path': shared}, failed=False, cwd=here)\n"
+            "ti.note('kid', 'spawned', parent='mine', agent='Worker')\n"
+            "ti.note_tool('kid', 'Write', {'file_path': ended}, failed=False, cwd=here)\n"
+            "tt.open_slice(here, 'Worker', host='claude', parent='mine', brief='b')\n"
+            "tt.close_slice(here, 'Worker', 'stopped', 'quota')\n"
+            "it = lambda tool, inp: {'i': 1, 'kind': 'gate', 'tool': tool, 'input': inp,\n"
+            "                        'cwd': here, 'sid': 'mine'}\n"
+            "print(json.dumps([tr._replay_one(it(*c), '', tg, [], None).get('writers')\n"
+            "                  for c in (('Write', {'file_path': scratch}),\n"
+            "                            ('Bash', {'command': unnamed}),\n"
+            "                            ('Write', {'file_path': ended}),\n"
+            "                            ('Write', {'file_path': shared}))]))\n"
+            % (support.HOOKS, here))
+        proc = subprocess.run([sys.executable, "-c", script], env=self.env(),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        scratch, unnamed, ended, shared = json.loads(proc.stdout)
+        # a temp file is no one's shared work, an unexpanded $VAR target names
+        # no file, an ended child of this session is no race
+        self.assertEqual({"scratch": scratch, "unnamed": unnamed, "ended": ended},
+                         {"scratch": [], "unnamed": [], "ended": []})
+        self.assertEqual(len(shared or ()), 1, shared)
+
 
 class ResidualTurns(TempHome):
     """`residual_turns`: residual sections per top-level user turn, read with

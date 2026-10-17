@@ -598,13 +598,10 @@ def _replay_one(it, prefix, tg, seen, live_events):
             reason = tg.decision(it["tool"], inp, it["cwd"], it["sid"], record=False)
             rule = (rule_of("%s: %s" % (seen[-1], reason)) if seen else "unobserved") \
                 if reason else None
-            # the live race rule skips the harness's own channels (`agent://`),
-            # whose spelling is now a target two sessions share (plan 116)
-            writers = sorted({w for p in tg.write_paths(inp)
-                              if not tg.URI_CHANNEL.match(p)
-                              for w in ti.writers_elsewhere(p, it["sid"],
-                                                            tg.RACE_WINDOW_MIN,
-                                                            cwd=it["cwd"])})
+            # the writers the live race rule refuses on (`race_writers`), as the
+            # ledger ids the page has always shown (plan 117)
+            writers = sorted({w[0] for _path, others in tg.race_writers(
+                inp, it["sid"], it["cwd"]) for w in others})
             out.update(replay="deny" if reason else "allow", rule=rule,
                        writers=writers)
     except Exception as exc:  # a crash is a result, never a silent allow

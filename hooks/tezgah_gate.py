@@ -1254,9 +1254,11 @@ def _scratch(path, cwd):
         os.path.realpath(os.path.join(cwd or os.getcwd(), path)))
 
 
-def race_reason(inp, session_id, cwd=None):
-    """A deny reason when another session wrote one of this call's files inside
-    RACE_WINDOW_MIN, else None.
+def race_writers(inp, session_id, cwd=None):
+    """Each (path, writers) of this call another session wrote inside
+    RACE_WINDOW_MIN, `writers` as writers_elsewhere's lineage tuples less this
+    session's ended children: what race_reason refuses on and the replay page
+    lists (plan 117).
 
     `writers_elsewhere` is the ledger reader in tezgah_integrity, and its import
     is guarded: an integrity module without it costs this rule, never the
@@ -1265,7 +1267,7 @@ def race_reason(inp, session_id, cwd=None):
     this side reads every hunk's: the row is one line, and widening it means
     the ledger row changes shape."""
     if writers_elsewhere is None or not session_id:
-        return None
+        return
     for path in write_paths(inp):
         # an internal URI (`agent://Main`, `xd://<tool>`) is not a file: two
         # observed refusals today wrote tool replies through those schemes and
@@ -1281,8 +1283,14 @@ def race_reason(inp, session_id, cwd=None):
                                                cwd=cwd, lineage=True)
                   if not ended_child(w, session_id, path, cwd)]
         if others:
-            return RACE_DENY % (", ".join(race_who(*w[:3]) for w in others[:3]),
-                                RACE_WINDOW_MIN, path)
+            yield path, others
+
+
+def race_reason(inp, session_id, cwd=None):
+    """A deny reason naming the first of race_writers, else None."""
+    for path, others in race_writers(inp, session_id, cwd):
+        return RACE_DENY % (", ".join(race_who(*w[:3]) for w in others[:3]),
+                            RACE_WINDOW_MIN, path)
     return None
 
 

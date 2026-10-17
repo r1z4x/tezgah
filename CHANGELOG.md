@@ -15,6 +15,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **A stopped installer leaves no orphan behind.** A Ctrl-C or a timeout kills the installer's whole process group. On macOS under load, a member caught mid-fork could survive that kill and hold the caller's pipes open. The cleanup now signals the group again until it is empty, for at most 2 s. Under load, 1800 runs gave 0 hangs, against 6 in about 638 before the fix.
 - **A subagent message no longer counts as a product file.** The no-plan rule read `agent://<id>` or `local://x.md` as a checkout file. Two such messages and one real file on `main` met the third-file refusal. A path with a URI scheme other than `file://` now never counts. A `file://` URL now counts as the local file it names, for the no-plan rule and the cross-session write guard alike. A Windows drive path such as `C:/x` still counts. The write guard now matches another URI such as `s3://bucket/key` on its spelling, so two sessions in different directories still race on it.
+- **The replay lists only the writers the race rule refuses on.** The replay named another writer in three cases the live race rule skips. They are a temp file, a shell target whose `$VAR` has no value, and a file an ended subagent of this session wrote. `tezgah-gate replay` and the rule now read one gate helper, so the page shows exactly the writers a live refusal would name.
 
 ## [1.9.2] - 2026-10-17
 
