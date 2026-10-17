@@ -95,7 +95,6 @@ import os
 import re
 import shlex
 import time
-import urllib.parse
 
 import tezgah_store
 
@@ -110,7 +109,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
-from tezgah_integrity import (FAILED_MARK, SUBAGENT_TOOLS, TODO_TOOLS, newest_todo,
+from tezgah_integrity import (SUBAGENT_TOOLS, TODO_TOOLS, file_url_path, newest_todo,
                               ready_heads)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, _toplevel, cache_dir, fallback_cache,
@@ -1062,9 +1061,9 @@ URI_CHANNEL = re.compile(
 # `xd://mcp__codegraph_explore` as a relative file and refuse a name that exists
 # nowhere (a user session, 2026-10-11: `xd://` and `conflict://` writes refused
 # as outside the allowlist).
-# `file://` is the one scheme that names a checkout file, so it stays guarded,
-# as the race rule already reads it. The no-plan rule reads it the same way
-# (`_checkout`, plan 116).
+# `file://` is the one scheme that names a checkout file, so it stays guarded:
+# the race rule and the no-plan rule both read it as the file it names
+# (`tezgah_integrity.file_url_path`, plan 116).
 URI_TARGET = re.compile(r"^(?!file://)[A-Za-z][A-Za-z0-9+.-]*://", re.I)
 # A shell target still holding a variable or a substitution once write_paths
 # expanded what it could: the shell names the file at run time, the gate cannot.
@@ -2594,10 +2593,9 @@ def _checkout(path, cwd):
     text = os.path.expanduser(str(path or "").strip())
     if not text or URI_TARGET.match(text):
         return None
-    if text[:7].lower() == "file://":
-        # the file the URL names, not `<cwd>/file:/...`: a file URL into another
-        # checkout is that checkout's write (review of plan 116)
-        text = urllib.parse.unquote(urllib.parse.urlsplit(text).path)
+    text = file_url_path(text)  # a file URL is the file it names
+    if not text:
+        return None
     if not cwd and not os.path.isabs(text):
         return None
     full = os.path.realpath(os.path.join(cwd or "", text))
@@ -2663,17 +2661,11 @@ def plan_reason(inp, cwd, session_id):
         if rows is None:
             # a row's `target` is already absolute against the cwd it was
             # recorded from; an older row without one resolves against this cwd.
-            # The writer absolutizes a URI too (`<cwd>/agent:/x`, `<cwd>/file:/x`),
-            # so a URI row is read off its own spelling in `detail`.
-            rows = []
-            for row in turn_rows(session_id):
-                detail = str(row.get("detail") or "")
-                if detail.endswith(" " + FAILED_MARK):
-                    detail = detail[:-len(FAILED_MARK) - 1]
-                if row.get("kind") != "edit" or URI_TARGET.match(detail):
-                    continue
-                rows.append(_checkout(detail if detail[:7].lower() == "file://"
-                                      else row.get("target") or detail, cwd))
+            # The writer absolutizes a non-file URI too (`<cwd>/agent:/x`), so a
+            # URI row is read off its own spelling in `detail`.
+            rows = [_checkout(row.get("target") or row.get("detail"), cwd)
+                    for row in turn_rows(session_id) if row.get("kind") == "edit"
+                    and not URI_TARGET.match(str(row.get("detail") or ""))]
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:

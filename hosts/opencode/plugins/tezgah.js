@@ -1424,12 +1424,27 @@ function writtenPath(args) {
   return target || null
 }
 
+// The local path a `file://` URL names, the text itself when it is no file
+// URL, or null for one that names no local file (a host other than
+// `localhost`, no path) - hooks/tezgah_integrity.file_url_path, split the way
+// urllib.parse.urlsplit splits it (plan 116).
+function fileUrlPath(text) {
+  if (text.slice(0, 7).toLowerCase() !== "file://") return text
+  const rest = text.slice(7).split(/[?#]/)[0]
+  const at = rest.indexOf("/")
+  const host = at < 0 ? rest : rest.slice(0, at)
+  const path = at < 0 ? "" : rest.slice(at)
+  if (!["", "localhost"].includes(host.toLowerCase()) || !path) return null
+  try { return decodeURIComponent(path) } catch { return path }
+}
+
 // `path` resolved against `cwd` and through its symlinks, as Python's
 // os.path.realpath does - including for a file that is not there, where the
 // longest existing parent is resolved and the rest kept as written.
 function absTarget(path, cwd) {
+  path = path ? fileUrlPath(String(path).trim()) : null
   if (!path) return null
-  const full = resolve(cwd || process.cwd(), String(path))
+  const full = resolve(cwd || process.cwd(), path)
   let head = full, tail = ""
   for (;;) {
     try {

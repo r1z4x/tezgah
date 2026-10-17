@@ -3522,6 +3522,19 @@ class PlanGate(TempHome):
         self.seed_write(self.path("hooks", "one.py"))
         self.assertIsNone(self.write(self.path("tests", "test_one.py")))
 
+    def test_a_file_uri_from_an_editor_with_a_command_is_one_file(self):
+        # review 116c F1: str_replace_editor's row `detail` is its command name,
+        # so only the writer's `target` can say which file a URL named
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "note_tool", "session": "plan-s",
+                              "tool": "str_replace_editor",
+                              "input": {"command": "create", "file_text": "x",
+                                        "path": "file://" + self.path("hooks", "one.py")},
+                              "cwd": self.repo}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+
     def test_a_file_uri_into_main_from_a_plan_checkout_counts_in_main(self):
         # review of plan 116: the same `<cwd>/file:/x` reading put a file URL
         # into main's checkout under the plan branch's cwd, where it never counts

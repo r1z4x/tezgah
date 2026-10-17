@@ -1609,6 +1609,23 @@ class WriteRowPath(unittest.TestCase):
         self.assertEqual(row["target"],
                          os.path.join(os.path.realpath(repo), "README.md"))
 
+    def test_a_file_url_write_records_the_file_it_names(self):
+        # plan 116: `<cwd>/file:/x` put a URL into another checkout under the
+        # cwd's, for the race guard and the no-plan rule alike; a URL that names
+        # no local file (a remote host, no path) records no target
+        repo = os.path.realpath(os.path.join(self.dir, "repo"))
+        other = os.path.realpath(os.path.join(self.dir, "other dir"))
+        os.makedirs(repo)
+        want = os.path.join(other, "a.py")
+        for url, target in (("file://" + want, want),
+                            ("FILE://localhost" + want, want),
+                            ("file://" + other.replace(" ", "%20") + "/a.py", want),
+                            ("file://remote" + want, None),
+                            ("file://", None)):
+            with self.subTest(url=url):
+                ti.note_tool("s", "Write", {"file_path": url}, failed=False, cwd=repo)
+                self.assertEqual(ti.events("s")[-1].get("target"), target)
+
     def test_a_shell_write_records_its_absolute_real_target(self):
         # plan 057 (a)5: the race guard counts rows with a target, so a shell
         # `run` row that redirects into a file carries one like an edit row; a

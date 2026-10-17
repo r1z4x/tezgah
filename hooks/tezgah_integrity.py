@@ -31,6 +31,7 @@ import re
 import shlex
 import statistics
 import time
+import urllib.parse
 
 try:
     import fcntl
@@ -1125,14 +1126,28 @@ def prior_calls(session_id, digest, tail=200, agent=None):
             turn[-1].get("fail_class"))
 
 
+def file_url_path(text):
+    """The local path a `file://` URL names, `text` itself when it is no file
+    URL, or None for one that names no local file (a host other than
+    `localhost`, no path). Read as `<cwd>/file:/x`, a URL into another checkout
+    landed in the cwd's and one file spelled both ways was two (plan 116)."""
+    if text[:7].lower() != "file://":
+        return text
+    parts = urllib.parse.urlsplit(text)
+    if parts.netloc.lower() not in ("", "localhost") or not parts.path:
+        return None
+    return urllib.parse.unquote(parts.path)
+
+
 def _abs_target(path, cwd):
     """`path` as an absolute real path, resolved against `cwd` when relative.
 
     The form both halves of the cross-session write guard compare: the writer
     stores it in an `edit` row's `target`, the gate resolves its own call's path
     the same way. A file that does not exist yet still resolves (realpath leaves
-    the missing tail as it is), so a new file two sessions both create matches."""
-    path = str(path or "").strip()
+    the missing tail as it is), so a new file two sessions both create matches.
+    A `file://` URL resolves to the file it names (`file_url_path`)."""
+    path = file_url_path(str(path or "").strip())
     if not path:
         return None
     if not os.path.isabs(path):
