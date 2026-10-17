@@ -6,6 +6,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The no-plan refusal on a trunk offers no bind route.** On `main` or `master` it used to offer `tezgah-task start NNN --branch <trunk>`. The gate never honoured that binding, so the next write met the same refusal. The text now names the `plan/NNN-slug` route or a non-trunk branch a plan declares. `tezgah-task start --branch main` or `--branch master` now exits 2 and writes nothing.
+- **The impacted run checks a changelog entry's prose.** `tests/impacted.py` now maps `CHANGELOG.md` to `test_clarity.py` too. Before, the impacted run stayed green on an entry the ratchet refuses. The v1.9.1 release CI failed on exactly that.
+
 ## [1.9.2] - 2026-10-17
 
 ### Fixed

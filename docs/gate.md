@@ -253,7 +253,7 @@ paths - a turn that rewrites one file three times is still one file's work. A pr
 (`hooks/tezgah_gate.py::PLAN_AGENT_HOSTS`). A path outside any git repository never counts. Told: the branch it read, how many files the turn has written, and
 the command that opens a plan - the `plan-add` skill, `/tezgah:plan-add <description>` (`hooks/tezgah_gate.py::PLAN_DENY`). Off the trunk it also names the bind route: `tezgah-task start NNN
 --phase P --branch <branch>` writes the plan's `branch:` (`hooks/tezgah_gate.py::PLAN_BIND`, `bin/tezgah-task::cmd_start`). On `main` or `master` it names only the `plan/NNN-slug` route or
-another branch an open plan declares (`hooks/tezgah_gate.py::PLAN_BIND_TRUNK`). There `cmd_start` refuses `--branch` too. The record rule refuses a hand edit of a phased record. Standing: only changing the tree's state changes it - the
+another branch an open plan declares (`hooks/tezgah_gate.py::PLAN_BIND_TRUNK`). `cmd_start` refuses `--branch main` or `--branch master` too. The record rule refuses a hand edit of a phased record. Standing: only changing the tree's state changes it - the
 work moves to the `plan/NNN-slug` branch the skill creates or to a bound branch (a one- or two-file fix is free either way), or the repository carries a `.no-plan-gate` mark (the shape of
 `.no-graph` and `.no-lessons`). It passes while a merge or rebase is in progress (`MERGE_HEAD`, `rebase-merge/` or `rebase-apply/` in the checkout's gitdir, `hooks/tezgah_gate.py::_merging`):
 resolving conflicts is not new work. It passes wherever the question cannot be answered: no session or ledger, a directory that is not a git repository, and a detached HEAD with no branch to name.
