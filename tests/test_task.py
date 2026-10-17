@@ -1651,6 +1651,38 @@ class Cli(TempHome):
             self.git("merge", "-q", "--no-edit", name)
         return path
 
+    def test_start_in_a_worktree_seeds_and_starts_its_index(self):
+        # plan 118: the worktree bound to a plan gets a copy of the main
+        # checkout's graph at once, and the worker syncs that copy
+        import sqlite3
+        import time
+        self.plan("001-first.md")
+        with open(os.path.join(self.repo, ".git", "info", "exclude"), "a") as fh:
+            fh.write("/.codegraph/\n")
+        os.makedirs(os.path.join(self.repo, ".codegraph"))
+        db = sqlite3.connect(os.path.join(self.repo, ".codegraph", "codegraph.db"))
+        db.execute("create table files (path text)")
+        db.commit()
+        db.close()
+        tree = os.path.realpath(self.slice("slice-graph", commit=False, merge=False))
+        log = os.path.join(self.home, "graph.log")
+        fake = os.path.join(self.home, "fake-codegraph")
+        with open(fake, "w") as fh:
+            fh.write('#!/bin/sh\necho "$@" >> "%s"\n' % log)
+        os.chmod(fake, 0o755)
+        proc = support.run([CLI, "start", "001", "--phase", "discovery",
+                            "--branch", "slice-graph"],
+                           env=self.env(extra={"TEZGAH_CODEGRAPH_BIN": fake}), cwd=tree)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("graph: syncing its copy of %s's index" % os.path.realpath(self.repo),
+                      proc.stdout)
+        deadline = time.time() + 10
+        while time.time() < deadline and not os.path.exists(log):
+            time.sleep(0.1)
+        with open(log) as fh:
+            self.assertEqual(fh.read().splitlines(), ["sync %s" % tree])
+        self.assertTrue(os.path.isfile(os.path.join(tree, ".codegraph", "codegraph.db")))
+
     def close_lines(self, env=None):
         """`close 001 discarded` with an active plan: its worktree lines by path."""
         self.plan("001-first.md", phase="implementation", allowed=["**"])

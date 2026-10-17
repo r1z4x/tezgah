@@ -401,6 +401,19 @@ extension the engine has no parser for and an extensionless script it cannot key
 on at all. The extensionless case is why `bin/*` carries `.py` twins, and the
 report counts a tracked `bin/x` as covered when the index holds `bin/x.py`.
 
+A linked worktree starts with its main checkout's index. Git ignores
+`.codegraph/`, so a new worktree has none. When the main checkout has one, the
+auto-index copies it into the worktree before it starts the worker
+(`hooks/tezgah_context.py::seed_index`, called from
+`hooks/tezgah_context.py::autoindex`). The copy uses sqlite's backup API. The
+worker then runs `codegraph sync`, not `init` (`hooks/tezgah_index.py::command`).
+The database stores repo-relative paths, so the synced copy reads the
+worktree's own files. On this
+repository a sync over the copy took 1 s, and a fresh `init` took 10 s.
+`tezgah-task start` run inside a worktree seeds and starts the index the same
+way (`bin/tezgah-task::cmd_start`). A copy that fails leaves the worktree to
+`init`, as before.
+
 ## Opt-in taste: capture, learn, apply
 
 Taste learns the user's coding preferences from their own corrections. It is

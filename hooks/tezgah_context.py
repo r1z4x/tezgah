@@ -406,6 +406,53 @@ def slug(path):
     return re.sub(r"[^A-Za-z0-9]+", "-", path).strip("-")
 
 
+def seed_index(root):
+    """Copy the main checkout's codegraph index into a linked worktree that has
+    none (plan 118), so the worker below runs the incremental `sync` on it, not a
+    full `init`. Returns the main checkout seeded from, else None.
+
+    The database stores repo-relative paths only, so a copy is a sound start for
+    the worktree's own index (spike: sync 1 s against init 10 s on this repo).
+    sqlite's backup API, not a file copy: main's codegraph may be writing. The
+    copy lands under a temporary name and is linked into place, so a second
+    seeder or a running worker never reads a half-written file. Every failure
+    fails open to today's `init`."""
+    import shutil
+    import sqlite3
+    import urllib.parse
+    from tezgah_paths import linked_main
+    main = linked_main(root)
+    src = main and os.path.join(main, ".codegraph", "codegraph.db")
+    dst = os.path.join(root, ".codegraph", "codegraph.db")
+    if not src or not os.path.isfile(src) or os.path.lexists(dst):
+        return None
+    tmp = "%s.seed-%d" % (dst, os.getpid())
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        ignore = os.path.join(main, ".codegraph", ".gitignore")
+        if os.path.isfile(ignore) and not os.path.lexists(
+                os.path.join(root, ".codegraph", ".gitignore")):
+            shutil.copyfile(ignore, os.path.join(root, ".codegraph", ".gitignore"))
+        source = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(src), uri=True)
+        try:
+            target = sqlite3.connect(tmp)
+            try:
+                source.backup(target)
+            finally:
+                target.close()
+        finally:
+            source.close()
+        os.link(tmp, dst)   # refuses when another seeder got there first
+        return main
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
 def autoindex(root):
     """Detached incremental index. Returns a one-line status for the context."""
     if root in roots():
@@ -450,6 +497,7 @@ def autoindex(root):
         except OSError:
             pass
         note = "last auto-index failed (see %s)" % log_path
+    seeded = seed_index(root)
     try:
         log = open(log_path, "ab")
         # Spawn the lock-guarded worker rather than indexing inline. Two sessions
@@ -465,7 +513,8 @@ def autoindex(root):
         )
     except Exception as exc:
         return "auto-index could not start (%s); index this repo from a shell" % exc
-    verb = "re-indexing" if stamped else "indexing (first time)"
+    verb = ("syncing its copy of %s's index" % seeded if seeded
+            else "re-indexing" if stamped else "indexing (first time)")
     if note:
         return "%s; %s in background now" % (note, verb)
     return "%s in background now" % verb

@@ -161,10 +161,8 @@ class IndexWorker(TempHome):
         self.assertEqual(self.calls(), ["sync %s" % self.repo])
 
 
-class IndexCli(TempHome):
-    """bin/tezgah-index: what every host's SessionStart hook, and the opencode
-    plugin, reach autoindex() through. Each case pins the environment so the fake
-    codegraph below is the only indexer the hook can find."""
+class FakeGraph(TempHome):
+    """A temp HOME whose only codegraph is FAKE, reached through bin/tezgah-index."""
 
     def setUp(self):
         super().setUp()
@@ -190,6 +188,12 @@ class IndexCli(TempHome):
         return subprocess.run([sys.executable, CLI] + list(args),
                               capture_output=True, text=True,
                               env=env or self.env_for(), timeout=30)
+
+
+class IndexCli(FakeGraph):
+    """bin/tezgah-index: what every host's SessionStart hook, and the opencode
+    plugin, reach autoindex() through. Each case pins the environment so the fake
+    codegraph below is the only indexer the hook can find."""
 
     def test_help_prints_usage_and_starts_no_index(self):
         # --help used to be taken as PATH: the run printed the index status and
@@ -251,6 +255,93 @@ class IndexCli(TempHome):
             text = fh.read()
         self.assertIn('"chat.message"', text)
         self.assertIn("tezgah-index", text)
+
+
+GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+           "GIT_TERMINAL_PROMPT": "0"}
+
+
+def git(*args):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@localhost"]
+                   + list(args), check=True, capture_output=True,
+                   env=dict(os.environ, **GIT_ENV))
+
+
+def graph_db(top, rows=("main",)):
+    """A real sqlite index at `top`/.codegraph, one row per name, beside the
+    `.gitignore` codegraph writes there."""
+    import sqlite3
+    os.makedirs(os.path.join(top, ".codegraph"), exist_ok=True)
+    with open(os.path.join(top, ".codegraph", ".gitignore"), "w") as fh:
+        fh.write("*\n!.gitignore\n")
+    db = sqlite3.connect(os.path.join(top, ".codegraph", "codegraph.db"))
+    db.execute("create table files (path text)")
+    db.executemany("insert into files values (?)", [(r,) for r in rows])
+    db.commit()
+    db.close()
+
+
+def graph_rows(top):
+    import sqlite3
+    db = sqlite3.connect(os.path.join(top, ".codegraph", "codegraph.db"))
+    try:
+        return [r for (r,) in db.execute("select path from files")]
+    finally:
+        db.close()
+
+
+class WorktreeSeed(FakeGraph):
+    """Plan 118: a linked worktree starts with a sqlite copy of its main
+    checkout's index, so the worker runs `sync`, not a full `init`."""
+
+    def setUp(self):
+        super().setUp()
+        self.main = self.make_repo("proj")
+        git("init", "-q", self.main)
+        git("-C", self.main, "commit", "-q", "--allow-empty", "-m", "init")
+        tree = os.path.join(self.home, "wt-proj")
+        git("-C", self.main, "worktree", "add", "-q", "-b", "slice", tree)
+        self.tree = os.path.realpath(tree)
+
+    def index(self, top):
+        """Run the CLI on `top` and wait for the worker: the fake codegraph's
+        calls."""
+        proc = self.run_cli(top)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        stamp = os.path.join(self.home, ".cache", "tezgah", support.slug(top))
+        deadline = time.time() + 10
+        while time.time() < deadline and not os.path.exists(stamp):
+            time.sleep(0.1)
+        self.assertTrue(os.path.exists(stamp), "auto-index did not stamp HEAD")
+        with open(self.log) as fh:
+            return proc.stdout, fh.read().splitlines()
+
+    def test_a_worktree_without_an_index_syncs_a_copy_of_main(self):
+        graph_db(self.main)
+        out, calls = self.index(self.tree)
+        self.assertEqual(calls, ["sync %s" % self.tree])
+        self.assertIn("syncing its copy of %s's index" % self.main, out)
+        self.assertEqual(graph_rows(self.tree), ["main"])
+        self.assertTrue(os.path.isfile(os.path.join(self.tree, ".codegraph", ".gitignore")))
+        self.assertEqual(sorted(os.listdir(os.path.join(self.tree, ".codegraph"))),
+                         [".gitignore", "codegraph.db"])
+
+    def test_a_worktree_with_its_own_index_keeps_it(self):
+        graph_db(self.main)
+        graph_db(self.tree, rows=("own",))
+        _out, calls = self.index(self.tree)
+        self.assertEqual(calls, ["sync %s" % self.tree])
+        self.assertEqual(graph_rows(self.tree), ["own"])
+
+    def test_a_main_checkout_without_an_index_leaves_the_worktree_to_init(self):
+        _out, calls = self.index(self.tree)
+        self.assertEqual(calls, ["init %s -y" % self.tree])
+        self.assertFalse(os.path.exists(os.path.join(self.tree, ".codegraph")))
+
+    def test_a_plain_checkout_is_not_seeded(self):
+        _out, calls = self.index(self.main)
+        self.assertEqual(calls, ["init %s -y" % self.main])
+        self.assertFalse(os.path.exists(os.path.join(self.main, ".codegraph")))
 
 
 class DshLauncher(TempHome):

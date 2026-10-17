@@ -629,7 +629,19 @@ def cmd_start(args):
     bad = write_fields(path, **fields)
     if bad:
         return problems(bad)
-    return show(path)
+    shown = show(path)
+    top = repo_root(os.getcwd())
+    if main_root(top) != top:
+        # a worktree bound to a plan gets its graph now, seeded from the main
+        # checkout's (plan 118); an index that cannot start costs the line, never
+        # the start the record already holds
+        try:
+            from tezgah_context import autoindex, under
+            if under(top):
+                print("graph: %s" % autoindex(top))
+        except Exception:
+            pass
+    return shown
 
 
 def cmd_phase(args):
