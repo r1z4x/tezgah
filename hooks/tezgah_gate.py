@@ -95,6 +95,7 @@ import os
 import re
 import shlex
 import time
+import urllib.parse
 
 import tezgah_store
 
@@ -109,7 +110,8 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
-from tezgah_integrity import SUBAGENT_TOOLS, TODO_TOOLS, newest_todo, ready_heads
+from tezgah_integrity import (FAILED_MARK, SUBAGENT_TOOLS, TODO_TOOLS, newest_todo,
+                              ready_heads)
 from tezgah_paths import (CACHE, CONFIG_DIR, HOST_DIRS, OFF_DIRS, PLUGIN_ROOT,
                           REPO_MARKS, SWITCHES, _toplevel, cache_dir, fallback_cache,
                           linked_main, off, root_for, roots)
@@ -2590,7 +2592,13 @@ def _checkout(path, cwd):
     relative path is resolved against the call's own `cwd`."""
     # `~/x` is a home path, not one under the cwd (plan 106)
     text = os.path.expanduser(str(path or "").strip())
-    if not text or URI_TARGET.match(text) or not cwd and not os.path.isabs(text):
+    if not text or URI_TARGET.match(text):
+        return None
+    if text[:7].lower() == "file://":
+        # the file the URL names, not `<cwd>/file:/...`: a file URL into another
+        # checkout is that checkout's write (review of plan 116)
+        text = urllib.parse.unquote(urllib.parse.urlsplit(text).path)
+    if not cwd and not os.path.isabs(text):
         return None
     full = os.path.realpath(os.path.join(cwd or "", text))
     if ".tezgah" in full.split(os.sep):
@@ -2655,11 +2663,17 @@ def plan_reason(inp, cwd, session_id):
         if rows is None:
             # a row's `target` is already absolute against the cwd it was
             # recorded from; an older row without one resolves against this cwd.
-            # The writer absolutizes a URI too (`<cwd>/agent:/x`), so a URI row
-            # is read off its own spelling in `detail`.
-            rows = [_checkout(row.get("target") or row.get("detail"), cwd)
-                    for row in turn_rows(session_id) if row.get("kind") == "edit"
-                    and not URI_TARGET.match(str(row.get("detail") or ""))]
+            # The writer absolutizes a URI too (`<cwd>/agent:/x`, `<cwd>/file:/x`),
+            # so a URI row is read off its own spelling in `detail`.
+            rows = []
+            for row in turn_rows(session_id):
+                detail = str(row.get("detail") or "")
+                if detail.endswith(" " + FAILED_MARK):
+                    detail = detail[:-len(FAILED_MARK) - 1]
+                if row.get("kind") != "edit" or URI_TARGET.match(detail):
+                    continue
+                rows.append(_checkout(detail if detail[:7].lower() == "file://"
+                                      else row.get("target") or detail, cwd))
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:

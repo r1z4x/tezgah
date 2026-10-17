@@ -3515,6 +3515,23 @@ class PlanGate(TempHome):
         self.assertIn("plan-add",
                       self.write("file://" + self.path("docs", "one.md")) or "")
 
+    def test_a_file_uri_and_its_path_are_one_file(self):
+        # review of plan 116: `file:///x` resolved as `<cwd>/file:/x`, so one file
+        # written both ways counted twice and refused a two-file fix
+        self.seed_write("file://" + self.path("hooks", "one.py"))
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+
+    def test_a_file_uri_into_main_from_a_plan_checkout_counts_in_main(self):
+        # review of plan 116: the same `<cwd>/file:/x` reading put a file URL
+        # into main's checkout under the plan branch's cwd, where it never counts
+        wt = self.checkout("wt", "plan/037-research-backlog")
+        self.seed_write(self.path("hooks", "one.py"))
+        self.seed_write(self.path("tests", "test_one.py"))
+        reason = self.decide("Write", {"file_path": "file://" + self.path("docs", "one.md"),
+                                       "content": "x"}, cwd=wt)
+        self.assertIn("`main`", reason or "")
+
     def test_a_windows_drive_path_is_a_path_not_a_uri(self):
         # a drive path carries no `://`: `C:\x` and `C:/x` stay checkout paths
         self.seed_write("C:\\x")
