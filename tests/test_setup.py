@@ -714,6 +714,54 @@ class Deps(SetupBase):
                     time.sleep(0.1)
         self.assertIn(b"KeyboardInterrupt", err)
 
+    def test_a_member_the_first_group_kill_misses_is_still_taken(self):
+        """Plan 115: a member mid-fork as the group kill went out escaped it
+        (macOS under load) and held the caller's stderr. The runner's first
+        SIGKILL to the group reaches only the installer itself, as if its
+        grandchild had escaped; the grandchild must still be gone."""
+        import signal
+        import time
+        pidfile = self.path("grandchild.pid")
+        runner = ("import importlib.machinery, importlib.util, os, signal\n"
+                  "l = importlib.machinery.SourceFileLoader('s', %r)\n"
+                  "m = importlib.util.module_from_spec(\n"
+                  "    importlib.util.spec_from_loader('s', l))\n"
+                  "l.exec_module(m)\n"
+                  "real, missed = os.killpg, []\n"
+                  "def killpg(pgid, sig):\n"
+                  "    if sig == signal.SIGKILL and not missed:\n"
+                  "        missed.append(pgid)\n"
+                  "        return os.kill(pgid, sig)  # the installer, not its group\n"
+                  "    return real(pgid, sig)\n"
+                  "os.killpg = killpg\n"
+                  "m._run_bounded(['sh', '-c', 'sleep 60 & echo $! > %s; wait'], 120)\n"
+                  % (SETUP, pidfile))
+        proc = subprocess.Popen([sys.executable, "-c", runner], env=self.env,
+                                stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 30
+        while not (os.path.exists(pidfile) and self.read_text(pidfile).strip()):
+            self.assertLess(time.monotonic(), deadline, "the stub never started")
+            time.sleep(0.05)
+        pid = int(self.read_text(pidfile))
+        proc.send_signal(signal.SIGINT)
+        try:
+            # the escaped sleep holds stderr for 60 s; 20 s tells the two apart
+            _out, err = proc.communicate(timeout=20)
+        finally:
+            deadline = time.monotonic() + 5  # a killed sleep waits to be reaped
+            while True:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                if time.monotonic() > deadline:
+                    os.kill(pid, 9)  # leave no stray sleep behind a failing run
+                    proc.kill()
+                    proc.communicate()
+                    self.fail("grandchild %d outlived the Ctrl-C" % pid)
+                time.sleep(0.1)
+        self.assertIn(b"KeyboardInterrupt", err)
+
     def test_the_installer_starts_with_sigint_unblocked(self):
         # review of plan 103: the parent blocks SIGINT across Popen; an
         # installer that inherited the block would ignore a Ctrl-C of its own
