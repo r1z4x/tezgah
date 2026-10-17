@@ -1424,18 +1424,22 @@ function writtenPath(args) {
   return target || null
 }
 
-// The local path a `file://` URL names, the text itself when it is no file
-// URL, or null for one that names no local file (a host other than
-// `localhost`, no path) - hooks/tezgah_integrity.file_url_path, split the way
-// urllib.parse.urlsplit splits it (plan 116).
+// The local path a `file://` URL names, the text itself when it carries no URI
+// scheme, or null for any other URI and for a file URL that names no local file
+// (a host other than `localhost`, no path) - hooks/tezgah_integrity.file_url_path,
+// split the way urllib.parse.urlsplit splits it (it drops tab, CR and LF) and
+// decoded the way unquote decodes (each run of %XX as UTF-8, bad bytes as
+// U+FFFD, a malformed escape kept) (plan 116).
 function fileUrlPath(text) {
-  if (text.slice(0, 7).toLowerCase() !== "file://") return text
-  const rest = text.slice(7).split(/[?#]/)[0]
+  if (!/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(text)) return text
+  if (text.slice(0, 7).toLowerCase() !== "file://") return null
+  const rest = text.replace(/[\t\r\n]/g, "").slice(7).split(/[?#]/)[0]
   const at = rest.indexOf("/")
   const host = at < 0 ? rest : rest.slice(0, at)
   const path = at < 0 ? "" : rest.slice(at)
   if (!["", "localhost"].includes(host.toLowerCase()) || !path) return null
-  try { return decodeURIComponent(path) } catch { return path }
+  return path.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => new TextDecoder().decode(
+    Uint8Array.from(run.slice(1).split("%"), (hex) => parseInt(hex, 16))))
 }
 
 // `path` resolved against `cwd` and through its symlinks, as Python's

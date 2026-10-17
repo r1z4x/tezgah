@@ -3522,18 +3522,36 @@ class PlanGate(TempHome):
         self.seed_write(self.path("hooks", "one.py"))
         self.assertIsNone(self.write(self.path("tests", "test_one.py")))
 
-    def test_a_file_uri_from_an_editor_with_a_command_is_one_file(self):
-        # review 116c F1: str_replace_editor's row `detail` is its command name,
-        # so only the writer's `target` can say which file a URL named
+    def editor_write(self, path):
+        """str_replace_editor's row: its `detail` is the command name."""
         out, proc = run_json([support.PROBE_INTEGRITY],
                              {"fn": "note_tool", "session": "plan-s",
                               "tool": "str_replace_editor",
                               "input": {"command": "create", "file_text": "x",
-                                        "path": "file://" + self.path("hooks", "one.py")},
-                              "cwd": self.repo}, env=self.envv)
+                                        "path": path}, "cwd": self.repo},
+                             env=self.envv)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_a_file_uri_from_an_editor_with_a_command_is_one_file(self):
+        # review 116c F1: only the writer's `target` can say which file a URL named
+        self.editor_write("file://" + self.path("hooks", "one.py"))
         self.seed_write(self.path("hooks", "one.py"))
         self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+
+    def test_an_editor_uri_write_that_names_no_file_never_counts(self):
+        # review 116d C3/C4: with no target the row fell back to its `detail`,
+        # the command name `create`, and counted as a product file
+        for uri in ("agent://Main", "local://x.md", "file://remote/x"):
+            self.editor_write(uri)
+        self.seed_write(self.path("hooks", "one.py"))
+        self.assertIsNone(self.write(self.path("tests", "test_one.py")))
+        # C1: a URL naming no local file reached `scratch_target` with no target
+        # and crashed the gate, which then let the call through unchecked
+        self.assertIsNone(self.decide("Write", {"file_path": "file://remote/y",
+                                                "content": "x"}))
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": "plan-s"}, env=self.envv)
+        self.assertEqual([r for r in out or [] if r.get("kind") == "crash"], [])
 
     def test_a_file_uri_into_main_from_a_plan_checkout_counts_in_main(self):
         # review of plan 116: the same `<cwd>/file:/x` reading put a file URL

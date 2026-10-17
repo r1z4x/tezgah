@@ -1126,27 +1126,40 @@ def prior_calls(session_id, digest, tail=200, agent=None):
             turn[-1].get("fail_class"))
 
 
+# Any `scheme://`: an internal channel (`agent://`, `local://`), a remote URL.
+# `file://` is read by `file_url_path`, the rest name no file on this disk.
+URI_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+
 def file_url_path(text):
-    """The local path a `file://` URL names, `text` itself when it is no file
-    URL, or None for one that names no local file (a host other than
-    `localhost`, no path). Read as `<cwd>/file:/x`, a URL into another checkout
-    landed in the cwd's and one file spelled both ways was two (plan 116)."""
-    if text[:7].lower() != "file://":
+    """The local path a `file://` URL names, `text` itself when it carries no
+    URI scheme, or None for any other URI and for a file URL that names no local
+    file (a host other than `localhost`, no path, a malformed host). Read as
+    `<cwd>/file:/x`, a URL into another checkout landed in the cwd's, one file
+    spelled both ways was two, and `agent://<id>` was a product file (plan 116).
+    ponytail: a shell redirect `> file:///x` writes `./file:/x`; it is read as
+    `/x` here, a spelling no tool produces."""
+    if not URI_SCHEME.match(text):
         return text
-    parts = urllib.parse.urlsplit(text)
+    if text[:7].lower() != "file://":
+        return None
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:  # an unclosed `[` host
+        return None
     if parts.netloc.lower() not in ("", "localhost") or not parts.path:
         return None
     return urllib.parse.unquote(parts.path)
 
 
 def _abs_target(path, cwd):
-    """`path` as an absolute real path, resolved against `cwd` when relative.
+    """`path` as an absolute real path, resolved against `cwd` when relative;
+    None when it names no local file (`file_url_path`).
 
     The form both halves of the cross-session write guard compare: the writer
     stores it in an `edit` row's `target`, the gate resolves its own call's path
     the same way. A file that does not exist yet still resolves (realpath leaves
-    the missing tail as it is), so a new file two sessions both create matches.
-    A `file://` URL resolves to the file it names (`file_url_path`)."""
+    the missing tail as it is), so a new file two sessions both create matches."""
     path = file_url_path(str(path or "").strip())
     if not path:
         return None
@@ -1183,6 +1196,8 @@ def scratch_target(path, cwd=None):
     if DEVICE.match(os.path.normpath(os.path.join(cwd or os.getcwd(), path))):
         return True
     real = _abs_target(path, cwd)
+    if not real:  # a URI: no file on this disk, scratch or shared
+        return False
     if real.startswith("/dev/") or PROC_FD.match(real):
         return True
     import tempfile  # deferred: the gate imports this module on every call

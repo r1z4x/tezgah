@@ -1611,8 +1611,9 @@ class WriteRowPath(unittest.TestCase):
 
     def test_a_file_url_write_records_the_file_it_names(self):
         # plan 116: `<cwd>/file:/x` put a URL into another checkout under the
-        # cwd's, for the race guard and the no-plan rule alike; a URL that names
-        # no local file (a remote host, no path) records no target
+        # cwd's, for the race guard and the no-plan rule alike; a path that
+        # names no local file (another URI, a remote or malformed host, no path)
+        # records no target, from a write tool or a shell redirect
         repo = os.path.realpath(os.path.join(self.dir, "repo"))
         other = os.path.realpath(os.path.join(self.dir, "other dir"))
         os.makedirs(repo)
@@ -1621,10 +1622,19 @@ class WriteRowPath(unittest.TestCase):
                             ("FILE://localhost" + want, want),
                             ("file://" + other.replace(" ", "%20") + "/a.py", want),
                             ("file://remote" + want, None),
-                            ("file://", None)):
+                            ("file://[x/y", None),
+                            ("file://", None),
+                            ("agent://Main", None),
+                            ("local://x.md", None)):
             with self.subTest(url=url):
                 ti.note_tool("s", "Write", {"file_path": url}, failed=False, cwd=repo)
                 self.assertEqual(ti.events("s")[-1].get("target"), target)
+                if target is None:
+                    # review 116d C1: a shell row's scratch check read the
+                    # missing target and raised, so the row was never written
+                    ti.note_tool("s", "Bash", {"command": "echo x > %s" % url},
+                                 failed=False, cwd=repo)
+                    self.assertEqual(ti.events("s")[-1].get("detail"), "echo x > %s" % url)
 
     def test_a_shell_write_records_its_absolute_real_target(self):
         # plan 057 (a)5: the race guard counts rows with a target, so a shell

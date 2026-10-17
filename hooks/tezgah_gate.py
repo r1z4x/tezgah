@@ -2582,8 +2582,9 @@ def _checkout(path, cwd):
     """`(top, rel)` for a write target: the nearest git checkout holding it and
     its path inside that checkout, or None when no checkout holds it, the path
     lies under a `.tezgah/` (which keeps a repository of its own and is never a
-    product path), or it carries a non-`file://` URI scheme (`URI_TARGET`:
-    `agent://<id>`, `local://x.md` are no files, plan 116).
+    product path), or it names no file on this disk: a URI other than a local
+    `file://` URL (`tezgah_integrity.file_url_path`: `agent://<id>`,
+    `local://x.md` are messages, plan 116).
 
     The branch question belongs to this checkout, not to the session's cwd: a
     session on `main` writing into a linked worktree on a plan branch is plan
@@ -2591,9 +2592,7 @@ def _checkout(path, cwd):
     relative path is resolved against the call's own `cwd`."""
     # `~/x` is a home path, not one under the cwd (plan 106)
     text = os.path.expanduser(str(path or "").strip())
-    if not text or URI_TARGET.match(text):
-        return None
-    text = file_url_path(text)  # a file URL is the file it names
+    text = file_url_path(text) if text else None  # a file URL is the file it names
     if not text:
         return None
     if not cwd and not os.path.isabs(text):
@@ -2659,13 +2658,12 @@ def plan_reason(inp, cwd, session_id):
                 or not _unplanned(branch, top) or _merging(top):
             continue
         if rows is None:
-            # a row's `target` is already absolute against the cwd it was
-            # recorded from; an older row without one resolves against this cwd.
-            # The writer absolutizes a non-file URI too (`<cwd>/agent:/x`), so a
-            # URI row is read off its own spelling in `detail`.
-            rows = [_checkout(row.get("target") or row.get("detail"), cwd)
-                    for row in turn_rows(session_id) if row.get("kind") == "edit"
-                    and not URI_TARGET.match(str(row.get("detail") or ""))]
+            # a row's `target` is the writer's own resolution of its path against
+            # the cwd it was recorded from, and none for a path that names no file
+            # (`agent://<id>`, plan 116). `detail` is no fallback: an editor's
+            # holds its command name (`create`), which resolved as a file here.
+            rows = [_checkout(row["target"], cwd) for row in turn_rows(session_id)
+                    if row.get("kind") == "edit" and row.get("target")]
         written |= {rel for hit in rows if hit and hit[0] == top
                     for rel in (hit[1],) if _product(rel)}
         if len(written) >= PLAN_WRITES:
