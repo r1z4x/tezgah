@@ -170,9 +170,15 @@ def modules_for(path, cache):
     if path.startswith("docs/") or path in ("docs/index.json",):
         mods = [m for m in DOC_TARGETS if os.path.exists(os.path.join(TESTS, m))]
         return mods or None
-    if path == "CHANGELOG.md" or path == "MANIFEST":
+    if path == "MANIFEST":
         mods = _tests_mentioning("packaging", cache)
         return mods or None
+    if path == "CHANGELOG.md":
+        # hooks/tezgah_clarity.py reads CHANGELOG.md beside docs/*.md
+        mods = set(_tests_mentioning("packaging", cache))
+        if os.path.exists(os.path.join(TESTS, "test_clarity.py")):
+            mods.add("test_clarity.py")
+        return sorted(mods) or None
     if os.sep not in path and path.endswith(".md"):
         # a root-level page (RELEASING.md, CONTRIBUTING.md, AGENTS.md, README.md):
         # the docs modules read the pages the index names, and the packaging tests

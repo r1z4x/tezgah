@@ -142,6 +142,11 @@ class TheMap(unittest.TestCase):
             self.assertIn("test_docs.py", mods or [], page)
             self.assertNotEqual(mods, None, page)
 
+    def test_the_changelog_runs_clarity_and_the_manifest_does_not(self):
+        # the clarity hook reads CHANGELOG.md beside docs/*.md
+        self.assertIn("test_clarity.py", self.modules("CHANGELOG.md") or [])
+        self.assertNotIn("test_clarity.py", self.modules("MANIFEST") or [])
+
     def test_an_unknown_path_is_the_full_suite(self):
         self.assertIsNone(self.modules("some/other/file.txt"))
 
