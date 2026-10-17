@@ -721,7 +721,9 @@ class Deps(SetupBase):
         """Plan 115: a member mid-fork as the group kill went out escaped it
         (macOS under load) and held the caller's stderr. The runner's first
         SIGKILL to the group reaches only the installer itself, as if its
-        grandchild had escaped; the grandchild must still be gone."""
+        grandchild had escaped, and the second reaches nobody, as if the escaped
+        member forked again in between: only a loop that signals until the group
+        is empty takes the grandchild, one extra kill does not."""
         import signal
         import time
         pidfile = self.path("grandchild.pid")
@@ -732,9 +734,11 @@ class Deps(SetupBase):
                   "l.exec_module(m)\n"
                   "real, missed = os.killpg, []\n"
                   "def killpg(pgid, sig):\n"
-                  "    if sig == signal.SIGKILL and not missed:\n"
+                  "    if sig == signal.SIGKILL and len(missed) < 2:\n"
                   "        missed.append(pgid)\n"
-                  "        return os.kill(pgid, sig)  # the installer, not its group\n"
+                  "        if len(missed) == 1:\n"
+                  "            return os.kill(pgid, sig)  # the installer, not its group\n"
+                  "        return None  # a round that reached no one\n"
                   "    return real(pgid, sig)\n"
                   "os.killpg = killpg\n"
                   "m._run_bounded(['sh', '-c', 'sleep 60 & echo $! > %s; wait'], 120)\n"
