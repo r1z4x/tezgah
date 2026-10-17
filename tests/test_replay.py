@@ -647,6 +647,31 @@ class Pure(unittest.TestCase):
         self.assertEqual(json.loads(proc.stdout), here)
 
 
+class ReplayWriters(TempHome):
+    def test_a_channel_write_names_no_other_writer(self):
+        # plan 116: a URI that names no local file is now its own target, shared
+        # across cwds; the live race rule skips the harness's channels, so the
+        # replay must not list another session as writing `agent://Main`, while
+        # an `s3://` key two sessions write is still a shared target
+        here, other = self.make_repo("here"), self.make_repo("other")
+        script = (
+            "import json, sys; sys.path.insert(0, %r)\n"
+            "import tezgah_gate as tg, tezgah_integrity as ti, tezgah_replay as tr\n"
+            "for p in ('agent://Main', 's3://b/k'):\n"
+            "    ti.note_tool('other', 'Write', {'file_path': p}, failed=False, cwd=%r)\n"
+            "it = lambda p: {'i': 1, 'kind': 'gate', 'tool': 'Write',\n"
+            "                'input': {'file_path': p}, 'cwd': %r, 'sid': 'mine'}\n"
+            "print(json.dumps([tr._replay_one(it(p), '', tg, [], None)['writers']\n"
+            "                  for p in ('agent://Main', 's3://b/k')]))\n"
+            % (support.HOOKS, other, here))
+        proc = subprocess.run([sys.executable, "-c", script], env=self.env(),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        channel, key = json.loads(proc.stdout)
+        self.assertEqual(channel, [])
+        self.assertEqual(len(key), 1, key)
+
+
 class ResidualTurns(TempHome):
     """`residual_turns`: residual sections per top-level user turn, read with
     the Stop rule's own detector, inside `(since, cutoff]`."""

@@ -1202,8 +1202,6 @@ def scratch_target(path, cwd=None):
     if DEVICE.match(os.path.normpath(os.path.join(cwd or os.getcwd(), path))):
         return True
     real = _abs_target(path, cwd)
-    if not real:  # a URI: no file on this disk, scratch or shared
-        return False
     if real.startswith("/dev/") or PROC_FD.match(real):
         return True
     import tempfile  # deferred: the gate imports this module on every call
