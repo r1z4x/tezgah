@@ -669,7 +669,7 @@ class ReplayWriters(TempHome):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         channel, key = json.loads(proc.stdout)
         self.assertEqual(channel, [])
-        self.assertEqual(len(key), 1, key)
+        self.assertEqual([w.rsplit("-", 1)[0] for w in key], ["other"], key)
 
     def test_writers_skip_what_the_live_race_rule_skips(self):
         # plan 117 (review 116g): the replay lists the writers the live race
@@ -709,7 +709,8 @@ class ReplayWriters(TempHome):
         # no file, an ended child of this session is no race
         self.assertEqual({"scratch": scratch, "unnamed": unnamed, "ended": ended},
                          {"scratch": [], "unnamed": [], "ended": []})
-        self.assertEqual(len(shared or ()), 1, shared)
+        # the shared file names its one writer, the `other` session, by ledger id
+        self.assertEqual([w.rsplit("-", 1)[0] for w in shared or ()], ["other"], shared)
 
 
 class ResidualTurns(TempHome):
