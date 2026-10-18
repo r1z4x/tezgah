@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A repository says its workspace is not this harness's.** Every repository under a root was armed, and no project could opt out of the plan and task machine driving it. A committed `tezgah.owner` at the repository's top now says who owns the workspace. `tasks: off` stops the plan and task machine - no active task, no per-turn phase line, no `tezgah-task` command that writes a record, and the gate holds no write to its own plan files - while the scope gate, research and lessons keep reading the repository. `harness: excluded` takes the repository out of every root, so nothing here is armed at all. The file is read from the nearest `.git` top, so a repository cloned inside a marked one answers for itself, and an unreadable file decides nothing. See `docs/operations.md`.
+
 ### Changed
 
 - **The no-plan refusal on a trunk offers no bind route.** On `main` or `master` it used to offer `tezgah-task start NNN --branch <trunk>`. The gate never honoured that binding, so the next write met the same refusal. The text now names the `plan/NNN-slug` route or a non-trunk branch a plan declares. `tezgah-task start --branch main` or `--branch master` now exits 2 and writes nothing.

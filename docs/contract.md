@@ -445,6 +445,15 @@ ignore the matching section in `tezgah-contract` — that skill is loaded
 separately and would otherwise re-arm the rule. `tezgah-adhd off` writes the same
 channel as the file (`bin/tezgah-adhd::SWITCH`); the ponytail *level* is not a switch.
 
+One more file in a repository's own tree is not a rule switch either: a
+`tezgah.owner` at the repository's top says who owns the workspace, and its two
+settings turn seams off rather than dropping a paragraph. `tasks: off` stops the
+plan/task machine - no active task, no per-turn phase line, and no `tezgah-task`
+command that writes a record (`hooks/tezgah_paths.py::tasks_disabled`) - while
+the scope gate, research and lessons keep reading the repository;
+`harness: excluded` makes `root_for` answer None, which leaves nothing here
+armed at all (`hooks/tezgah_paths.py::harness_excluded`).
+
 `**Deliver the whole ask**`, the sycophancy ban and the attribution ban are
 invariants: no switch touches them, and `tests/test_context.py::KillSwitchEnforcement.test_fidelity_and_the_sycophancy_ban_are_invariants` asserts
 they survive every other switch being off.

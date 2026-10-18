@@ -94,6 +94,9 @@ A used-mark a surface is able to see at all, so it can say "armed, not used yet"
 ### once-only
 A mark consumed by its own first use, so the thing it protects happens once: the grep [nudge](#nudge) is written before the deny so later greps pass (`hooks/tezgah_gate.py::decision`). Not a licence for the session: the identical call passes on the retry.
 
+### owner marker
+The file a repository commits to say who owns its workspace: `tezgah.owner` at its own top, a few `key: value` lines read by `owner_marker()` (`hooks/tezgah_paths.py::owner_marker`). `tasks: off` stops the plan/task machine there (`hooks/tezgah_paths.py::tasks_disabled`) and `harness: excluded` makes `root_for` answer None, so nothing here is armed at all (`hooks/tezgah_paths.py::harness_excluded`). Not a [per-repo mark](#per-repo-mark): it turns seams off rather than dropping one rule's paragraph, and not a [kill switch](#kill-switch), because it travels with the repository.
+
 ### per-repo mark
 An opt-out file in the repo tree - `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`, `.no-taste` - collected by `repo_marks()` walking up to the enclosing root (`hooks/tezgah_context.py::repo_marks`). Not a [kill switch](#kill-switch): a mark travels with the repo, a switch with the machine.
 
