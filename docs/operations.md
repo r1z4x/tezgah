@@ -770,7 +770,7 @@ harness's says so itself, in a `tezgah.owner` file it commits at its own top:
 
 | Setting | What stops |
 |---|---|
-| `tasks: off` | the plan/task machine: no active task (`hooks/tezgah_task.py::_phased`), so no per-turn phase line and no scope held to a plan, the record rule holds no write to its own plan files (`hooks/tezgah_task.py::phased_record`), and every `tezgah-task` command that writes a record is refused with the file named (`bin/tezgah-task::owner_mark`). The scope gate, `bin/run-tool`, research and lessons keep reading the repository |
+| `tasks: off` | the plan and task machine: no active task (`hooks/tezgah_task.py::_phased`), so no per-turn phase line and no scope held to a plan, the record rule holds no write to its own plan files (`hooks/tezgah_task.py::phased_record`), and every `tezgah-task` command that writes a record - the plan writers, the slice journal and `sweep` - is refused with the file named (`bin/tezgah-task::writes_a_record`, `bin/tezgah-task::owner_mark`). The scope gate, `bin/run-tool`, research and lessons keep reading the repository |
 | `harness: excluded` | everything: `root_for` answers None, so no contract text is injected, no workspace is set up, no plan, task or lesson record is written, and the gate passes every call (`hooks/tezgah_paths.py::harness_excluded`) |
 | `owner: <name>` | nothing - it names who owns the workspace, for the person reading the diff |
 

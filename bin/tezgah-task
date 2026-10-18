@@ -161,22 +161,39 @@ def repo_root(path):
 
 
 # Commands that write a plan's record. A repository that carries `tezgah.owner`
-# saying `tasks: off` (or `harness: excluded`) keeps its plans to itself: the
+# saying `tasks: off` (or `harness: excluded`) keeps its records to itself: the
 # phase would arm nothing there - `tezgah_task._phased` answers no task
 # (`hooks/tezgah_paths.py::tasks_disabled`) - so writing one would report
-# success for a guard that never fired. Read-only commands are untouched.
+# success for a guard that never fired. `writes_a_record` reads both tuples, and
+# the read-only commands are untouched.
 RECORD_COMMANDS = ("start", "phase", "allow", "stop", "review", "close",
                    "tick", "note", "spike", "unmet")
+# The journal's own writers, and `sweep`, which clears an orphan `phase:` and
+# closes the slices of the worktrees it prunes. The rest of `slice` only reads
+# (stats, board, merge-plan), and so does `status`.
+SLICE_WRITERS = ("open", "done", "stop", "reconcile", "resume")
+
+
+def writes_a_record(cmd, rest):
+    """True when this invocation writes the task machine's records: the plan
+    file, the slice journal, or the phases and slices `sweep` clears. The
+    readers write none, so a repository that is not this harness's still answers
+    them (`status`, `slice stats`, `slice board`, `slice merge-plan`)."""
+    if cmd in RECORD_COMMANDS:
+        return True
+    if cmd == "slice":
+        return bool(rest) and rest[0] in SLICE_WRITERS
+    return cmd == "sweep"
 
 
 def owner_mark(root):
-    """Why this repository's plan record is not this machine's to write, else
+    """Why this repository's records are not this machine's to write, else
     None. Through `tasks_disabled`, so the CLI and the gate read one answer."""
     from tezgah_paths import OWNER_MARKER, tasks_disabled
     if not tasks_disabled(root):
         return None
-    return ("%s says `tasks: off` in %s: its plans are the repository's own, so "
-            "this machine writes no record there - edit the plan file directly"
+    return ("%s says `tasks: off` in %s: its records are the repository's own, so "
+            "this machine writes none there - edit them directly"
             % (root, os.path.join(root, OWNER_MARKER)))
 
 
@@ -1847,7 +1864,7 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = argv[1], argv[2:]
-    if cmd in RECORD_COMMANDS:
+    if writes_a_record(cmd, rest):
         mark = owner_mark(repo_root(os.getcwd()))
         if mark:
             return problems([mark])

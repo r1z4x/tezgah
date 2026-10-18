@@ -712,6 +712,27 @@ class Cli(TempHome):
         # keep working in a repository that took only the task machine out
         self.assertEqual(self.task("status").returncode, 0)
 
+    def test_the_slice_journal_and_sweep_take_no_record_write_either(self):
+        # the machine is not only the plan file: `slice` writes the journal, and
+        # `sweep` clears an orphan phase and closes the slices of the worktrees
+        # it prunes, so a repository that says `tasks: off` keeps those itself
+        self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        self.mark("tasks: off\n")
+        for args in (["slice", "open", "--id", "s1", "--kind", "job"], ["sweep"]):
+            proc = self.task(*args)
+            self.assertEqual(proc.returncode, 1, args)
+            self.assertIn("tezgah.owner", proc.stdout, args)
+        # every writer of the journal is refused by the marker, not by the
+        # record it finds missing, and the readers answer as before
+        for sub in ("done", "stop", "resume", "reconcile"):
+            proc = self.task("slice", sub, "s1")
+            self.assertEqual(proc.returncode, 1, sub)
+            self.assertIn("tezgah.owner", proc.stdout, sub)
+        self.assertEqual(tt.slices(self.repo), [])
+        for args in (["status"], ["slice", "stats"], ["slice", "board"],
+                     ["slice", "merge-plan"]):
+            self.assertEqual(self.task(*args).returncode, 0, args)
+
     def test_harness_excluded_refuses_the_record_and_unarms_the_repository(self):
         import tezgah_paths as tp
         self.plan("001-first.md", allowed=["hooks/**"])
