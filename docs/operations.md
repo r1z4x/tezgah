@@ -774,6 +774,24 @@ The `~/.config/tezgah/slices-off` switch
 stops the hooks from writing records (`hooks/tezgah_paths.py::UNCLASSIFIED_SWITCHES`).
 A cwd outside a git repository writes nothing either.
 
+## A repository that is not this harness's
+
+Tezgah arms every repository under a root, because `roots()` is the only switch
+that decides. Every other switch is global (`~/.config/tezgah/*.off`) or
+per-feature (`.no-ponytail`, `.no-graph`). A project whose workspace is not this
+harness's says so itself, in a `tezgah.owner` file it commits at its own top:
+
+| Setting | What stops |
+|---|---|
+| `tasks: off` | the plan and task machine: no active task (`hooks/tezgah_task.py::_phased`), so no per-turn phase line and no scope held to a plan, the record rule holds no write to its own plan files (`hooks/tezgah_task.py::phased_record`), and every `tezgah-task` command that writes a record - the plan writers, the slice journal and `sweep` - is refused with the file named (`bin/tezgah-task::writes_a_record`, `bin/tezgah-task::owner_mark`). The scope gate, `bin/run-tool`, research and lessons keep reading the repository |
+| `harness: excluded` | everything: `root_for` answers None, so no contract text is injected, no workspace is set up, no plan, task or lesson record is written, and the gate passes every call (`hooks/tezgah_paths.py::harness_excluded`) |
+| `owner: <name>` | nothing - it names who owns the workspace, for the person reading the diff |
+
+The file comes from the nearest `.git` top at or above the path, so a repository
+cloned inside a marked one answers for itself. A missing or unreadable file, an
+unknown key and a blank value decide nothing
+(`hooks/tezgah_paths.py::owner_marker`).
+
 ## Troubleshooting
 
 | Symptom | First check | Likely cause |

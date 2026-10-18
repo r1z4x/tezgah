@@ -8,7 +8,10 @@ report, and for the session that has just met a refusal in its transcript. [arch
 
 One function decides every refusal: `decision(tool, inp, cwd, session_id)` returns a reason string or `None`, and nothing else
 (`hooks/tezgah_gate.py::decision`). It answers only inside a tezgah [root](glossary.md#root): outside one `root_for` returns nothing and every call passes
-(`hooks/tezgah_gate.py::decision`). The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`). `decision` binds the session first.
+(`hooks/tezgah_gate.py::decision`). A repository that commits `tezgah.owner` with `harness: excluded` is out of every root the same way. One that
+says `tasks: off` keeps the root and turns off only the task rules. The record rule then holds no write to its own
+plan files ([operations.md](operations.md#a-repository-that-is-not-this-harnesss)).
+The `pretooluse-off` kill switch drops the whole gate (`hooks/tezgah_gate.py::decision`). `decision` binds the session first.
 It reads every switch through the session latch ([contract.md](contract.md#how-a-rule-is-disarmed)).
 
 Each host's pre-tool hook calls it and wraps the string in that host's own deny envelope — opencode's is its `tool.execute.before`, which throws

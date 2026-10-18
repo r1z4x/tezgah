@@ -122,7 +122,10 @@ history) is printed as `not judged` and the exit is 1. `review ... approve`
 is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
-with nothing written - 2 misuse.
+with nothing written - 2 misuse. In a repository whose `tezgah.owner` says
+`tasks: off` (or `harness: excluded`) every command above that writes a record
+is refused, and the read-only ones still answer
+(`bin/tezgah-task::owner_mark`).
 """
 import glob
 import json
@@ -155,6 +158,43 @@ def repo_root(path):
     except OSError:
         pass
     return os.path.realpath(path)
+
+
+# Commands that write a plan's record. A repository that carries `tezgah.owner`
+# saying `tasks: off` (or `harness: excluded`) keeps its records to itself: the
+# phase would arm nothing there - `tezgah_task._phased` answers no task
+# (`hooks/tezgah_paths.py::tasks_disabled`) - so writing one would report
+# success for a guard that never fired. `writes_a_record` reads both tuples, and
+# the read-only commands are untouched.
+RECORD_COMMANDS = ("start", "phase", "allow", "stop", "review", "close",
+                   "tick", "note", "spike", "unmet")
+# The journal's own writers, and `sweep`, which clears an orphan `phase:` and
+# closes the slices of the worktrees it prunes. The rest of `slice` only reads
+# (stats, board, merge-plan), and so does `status`.
+SLICE_WRITERS = ("open", "done", "stop", "reconcile", "resume")
+
+
+def writes_a_record(cmd, rest):
+    """True when this invocation writes the task machine's records: the plan
+    file, the slice journal, or the phases and slices `sweep` clears. The
+    readers write none, so a repository that is not this harness's still answers
+    them (`status`, `slice stats`, `slice board`, `slice merge-plan`)."""
+    if cmd in RECORD_COMMANDS:
+        return True
+    if cmd == "slice":
+        return bool(rest) and rest[0] in SLICE_WRITERS
+    return cmd == "sweep"
+
+
+def owner_mark(root):
+    """Why this repository's records are not this machine's to write, else
+    None. Through `tasks_disabled`, so the CLI and the gate read one answer."""
+    from tezgah_paths import OWNER_MARKER, tasks_disabled
+    if not tasks_disabled(root):
+        return None
+    return ("%s says `tasks: off` in %s: its records are the repository's own, so "
+            "this machine writes none there - edit them directly"
+            % (root, os.path.join(root, OWNER_MARKER)))
 
 
 def misuse(message):
@@ -1836,6 +1876,10 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = argv[1], argv[2:]
+    if writes_a_record(cmd, rest):
+        mark = owner_mark(repo_root(os.getcwd()))
+        if mark:
+            return problems([mark])
     if cmd == "start":
         return cmd_start(rest)
     if cmd == "phase":

@@ -403,6 +403,85 @@ class WorktreeBridge(TempHome):
         self.assertNotEqual(proc.returncode, 2, proc.stdout + proc.stderr)
 
 
+class OwnerMarker(TempHome):
+    """`tezgah.owner`: the repository's own answer to who owns its workspace -
+    `tasks: off` for the plan/task machine alone, `harness: excluded` for every
+    seam at once. Read from the repository's own top, so a project inside
+    another answers for itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("mine")
+        git("init", "-q", self.repo)
+        patch = mock.patch.dict(os.environ, {"TEZGAH_ROOTS": self.roots})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def mark(self, text, repo=None):
+        path = os.path.join(repo or self.repo, "tezgah.owner")
+        with open(path, "w") as fh:
+            fh.write(text)
+        return path
+
+    def commit_all(self, repo=None):
+        repo = repo or self.repo
+        git("-C", repo, "add", ".")
+        git("-C", repo, "-c", "user.email=a@b", "-c", "user.name=t",
+            "commit", "-qm", "x")
+
+    def test_a_repository_with_no_marker_is_armed_and_runs_its_own_plans(self):
+        self.assertEqual(tp.root_for(self.repo), self.roots)
+        self.assertEqual(tp.owner_marker(self.repo), {})
+        self.assertFalse(tp.tasks_disabled(self.repo))
+        self.assertFalse(tp.harness_excluded(self.repo))
+
+    def test_harness_excluded_takes_the_repository_out_of_every_root(self):
+        self.mark("# ours\nharness: Excluded\n")
+        self.assertTrue(tp.harness_excluded(self.repo))
+        self.assertTrue(tp.tasks_disabled(self.repo))
+        self.assertIsNone(tp.root_for(self.repo))
+        sub = os.path.join(self.repo, "src", "x.py")
+        os.makedirs(os.path.dirname(sub))
+        open(sub, "w").close()
+        self.assertIsNone(tp.root_for(sub))
+
+    def test_tasks_off_keeps_the_repository_armed_and_only_the_machine_out(self):
+        self.mark("owner: someone\ntasks: off\n")
+        self.assertEqual(tp.owner_marker(self.repo),
+                         {"owner": "someone", "tasks": "off"})
+        self.assertTrue(tp.tasks_disabled(self.repo))
+        self.assertFalse(tp.harness_excluded(self.repo))
+        self.assertEqual(tp.root_for(self.repo), self.roots)
+
+    def test_a_line_the_marker_does_not_own_decides_nothing(self):
+        self.mark("no colon here\nowner:\nharness: maybe\ntasks: sometimes\n"
+                  "shipped: yes\n# harness: excluded\n")
+        self.assertEqual(tp.owner_marker(self.repo),
+                         {"harness": "maybe", "tasks": "sometimes"})
+        self.assertFalse(tp.harness_excluded(self.repo))
+        self.assertFalse(tp.tasks_disabled(self.repo))
+        self.assertEqual(tp.root_for(self.repo), self.roots)
+
+    def test_a_worktree_of_an_excluded_repository_is_out_too(self):
+        self.mark("harness: excluded\n")
+        self.commit_all()
+        wt = os.path.join(self.roots, "wt")
+        git("-C", self.repo, "worktree", "add", "-q", "--detach", wt)
+        self.assertIsNone(tp.root_for(os.path.realpath(wt)))
+
+    def test_a_nested_repository_answers_for_itself(self):
+        # a clone or a vendored checkout inside a marked project reads its own
+        # top, so the outer marker never reaches it
+        inner = os.path.join(self.repo, "vendored")
+        os.makedirs(inner)
+        git("init", "-q", inner)
+        self.mark("harness: excluded\n")
+        self.assertIsNone(tp.root_for(self.repo))
+        self.assertEqual(tp.owner_marker(inner), {})
+        self.assertFalse(tp.tasks_disabled(inner))
+        self.assertEqual(tp.root_for(inner), self.roots)
+
+
 class BareRepository(TempHome):
     """Plan 098: a bare repository has no main checkout, so each of its worktrees
     kept its own `.tezgah`, which `git worktree remove` deleted, and a plan
