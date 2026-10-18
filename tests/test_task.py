@@ -681,6 +681,69 @@ class Cli(TempHome):
         return {name: read(os.path.join(self.open, name))
                 for name in sorted(os.listdir(self.open))}
 
+    def mark(self, text):
+        """The repository's own `tezgah.owner` at its top - the file a project
+        commits to say who owns its workspace."""
+        path = os.path.join(self.repo, "tezgah.owner")
+        with open(path, "w") as fh:
+            fh.write(text)
+        return path
+
+    # ------------------------------------------------------- the owner marker
+
+    def test_a_repository_that_says_tasks_off_takes_no_record_write(self):
+        # the phase would arm nothing - _phased answers no task there - so a
+        # `start` that reported success would be a guard that never fired
+        self.plan("001-first.md", allowed=["hooks/**"])
+        self.assertEqual(self.task("start", "001", "--phase", "implementation").returncode, 0)
+        before = self.snapshot()
+        self.mark("owner: the lab\ntasks: off\n")
+        for args in (["start", "001", "--phase", "implementation"],
+                     ["phase", "verification"], ["allow", "src/**", "--why", "x"],
+                     ["stop"], ["tick", "001", "1"],
+                     ["note", "001", "next", "x"], ["close", "001", "discarded"]):
+            proc = self.task(*args)
+            self.assertEqual(proc.returncode, 1, args)
+            self.assertIn("tasks: off", proc.stdout, args)
+            self.assertIn("tezgah.owner", proc.stdout, args)
+        self.assertEqual(self.snapshot(), before)
+        self.assertIsNone(self.status())
+        # the read-only commands still answer: research, lessons and the gate
+        # keep working in a repository that took only the task machine out
+        self.assertEqual(self.task("status").returncode, 0)
+
+    def test_harness_excluded_refuses_the_record_and_unarms_the_repository(self):
+        import tezgah_paths as tp
+        self.plan("001-first.md", allowed=["hooks/**"])
+        self.mark("harness: excluded\n")
+        proc = self.task("start", "001", "--phase", "implementation")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("tezgah.owner", proc.stdout)
+        self.assertIsNone(tp.root_for(self.repo))
+        self.assertIsNone(self.status())
+
+    def test_a_plan_worktree_reads_no_task_when_the_repository_says_tasks_off(self):
+        # branch_task answers before _phased reads the main checkout's plans, so
+        # a worktree on a plan branch must go quiet the same way
+        self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        self.assertEqual(self.status()["id"], "001")
+        self.mark("tasks: off\n")
+        wt = os.path.realpath(self.slice("plan/001-first", commit=False, merge=False))
+        self.assertIsNone(tt.branch_task(wt))
+        self.assertIsNone(tt.active(wt, self.roots))
+        self.assertIsNone(tt.active(self.repo, self.roots))
+
+    def test_the_record_rule_holds_no_write_in_a_repository_that_says_tasks_off(self):
+        # the gate refuses a hand edit of a phased record; in a repository that
+        # keeps its own plans it holds nothing, or its own plan file could not
+        # be edited by hand either
+        self.plan("001-first.md", phase="implementation", allowed=["hooks/**"])
+        rel = ".tezgah/plans/open/001-first.md"
+        self.assertTrue(tt.phased_record(self.repo, rel))
+        self.mark("tasks: off\n")
+        self.assertFalse(tt.phased_record(self.repo, rel))
+        self.assertFalse(tt.phased_record(self.repo, ".tezgah/plans/open/002-x.md"))
+
     # ---------------------------------------------------------------- start
 
     def test_start_activates_the_plan_and_clears_the_other_plans_phase(self):
