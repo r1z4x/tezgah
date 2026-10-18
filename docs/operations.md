@@ -763,11 +763,10 @@ A cwd outside a git repository writes nothing either.
 
 ## A repository that is not this harness's
 
-A repository under a root is armed, because `roots()` is the only switch and
-every other one is either global (`~/.config/tezgah/*.off`) or per-feature
-(`.no-ponytail`, `.no-graph`). A project whose workspace is not this harness's -
-an engagement whose plans are the reviewer's, a tree read on someone else's
-behalf - says so itself, in a `tezgah.owner` file it commits at its own top:
+Tezgah arms every repository under a root, because `roots()` is the only switch
+that decides. Every other switch is global (`~/.config/tezgah/*.off`) or
+per-feature (`.no-ponytail`, `.no-graph`). A project whose workspace is not this
+harness's says so itself, in a `tezgah.owner` file it commits at its own top:
 
 | Setting | What stops |
 |---|---|
@@ -775,9 +774,9 @@ behalf - says so itself, in a `tezgah.owner` file it commits at its own top:
 | `harness: excluded` | everything: `root_for` answers None, so no contract text is injected, no workspace is set up, no plan, task or lesson record is written, and the gate passes every call (`hooks/tezgah_paths.py::harness_excluded`) |
 | `owner: <name>` | nothing - it names who owns the workspace, for the person reading the diff |
 
-The file is read from the nearest `.git` top at or above the path, so a
-repository cloned inside a marked one answers for itself; a missing or
-unreadable file, an unknown key and a blank value decide nothing
+The file comes from the nearest `.git` top at or above the path, so a repository
+cloned inside a marked one answers for itself. A missing or unreadable file, an
+unknown key and a blank value decide nothing
 (`hooks/tezgah_paths.py::owner_marker`).
 
 ## Troubleshooting

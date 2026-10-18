@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **A repository says its workspace is not this harness's.** Every repository under a root was armed, and no project could opt out of the plan and task machine driving it. A committed `tezgah.owner` at the repository's top now says who owns the workspace. `tasks: off` stops the plan and task machine - no active task, no per-turn phase line, no `tezgah-task` command that writes a record, and the gate holds no write to its own plan files - while the scope gate, research and lessons keep reading the repository. `harness: excluded` takes the repository out of every root, so nothing here is armed at all. The file is read from the nearest `.git` top, so a repository cloned inside a marked one answers for itself, and an unreadable file decides nothing. See `docs/operations.md`.
+- **A repository says its workspace is not this harness's.** Tezgah armed every repository under a root, and no project could opt out. A committed `tezgah.owner` at the repository's top now says who owns the workspace, and its two settings turn seams off. `tasks: off` stops the plan and task machine. No active task, no per-turn phase line, and no `tezgah-task` command writes a record. The gate holds no write to its own plan files. The scope gate, research and lessons keep reading the repository. `harness: excluded` takes the repository out of every root, and nothing runs there. A repository cloned inside a marked one answers for itself, since the file comes from the nearest `.git` top. A file that cannot be read decides nothing. See `docs/operations.md`.
 
 ### Changed
 
