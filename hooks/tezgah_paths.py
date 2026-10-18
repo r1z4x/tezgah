@@ -245,13 +245,82 @@ def root_for(path):
     rs = roots()
     for r in rs:
         if real == r or real.startswith(r + os.sep):
-            return r
+            # Read lazily, in the branch where the root already matched: a path
+            # outside every configured root pays nothing for the marker.
+            return None if harness_excluded(real) else r
     top = worktree_top(real)
     if top:
         main = _linked_main_at(top)
         if main and any(main == r or main.startswith(r + os.sep) for r in rs):
-            return top
+            return None if harness_excluded(top) else top
     return None
+
+
+# --- the owner marker: a repository that says who owns its workspace --------
+# Every repository under a configured root is armed, because `roots()` is the
+# only switch and the kill switches are global (`~/.config/tezgah/*.off`) or
+# per-feature (`<repo>/.no-ponytail`). A project whose workspace is not this
+# harness's has no way to say so - and one measured consequence is a review of
+# an authorized offensive-security workspace where the harness's development
+# plan/task machine drove a lab engagement: three `tezgah-task` writes inside
+# the run and the per-turn phase line reaching a read-only review subagent
+# (that repository's `.tezgah/analysis/harness-review-and-gaps.md`, the plan-011
+# section; the line range is left out because a citation into another
+# repository's workspace cannot be judged against this tree).
+# The marker is that way: a file the repository owns, committed, reviewable in a
+# diff, and not produced by `tezgah-setup`, so a config rewrite cannot resurrect
+# the collision. Two settings, because they cost different things:
+#   tasks: off        - the plan/task machine and the per-turn task line stop;
+#                       the scope gate, research and lessons keep working.
+#   harness: excluded - `root_for` answers None and the harness is inert here
+#                       entirely: no workspace init, no plan/task/lesson record,
+#                       no gate envelope, no per-turn contract clause.
+OWNER_MARKER = "tezgah.owner"
+OWNER_KEYS = ("owner", "tasks", "harness")
+_OWNER_OFF = ("off", "false", "no")
+
+
+def owner_marker(path):
+    """The owner marker's fields for the repository holding `path`, or {}.
+
+    Read from the nearest `.git` top level at or above `path` (`_toplevel`), so a
+    path inside a workspace reads its project's marker and a repository cloned
+    inside that workspace answers for itself. A missing or unreadable file, a
+    line with no `:`, an unknown key and a blank value all answer {} rather than
+    raise: this runs inside `root_for`, which every gate call and every session
+    start reaches, and a marker that cannot be read must decide nothing."""
+    top = _toplevel(os.path.realpath(path))
+    if not top:
+        return {}
+    try:
+        with open(os.path.join(top, OWNER_MARKER), encoding="utf-8") as fh:
+            text = fh.read(4096)
+    except (OSError, UnicodeDecodeError):
+        return {}
+    out = {}
+    for line in text.splitlines():
+        key, _, value = line.split("#", 1)[0].partition(":")
+        key, value = key.strip().lower(), value.strip().lower()
+        if key in OWNER_KEYS and value:
+            out[key] = value
+    return out
+
+
+def harness_excluded(path):
+    """True when the repository holding `path` declares `harness: excluded`,
+    the state in which `root_for` answers None and nothing here is armed."""
+    return owner_marker(path).get("harness") == "excluded"
+
+
+def tasks_disabled(path):
+    """True when `path`'s repository says the plan/task machine must not run from
+    its plans: `tasks: off`, or `harness: excluded`, which implies it.
+
+    The narrower of the two settings, and the one a project takes first: the
+    task rule turns off while the seams a repository still wants - the scope
+    gate, `bin/run-tool`, research, lessons - keep reading its workspace."""
+    fields = owner_marker(path)
+    return fields.get("harness") == "excluded" or fields.get("tasks") in _OWNER_OFF
 
 
 def _toplevel(real):

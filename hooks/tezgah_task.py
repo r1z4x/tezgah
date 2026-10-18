@@ -547,9 +547,12 @@ def _phased(root, ident=None):
     # and allowlist would lock writes in a cloned repo (audit L-16). Only
     # positive evidence turns the rule off - the index tracks `.tezgah` -
     # never a can't-tell, which would switch the user's own guard off in
-    # silence (review R2); the answer is cached on the index's stat.
-    from tezgah_paths import workspace_tracked
-    if out and workspace_tracked(root):
+    # silence (review R2); the answer is cached on the index's stat. A
+    # repository that carries `tezgah.owner` says it outright: `tasks: off`
+    # means its plans are its own, and `harness: excluded` makes `root_for`
+    # answer None, so no caller reaches this with a root at all.
+    from tezgah_paths import tasks_disabled, workspace_tracked
+    if out and (workspace_tracked(root) or tasks_disabled(root)):
         return []
     return out
 
@@ -706,9 +709,14 @@ def phased_record(root, rel):
     if (len(parts) != 4 or "/".join(parts[:3]).casefold() != ".tezgah/plans/open"
             or not parts[3].casefold().endswith(".md")):
         return False
+    from tezgah_paths import tasks_disabled
     for name, _, text in _plan_files(root, "open"):
         if name.casefold() == parts[3].casefold():
-            return frontmatter(text).get("phase") in TASK_PHASES
+            # Read after the name matches, so an ordinary write pays no marker
+            # read. A repository that says `tasks: off` owns its plans: holding
+            # a write to one of them is the machine running there.
+            return (frontmatter(text).get("phase") in TASK_PHASES
+                    and not tasks_disabled(root))
     return False
 
 

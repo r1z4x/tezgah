@@ -122,7 +122,10 @@ history) is printed as `not judged` and the exit is 1. `review ... approve`
 is refused while a record whose id or agent is that reviewer is not done.
 
 Exit codes: 0 ok, 1 a refusal or a problem - one `FAIL <what>` line per problem,
-with nothing written - 2 misuse.
+with nothing written - 2 misuse. In a repository whose `tezgah.owner` says
+`tasks: off` (or `harness: excluded`) every command above that writes a record
+is refused, and the read-only ones still answer
+(`bin/tezgah-task::owner_mark`).
 """
 import glob
 import json
@@ -155,6 +158,26 @@ def repo_root(path):
     except OSError:
         pass
     return os.path.realpath(path)
+
+
+# Commands that write a plan's record. A repository that carries `tezgah.owner`
+# saying `tasks: off` (or `harness: excluded`) keeps its plans to itself: the
+# phase would arm nothing there - `tezgah_task._phased` answers no task
+# (`hooks/tezgah_paths.py::tasks_disabled`) - so writing one would report
+# success for a guard that never fired. Read-only commands are untouched.
+RECORD_COMMANDS = ("start", "phase", "allow", "stop", "review", "close",
+                   "tick", "note", "spike", "unmet")
+
+
+def owner_mark(root):
+    """Why this repository's plan record is not this machine's to write, else
+    None. Through `tasks_disabled`, so the CLI and the gate read one answer."""
+    from tezgah_paths import OWNER_MARKER, tasks_disabled
+    if not tasks_disabled(root):
+        return None
+    return ("%s says `tasks: off` in %s: its plans are the repository's own, so "
+            "this machine writes no record there - edit the plan file directly"
+            % (root, os.path.join(root, OWNER_MARKER)))
 
 
 def misuse(message):
@@ -1824,6 +1847,10 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     cmd, rest = argv[1], argv[2:]
+    if cmd in RECORD_COMMANDS:
+        mark = owner_mark(repo_root(os.getcwd()))
+        if mark:
+            return problems([mark])
     if cmd == "start":
         return cmd_start(rest)
     if cmd == "phase":
