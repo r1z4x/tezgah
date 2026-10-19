@@ -2977,7 +2977,7 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     # not at the top: a broken extension module costs its chips, never the line.
     try:
         import tezgah_extension
-        ext = tezgah_extension.segments(cwd)
+        ext = tezgah_extension.segments(cwd, session_id=session_id)
     except Exception:
         ext = []
     if ext:

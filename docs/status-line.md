@@ -145,6 +145,20 @@ after every built-in mark (`segments()`, `hooks/tezgah_extension.py::segments`,
 `hooks/tezgah_context.py::health_segments`). A relative `command[0]` resolves
 against the repo root, so a manifest travels with its clone.
 
+Every call hands the child its own envelope on stdin, as one JSON object:
+
+```json
+{"api": 1, "event": "statusline", "cwd": "/repo/sub", "repo_root": "/repo",
+ "session_id": "s-42"}
+```
+
+An extension therefore reads which repository and which session asked it, rather
+than inferring that from its own environment (`call_envelope()`,
+`hooks/tezgah_extension.py::call_envelope`). `api` is the envelope's version: an
+extension that meets a higher one says so on the line rather than drawing a chip
+it cannot trust. A command that never reads its stdin sees the same closed, empty
+input it always did.
+
 The contract is **data, not a line**. The extension produces `{key, state, glyph,
 text}` segments, and tezgah draws them. So color, the narrow-surface drop and the
 group separators stay identical for every extension. An extension never has to

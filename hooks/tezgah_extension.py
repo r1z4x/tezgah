@@ -12,6 +12,11 @@ and that command prints structured segments on stdout:
     {"segments": [{"key": "eng", "state": "info", "text": "pentest-001",
                    "glyph": "", "group": 0}]}
 
+The command is handed its own call on stdin as one JSON object -
+`{"api": 1, "event": "statusline", "cwd": ..., "repo_root": ...,
+"session_id": ...}` (`call_envelope()`) - so it knows which repository and
+session asked, rather than guessing from its environment.
+
 tezgah discovers the manifest by walking up from the working directory, runs the
 command once per render (bounded, fail-open) and appends what it returns after
 its own marks. The core owns rendering: an extension produces data, never a
@@ -48,6 +53,22 @@ DEFAULT_TIMEOUT_MS = 1000
 # broken manifest from pushing the built-in marks off the line.
 MAX_SEGMENTS = 8
 STATES = ("on", "ready", "off", "info")
+# The call envelope's version, not this module's: it is what tells an extension
+# which keys to expect on its stdin. Adding a key leaves it alone; changing what
+# a key means bumps it.
+CALL_API = 1
+
+
+def call_envelope(repo_root, cwd, session_id=None):
+    """The one JSON object every extension call carries on stdin.
+
+    The child is told which repository it was called for, from which directory
+    and in which session, instead of inferring that from its own environment. A
+    key an extension does not know it ignores; `api` is the key it can gate on,
+    so a future envelope reads as a named refusal rather than a wrong chip."""
+    return {"api": CALL_API, "event": "statusline",
+            "cwd": os.path.realpath(cwd), "repo_root": repo_root,
+            "session_id": session_id or None}
 
 
 def manifest_path(cwd):
@@ -102,12 +123,15 @@ def _valid_segment(seg, index):
     return {"key": key, "state": state, "glyph": glyph, "text": text.strip()}
 
 
-def run_manifest(repo_root, manifest):
+def run_manifest(repo_root, manifest, envelope=None):
     """The segments a manifest's command returns, or [] on any failure.
 
     Failure is a closed door, not a raised one: a missing command, a non-zero
     exit, a timeout, malformed JSON, a wrong shape and an over-budget list all
-    answer [] - the line loses this extension's chips and keeps its own."""
+    answer [] - the line loses this extension's chips and keeps its own.
+
+    `envelope` reaches the child as one JSON object on stdin. A command that
+    never reads its stdin sees the same closed, empty input it always did."""
     spec = manifest.get("statusline")
     if not isinstance(spec, dict):
         return []
@@ -128,6 +152,8 @@ def run_manifest(repo_root, manifest):
     try:
         proc = subprocess.run(argv, cwd=repo_root, capture_output=True,
                               text=True, encoding="utf-8",
+                              input=(json.dumps(envelope) if envelope is not None
+                                     else ""),
                               timeout=timeout_ms / 1000.0)
     except (OSError, subprocess.SubprocessError, ValueError):
         return []
@@ -150,7 +176,7 @@ def run_manifest(repo_root, manifest):
     return out
 
 
-def segments(cwd):
+def segments(cwd, session_id=None):
     """Every extension segment for a render of `cwd`, in manifest order.
 
     One manifest today (the first found); the return is a list so a second
@@ -161,4 +187,5 @@ def segments(cwd):
     manifest = _load_manifest(manifest_file)
     if not manifest:
         return []
-    return run_manifest(repo_root, manifest)
+    return run_manifest(repo_root, manifest,
+                        call_envelope(repo_root, cwd, session_id))

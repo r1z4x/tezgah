@@ -213,5 +213,64 @@ class Failure(TempHome):
         self.assertEqual(te.segments(self.repo), [])
 
 
+class Envelope(TempHome):
+    """The call the child is handed: what tezgah tells an extension about it."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+
+    def manifest(self, spec):
+        path = os.path.join(self.repo, ".tezgah", "extension.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            json.dump(with_slow_budget(spec), fh)
+
+    def echo(self, expression):
+        """A command that reads the envelope and prints what `expression` says."""
+        return write_script(
+            os.path.join(self.repo, "emit"),
+            "import json, sys\n"
+            "call = json.loads(sys.stdin.read() or '{}')\n"
+            "json.dump({'segments': [{'key': 'k', 'text': %s}]}, sys.stdout)\n"
+            % expression)
+
+    def test_the_child_is_told_the_api_the_event_and_the_repository(self):
+        script = self.echo("' '.join([str(call['api']), call['event'], "
+                           "str(call['repo_root'] == %r)])" % self.repo)
+        self.manifest({"statusline": {"command": [script]}})
+        segs = te.segments(self.repo)
+        self.assertEqual(segs[0]["text"], "1 statusline True")
+
+    def test_the_child_is_told_the_directory_it_was_called_from(self):
+        deep = os.path.join(self.repo, "a", "b")
+        os.makedirs(deep, exist_ok=True)
+        script = self.echo("'yes' if call['cwd'] == %r else call['cwd']"
+                           % os.path.realpath(deep))
+        self.manifest({"statusline": {"command": [script]}})
+        self.assertEqual(te.segments(deep)[0]["text"], "yes")
+
+    def test_the_session_reaches_the_child_and_is_null_without_one(self):
+        script = self.echo("str(call['session_id'])")
+        self.manifest({"statusline": {"command": [script]}})
+        self.assertEqual(te.segments(self.repo)[0]["text"], "None")
+        self.assertEqual(te.segments(self.repo, session_id="s-42")[0]["text"],
+                         "s-42")
+
+    def test_through_the_line_the_session_is_the_renderers(self):
+        script = self.echo("str(call['session_id'])")
+        self.manifest({"statusline": {"command": [script]}})
+        segs = [s for s in tc.health_segments(self.repo, session_id="s-9")
+                if s["key"] == "k"]
+        self.assertEqual(segs[0]["text"], "s-9")
+
+    def test_a_command_that_ignores_stdin_still_works(self):
+        script = write_script(
+            os.path.join(self.repo, "emit"),
+            "import json, sys\njson.dump({'segments': [{'text': 'blind'}]}, sys.stdout)\n")
+        self.manifest({"statusline": {"command": [script]}})
+        self.assertEqual(te.segments(self.repo)[0]["text"], "blind")
+
+
 if __name__ == "__main__":
     unittest.main()
