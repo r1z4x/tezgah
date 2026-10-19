@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-19
+
 ### Fixed
 
 - **The opencode member of a second opinion answers again.** `consult` and the judge ran `opencode run --pure`, whose exit 1 left that member silent. Both argv sites now run `opencode run` the way the user's own CLI does. No 2.x flag replaces `--pure`, so the judge's inline config still denies its tools, and `docs/judge.md` lists the flags each CLI really takes.
@@ -1243,7 +1245,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.10.1
 [1.10.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.10.0
 [1.9.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.2
 [1.9.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.1
