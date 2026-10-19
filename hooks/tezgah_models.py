@@ -55,7 +55,7 @@ READ_ON = "2026-09-30"
 STALE_DAYS = 60
 OVERLAY = os.path.join(tp.CONFIG_DIR, "models.json")
 OPENROUTER_MODELS = "https://openrouter.ai/api/v1/models"
-MODES = ("auto", "anthropic", "zai", "any", "openai", "off")
+MODES = ("auto", "anthropic", "zai", "any", "experientiallabs", "openai", "off")
 # The two status markers `bin/tezgah-setup` classifies an `apply_omp()` line by:
 # a skip is not a write and not a failure - the user's omp is left untouched, and
 # nothing is left to repair, which is why the status report excuses it rather
@@ -84,18 +84,24 @@ TIERS = ("cheap", "standard", "frontier")
 # against GLM-5.3's 95.4 at $0.34 (vals.ai, artifacts/model-table.json), so the
 # cheap slots take the flash id and standard the plain one.
 SLOTS = {
+    # The experientiallabs column: the gateway's uncensored DeepSeek V4.1 Flash
+    # serves efforts none/low/high/max only, so cheap and explore carry `low`
+    # where the Anthropic column carries `medium`.
     "cheap": {"anthropic": ("claude-opus-5-5", "low"),
               "openai": ("gpt-6.1-sol", "low"),
               "zai": ("zai/glm-5.3-flash", None),
-              "any": ("z-ai/glm-5.3-flash", None)},
+              "any": ("z-ai/glm-5.3-flash", None),
+              "experientiallabs": ("deepseek-v4.1-flash-uncensored", "low")},
     "explore": {"anthropic": ("claude-opus-5-5", "medium"),
                 "openai": ("gpt-6.1-sol", "low"),
                 "zai": ("zai/glm-5.3-flash", None),
-                "any": ("deepseek/deepseek-v4.1-flash", None)},
+                "any": ("deepseek/deepseek-v4.1-flash", None),
+                "experientiallabs": ("deepseek-v4.1-flash-uncensored", "low")},
     "standard": {"anthropic": ("claude-opus-5-5", "medium"),
                  "openai": ("gpt-6.1-sol", "high"),
                  "zai": ("zai/glm-5.3", None),
-                 "any": ("openai/gpt-6.1-sol", "high")},
+                 "any": ("openai/gpt-6.1-sol", "high"),
+                 "experientiallabs": ("deepseek-v4.1-flash-uncensored", "high")},
     # The frontier row names a concrete model on every family: the strongest
     # Anthropic run the snapshot prices (Opus 5.5 @high, 56.6 Terminal-Bench 4.0
     # at $1.82/task on AA v4.3), OpenAI's own frontier id, and the same Opus 5.5
@@ -103,7 +109,8 @@ SLOTS = {
     "frontier": {"anthropic": ("claude-opus-5-5", "high"),
                  "openai": ("gpt-6-astra", "high"),
                  "zai": ("zai/glm-5.3", None),
-                 "any": ("anthropic/claude-opus-5.5", "high")},
+                 "any": ("anthropic/claude-opus-5.5", "high"),
+                 "experientiallabs": ("deepseek-v4.1-flash-uncensored", "high")},
 }
 # omp's own OpenAI column (plan 107): omp reaches OpenAI through its
 # `openai-codex` provider (a ChatGPT login), which on 2026-10-13 listed
@@ -124,6 +131,10 @@ SNAPSHOT = {"anthropic/claude-opus-5.5": (4.0, 20.0),
             "openai/gpt-6-astra": (10.0, 50.0),
             "z-ai/glm-5.3-flash": (0.15, 0.5),
             "deepseek/deepseek-v4.1-flash": (0.0198, 0.396)}
+# `experientiallabs` has no SNAPSHOT row on purpose: SNAPSHOT holds OpenRouter
+# ids, and `refresh` reads its list - a custom-provider id here would be a
+# permanent false "no longer in the OpenRouter list" flag. Its prices live in
+# ~/.omp/agent/models.yml `cost`.
 
 # ---------------------------------------------------------------- overlay ----
 
@@ -211,12 +222,13 @@ def openrouter_ready():
 # provider lists none of the column's ids on this machine (`omp models
 # openai-codex`, 2026-10-01: gpt-5.5, gpt-5.6-luna/-terra, gpt-6-luna), so a
 # pattern for it would never resolve.
-OMP_FAMILIES = ("anthropic", "zai", "any")
+OMP_FAMILIES = ("anthropic", "zai", "any", "experientiallabs")
 # family -> (omp's auth-store provider id, the env names omp reads for it)
 # (omp://providers.md:39, omp://environment-variables.md:39-40,71,73).
 OMP_AUTH = {"anthropic": ("anthropic", ("ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY")),
             "zai": ("zai", ("ZAI_API_KEY",)),
             "any": ("openrouter", ("OPENROUTER_API_KEY",)),
+            "experientiallabs": ("experientiallabs", ("EXPERIMENTALLABS_API_KEY",)),
             "openai": ("openai-codex", ("OPENAI_CODEX_OAUTH_TOKEN",))}
 # Every family `--mode` can pin. `openai` is no fallback for the others: it is
 # its own subscription with its own limit, and the owner's fallback ask
@@ -573,16 +585,16 @@ def start_health():
 
 
 def omp_mode(default_selector=None):
-    """`anthropic`, `zai`, `openai` or `any`: the saved mode, else the
-    default's own family.
+    """`anthropic`, `zai`, `openai`, `experientiallabs` or `any`: the saved
+    mode, else the default's own family.
 
     A default of no listed family reads as `any`, never as a silent fall back
     to the Anthropic column - the caller decides what to do when the credential
     the selectors need is missing (`apply_omp` writes nothing and says so)."""
     mode = overlay().get("mode")
-    if mode in ("anthropic", "zai", "any", "openai", "off"):
+    if mode in MODES and mode != "auto":
         return mode
-    for family in ("anthropic", "zai", "openai"):
+    for family in ("anthropic", "zai", "openai", "experientiallabs"):
         if str(default_selector or "").startswith(FAMILY_PREFIX[family] or family + "/"):
             return family
     return "any"
@@ -597,8 +609,10 @@ OMP_ROLES = ("plan", "slow")
 
 # The prefix each family's stored id needs to become an omp selector. `zai` needs
 # none: its id already is `<provider>/<model>`, the shape omp's own config uses.
+# `experientiallabs` is a custom models.yml provider, so its prefix is that
+# provider's own id (~/.omp/agent/models.yml).
 FAMILY_PREFIX = {"anthropic": "anthropic/", "zai": "", "any": "openrouter/",
-                 "openai": "openai-codex/"}
+                 "experientiallabs": "experientiallabs/", "openai": "openai-codex/"}
 
 
 def _row(family, slot):

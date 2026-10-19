@@ -36,12 +36,22 @@ cheap trajectory on a frontier model was the most expensive option measured
 
 ## The table (snapshot 2026-09-30)
 
-| slot | agents | anthropic | zai (omp's own provider) | openai | any (OpenRouter id) |
-|---|---|---|---|---|
-| cheap | tezgah-cheap, tezgah-tester | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash |
-| explore | omp's bundled `scout` | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash |
-| standard | tezgah-standard, tezgah-docs, tezgah-ui | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high |
-| frontier | tezgah-frontier, tezgah-reviewer, tezgah-security, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high |
+| slot | agents | anthropic | zai (omp's own provider) | openai | any (OpenRouter id) | experientiallabs (models.yml provider) |
+|---|---|---|---|---|---|---|
+| cheap | tezgah-cheap, tezgah-tester | Opus 5.5 @low | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | GLM-5.3 Flash | DeepSeek V4.1 Flash Uncensored @low |
+| explore | omp's bundled `scout` | Opus 5.5 @medium | `zai/glm-5.3-flash` | GPT-6.1 Sol @low | DeepSeek V4.1 Flash | DeepSeek V4.1 Flash Uncensored @low |
+| standard | tezgah-standard, tezgah-docs, tezgah-ui | Opus 5.5 @medium | `zai/glm-5.3` | GPT-6.1 Sol @high | GPT-6.1 Sol @high | DeepSeek V4.1 Flash Uncensored @high |
+| frontier | tezgah-frontier, tezgah-reviewer, tezgah-security, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high | DeepSeek V4.1 Flash Uncensored @high |
+
+The `experientiallabs` column runs omp through the custom provider of the same
+name in `~/.omp/agent/models.yml` (`OMP_AUTH`, `hooks/tezgah_models.py::OMP_AUTH`).
+omp resolves its key from `~/.omp/.env` as `EXPERIMENTALLABS_API_KEY`.
+The gateway's uncensored DeepSeek V4.1 Flash serves efforts none/low/high/max
+only (gateway model metadata, read 2026-10-20). Cheap and explore therefore
+carry `low` where the Anthropic column carries `medium`. The column has no
+`SNAPSHOT` row: `SNAPSHOT` holds OpenRouter ids, and `refresh` compares against
+OpenRouter's list. The provider's prices live in the models.yml `cost` block
+instead.
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on
@@ -64,7 +74,7 @@ invoices).
 | Claude Code | anthropic | the agent file's alias and `effort:` (`_model_lines`): an alias follows the provider and keeps the main session's variant, where a full id breaks on Bedrock, Vertex and a gateway (code.claude.com/docs/en/sub-agents) |
 | Codex | openai | `model` and `model_reasoning_effort` in `$CODEX_HOME/agents/*.toml` |
 | opencode | any | a selector `--refresh` found in `opencode models` for the slot's model under any configured provider (`resolve_opencode`); none found, no model line, so the agent inherits. The slot's effort rides the JSON agent config as `reasoningEffort` (opencode.ai/docs/agents) |
-| omp | anthropic when the session default is an Anthropic model, any otherwise (`omp_mode`); a non-Anthropic default is `any`, never a silent fall back to the Anthropic column | `task.agentModelOverrides`, which omp resolves before the agent or bundled model (omp's own docs: `omp://task-agent-discovery.md`, *Model and structured-output precedence*); every slot is written, the frontier row included, so no agent in the row runs on the session default; each override is a **fallback chain** (`omp_overrides`, `_chain`): the mode's family first, then what `fallback` in `~/.config/tezgah/config.json` allows (`tp.fallback_policy`) over the families this machine holds a credential for (`funded_families` reads omp's auth store and the provider env keys; a family it cannot see is left out, never guessed in) - `vendor`, the default, keeps only the session vendor's model (`openrouter/anthropic/claude-opus-5.5:<effort>` behind an Anthropic session, `OPENROUTER_ID`), so a 429 never moves an Opus session's subagent onto GPT or GLM; `any` adds every other funded family, rotated per agent; `none` writes the first entry alone - omp splits the chain into per-spawn patterns (omp's own docs: `omp://settings.md (its `retry.fallbackChains` section)`), so one provider's 429 falls through instead of killing the spawn, measured before this: 24 of 26 post-routing 429s hit a subagent's first request, all on one Opus account every slot shared; `apply_omp` also writes `modelRoles.plan` and `.slow` on that frontier row (same record, same ownership) so plan mode designs on it, and their fallbacks go to `retry.fallbackChains.<role>` under the same `fallback` rule, the only chain keys tezgah owns (`default` and provider-keyed chains stay the user's); `apply_omp` writes through the installer's own binary and agent dir, from HOME so a repository's `.omp/config.yml` never leaks machine-wide, and touches only the entries tezgah wrote (recorded in `~/.config/tezgah/models.json` as `omp_written`; a machine written before that record is adopted by its value, `_ours_by_shape`); a changed `fallback` reaches omp on the next `tezgah-route --refresh` or `tezgah-setup --install` |
+| omp | the saved `--mode` family, else anthropic when the session default is an Anthropic model, `experientiallabs` when it is an `experientiallabs/` selector, `any` otherwise (`omp_mode`); a non-Anthropic default is `any`, never a silent fall back to the Anthropic column | `task.agentModelOverrides`, which omp resolves before the agent or bundled model (omp's own docs: `omp://task-agent-discovery.md`, *Model and structured-output precedence*); every slot is written, the frontier row included, so no agent in the row runs on the session default; each override is a **fallback chain** (`omp_overrides`, `_chain`): the mode's family first, then what `fallback` in `~/.config/tezgah/config.json` allows (`tp.fallback_policy`) over the families this machine holds a credential for (`funded_families` reads omp's auth store and the provider env keys; a family it cannot see is left out, never guessed in) - `vendor`, the default, keeps only the session vendor's model (`openrouter/anthropic/claude-opus-5.5:<effort>` behind an Anthropic session, `OPENROUTER_ID`), so a 429 never moves an Opus session's subagent onto GPT or GLM; `any` adds every other funded family, rotated per agent; `none` writes the first entry alone - omp splits the chain into per-spawn patterns (omp's own docs: `omp://settings.md (its `retry.fallbackChains` section)`), so one provider's 429 falls through instead of killing the spawn, measured before this: 24 of 26 post-routing 429s hit a subagent's first request, all on one Opus account every slot shared; `apply_omp` also writes `modelRoles.plan` and `.slow` on that frontier row (same record, same ownership) so plan mode designs on it, and their fallbacks go to `retry.fallbackChains.<role>` under the same `fallback` rule, the only chain keys tezgah owns (`default` and provider-keyed chains stay the user's); `apply_omp` writes through the installer's own binary and agent dir, from HOME so a repository's `.omp/config.yml` never leaks machine-wide, and touches only the entries tezgah wrote (recorded in `~/.config/tezgah/models.json` as `omp_written`; a machine written before that record is adopted by its value, `_ours_by_shape`); a changed `fallback` reaches omp on the next `tezgah-route --refresh` or `tezgah-setup --install` |
 | dsh | - | none: no model setting was found to write |
 
 The orchestrator agent keeps `model: inherit`: it is the main thread's own agent.
@@ -215,7 +225,7 @@ moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py::SNAPSHOT`;
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py::check`); that is the moment to re-read
-the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|openai|auto|off` pins
+the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|experientiallabs|openai|auto|off` pins
 omp's family instead of following the session default; `off` removes every entry
 and role the table wrote and writes nothing, which is the way back when the
 provider those selectors need has no budget - a measured case, not a
@@ -229,6 +239,11 @@ omp status report carries a row for them.
 login (`OMP_OPENAI`, `hooks/tezgah_models.py::OMP_OPENAI`). Its ids are not the
 Codex host's `openai` column, which omp does not list. The mode is never a
 fallback for the others, and with no `openai-codex` login it writes nothing.
+`experientiallabs` pins the custom models.yml provider of the same name
+(`FAMILY_PREFIX`, `hooks/tezgah_models.py::FAMILY_PREFIX`). The selector is
+`experientiallabs/<model id>`, and omp reads its key from `~/.omp/.env`. The
+mode therefore applies even where that env var is not exported to the shell
+tezgah runs in.
 
 ## Source of truth
 

@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The model table routes a fifth experientiallabs family.** A custom `~/.omp/agent/models.yml` provider reaches omp (Experiential Labs, experientiallabs.ai). Its key is `EXPERIMENTALLABS_API_KEY` in `~/.omp/.env`. The new column runs the gateway's uncensored DeepSeek V4.1 Flash on every slot. `tezgah-route --mode experientiallabs` pins the family, and `omp_mode` detects an `experientiallabs/` session default. Efforts follow the gateway: `low` on cheap and explore, `high` on standard and frontier (it has no `medium`). The column carries no `SNAPSHOT` row. `SNAPSHOT` holds OpenRouter ids and `refresh` reads that list, so a custom-provider id there would flag itself missing forever. Its prices live in the models.yml `cost` block.
+
 ## [1.10.1] - 2026-10-19
 
 ### Fixed
