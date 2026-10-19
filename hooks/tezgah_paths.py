@@ -561,7 +561,10 @@ CONSULT_CLIS = {
                "--model", "Anthropic Claude"),
     "codex": (["codex", "exec", "--skip-git-repo-check", "--ephemeral",
                "-s", "read-only", "--color", "never"], "-m", "OpenAI GPT"),
-    "opencode": (["opencode", "run", "--pure"], "-m",
+    # opencode 2.0.32 dropped the 1.18 `--pure` (`run` exits 1 "Unrecognized
+    # flag: --pure") and no flag replaces it, so the member runs the way the
+    # user's own `opencode run` does
+    "opencode": (["opencode", "run"], "-m",
                  "whichever provider/model opencode is configured for"),
     "cursor-agent": (["cursor-agent", "-p", "--output-format", "text"],
                      "--model", "whichever model Cursor is configured for"),
