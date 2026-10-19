@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-19
+
 ### Added
 
 - **A repository extends the status line with its own chips.** The repository puts `.tezgah/extension.json` at its top and names a command that prints segments. `health_segments()` walks up to the nearest manifest and runs it once per render, with the repo root as cwd. Each call reaches the child as one JSON object on its stdin: `api`, `event`, `cwd`, `repo_root` and `session_id`. The extension then knows which repository and which session asked it. It appends what comes back after every built-in mark. An extension produces data - `{key, state, glyph, text}` - and tezgah draws it. Color, the narrow-surface drop and the group separators then stay identical. The extension belongs to the user's repo in whatever language, so it runs as a bounded subprocess and never an import. A missing or malformed manifest, an absent command, a non-zero exit, a timeout or a bad shape all cost it its chips. A repo with no manifest pays one `os.path.isfile` per level.
@@ -1236,7 +1238,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.9.2...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.10.0
 [1.9.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.2
 [1.9.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.1
 [1.9.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.0
