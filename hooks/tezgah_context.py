@@ -2970,6 +2970,26 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
         if plan:
             segs.append({"key": "plans", "state": "ready" if "blk" in plan else "info",
                          "glyph": "", "text": plan, "group": 3})
+    # A repository's own statusline extension (tezgah_extension): it produces
+    # structured segments, the line renders them after every built-in mark. Its
+    # own `group` is normalized to one cluster past the built-ins, so the
+    # separator reads the same however the extension numbered it. Imported here,
+    # not at the top: a broken extension module costs its chips, never the line.
+    try:
+        import tezgah_extension
+        ext = tezgah_extension.segments(cwd)
+    except Exception:
+        ext = []
+    if ext:
+        next_group = 1 + max((s.get("group", 0) for s in segs), default=-1)
+        for seg in ext:
+            seg["group"] = next_group
+            # The state carries the mark, exactly as it does for a built-in: an
+            # extension that leaves `glyph` out gets the same ✓/○/✗ the core
+            # draws for its own marks, and only names one when it means another.
+            if not seg.get("glyph"):
+                seg["glyph"] = GLYPHS.get(seg.get("state"), "")
+        segs.extend(ext)
     return segs
 
 
