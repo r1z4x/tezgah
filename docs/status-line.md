@@ -25,9 +25,13 @@ hosts/dsh/statusline/lib/client.js:86-90).
 | 1 | `consult`, `research`, `graph`, `orch`, `judge` | the on-demand capabilities |
 | 2 | `idx` | a per-repo fact: code-graph readiness |
 | 3 | `plans` | a per-repo fact, its own group |
+| ≥4 | a repository's [extension](#a-repositorys-own-marks-extension) chips | one cluster per extension, after every built-in |
 
 Groups 0 and 1 come from `_GROUP` (`hooks/tezgah_context.py::_GROUP`); the prefix
-carries -1 and `idx` and `plans` carry 2 and 3 where they are appended (`hooks/tezgah_context.py::version_segment`, `hooks/tezgah_context.py::health_segments`). Outside every
+carries -1 and `idx` and `plans` carry 2 and 3 where they are appended (`hooks/tezgah_context.py::version_segment`, `hooks/tezgah_context.py::health_segments`). An
+extension declares no group. `health_segments()` puts its chips in the group after
+the highest built-in one, so a chip never splits the armed/used run
+(`hooks/tezgah_context.py::health_segments`). Outside every
 [root](glossary.md#root) the checklist still prints — tezgah loads globally on
 opencode, so the indicator must not go silent — and only the per-repo extras are
 omitted (`hooks/tezgah_context.py::health_segments`, `tests/test_statusline.py::test_outside_roots_still_shows_segment`).
@@ -123,6 +127,44 @@ an unreadable HEAD), – n/a (outside a root, codegraph absent, or
 instead of forking (`hooks/tezgah_context.py::health_segments`). `plans` is `plans N` plus `(M blk)` when M open
 plan files carry `status: blocked` in their first 400 bytes — `ready` with a
 blocked plan, else `info` (`plan_mark()`, `hooks/tezgah_context.py::plan_mark`).
+
+### A repository's own marks (extension)
+
+A repository adds chips to the line without tezgah naming it. It drops one
+manifest at `<repo>/.tezgah/extension.json`. That manifest names a command
+printing structured segments on stdout:
+
+```json
+{"statusline": {"command": ["bin/my-statusline", "--segments"], "timeout_ms": 300}}
+```
+
+`segments()` walks up from the working directory to the first manifest
+(`manifest_path()`, `hooks/tezgah_extension.py::manifest_path`). It runs the
+command once per render, with the repo root as cwd. It appends what comes back
+after every built-in mark (`segments()`, `hooks/tezgah_extension.py::segments`,
+`hooks/tezgah_context.py::health_segments`). A relative `command[0]` resolves
+against the repo root, so a manifest travels with its clone.
+
+The contract is **data, not a line**. The extension produces `{key, state, glyph,
+text}` segments, and tezgah draws them. So color, the narrow-surface drop and the
+group separators stay identical for every extension. An extension never has to
+know the gutter. It must name `text` and `state`. tezgah fills a missing `glyph`
+from the state's own mark, so a chip reads like a built-in. The per-extension cap
+(`MAX_SEGMENTS`) and the hard timeout (`timeout_ms`, default
+`DEFAULT_TIMEOUT_MS`) bound one row.
+
+It is a subprocess and not an import on purpose. The extension is the user's
+repo, in whatever language, and may be slow or broken. A bounded child keeps a
+broken extension costing one chip on one line, never the turn. Every way it can
+fail answers no segments. A missing manifest, an absent command, a non-zero exit,
+a timeout and malformed output all cost the extension its chips
+(`run_manifest()`, `hooks/tezgah_extension.py::run_manifest`, `tests/test_extension.py`). A repo with no
+manifest pays one `os.path.isfile` per level and nothing else.
+
+tezgah-cyber is the first extension. Its `bin/engagement-statusline --segments`
+turns an engagement's `notes/status.json` into `cyber-eng`/`cyber-needs`/
+`cyber-running`/`cyber-steps`/`cyber-verified`/`cyber-severity` chips. An operator
+then reads an engagement's state at a glance, in the line they already read.
 
 ### The two skill-read marks, and `--observable=`
 

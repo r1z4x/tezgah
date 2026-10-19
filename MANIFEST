@@ -127,6 +127,7 @@ hooks/tezgah_clarity.py
 hooks/tezgah_components.py
 hooks/tezgah_context.py
 hooks/tezgah_embed.py
+hooks/tezgah_extension.py
 hooks/tezgah_gate.py
 hooks/tezgah_guard.py
 hooks/tezgah_index.py
@@ -709,6 +710,7 @@ tests/test_embed.py
 tests/test_encoding.py
 tests/test_enforcers.py
 tests/test_evidence_store.py
+tests/test_extension.py
 tests/test_fuzz_shell.py
 tests/test_gate.py
 tests/test_gate_vectors.py

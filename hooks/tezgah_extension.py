@@ -31,7 +31,6 @@ manifest pays a single `os.path.isfile` per level and nothing else.
 import json
 import os
 import subprocess
-import sys
 
 EXT_DIR = ".tezgah"
 MANIFEST_NAME = "extension.json"
@@ -39,7 +38,11 @@ MANIFEST_NAME = "extension.json"
 # above any working directory an editor or a host opens; a bound keeps a
 # manifest-less path from stat-ing every ancestor up to `/`.
 MAX_WALK = 12
-DEFAULT_TIMEOUT_MS = 300
+# A healthy extension costs one interpreter start (~25 ms measured 2026-10-19),
+# but a cold start under a loaded machine spiked past 500 ms, so the default
+# carries headroom: the budget is a hang detector, not a latency budget, and a
+# manifest that knows its own cost lowers it.
+DEFAULT_TIMEOUT_MS = 1000
 # A chip budget, not a data budget: the status line is one row, and an extension
 # that floods it is a bug in the extension. The per-extension cap keeps one
 # broken manifest from pushing the built-in marks off the line.
@@ -159,27 +162,3 @@ def segments(cwd):
     if not manifest:
         return []
     return run_manifest(repo_root, manifest)
-
-
-def main(argv):
-    """`tezgah-extension [--json] [DIR]` - the segments, for a host that renders
-    them itself (the dsh Web line, opencode's TUI) or for a person debugging a
-    manifest."""
-    import argparse
-    parser = argparse.ArgumentParser(prog="tezgah-extension", add_help=True)
-    parser.add_argument("directory", nargs="?", default=os.getcwd())
-    parser.add_argument("--json", action="store_true", help="the raw segments")
-    args = parser.parse_args(argv)
-    segs = segments(args.directory)
-    if args.json:
-        json.dump({"segments": segs}, sys.stdout)
-        sys.stdout.write("\n")
-        return 0
-    for seg in segs:
-        glyph = ("%s " % seg["glyph"]) if seg["glyph"] else ""
-        sys.stdout.write("%s%s\n" % (glyph, seg["text"]))
-    return 0 if segs else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
