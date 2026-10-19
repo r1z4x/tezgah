@@ -44,14 +44,14 @@ cheap trajectory on a frontier model was the most expensive option measured
 | frontier | tezgah-frontier, tezgah-reviewer, tezgah-security, tezgah-researcher | Opus 5.5 @high | `zai/glm-5.3` | GPT-6 Astra @high | Opus 5.5 @high | DeepSeek V4.1 Flash Uncensored @high |
 
 The `experientiallabs` column runs omp through the custom provider of the same
-name in `~/.omp/agent/models.yml`; omp resolves its key from `~/.omp/.env` as
-`EXPERIMENTALLABS_API_KEY` (`OMP_AUTH`, `hooks/tezgah_models.py::OMP_AUTH`).
+name in `~/.omp/agent/models.yml` (`OMP_AUTH`, `hooks/tezgah_models.py::OMP_AUTH`).
+omp resolves its key from `~/.omp/.env` as `EXPERIMENTALLABS_API_KEY`.
 The gateway's uncensored DeepSeek V4.1 Flash serves efforts none/low/high/max
-only (gateway model metadata, read 2026-10-20), so cheap and explore carry
-`low` where the Anthropic column carries `medium`. The column has no `SNAPSHOT`
-row: `SNAPSHOT` holds OpenRouter ids and `refresh` compares against
-OpenRouter's list, so the provider's prices live in the models.yml `cost`
-block (`hooks/tezgah_models.py::SNAPSHOT`).
+only (gateway model metadata, read 2026-10-20). Cheap and explore therefore
+carry `low` where the Anthropic column carries `medium`. The column has no
+`SNAPSHOT` row: `SNAPSHOT` holds OpenRouter ids, and `refresh` compares against
+OpenRouter's list. The provider's prices live in the models.yml `cost` block
+(`hooks/tezgah_models.py::SNAPSHOT`).
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on
@@ -239,11 +239,11 @@ omp status report carries a row for them.
 login (`OMP_OPENAI`, `hooks/tezgah_models.py::OMP_OPENAI`). Its ids are not the
 Codex host's `openai` column, which omp does not list. The mode is never a
 fallback for the others, and with no `openai-codex` login it writes nothing.
-`experientiallabs` pins the custom models.yml provider of the same name: the
-selector is `experientiallabs/<model id>` (`FAMILY_PREFIX`,
-`hooks/tezgah_models.py::FAMILY_PREFIX`) and omp reads its key from
-`~/.omp/.env`, so the mode applies even where that env var is not exported to
-the shell tezgah runs in.
+`experientiallabs` pins the custom models.yml provider of the same name
+(`FAMILY_PREFIX`, `hooks/tezgah_models.py::FAMILY_PREFIX`). The selector is
+`experientiallabs/<model id>`, and omp reads its key from `~/.omp/.env`. The
+mode therefore applies even where that env var is not exported to the shell
+tezgah runs in.
 
 ## Source of truth
 

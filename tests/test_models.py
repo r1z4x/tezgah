@@ -158,6 +158,19 @@ class OmpOverrides(unittest.TestCase):
         self.assertIsNone(tm.frontier_model("nope"))
         self.assertIsNone(tm.cheap_model("nope"))
 
+    def test_the_experientiallabs_family_resolves_through_its_own_provider(self):
+        # a custom models.yml provider: the prefix is that provider's id, not
+        # openrouter's, the mode is pinnable and detectable from the session
+        # default, and the column carries no SNAPSHOT row for `refresh` to flag
+        self.assertEqual(tm._selector("experientiallabs", "cheap"),
+                         "experientiallabs/deepseek-v4.1-flash-uncensored:low")
+        self.assertEqual(tm._selector("experientiallabs", "frontier"),
+                         "experientiallabs/deepseek-v4.1-flash-uncensored:high")
+        self.assertEqual(tm.omp_mode("experientiallabs/deepseek-v4.1-flash-uncensored"),
+                         "experientiallabs")
+        self.assertIn("experientiallabs", tm.MODES)
+        self.assertNotIn("deepseek-v4.1-flash-uncensored", tm.SNAPSHOT)
+
     def test_the_plan_and_slow_roles_carry_the_frontier_row(self):
         # plan mode is where a session designs on its own tokens; it runs the
         # table's frontier row, not whatever model the session started on
