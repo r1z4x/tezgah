@@ -166,8 +166,9 @@ class OmpOverrides(unittest.TestCase):
                          "experientiallabs/deepseek-v4.1-flash-uncensored:low")
         self.assertEqual(tm._selector("experientiallabs", "frontier"),
                          "experientiallabs/deepseek-v4.1-flash-uncensored:high")
-        self.assertEqual(tm.omp_mode("experientiallabs/deepseek-v4.1-flash-uncensored"),
-                         "experientiallabs")
+        with mock.patch.object(tm, "overlay", return_value={}):
+            self.assertEqual(tm.omp_mode("experientiallabs/deepseek-v4.1-flash-uncensored"),
+                             "experientiallabs")
         self.assertIn("experientiallabs", tm.MODES)
         self.assertNotIn("deepseek-v4.1-flash-uncensored", tm.SNAPSHOT)
 

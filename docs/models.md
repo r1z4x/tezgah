@@ -51,7 +51,7 @@ only (gateway model metadata, read 2026-10-20). Cheap and explore therefore
 carry `low` where the Anthropic column carries `medium`. The column has no
 `SNAPSHOT` row: `SNAPSHOT` holds OpenRouter ids, and `refresh` compares against
 OpenRouter's list. The provider's prices live in the models.yml `cost` block
-(`hooks/tezgah_models.py::SNAPSHOT`).
+instead.
 
 Why these, briefly. Inside the Anthropic family the lever is effort, not model:
 Opus 5.5 and Sonnet 5.5 read cache at the same $0.20 per 1M tokens, and on
@@ -225,7 +225,7 @@ moved against the snapshot (`SNAPSHOT`, `hooks/tezgah_models.py::SNAPSHOT`;
 re-applies omp's overrides. Scores are not re-read - they need a key - so
 `tezgah-route --check` reports the snapshot's age and exits 1 past 60 days or with
 a flag (`check`, `hooks/tezgah_models.py::check`); that is the moment to re-read
-the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|openai|auto|off` pins
+the leaderboards and edit `SLOTS`. `tezgah-route --mode anthropic|zai|any|experientiallabs|openai|auto|off` pins
 omp's family instead of following the session default; `off` removes every entry
 and role the table wrote and writes nothing, which is the way back when the
 provider those selectors need has no budget - a measured case, not a
