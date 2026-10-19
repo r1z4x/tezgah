@@ -33,7 +33,6 @@ from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
                           ai_research_dir, alts, armed,
                           cache_dir, codegraph_bin, consult_options,
                           ensure_workspace, fallback_cache, have_judge_key, language,
-                          link_workspace,
                           off, orx_bin, packs, pony_level, project_top, root_for,
                           roots, say, tool,
                           work_tree, workspace, workspace_from_repo, worktrees,
@@ -2309,15 +2308,17 @@ def context_for(event, cwd, payload=None, with_core=True):
                  else steering(root, (payload or {}).get("host")))
         if steer:
             parts.append(("steer", steer))
+    # The workspace every per-project artifact lands in: created, ignored by the
+    # project and given its private git before anything writes there. A root is
+    # not a project, the helper returns None outside a work tree, and a linked
+    # worktree is handed the main checkout's as a link rather than a second store
+    # (plan 121). The session start is not the only event that gets here - a
+    # compaction and a delegated agent's first call do too, and a worktree made
+    # outside tezgah takes the link from whichever comes first. On a made
+    # workspace a second call costs three stats and one file read.
+    if ws not in roots():
+        ensure_workspace(root)
     if event in ("session_start", "post_compact"):
-        # The workspace every per-project artifact lands in: created, ignored by
-        # the project and given its private git before anything writes there.
-        # A root is not a project, and the helper returns None outside a work tree.
-        if ws not in roots():
-            # never link to a `.tezgah` ensure_workspace refused: one the
-            # project tracks or a link the clone placed (review of plan 100)
-            if ensure_workspace(ws) and ws != root:
-                link_workspace(root, ws)
         # The live turn state, first in this region: on a compacted or resumed
         # session it is the one thing the rest of the block cannot re-derive.
         resume = resume_state(root, session_of(payload))
