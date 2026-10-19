@@ -195,10 +195,12 @@ SESSION_ARGV = {
     # None of the next three takes a system prompt or drops its tools, so
     # `_session_request` puts the system prompt in front of the prompt text and
     # the empty temp cwd is what keeps tools from reaching a repository. Each
-    # set is from the CLI's own `--help` (checked 2026-10-09). opencode 1.18.31
-    # `run`: `--pure` "run without external plugins", `--format json` "raw JSON
-    # events"; it has no flag that skips the session record.
-    "opencode": ["run", "--pure", "--format", "json"],
+    # set is from the CLI's own `--help` (opencode rechecked 2026-10-19):
+    # opencode 2.0.32 `run` lists `--format json` and no longer the 1.18
+    # `--pure` (it exits 1 "Unrecognized flag: --pure"), so its plugins load
+    # again and the inline config below is what keeps its tools denied; no flag
+    # skips the session record either.
+    "opencode": ["run", "--format", "json"],
     # cursor-agent 2026.10.01: `-p` print, `--output-format json` (only with
     # --print), `--mode ask` "Q&A style ... (read-only)", `--trust` "Trust the
     # current workspace without prompting" - the temp cwd is never trusted.

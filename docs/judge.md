@@ -118,8 +118,10 @@ The CLI runs headless in an empty temp dir. Its flags are `SESSION_ARGV`
 (`hooks/tezgah_judge.py::SESSION_ARGV`). The omp and claude runs drop tools,
 rules, skills, extensions, MCP servers and settings. The other three have no flag
 that drops their tools or takes a system prompt. They run with the least their
-`--help` offers: opencode `--pure`, cursor-agent `--mode ask`, codex
-`-s read-only --ephemeral`. Their prompt starts with the system prompt.
+`--help` offers: cursor-agent `--mode ask`, codex `-s read-only --ephemeral`,
+and opencode `--format json`. The 2.0 CLI dropped the `--pure` its 1.18
+offered, so the judge's inline config stays what denies its tools. Their prompt
+starts with the system prompt.
 `opencode run` ran a shell command its prompt asked for in a probe on
 2026-10-09. So it also gets an inline config that denies every tool
 (`SESSION_ENV`, `hooks/tezgah_judge.py::SESSION_ENV`). With it, the same probe
