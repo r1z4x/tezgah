@@ -6,6 +6,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A worktree made outside tezgah links the workspace instead of forking it.** `ensure_workspace` made a second `.tezgah` there, with its own `git init`. Research, migrate and the session start all forked the store that way. It now links the main checkout's workspace and returns it, the link a session start already made. A relative `.tezgah/...` write from the worktree lands in the one store. The link is also made on a compaction and on a delegated agent's first call. A worktree Orca or a plain `git worktree add` made stayed without one until a session started there.
+
 ## [1.10.0] - 2026-10-19
 
 ### Added

@@ -113,16 +113,27 @@ class WorktreeBridge(TempHome):
         self.assertEqual(stale, [self.outside])
         self.assertEqual(sorted(tp.worktrees(self.main)), sorted(live))
 
-    def test_every_checkout_keeps_its_own_workspace(self):
-        checkouts = tp.worktrees(self.main)
-        spaces = [tp.workspace(c) for c in checkouts]
-        self.assertEqual(spaces, [os.path.join(c, ".tezgah") for c in checkouts])
-        self.assertEqual(len(set(spaces)), 3)
+    def test_a_worktree_never_forks_a_second_workspace(self):
+        """Plan 121: handed a linked worktree, `ensure_workspace` links the main
+        checkout's workspace instead of making one, so research, migrate and a
+        session start all land in the store `git worktree remove` cannot take."""
         made = tp.ensure_workspace(self.outside)
-        self.assertEqual(made, os.path.join(self.outside, ".tezgah"))
-        # its own private repository, and nothing appeared in the main checkout
-        self.assertTrue(os.path.isdir(os.path.join(made, ".git")))
-        self.assertFalse(os.path.exists(os.path.join(self.main, ".tezgah")))
+        main_ws = os.path.join(self.main, ".tezgah")
+        self.assertEqual(made, main_ws)
+        link = os.path.join(self.outside, ".tezgah")
+        self.assertTrue(os.path.islink(link))
+        self.assertEqual(os.path.realpath(link), os.path.realpath(main_ws))
+        # its own private repository, and a relative write from the worktree
+        # lands in it rather than in a second `.tezgah`
+        self.assertTrue(os.path.isdir(os.path.join(main_ws, ".git")))
+        with open(os.path.join(link, "probe"), "w") as fh:
+            fh.write("x\n")
+        self.assertTrue(os.path.isfile(os.path.join(main_ws, "probe")))
+        # the link is excluded from this checkout's git, as the session path has
+        # it: `/.tezgah` in the repository's own info/exclude
+        out = subprocess.run(["git", "-C", self.outside, "status", "--short"],
+                             capture_output=True, text=True).stdout
+        self.assertNotIn(".tezgah", out)
 
     def test_an_armed_worktree_finds_its_own_codegraph_index(self):
         """F1: a worktree base is a project, so the slug walk must include it.

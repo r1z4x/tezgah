@@ -565,6 +565,31 @@ class WorktreeSiblings(TempHome):
         self.assertIn("%s (this checkout, " % wt, line)
         self.assertIn("--all", line)
 
+    def test_a_delegated_agents_start_links_a_worktree_made_outside_tezgah(self):
+        """Plan 121: Orca and a plain `git worktree add` make a checkout no
+        session start has seen, and every writer used to fork a second `.tezgah`
+        there. The first event that reaches the workspace step - a subagent's
+        start here, not only a session start - links the main checkout's store."""
+        repo = self.make_repo("main")
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        self.touch(os.path.join(repo, "f"))
+        subprocess.run(["git", "-C", repo, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo, "-c", "user.email=a@b", "-c", "user.name=t",
+                        "commit", "-qm", "x"], check=True)
+        wt = os.path.join(self.home, "elsewhere", "fresh")
+        subprocess.run(["git", "-C", repo, "worktree", "add", "-q", "--detach", wt],
+                       check=True)
+        wt = os.path.realpath(wt)
+        self.assertFalse(os.path.lexists(os.path.join(wt, ".tezgah")))
+        out, proc = self.call({"fn": "context_for", "event": "subagent_start",
+                               "cwd": wt})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        link = os.path.join(wt, ".tezgah")
+        self.assertTrue(os.path.islink(link), out + proc.stderr)
+        self.assertEqual(os.path.realpath(link),
+                         os.path.realpath(os.path.join(repo, ".tezgah")))
+        self.assertTrue(os.path.isdir(os.path.join(repo, ".tezgah", ".git")))
+
 
 
 class IndexRedraw(unittest.TestCase):

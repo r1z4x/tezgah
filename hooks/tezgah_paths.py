@@ -1351,10 +1351,24 @@ def ensure_workspace(repo):
     (its worktrees' links are excluded by `link_workspace`). A second call costs
     three stats and one file read: the subprocess runs only when `.tezgah/.git`
     does not exist yet. Fail-open: a read-only tree returns None and the session
-    goes on."""
+    goes on.
+
+    A linked worktree never gets a workspace of its own (plan 121): it gets the
+    main checkout's as a link, the same link `link_workspace` makes, so research,
+    migrate and the session start all land in the one store instead of forking a
+    second `.tezgah` that `git worktree remove` deletes."""
     bare = _bare_repo(repo)
     if not bare and not os.path.exists(os.path.join(repo, ".git")):
         return None
+    main = linked_main(repo)
+    if main and main != repo:
+        target = ensure_workspace(main)
+        # A `.tezgah` already on disk - the project's own or a fork an older
+        # tezgah made - is `link_workspace`'s to leave alone; the main
+        # checkout's is what every reader is handed either way.
+        if target and not os.path.lexists(workspace(repo)):
+            link_workspace(repo, main)
+        return target or None
     ws = workspace(repo)
     # A `.tezgah` that is a symlink (or anything but a directory) came with the
     # repository: following it would `git init` inside the target the clone
