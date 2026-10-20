@@ -1116,7 +1116,7 @@ WRITES = re.compile(r"\b(?:fix|implement|edit|write|add|refactor|patch|migrate|"
                     r"rename|delete|remove|rotate)\w*\b", re.I)
 
 
-def route(brief, phase=None, ask=None):
+def route(brief, phase=None, ask=None, cwd=None):
     """{"agent", "tier", "why", "via", "judge", "judged"} for one delegation
     brief; `via` is what set the tier: `rule`, `jev`, `phase` or `default`, and
     `judge` is the `provider/model` that answered when a judgement set it.
@@ -1126,7 +1126,10 @@ def route(brief, phase=None, ask=None):
     goes out redacted (`ti.redact`, the reader the ledger uses) and only when no
     override matched: a brief matching the override vocabulary never leaves the
     machine. Answers are read through the seam's own accessors, so a malformed
-    reply is the same as no reply and this never raises."""
+    reply is the same as no reply and this never raises.
+
+    The repository's own `agents` (`_repo_route`) are read last, at `cwd`
+    (None: this process's directory, the shell `tezgah-route` runs in)."""
     hit = OVERRIDE.search(brief or "")
     if hit:
         if REVIEW_ONLY.search(brief) and not WRITES.search(brief):
@@ -1145,14 +1148,37 @@ def route(brief, phase=None, ask=None):
         out["judge"] = "%s/%s" % (result.get("provider") or "-",
                                   result.get("model") or "-")
         out["judged"] = result
-        return out
+        return _repo_route(out, brief, cwd)
     if phase in PHASE_AGENT:
-        return _agent(PHASE_AGENT[phase], "no judgement; phase %s names it" % phase,
-                      "phase")
-    if phase in PHASE_TIER:
-        return _pick(PHASE_TIER[phase], "no judgement; static table for phase %s" % phase,
+        out = _agent(PHASE_AGENT[phase], "no judgement; phase %s names it" % phase,
                      "phase")
-    return _pick("standard", "no judgement and no phase; the middle tier", "default")
+    elif phase in PHASE_TIER:
+        out = _pick(PHASE_TIER[phase], "no judgement; static table for phase %s" % phase,
+                    "phase")
+    else:
+        out = _pick("standard", "no judgement and no phase; the middle tier", "default")
+    return _repo_route(out, brief, cwd)
+
+
+def _repo_route(out, brief, cwd):
+    """`out` with the repository's declared agent in place of tezgah's when one
+    of the manifest's `agents` matches the brief (`tezgah_extension.repo_agent`).
+
+    Read after the harness judgement and never before it: the tier, `via` and
+    the judge stay the harness's, only the agent that runs it is the repo's.
+    The override rule returns before this is reached, so a brief the harness
+    pinned by rule keeps its agent. A broken manifest, a missing module or a
+    vanished cwd keeps `out` as it was."""
+    try:
+        import tezgah_extension
+        found = tezgah_extension.repo_agent(brief, cwd or os.getcwd())
+    except Exception:
+        found = None
+    if not found:
+        return out
+    agent, pattern = found
+    return dict(out, agent=agent,
+                why="%s; repo agent %s (match %r)" % (out["why"], agent, pattern))
 
 
 def _agent(agent, why, via):

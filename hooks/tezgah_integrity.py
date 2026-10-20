@@ -1918,12 +1918,13 @@ def _counts(rows, weeks=False, tools=False):
     return out
 
 
-def _check_runs(cmd):
+def _check_runs(cmd, cwd=None):
     """(name, mode) for every check-shaped command in `cmd`, in order. `mode` is
     `check`, `info` (INFO_ARGS / INFO_SUBCOMMAND: it checks nothing) or `write`
     (FORMAT_WRITE: it changes the tree), read on the words after the tool up to
     the end of that one command, so `pytest --version; pytest` still runs a
-    check."""
+    check. With `cwd`, the repository's own declared checks (`repo_checks`)
+    follow the built-in vocabulary's."""
     text = mask(cmd)
     for m in VERIFY.finditer(text):
         name = (m.groupdict().get("js") or m.group(0)).strip()
@@ -1936,9 +1937,56 @@ def _check_runs(cmd):
             yield name, "write"
         else:
             yield name, "check"
+    prefixes = repo_checks(cwd)
+    if prefixes:
+        yield from _repo_check_runs(cmd, prefixes)
 
 
-def verify_command(cmd):
+# The words in front of a program that leave it the program: VERIFY's own
+# wrapper prefix, read on words instead of text.
+CHECK_WRAPPERS = frozenset(("sudo", "env", "time", "nohup", "command", "exec"))
+ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_]\w*=")
+
+
+def repo_checks(cwd):
+    """[argv prefix] the repository at `cwd` declares as checks in its manifest
+    (`tezgah_extension.repo_checks`), or [] - no cwd, no manifest, a broken one,
+    or a missing extension module. Imported here, not at the top: a broken
+    extension costs the repository its declared checks, never the hook."""
+    if not cwd:
+        return []
+    try:
+        import tezgah_extension
+        return tezgah_extension.repo_checks(cwd)
+    except Exception:
+        return []
+
+
+def _repo_check_runs(cmd, prefixes):
+    """(name, mode) for each simple command of `cmd` that starts with one of
+    `prefixes`, after assignments and VERIFY's wrappers. Read with
+    `_shell_commands`, so a prefix inside a quoted argument, a commit message or
+    a heredoc body is an argument, not a run - the masked reading VERIFY keeps.
+    ponytail: a wrapper's own option (`sudo -u root ./bin/x`) hides the program,
+    a lost credit rather than an invented one."""
+    for words, _sep in _shell_commands(cmd):
+        i = 0
+        while i < len(words) and (words[i] in CHECK_WRAPPERS
+                                  or ASSIGNMENT_WORD.match(words[i])):
+            i += 1
+        run = words[i:]
+        if not run:
+            continue
+        head = [os.path.normpath(run[0])] + run[1:]
+        for prefix in prefixes:
+            if head[:len(prefix)] == prefix:
+                name = " ".join(run[:len(prefix)])
+                rest = " ".join(run[len(prefix):])
+                yield name, ("info" if INFO_ARGS.search(rest) else "check")
+                break
+
+
+def verify_command(cmd, cwd=None):
     """The name of the check this command runs, or None.
 
     The scan runs on the masked text, the convention `shortcut_command` already
@@ -1954,8 +2002,9 @@ def verify_command(cmd):
     (`_check_runs`), so every consumer - the evidence kind, the gate's retry
     exemption, its began `check` mark, `piped_check` and the NEUTER rule - reads
     them as the plain commands they are. A JS tool names itself, not its runner
-    (`npx axe-core` is `axe-core`)."""
-    return next((name for name, mode in _check_runs(cmd) if mode == "check"),
+    (`npx axe-core` is `axe-core`). `cwd` adds the repository's declared checks
+    (`repo_checks`); without it only the built-in vocabulary counts."""
+    return next((name for name, mode in _check_runs(cmd, cwd) if mode == "check"),
                 None)
 
 
@@ -2673,7 +2722,7 @@ def pipe_hides_status(cmd):
 OWNING_SEP = re.compile(r"^[()]*(?:&&|\|&?)[()]*$")
 
 
-def status_hidden(cmd):
+def status_hidden(cmd, cwd=None):
     """True when the line's exit status is not its check's: a pipe owns it
     (`pipe_hides_status`), or a command after the check does - the check is
     followed by `;` or a newline and more commands, or is sent to the background
@@ -2682,16 +2731,21 @@ def status_hidden(cmd):
     status. A heredoc body and its terminator are data here, and an `exit $?`
     (or a bare `exit`) right after the check ends the line with the check's
     status. Read with `_shell_commands`, each command re-quoted for
-    `verify_command`. ponytail: `set -e` is not read, so `set -e; pytest; echo
-    done` records as ran - a lost credit, never an invented one."""
+    `verify_command`; `cwd` reads the repository's declared checks
+    (`repo_checks`) as checks too, so `./bin/run-tool x; echo done` is hidden
+    the way `pytest; echo done` is. ponytail: `set -e` is not read, so `set -e;
+    pytest; echo done` records as ran - a lost credit, never an invented one."""
     if pipe_hides_status(cmd):
         return True
     cmd = str(cmd or "")
     body = _heredoc_bytes(cmd)
     cmds = _shell_commands("".join(" " if b and ch != "\n" else ch
                                    for ch, b in zip(cmd, body)))
+    prefixes = repo_checks(cwd)
     for i, (words, _sep) in enumerate(cmds):
-        if not verify_command(shlex.join(words)):
+        line = shlex.join(words)
+        if not (verify_command(line) or any(
+                mode == "check" for _n, mode in _repo_check_runs(line, prefixes))):
             continue
         for k in range(i, len(cmds) - 1):
             if OWNING_SEP.match(cmds[k][1]):
@@ -2827,14 +2881,15 @@ def shortcut_edit(inp):
     return None
 
 
-def classify(tool, inp):
-    """The evidence kind for a tool call, or None. Shared by the host hooks."""
+def classify(tool, inp, cwd=None):
+    """The evidence kind for a tool call, or None. Shared by the host hooks.
+    `cwd` lets the repository's declared checks (`repo_checks`) count."""
     t = str(tool or "").lower()
     if t in WRITE_TOOLS:
         return "edit"
     if t in BASH_TOOLS:
         cmd = inp.get("command") or inp.get("cmd") or ""
-        return "verify" if verify_command(cmd) else "run"
+        return "verify" if verify_command(cmd, cwd) else "run"
     return None
 
 
@@ -3024,7 +3079,12 @@ TIER_LOCAL_ARGS = ("-h", "--help", "--use")
 UNTRUSTED_CHANNEL = {"web": "a web result", "mcp": "an MCP server",
                      "network": "a network read",
                      "tier": "an external model answer",
-                     "subagent": "a subagent's report"}
+                     "subagent": "a subagent's report",
+                     "repo": "a tool this repository declares untrusted"}
+# The sixth channel is the repository's own: its manifest's `untrusted` list
+# names programs whose output is someone else's text - a scanner reading a
+# target, a fetcher this file cannot know (`tezgah_extension.untrusted_programs`).
+REPO_CHANNEL = "repo"
 # A delegate's report is the fifth channel, and the one no host counted: what a
 # subagent hands back is prose this session did not write and cannot vouch for,
 # read by a parent that never watched it being produced. Spelled the way every
@@ -3052,14 +3112,35 @@ def _tier_read(cmd):
     return False
 
 
-def untrusted_source(tool, inp):
+def _repo_untrusted(cmd, cwd):
+    """True when this shell line runs a program the repository at `cwd` (None:
+    the hook process's directory) declares untrusted. Read at a command
+    position by `shell_programs`, so a mention in an argument is not a run.
+    Imported here for `_tier_read`'s reason; a broken extension, or a process
+    directory that is gone, costs the channel, never the call."""
+    try:
+        import tezgah_extension
+        from tezgah_context import shell_programs
+        names = tezgah_extension.untrusted_programs(cwd or os.getcwd())
+        return bool(names) and bool(names.intersection(shell_programs(cmd)))
+    except Exception:
+        return False
+
+
+def untrusted_source(tool, inp, cwd=None):
     """The untrusted channel this call's result came through, or None.
 
     Decided from the call, because that is all a PostToolUse hook sees: the
     tool's name for the two named channels, the masked command text for a shell
     read that left the machine. None means the result is the user's or this
     workspace's, which is the normal case - the label names the exception, so it
-    never becomes noise the model learns to skip."""
+    never becomes noise the model learns to skip.
+
+    `cwd` is where the repository's `untrusted` declaration is read from; None
+    reads the call's own `cwd`/`workdir`, else the hook process's directory.
+    ponytail: the callers pass no cwd today, so a host that runs its hook
+    elsewhere than the session reads no declaration - a missed label, never a
+    false one."""
     name = str(tool or "").strip().lower()
     if MCP_TOOL.match(name):
         return "mcp"
@@ -3073,6 +3154,9 @@ def untrusted_source(tool, inp):
         return "network"
     if name in BASH_TOOLS and _tier_read(cmd):
         return "tier"
+    if name in BASH_TOOLS and cmd and _repo_untrusted(
+            cmd, cwd or inp.get("cwd") or inp.get("workdir")):
+        return REPO_CHANNEL
     return None
 
 
@@ -3414,9 +3498,9 @@ def note_tool(session_id, tool, inp, failed=None, *, interrupted=False,
              workspace=root_for(cwd) if cwd else None)
         return
     cmd = str(inp.get("command") or inp.get("cmd") or "")
-    kind = classify(tool, inp)
+    kind = classify(tool, inp, cwd)
     if kind == "verify":
-        if failed is None or status_hidden(cmd) or (empty_run and not failed):
+        if failed is None or status_hidden(cmd, cwd) or (empty_run and not failed):
             kind = "verify"
         else:
             kind = "verify_fail" if failed else "verify_ok"
@@ -3726,7 +3810,9 @@ def passing_check(entry):
         return False
     if entry.get(ORPHAN) or entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
-    return not status_hidden(entry.get("detail"))
+    # the row's own repository reads its declared checks (`repo_checks`), so a
+    # repo check followed by `; echo` stays the check that ran, never a pass
+    return not status_hidden(entry.get("detail"), entry.get("repo"))
 
 
 def _changed_write(row):

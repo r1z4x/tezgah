@@ -32,13 +32,29 @@ costing one chip on one line, never the gate that carries every turn.
 The line is drawn on every redraw, so the cost is bounded on purpose: the walk
 stops at the first manifest, the child gets a hard timeout, and a repo with no
 manifest pays a single `os.path.isfile` per level and nothing else.
+
+The same manifest carries four more keys. Each is read here, consumed by one
+caller and validated the way `statusline` is, so a broken value costs that key
+and never the line or the gate (docs/status-line.md, "The manifest's other
+keys"):
+
+    {"checks": ["./bin/run-tool"],                          # repo_checks
+     "untrusted": ["nmap", "sqlmap"],                       # untrusted_programs
+     "agents": [{"match": "(?i)recon", "agent": "recon"}],  # repo_agent
+     "statusline": {"command": [...], "override": true}}    # override
 """
 import json
 import os
+import re
+import shlex
 import subprocess
 
 EXT_DIR = ".tezgah"
 MANIFEST_NAME = "extension.json"
+# The variable a domain repository names its engagement root with: a session
+# working anywhere under `$TEZGAH_ENGAGEMENTS_ROOT/<slug>` reads that
+# engagement's own manifest even when the walk up ran out first.
+ENGAGEMENTS_ENV = "TEZGAH_ENGAGEMENTS_ROOT"
 # How far the walk climbs before giving up. A repo root is at most a few levels
 # above any working directory an editor or a host opens; a bound keeps a
 # manifest-less path from stat-ing every ancestor up to `/`.
@@ -57,6 +73,17 @@ STATES = ("on", "ready", "off", "info")
 # which keys to expect on its stdin. Adding a key leaves it alone; changing what
 # a key means bumps it.
 CALL_API = 1
+# The other keys' bounds. A list past its cap is cut, not refused, so a long
+# manifest still contributes its first entries. A pattern is bounded in length
+# and the brief it reads in characters, so a repo's regex cannot hold route() up.
+MAX_CHECKS = 32
+MAX_UNTRUSTED = 64
+MAX_AGENTS = 32
+MAX_PATTERN = 512
+MAX_BRIEF = 4000
+# An agent name lands in a ledger row's `agent=` word and in a spawn call, so it
+# is one word of a file-name alphabet; a program name is one basename.
+NAME = re.compile(r"^[A-Za-z0-9][\w.+-]{0,63}$")
 
 
 def call_envelope(repo_root, cwd, session_id=None):
@@ -76,7 +103,9 @@ def manifest_path(cwd):
     `cwd`, or (None, None) when there is none within MAX_WALK levels.
 
     The first manifest wins: nesting is a mistake, not a feature, and stopping
-    early is what makes the walk cheap."""
+    early is what makes the walk cheap. When the walk finds none, a cwd under
+    `$TEZGAH_ENGAGEMENTS_ROOT/<slug>` reads that engagement's manifest however
+    deep it sits (`_engagement_manifest`)."""
     path = os.path.realpath(cwd)
     for _ in range(MAX_WALK):
         candidate = os.path.join(path, EXT_DIR, MANIFEST_NAME)
@@ -86,7 +115,37 @@ def manifest_path(cwd):
         if parent == path:
             break
         path = parent
-    return None, None
+    return _engagement_manifest(cwd)
+
+
+def _engagement_manifest(cwd):
+    """(engagement_root, manifest_path) for a cwd under
+    `$TEZGAH_ENGAGEMENTS_ROOT/<slug>`, or (None, None): no root set, a cwd
+    outside it or at the root itself, or no manifest in that engagement. One
+    `isfile`, so an unset or unrelated root costs nothing."""
+    root = os.environ.get(ENGAGEMENTS_ENV)
+    if not root:
+        return None, None
+    root = os.path.realpath(os.path.expanduser(root))
+    rel = os.path.relpath(os.path.realpath(cwd), root)
+    slug = rel.split(os.sep, 1)[0]
+    if slug in (os.curdir, os.pardir):
+        return None, None
+    engagement = os.path.join(root, slug)
+    candidate = os.path.join(engagement, EXT_DIR, MANIFEST_NAME)
+    return (engagement, candidate) if os.path.isfile(candidate) else (None, None)
+
+
+def given_manifest(manifest_file):
+    """(repo_root, manifest_path) for a manifest named outright (the renderer's
+    `--manifest`): the repo root is the directory holding its `.tezgah`, else
+    the directory holding the file. (None, None) when it is no file."""
+    path = os.path.realpath(os.path.expanduser(manifest_file))
+    if not os.path.isfile(path):
+        return None, None
+    folder = os.path.dirname(path)
+    return (os.path.dirname(folder) if os.path.basename(folder) == EXT_DIR
+            else folder), path
 
 
 def _load_manifest(manifest_file):
@@ -98,6 +157,88 @@ def _load_manifest(manifest_file):
     except (OSError, ValueError, UnicodeDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def load(cwd, manifest_file=None):
+    """(repo_root, manifest dict) for `cwd` - or for `manifest_file` when one
+    is named - else (None, None). Never raises: every key reader below goes
+    through it, and a reader that raised would cost its caller the call."""
+    try:
+        repo_root, found = (given_manifest(manifest_file) if manifest_file
+                            else manifest_path(cwd))
+    except (OSError, ValueError, TypeError):
+        return None, None
+    manifest = _load_manifest(found) if found else None
+    return (repo_root, manifest) if manifest else (None, None)
+
+
+def repo_checks(cwd):
+    """[argv prefix] the manifest's `checks` declares, each a list of words.
+
+    An entry is a string split the shell's way (`"bin/audit --check"` is two
+    words) or a list of strings; anything else - a number, an empty string, a
+    line shlex rejects - is dropped alone. The first word is normalised
+    (`./bin/x` and `bin/x` are one prefix), the way a command word is read."""
+    _root, manifest = load(cwd)
+    raw = (manifest or {}).get("checks")
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for entry in raw[:MAX_CHECKS]:
+        try:
+            words = (shlex.split(entry) if isinstance(entry, str)
+                     else list(entry) if isinstance(entry, list) else [])
+        except ValueError:
+            continue
+        if words and all(isinstance(w, str) and w for w in words):
+            out.append([os.path.normpath(words[0])] + words[1:])
+    return out
+
+
+def untrusted_programs(cwd):
+    """frozenset of the program names the manifest's `untrusted` declares: one
+    basename each, case kept (a shell's program word is case-sensitive). A
+    non-list, or an entry that is no name, is dropped."""
+    _root, manifest = load(cwd)
+    raw = (manifest or {}).get("untrusted")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(os.path.basename(p) for p in raw[:MAX_UNTRUSTED]
+                     if isinstance(p, str) and NAME.match(os.path.basename(p)))
+
+
+def repo_agent(brief, cwd):
+    """(agent, pattern) of the first `agents` entry whose `match` regex finds
+    the brief, or None. An entry with no string pattern, a pattern longer than
+    MAX_PATTERN or one `re` rejects, or an agent that is no one-word name, is
+    dropped alone; the brief is read on its first MAX_BRIEF characters."""
+    _root, manifest = load(cwd)
+    raw = (manifest or {}).get("agents")
+    if not isinstance(raw, list):
+        return None
+    text = str(brief or "")[:MAX_BRIEF]
+    for entry in raw[:MAX_AGENTS]:
+        if not isinstance(entry, dict):
+            continue
+        pattern, agent = entry.get("match"), entry.get("agent")
+        if not (isinstance(pattern, str) and pattern and len(pattern) <= MAX_PATTERN
+                and isinstance(agent, str) and NAME.match(agent)):
+            continue
+        try:
+            if re.search(pattern, text):
+                return agent, pattern
+        except re.error:
+            continue
+    return None
+
+
+def override(cwd, manifest_file=None):
+    """True when the manifest's `statusline.override` is literally `true`: the
+    project owns its status line and points it at tezgah's renderer, so that
+    renderer is the only line. Any other value is False."""
+    _root, manifest = load(cwd, manifest_file)
+    spec = (manifest or {}).get("statusline")
+    return isinstance(spec, dict) and spec.get("override") is True
 
 
 def _valid_segment(seg, index):
@@ -176,15 +317,14 @@ def run_manifest(repo_root, manifest, envelope=None):
     return out
 
 
-def segments(cwd, session_id=None):
+def segments(cwd, session_id=None, manifest_file=None):
     """Every extension segment for a render of `cwd`, in manifest order.
+    `manifest_file` names the manifest outright (the renderer's `--manifest`)
+    instead of discovering it from `cwd`.
 
     One manifest today (the first found); the return is a list so a second
     extension is a discovery change, not a caller change."""
-    repo_root, manifest_file = manifest_path(cwd)
-    if not manifest_file:
-        return []
-    manifest = _load_manifest(manifest_file)
+    repo_root, manifest = load(cwd, manifest_file)
     if not manifest:
         return []
     return run_manifest(repo_root, manifest,
