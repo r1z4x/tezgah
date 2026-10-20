@@ -204,7 +204,7 @@ checkpoint that is a plain sha (the boundary is already real), a `pending` with 
 
 ### Workspace — tezgah state outside `.tezgah/`
 
-Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. It also names the commit form for the workspace's shape (`hooks/tezgah_research.py::folded`). A workspace with its own repository gets `git -C .tezgah` (`hooks/tezgah_gate.py::WORKSPACE_OWN`). A folded one the project tracks gets the project's own `git add`/`git commit` (`hooks/tezgah_gate.py::WORKSPACE_FOLDED`). A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
+Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. It also names the commit form for the workspace's shape (`hooks/tezgah_research.py::folded`). An own repository gets `git -C .tezgah` (`hooks/tezgah_gate.py::WORKSPACE_OWN`). A folded one the project tracks gets its own `git add`/`git commit` (`hooks/tezgah_gate.py::WORKSPACE_FOLDED`). A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
 
 ### Secret — a credential on its way into a file
 
@@ -305,11 +305,11 @@ Codex and Cursor read it with their PostToolUse result (`hosts/codex/hook.py`, `
 
 Trigger: 25 work rows (`hooks/tezgah_gate.py::DRIFT_STEPS`) in the current user turn and an effectful call — a write tool, or a git/gh artifact command (`effectful`
 `hooks/tezgah_gate.py::effectful`). An MCP call of any verb class counts as an effectful call too. Told: the standing constraints re-stated, or the delta since the turn began; "re-issue this call unchanged and carry on" (`hooks/tezgah_gate.py::DRIFT_DENY`,
-`hooks/tezgah_gate.py::drift_reason`). A refusal, last in `decision` after every other built-in rule (only a repository's own rule runs after it, [Adding a rule](#a-repositorys-own-rule)), and its only delivery: no host's PostToolUse side carries it, and opencode gets it from the core through `bin/tezgah-gate` on its write path. Once per turn: the `drift` mark is written *before* the refusal, so the identical call passes on the next attempt, and the count behind it is the turn's own — a bounded read (`hooks/tezgah_gate.py::DRIFT_TAIL`) falls back to the turn's own start (`hooks/tezgah_integrity.py::turn_rows`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py::drift_reason`).
+`hooks/tezgah_gate.py::drift_reason`). A refusal, last in `decision` after every other built-in rule. Only a repository's own rule runs after it ([Adding a rule](#a-repositorys-own-rule)). Its only delivery: no host's PostToolUse side carries it, and opencode gets it from the core through `bin/tezgah-gate` on its write path. Once per turn: the `drift` mark is written *before* the refusal, so the identical call passes on the next attempt. The count behind it is the turn's own — a bounded read (`hooks/tezgah_gate.py::DRIFT_TAIL`) falls back to the turn's own start (`hooks/tezgah_integrity.py::turn_rows`) when the turn outgrew the window. Governed by `reminder-off`, not `verify-off` (`hooks/tezgah_gate.py::drift_reason`).
 
 ### Repo-rule — a repository's own `.tezgah/gate.py` refuses the call
 
-Trigger: the repository's rule file answers `{"deny": "<reason>"}` for this call (`hooks/tezgah_gate.py::repo_rule_reason`). Told: that reason, verbatim. Last in `decision`, after every built-in refusal; a timeout, a non-zero exit or malformed output allows. Off only with `pretooluse-off`. The contract is [A repository's own rule](#a-repositorys-own-rule).
+Trigger: the repository's rule file answers `{"deny": "<reason>"}` for this call (`hooks/tezgah_gate.py::repo_rule_reason`). Told: that reason, verbatim. Last in `decision`, after every built-in refusal. A timeout, a non-zero exit or malformed output allows. Off only with `pretooluse-off`. The contract is [A repository's own rule](#a-repositorys-own-rule).
 
 ### Ask — an ask-tool question with no recommended option
 
@@ -429,7 +429,7 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 | `loop` | designed | the turn's own repeated failure; no incident recorded | `tests/test_gate.py::test_an_identical_failed_call_is_denied_after_the_ceiling` |
 | `retry` | designed | the session ceiling over the same guard; no incident recorded | `tests/test_gate.py::test_a_fourth_identical_call_is_refused_whatever_the_outcome` |
 | `drift` | an internal plan's flip rule on the 2026-09-20 move to a result-channel notice: at 27 sessions the blocked-claim rate in turns under 25 work rows read 112/140 = 0.8000, against 59/142 = 0.4155 before | an internal plan (not published) | `tests/test_gate.py::test_a_long_turn_restates_the_constraints_before_a_write` |
-| `repo-rule` | designed | a repository's own refusal through the extension seam (plan 124); no incident recorded | `tests/test_gate.py::test_a_repo_rule_denies_its_call_and_allows_the_rest` |
+| `repo-rule` | designed | a repository's own refusal through the extension seam (plan 124), no incident recorded | `tests/test_gate.py::test_a_repo_rule_denies_its_call_and_allows_the_rest` |
 | `evidence tampered` | a terminated garbage line made `_parse` raise, and the guard then failed the Stop rule open for the turn; corrupting a `verify_fail` row was an allow route. A `verify_ok` appended with `python3 -c` licensed a claim (security-03), so a pass with no `began` row is an orphan (`hooks/tezgah_integrity.py::_pair`) | `hooks/tezgah_integrity.py::_parse` | `tests/test_integrity.py::test_a_damaged_ledger_blocks_a_done_claim_as_evidence_tampered` |
 | `check failed` | designed | the newest check failing is its own class; no incident recorded | `tests/test_integrity.py::test_failed_check_blocks` |
 | `partial failure` | designed | a failure the turn never resolved; no incident recorded | `tests/test_integrity.py::test_an_unresolved_failure_blocks_even_after_an_earlier_pass` |
@@ -472,7 +472,7 @@ A repository adds a refusal without editing the harness: it drops a Python file 
 The gate finds it with the status line's walk - nearest above the call's cwd, at most `MAX_WALK` levels, never above the configured root (`hooks/tezgah_gate.py::repo_rule_path`) - and a repo without one pays one `isfile` per level and no fork.
 The file runs as a bounded child in the repo root, with one JSON object on stdin: `{"api": 1, "event": "pretool", "cwd", "repo_root", "session_id", "tool", "input"}` (the extension envelope, `hooks/tezgah_extension.py::call_envelope`, plus the call).
 It answers `{"deny": "<reason>"}` on stdout to refuse, and nothing to allow. The reason reaches the agent verbatim and leaves a `deny` row under `repo-rule`.
-Fail-open: a non-zero exit, a timeout (1000 ms, `hooks/tezgah_extension.py::DEFAULT_TIMEOUT_MS`) and malformed output allow. The rule runs after every built-in refusal, so a built-in one wins and the repo rule only adds; `pretooluse-off` is its only switch.
+Fail-open: a non-zero exit, a timeout (1000 ms, `hooks/tezgah_extension.py::DEFAULT_TIMEOUT_MS`) and malformed output allow. The rule runs after every built-in refusal, so a built-in one wins and the repo rule only adds. `pretooluse-off` is its only switch.
 opencode runs the same file with the same envelope when the core was not asked (`hosts/opencode/plugins/tezgah.js`, `repoRuleReason`).
 
 ## Source of truth

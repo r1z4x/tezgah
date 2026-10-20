@@ -162,7 +162,7 @@ MUTANTS = (
      anchored("def ran_nothing(result):\n", "def ran_nothing(result):\n    return False\n"),
      "the empty-run read of a check's output (`ran_nothing`)"),
     ("pipe-pass", INTEGRITY,
-     anchored("    return not status_hidden(entry.get(\"detail\"))\n",
+     anchored("    return not status_hidden(entry.get(\"detail\"), entry.get(\"repo\"))\n",
               "    return True\n"),
      "a pass whose status a pipe or a later command owns"),
     ("negated", INTEGRITY,

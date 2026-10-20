@@ -26,15 +26,15 @@ def gate_text():
 class GeneratedGateMutants(unittest.TestCase):
     def test_one_row_per_gate_rule(self):
         rows = neuter_matrix.gate_mutants(gate_text())
-        self.assertEqual(len(rows), 16)
-        self.assertEqual(len({r[0] for r in rows}), 16)
+        self.assertEqual(len(rows), 17)
+        self.assertEqual(len({r[0] for r in rows}), 17)
         self.assertTrue(all(r[1] == neuter_matrix.GATE for r in rows))
         self.assertIn("gate-task", {r[0] for r in rows})
         self.assertIn("gate-control", {r[0] for r in rows})
 
     def test_each_row_reverts_every_deny_site_of_its_rule_and_no_other(self):
         text = gate_text()
-        denies = re.compile(r'return _deny\(session_id, "([a-z]+)"')
+        denies = re.compile(r'return _deny\(session_id, "([a-z-]+)"')
         before = denies.findall(text)
         for name, _file, apply, _guard in neuter_matrix.gate_mutants(text):
             rule = name[len("gate-"):]
