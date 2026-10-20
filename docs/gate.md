@@ -204,7 +204,7 @@ checkpoint that is a plain sha (the boundary is already real), a `pending` with 
 
 ### Workspace — tezgah state outside `.tezgah/`
 
-Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
+Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write, and the commit form for the workspace's shape (`hooks/tezgah_research.py::folded`): `git -C .tezgah` for a workspace with its own repository (`hooks/tezgah_gate.py::WORKSPACE_OWN`), the project's own `git add`/`git commit` for a folded one the project tracks (`hooks/tezgah_gate.py::WORKSPACE_FOLDED`). A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
 
 ### Secret — a credential on its way into a file
 

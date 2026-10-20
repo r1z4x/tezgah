@@ -1975,8 +1975,13 @@ def _pending_checkpoint(task, root):
 WORKSPACE_KINDS = ("plans", "research", "analysis")
 WORKSPACE_DENY = (
     "Workspace gate: %s puts tezgah state in the project's own `%s/`. Per-project "
-    "plans, research and analysis live under `.tezgah/%s/` - ignored by the "
-    "project, committed with `git -C .tezgah ...` - so write it there.")
+    "plans, research and analysis live under `.tezgah/%s/` - %s - so write it there.")
+# The commit form for each workspace shape, chosen by `tezgah_research.folded`:
+# its own repository, or a `.tezgah` the project tracks (folded), whose history is
+# the project's - `git -C .tezgah` would climb to the project and answer for it.
+WORKSPACE_OWN = "ignored by the project, committed with `git -C .tezgah ...`"
+WORKSPACE_FOLDED = ("tracked by the project here, committed with the project's own "
+                    "`git add .tezgah/... && git commit`")
 
 
 def workspace_reason(inp, cwd, base):
@@ -1990,14 +1995,16 @@ def workspace_reason(inp, cwd, base):
         if seg not in WORKSPACE_KINDS:
             continue
         import subprocess  # deferred: only a write under one of the three pays
+        root = tezgah_task.repo_root(cwd, base)
         try:
-            listed = subprocess.run(
-                ["git", "-C", tezgah_task.repo_root(cwd, base), "ls-files", "--", seg],
-                capture_output=True, text=True, timeout=5)
+            listed = subprocess.run(["git", "-C", root, "ls-files", "--", seg],
+                                    capture_output=True, text=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             continue
         if listed.returncode == 0 and not listed.stdout.strip():
-            return WORKSPACE_DENY % (path, seg, seg)
+            import tezgah_research  # deferred: only a refusal pays for the shape
+            shape = WORKSPACE_FOLDED if tezgah_research.folded(root) else WORKSPACE_OWN
+            return WORKSPACE_DENY % (path, seg, seg, shape)
     return None
 
 
