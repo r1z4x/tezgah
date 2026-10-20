@@ -53,7 +53,11 @@ def fixture(home, seed=56):
 
 class Replay(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        # The child's context_for("session_start") runs sync_agents, which
+        # generates agent files and its state record inside this throwaway
+        # HOME; the harness measures bytes, not filesystem side effects, so
+        # cleanup tolerates what the child leaves behind.
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.home = os.path.realpath(self.tmp.name)
         fixture(self.home)
         with mock.patch.dict(os.environ, {"HOME": self.home}):
