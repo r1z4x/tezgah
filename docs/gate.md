@@ -474,6 +474,8 @@ The file runs as a bounded child in the repo root, with one JSON object on stdin
 It answers `{"deny": "<reason>"}` on stdout to refuse, and nothing to allow. The reason reaches the agent verbatim and leaves a `deny` row under `repo-rule`.
 Fail-open: a non-zero exit, a timeout (1000 ms, `hooks/tezgah_extension.py::DEFAULT_TIMEOUT_MS`) and malformed output allow. The rule runs after every built-in refusal, so a built-in one wins and the repo rule only adds. `pretooluse-off` is its only switch.
 opencode runs the same file with the same envelope when the core was not asked (`hosts/opencode/plugins/tezgah.js`, `repoRuleReason`).
+Its interpreter is the plugin's `pythonBin()`, not the gate's `sys.executable`: `TEZGAH_PYTHON`, else the first of `python3`, `python`, `py` on PATH.
+The opencode classifier does not read the manifest's `checks`, so a declared check records there as a plain run. That is a lost credit, never a false one.
 
 ## Source of truth
 

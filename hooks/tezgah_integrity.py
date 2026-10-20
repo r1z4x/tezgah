@@ -1966,7 +1966,10 @@ def _repo_check_runs(cmd, prefixes):
     """(name, mode) for each simple command of `cmd` that starts with one of
     `prefixes`, after assignments and VERIFY's wrappers. Read with
     `_shell_commands`, so a prefix inside a quoted argument, a commit message or
-    a heredoc body is an argument, not a run - the masked reading VERIFY keeps.
+    a QUOTED heredoc body (`<<'EOF'`, `<<"EOF"`) is an argument, not a run - the
+    masked reading VERIFY keeps. An unquoted heredoc's body (`<<EOF`, `<<-EOF`)
+    is read as commands, so `cat > x <<EOF` over a `./bin/run-tool` line counts
+    as a run, as a `pytest` line there does for VERIFY.
     ponytail: a wrapper's own option (`sudo -u root ./bin/x`) hides the program,
     a lost credit rather than an invented one."""
     for words, _sep in _shell_commands(cmd):
@@ -3810,8 +3813,14 @@ def passing_check(entry):
         return False
     if entry.get(ORPHAN) or entry.get("exit") != 0 or entry.get("out_bytes") == 0:
         return False
-    # the row's own repository reads its declared checks (`repo_checks`), so a
-    # repo check followed by `; echo` stays the check that ran, never a pass
+    # The row carries no cwd: its one location is `repo`, which `_check_repo`
+    # sets only when the call named where it ran (a `cwd`/`workdir` argument, a
+    # leading `cd X`, path arguments in one repository) and leaves None
+    # otherwise. So this re-read sees the repository's declared checks
+    # (`repo_checks`) only on such a row; on the rest it reads the built-in
+    # vocabulary alone. The reading that holds `./bin/run-tool x; echo done` to
+    # `verify` is `note_tool`'s, with the call's own cwd - this one guards a
+    # `verify_ok` row another writer appended, as far as its `repo` reaches.
     return not status_hidden(entry.get("detail"), entry.get("repo"))
 
 
