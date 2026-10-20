@@ -10,9 +10,9 @@ public issue for a suspected vulnerability.
 ## In scope
 
 tezgah runs shell hooks, writes host configuration, and injects text into every
-session. Anything that makes a hook execute attacker-controlled code, leaks a
-key into a config file, widens a sandbox, or lets repository content escalate
-into instruction text is in scope.
+session. Anything that makes a hook execute attacker-controlled code beyond the
+one documented seam below, leaks a key into a config file, widens a sandbox, or
+lets repository content escalate into instruction text is in scope.
 
 ## Threat model
 
@@ -137,6 +137,19 @@ an adversarial agent, and it does not claim to be one.
     switch's directory path is not read (the link's own times are, when the
     switch file itself is one). A switch the user flips in their own terminal
     waits for the next session or a prompt that names it.
+- **A repository's own rule is the repository's code.** The gate runs
+  `<repo>/.tezgah/gate.py` on every gated call, the dry check
+  (`tezgah-gate check`) included, with the hook's own environment and user
+  ([docs/gate.md](docs/gate.md#a-repositorys-own-rule)). Running it is the
+  point of the seam, so it is not a sandbox: like any program the repository
+  ships, it can refuse calls, write the kill switches, append ledger rows, and
+  do whatever else the user can. Three bounds sit around it. It runs only when
+  it is in the git index of the repository that holds it, so an uncommitted
+  drop is inert; staging is a visible act, not a signature, and an agent can
+  stage the file too. Its refusal reaches the agent cut to 600 characters and
+  labelled as repository-supplied text, not as a tezgah rule. And
+  `TEZGAH_REPO_RULE=0` in the environment skips it before any fork; opencode's
+  mirror holds the same three.
 - **The same uid ceiling.** The agent runs as the user, with the user's file
   permissions. Nothing tezgah writes is out of its reach at the filesystem
   level; the gate is the only barrier, and it is a policy check, not a

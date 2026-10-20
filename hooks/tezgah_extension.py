@@ -77,6 +77,10 @@ CALL_API = 1
 # manifest still contributes its first entries. A pattern is bounded in length
 # and the brief it reads in characters, so a repo's regex cannot hold route() up.
 MAX_CHECKS = 32
+# A `checks` prefix that is one of these programs alone checks nothing, and a
+# run of it would license a pass; with a word beyond the program (`echo tested`)
+# it names one command and stays.
+NO_OP_PROGRAMS = frozenset(("echo", "true", "cat", "printf", "ls"))
 MAX_UNTRUSTED = 64
 MAX_AGENTS = 32
 MAX_PATTERN = 512
@@ -178,7 +182,8 @@ def repo_checks(cwd):
     An entry is a string split the shell's way (`"bin/audit --check"` is two
     words) or a list of strings; anything else - a number, an empty string, a
     line shlex rejects - is dropped alone. The first word is normalised
-    (`./bin/x` and `bin/x` are one prefix), the way a command word is read."""
+    (`./bin/x` and `bin/x` are one prefix), the way a command word is read. A
+    lone NO_OP_PROGRAMS word (`echo`, `/bin/true`) is dropped too."""
     _root, manifest = load(cwd)
     raw = (manifest or {}).get("checks")
     if not isinstance(raw, list):
@@ -190,7 +195,8 @@ def repo_checks(cwd):
                      else list(entry) if isinstance(entry, list) else [])
         except ValueError:
             continue
-        if words and all(isinstance(w, str) and w for w in words):
+        if words and all(isinstance(w, str) and w for w in words) and not (
+                len(words) == 1 and os.path.basename(words[0]) in NO_OP_PROGRAMS):
             out.append([os.path.normpath(words[0])] + words[1:])
     return out
 

@@ -82,6 +82,10 @@ class GateVectors(TempHome):
         os.makedirs(os.path.dirname(rule))
         with open(rule, "w", encoding="utf-8") as fh:
             fh.write("\n".join(load()["repo_rule"]) + "\n")
+        # the gate runs a rule only from the git index (an uncommitted drop is inert)
+        for argv in (["init", "-q"], ["add", "-f", ".tezgah/gate.py"]):
+            subprocess.run(["git", "-C", self.repo] + argv, check=True,
+                           capture_output=True)
         self.envv = self.env()
         # opencode asks the core through bin/tezgah-gate under its config dir,
         # linked the way tezgah-setup links it; without it the ask fails open
