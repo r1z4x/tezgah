@@ -3531,7 +3531,7 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
             command = str(inp.get("command") or inp.get("cmd") or "")
             note(session_id, BEGAN_KIND, command or (write_paths(inp) or [""])[0],
                  id=digest, tool=str(tool or "").strip() or None, workspace=base,
-                 check=1 if t in BASH_TOOLS and verify_command(command) else None)
+                 check=1 if t in BASH_TOOLS and verify_command(command, cwd) else None)
     # Claude's Task names the agent `subagent_type`; omp's task names it `agent`,
     # on the call (flat shape) or on each `tasks[]` item (batch shape).
     subs = [inp.get("subagent_type"),
