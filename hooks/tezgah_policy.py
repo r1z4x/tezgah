@@ -1051,10 +1051,10 @@ installed skill covers, run `tezgah-skill <words>` and read only the range it
 returns.
 
 **Workspace: `.tezgah/` only.** Every per-project tezgah artifact - plans,
-research lines, analysis, lessons - lives under `<repo>/.tezgah/`, which the
-project's `.gitignore` excludes and which keeps its own private git repository
-(`git -C .tezgah ...`). Never create `plans/`, `research/` or `analysis/` at the
-project root and never `git add -f` anything under `.tezgah/`. Off:
+research lines, analysis, lessons - lives under `<repo>/.tezgah/`, ignored by
+the project, committed with `git -C .tezgah ...` - or, if the project tracks
+it, plain `git add`/`git commit`. Never create `plans/`, `research/` or
+`analysis/` at the project root and never `git add -f` under `.tezgah/`. Off:
 `workspace-off`.
 
 **Parallel by default: fan out independent items.** A request with two or
