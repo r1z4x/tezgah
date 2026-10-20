@@ -344,6 +344,9 @@ class Checks(KeyCase):
                     "./bin/run-tool --help",
                     "cat <<'EOF'\n./bin/run-tool scan\nEOF"):
             self.assertIsNone(ti.verify_command(cmd, self.repo), cmd)
+        # an unquoted heredoc's body is read as commands, as VERIFY reads it
+        self.assertEqual(ti.verify_command("cat > x <<EOF\n./bin/run-tool scan\nEOF",
+                                           self.repo), "./bin/run-tool")
 
     def test_checks_a_run_backs_a_verify_ok_that_passing_check_accepts(self):
         self.manifest({"checks": ["./bin/run-tool"]})
@@ -361,6 +364,15 @@ class Checks(KeyCase):
             row = self.ran(cmd)
             self.assertEqual(row["kind"], "verify", cmd)
             self.assertFalse(ti.passing_check(row), cmd)
+
+    def test_checks_passing_check_reads_the_rows_repo(self):
+        # a verify_ok another writer appended: `repo` is the only location the
+        # row carries, so the declared checks are read there and nowhere else
+        self.manifest({"checks": ["./bin/run-tool"]})
+        row = {"kind": "verify_ok", "exit": 0, "out_bytes": 9,
+               "detail": "./bin/run-tool scan; echo done", "repo": self.repo}
+        self.assertFalse(ti.passing_check(row))
+        self.assertTrue(ti.passing_check(dict(row, detail="./bin/run-tool scan")))
 
     def test_checks_a_broken_value_costs_the_key_never_the_gate(self):
         for spec in ({"checks": "./bin/run-tool"}, {"checks": [1, "", "'open"]},
