@@ -3,11 +3,13 @@ language refusals, the first-grep nudge, the concurrent-write refusal, the
 long-turn re-statement and the task-phase refusal."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 import bash_vectors
 import support
@@ -3819,6 +3821,123 @@ class AskAdvice(TempHome):
                              env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual([r for r in self.rows("sub") if r.get("kind") == "grant"], [])
+
+
+# A repo rule that records the call it was handed and refuses one marker.
+REPO_RULE_DENY = """import json, os, sys
+call = json.load(sys.stdin)
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seen.json"),
+          "w") as fh:
+    json.dump(call, fh)
+if "forbidden-marker" in json.dumps(call["input"]):
+    print(json.dumps({"deny": "repo rule: forbidden-marker is this repo's line"}))
+"""
+
+
+class ExtensionRepoRule(TempHome):
+    """Plan 124: `<repo>/.tezgah/gate.py` adds a refusal without editing the
+    harness, through the extension envelope, and fails open on every failure."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = self.make_repo("proj")
+        self.envv = self.env()
+
+    def rule(self, source, root=None):
+        path = os.path.join(root or self.repo, ".tezgah", "gate.py")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(source)
+        return path
+
+    def decide(self, command, session_id="rr", cwd=None):
+        out, proc = run_json([support.PROBE_GATE],
+                             {"tool": "Bash", "input": {"command": command},
+                              "cwd": cwd or self.repo, "session_id": session_id},
+                             env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def denies(self, session_id):
+        out, proc = run_json([support.PROBE_INTEGRITY],
+                             {"fn": "events", "session": session_id}, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return [r["detail"] for r in out or [] if r.get("kind") == "deny"]
+
+    def test_a_repo_rule_denies_its_call_and_allows_the_rest(self):
+        self.rule(REPO_RULE_DENY)
+        sub = os.path.join(self.repo, "src")
+        os.makedirs(sub)
+        reason = self.decide("echo forbidden-marker", cwd=sub)
+        self.assertEqual(reason, "repo rule: forbidden-marker is this repo's line")
+        self.assertEqual(self.denies("rr"),
+                         ["repo-rule: repo rule: forbidden-marker is this repo's line"])
+        with open(os.path.join(self.repo, ".tezgah", "seen.json"), encoding="utf-8") as fh:
+            call = json.load(fh)
+        self.assertEqual(call, {"api": 1, "event": "pretool", "cwd": sub,
+                                "repo_root": self.repo, "session_id": "rr",
+                                "tool": "Bash",
+                                "input": {"command": "echo forbidden-marker"}})
+        self.assertIsNone(self.decide("echo fine", session_id="rr-ok"))
+        self.assertEqual(self.denies("rr-ok"), [])
+
+    def test_a_built_in_refusal_wins_over_the_repo_rule(self):
+        self.rule('import json\nprint(json.dumps({"deny": "repo says no"}))\n')
+        reason = self.decide('git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"')
+        self.assertIn("Attribution", reason)
+        self.assertEqual([d.split(":")[0] for d in self.denies("rr")], ["attribution"])
+
+    def test_no_rule_file_costs_a_stat_per_level_and_no_fork(self):
+        # a rule above the configured root is not this repo's: the walk stops there
+        self.rule('print("{\\"deny\\": \\"outside\\"}")\n', os.path.dirname(self.roots))
+        real_isfile = os.path.isfile
+        with unittest.mock.patch.object(tg.subprocess, "run",
+                                        side_effect=AssertionError("forked")), \
+                unittest.mock.patch.object(tg.os.path, "isfile",
+                                           side_effect=real_isfile) as isfile:
+            self.assertIsNone(tg.repo_rule_reason(
+                "Bash", {"command": "echo x"}, self.repo, self.roots, "rr"))
+        self.assertEqual(isfile.call_count, 2)  # proj/.tezgah, then the root's
+
+    def test_a_timeout_a_non_zero_exit_and_malformed_output_allow(self):
+        cases = {
+            "timeout": 'import time\ntime.sleep(5)\nprint(\'{"deny": "late"}\')\n',
+            "exit": 'import sys\nprint(\'{"deny": "exit"}\')\nsys.exit(3)\n',
+            "text": 'print("deny: not json")\n',
+            "list": 'print(\'["deny"]\')\n',
+            "number": 'print(\'{"deny": 5}\')\n',
+            "blank": 'print(\'{"deny": "  "}\')\n'}
+        for name, source in cases.items():
+            with self.subTest(name):
+                self.rule(source)
+                began = time.monotonic()
+                self.assertIsNone(self.decide("echo forbidden-marker",
+                                              session_id="rr-" + name))
+                self.assertLess(time.monotonic() - began, 4)
+                self.assertEqual(self.denies("rr-" + name), [])
+
+    def test_the_opencode_mirror_runs_the_same_rule(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node not installed")
+        self.rule(REPO_RULE_DENY)
+        spec = {"plugin": support.OPENCODE_PLUGIN, "dir": self.repo,
+                "calls": [{"hook": "tool.execute.before",
+                           "input": {"tool": "bash", "sessionID": "oc-" + c,
+                                     "args": {"command": "echo " + c}}}
+                          for c in ("forbidden-marker", "fine")]}
+        proc = subprocess.run([node, support.OPENCODE_HARNESS], input=json.dumps(spec),
+                              capture_output=True, text=True, env=self.envv, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        deny, allow = json.loads(proc.stdout)["results"]
+        self.assertFalse(deny["ok"], deny)
+        self.assertIn("forbidden-marker is this repo's line", deny["error"])
+        self.assertTrue(allow["ok"], allow)
+        self.assertEqual(self.denies("oc-forbidden-marker"),
+                         ["repo-rule: repo rule: forbidden-marker is this repo's line"])
+        with open(os.path.join(self.repo, ".tezgah", "seen.json"), encoding="utf-8") as fh:
+            self.assertEqual(sorted(json.load(fh)), ["api", "cwd", "event", "input",
+                                                     "repo_root", "session_id", "tool"])
 
 
 if __name__ == "__main__":

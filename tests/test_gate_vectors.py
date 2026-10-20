@@ -76,6 +76,12 @@ class GateVectors(TempHome):
     def setUp(self):
         super().setUp()
         self.repo = self.make_repo("proj")
+        # the corpus's repo rule (plan 124), planted once: every vector runs with
+        # it present, so a host that drops or breaks the repo rule disagrees
+        rule = os.path.join(self.repo, ".tezgah", "gate.py")
+        os.makedirs(os.path.dirname(rule))
+        with open(rule, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(load()["repo_rule"]) + "\n")
         self.envv = self.env()
         # opencode asks the core through bin/tezgah-gate under its config dir,
         # linked the way tezgah-setup links it; without it the ask fails open
