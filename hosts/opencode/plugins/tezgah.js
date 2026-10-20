@@ -150,7 +150,7 @@ function pythonBin() {
   return (pythonMemo = found || names[0])
 }
 
-function collect(argv, options, input, done) {
+function collect(argv, options, input, done, deadline = SPAWN_DEADLINE_MS) {
   return new Promise((resolve) => {
     let out = ""
     let child
@@ -162,7 +162,7 @@ function collect(argv, options, input, done) {
     const timer = setTimeout(() => {
       try { child.kill("SIGKILL") } catch {}
       resolve(done(null, out, "timeout"))
-    }, SPAWN_DEADLINE_MS)
+    }, deadline)
     if (timer.unref) timer.unref()
     if (child.stdout) child.stdout.on("data", (d) => (out += d))
     child.on("error", () => { clearTimeout(timer); resolve(done(null, "", "spawn")) })
@@ -2805,6 +2805,45 @@ async function gateReason(tool, args, dir, sessionID, core = {}) {
   return reason
 }
 
+// The repo rule, mirrored from hooks/tezgah_gate.repo_rule_reason: the nearest
+// `<repo>/.tezgah/gate.py` from `dir` up to the root, run bounded with the
+// extension call envelope (hooks/tezgah_extension.call_envelope, `event:
+// "pretool"` plus the call's tool and input). It answers `{"deny": reason}` or
+// nothing; a non-zero exit, a timeout and malformed output allow, as there.
+const REPO_RULE = join(".tezgah", "gate.py")
+const REPO_RULE_WALK = 12          // tezgah_extension.MAX_WALK
+const REPO_RULE_TIMEOUT_MS = 1000  // tezgah_extension.DEFAULT_TIMEOUT_MS
+
+async function repoRuleReason(tool, args, dir, base, sessionID) {
+  const cwd = real(expand(dir))
+  const top = real(base)
+  let root = cwd
+  let rule = null
+  for (let i = 0; i < REPO_RULE_WALK; i++) {
+    try {
+      if (statSync(join(root, REPO_RULE)).isFile()) { rule = join(root, REPO_RULE); break }
+    } catch {}
+    const up = dirname(root)
+    if (root === top || up === root) break
+    root = up
+  }
+  if (!rule) return null
+  const envelope = { api: 1, event: "pretool", cwd, repo_root: root,
+    session_id: sessionID || null, tool, input: args }
+  const reason = await collect([rule], { cwd: root, stdio: ["pipe", "pipe", "ignore"] },
+    JSON.stringify(envelope), (code, out) => {
+      if (code !== 0) return null
+      try {
+        const answer = out.trim() ? JSON.parse(out) : {}
+        const deny = answer && typeof answer === "object" && !Array.isArray(answer)
+          ? answer.deny : null
+        return typeof deny === "string" && deny.trim() ? deny.trim() : null
+      } catch { return null }
+    }, REPO_RULE_TIMEOUT_MS)
+  if (reason) await noteDeny(sessionID, "repo-rule", reason, tool, args, base)
+  return reason
+}
+
 // The one row an ask leaves when the core could not answer it (the classes are
 // collect's): the fail-open is deliberate - a core that cannot answer has
 // refused nothing - but an unrecorded failure makes a rule that never ran look
@@ -3031,6 +3070,13 @@ export const Tezgah = async ({ directory }) => {
               "codegraph_callers tools. If you need literal text, re-run this search unchanged; " +
               "it will pass - this nudge fires once per session."
           }
+        }
+        // The repo rule, after every built-in refusal (hooks/tezgah_gate.decision):
+        // a core that answered already ran it, so it runs here only when the core
+        // was not asked or could not answer.
+        if (!deny && !core.answered) {
+          deny = await repoRuleReason(String(input?.tool || ""), args, dir, base,
+            sessionID)
         }
         // Nothing refused this call, so a write is about to land: keep the bytes
         // it is about to change, which is what bin/tezgah-rollback restores by

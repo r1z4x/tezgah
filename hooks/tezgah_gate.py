@@ -94,9 +94,12 @@ import json
 import os
 import re
 import shlex
+import subprocess
+import sys
 import time
 
 import tezgah_store
+from tezgah_extension import DEFAULT_TIMEOUT_MS, EXT_DIR, MAX_WALK, call_envelope
 
 from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               HEREDOC_RISK, HOOKS_KEY, PATCH_FILE,
@@ -3430,6 +3433,55 @@ def control_reason(t, inp, cwd):
     return noted
 
 
+# --- repo rule: a repository's own refusal, without editing the harness ------
+# `<repo>/.tezgah/gate.py`, found by the extension seam's walk (nearest above
+# cwd, at most MAX_WALK levels, never above the configured root), is run as a
+# bounded child with the extension call envelope on stdin - `event: "pretool"`
+# plus the call's `tool` and `input` - and answers `{"deny": "<reason>"}` on
+# stdout, or nothing to allow. Fail-open like the status line: a non-zero exit,
+# a timeout (the extension's DEFAULT_TIMEOUT_MS) or malformed output allows, so
+# a broken rule costs its own refusal, never the call. A subprocess and not an
+# import for the extension seam's reason (hooks/tezgah_extension.py). The rule
+# only adds: `decision` asks it after every built-in refusal.
+REPO_RULE_NAME = "gate.py"
+
+
+def repo_rule_path(cwd, base):
+    """(repo_root, path) of the nearest `.tezgah/gate.py` from `cwd` up to `base`,
+    else (None, None). A repo with none pays one `isfile` per level, no fork."""
+    path, top = os.path.realpath(cwd), os.path.realpath(base)
+    for _ in range(MAX_WALK):
+        candidate = os.path.join(path, EXT_DIR, REPO_RULE_NAME)
+        if os.path.isfile(candidate):
+            return path, candidate
+        parent = os.path.dirname(path)
+        if path == top or parent == path:
+            break
+        path = parent
+    return None, None
+
+
+def repo_rule_reason(tool, inp, cwd, base, session_id):
+    """The repo rule's deny reason for this call, else None. `decision` records
+    it through `_deny`, where the rule inventory reads every rule slug."""
+    repo_root, rule = repo_rule_path(cwd, base)
+    if not rule:
+        return None
+    envelope = dict(call_envelope(repo_root, cwd, session_id), event="pretool",
+                    tool=tool, input=inp)
+    try:
+        proc = subprocess.run([sys.executable, rule], cwd=repo_root,
+                              capture_output=True, text=True, encoding="utf-8",
+                              input=json.dumps(envelope),
+                              timeout=DEFAULT_TIMEOUT_MS / 1000.0)
+        answer = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError):
+        return None
+    reason = answer.get("deny") if proc.returncode == 0 and isinstance(
+        answer, dict) else None
+    return reason.strip() if isinstance(reason, str) and reason.strip() else None
+
+
 def _deny(session_id, rule, reason, tool=None, inp=None, workspace=None,
           extra=None):
     """Record a refusal before returning it: a deny nobody counts is a rule
@@ -3686,6 +3738,11 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
     reason = drift_reason(tool, inp, cwd, session_id)
     if reason:
         return _deny(session_id, "drift", reason, tool, inp, base)
+    # A repository's own rule, after every built-in refusal (a built-in one
+    # wins, the repo rule only adds) and before the allow path below.
+    reason = repo_rule_reason(tool, inp, cwd, base, session_id)
+    if reason:
+        return _deny(session_id, "repo-rule", reason, tool, inp, base)
     # Lesson lineage: a ledger write about to land in a turn that read untrusted
     # text leaves its rows and is let through (see lesson_taint; ADR 010). After
     # every refusal, so a refused write that will be re-issued is counted once;
@@ -3770,7 +3827,7 @@ DENY_RULES = {"control": None, "explorer": None, "shortcut": "verify-off",
               "lease": "orchestrate-off",
               "task": "task-off", "workspace": "workspace-off", "secret": None,
               "plan": None, "order": "verify-off", "loop": "verify-off",
-              "retry": "verify-off", "drift": "reminder-off"}
+              "retry": "verify-off", "drift": "reminder-off", "repo-rule": None}
 
 
 # --- ask: an ask-tool question with no recommended option (plan 086, S3) -----

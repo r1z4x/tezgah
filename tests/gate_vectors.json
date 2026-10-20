@@ -8,6 +8,10 @@
     "{GHPX}": "a ghp_ token whose body is one repeated character",
     "{STRIPE}": "Stripe's published documentation test key"
   },
+  "repo_rule": ["import json, sys",
+                "call = json.load(sys.stdin)",
+                "if 'repo-rule-marker' in json.dumps(call['input']):",
+                "    print(json.dumps({'deny': 'repo-rule-marker is refused by this repo'}))"],
   "hosts": {
     "core": {"tools": {"Write": "Write", "Edit": "Edit", "apply_patch": "apply_patch",
                        "str_replace_editor": "str_replace_editor", "Bash": "Bash"}},
@@ -122,7 +126,14 @@
                "new_str": "    assert True\n"}},
     {"id": "collect-ignore-file-text", "tool": "str_replace_editor", "expect": null,
      "input": {"command": "create", "path": "tests/conftest.py",
-               "file_text": "collect_ignore = [\"test_slow.py\"]\n"}}
+               "file_text": "collect_ignore = [\"test_slow.py\"]\n"}},
+
+    {"id": "repo-rule-shell", "tool": "Bash", "expect": "repo-rule-marker is refused",
+     "input": {"command": "echo repo-rule-marker"}},
+    {"id": "repo-rule-write", "tool": "Write", "expect": "repo-rule-marker is refused",
+     "input": {"file_path": "src/notes.py", "content": "# repo-rule-marker\n"}},
+    {"id": "repo-rule-allow", "tool": "Bash", "expect": null,
+     "input": {"command": "echo repo-rule-ok"}}
   ],
   "ceilings": [
     {"host": "opencode", "vector": "git-add-env",
