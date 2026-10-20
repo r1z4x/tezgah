@@ -2908,6 +2908,12 @@ def _target_label(real, remove, origin):
             return "tezgah's evidence ledger or session state"
     if name in REPO_MARKS and root_for(parent):
         return "a repository opt-out mark (`%s`)" % name
+    # a repository's extension seam: its rule is code the gate runs and its
+    # manifest changes what a check, a taint or a route is - both belong to the
+    # user, not to the session that can rewrite them
+    if name in ("gate.py", "extension.json") and parent.endswith(os.sep + ".tezgah") \
+            and root_for(parent):
+        return "a repository's extension seam (`%s`)" % name
     kind = _registration(real)
     if kind == "shared":
         return real

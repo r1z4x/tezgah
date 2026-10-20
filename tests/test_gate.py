@@ -2058,6 +2058,19 @@ class Gate(TempHome):
         # looks there sees the same redaction rather than the raw string
         self.assertNotIn("a" * 24, out[-1]["detail"])
 
+    def test_a_repositorys_extension_seam_is_control_plane(self):
+        # the rule is code the gate runs and the manifest changes what a check,
+        # a taint or a route is: the session writes both through the CLI
+        for name in ("gate.py", "extension.json"):
+            reason = self.decide(
+                "Write", {"file_path": os.path.join(self.repo, ".tezgah", name),
+                          "content": "x"})
+            self.assertIn("Control plane", reason or "")
+            self.assertIn(name, reason or "")
+        self.assertIsNone(self.decide(
+            "Write", {"file_path": os.path.join(self.repo, ".tezgah", "notes.md"),
+                      "content": "x"}))
+
     # ---- kill switch -------------------------------------------------------
     def test_pretooluse_off_kills_denials(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "pretooluse-off"))
