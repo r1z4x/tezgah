@@ -1977,6 +1977,55 @@ class Tracking(Workspace):
         self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
 
 
+class Folded(Workspace):
+    """Plan 124: a folded workspace - a `.tezgah` the project tracks, with no
+    repository of its own - has only the project's history, so `commit` commits
+    the line there and the gate names the project's commit form."""
+
+    def folded_repo(self):
+        repo = self.repo()
+        self.write(os.path.join(repo, ".tezgah", "README.md"), "kept by the project\n")
+        self.git(repo, "add", ".tezgah")
+        self.git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "track .tezgah")
+        return repo
+
+    def test_folded_commit_lands_in_the_project_history(self):
+        repo = self.folded_repo()
+        self.line(repo)
+        self.protocol(repo)
+        # something the owner staged stays staged and out of the line's commit
+        self.write(os.path.join(repo, "src.py"), "x = 1\n")
+        self.git(repo, "add", "src.py")
+        done = self.cli(repo, "commit", "q", "protocol h1")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("in the project repository", done.stdout)
+        self.assertFalse(os.path.lexists(os.path.join(repo, ".tezgah", ".git")))
+        log = self.git(repo, "log", "--format=%H", "--", ".tezgah/research/open/q").split()
+        self.assertEqual(len(log), 1)
+        self.assertIn(log[0], done.stdout)
+        shown = self.git(repo, "show", "--name-only", "--format=", log[0]).split()
+        self.assertIn(".tezgah/research/open/q/experiments/h1/protocol.md", shown)
+        self.assertNotIn("src.py", shown)
+        self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "src.py")
+
+    def test_folded_gate_names_the_project_commit_form(self):
+        def reason(repo):
+            out, proc = run_json([support.PROBE_GATE],
+                                 {"tool": "Write", "cwd": repo, "session_id": "ws",
+                                  "input": {"file_path": os.path.join(
+                                      repo, "research", "x.md"), "content": "x"}},
+                                 env=self.env())
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return out or ""
+        folded = reason(self.folded_repo())
+        self.assertIn("tracked by the project", folded)
+        self.assertIn("`git add .tezgah/... && git commit`", folded)
+        self.assertNotIn("git -C .tezgah", folded)
+        own = self.repo("own")
+        os.makedirs(os.path.join(own, ".tezgah", ".git"))
+        self.assertIn("`git -C .tezgah ...`", reason(own))
+
+
 class LockedEvaluation(Workspace):
     """I2: the evaluation is locked before anything runs, and the environment it
     was measured in is recorded beside it."""

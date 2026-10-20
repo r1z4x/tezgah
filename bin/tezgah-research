@@ -7,6 +7,7 @@
                        [--arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<m>"]]
                                                    scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
+                                                   (the project's, when it tracks .tezgah)
   tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
                                                    the discipline checks
   tezgah-research status                           one line per research line
@@ -47,7 +48,9 @@ and the review a concluded line reports. `check` exits 1 when a line breaks thos
 rules, so a hook or a person can act on it. The project ignores `.tezgah/`; the
 commits the order rule reads are made in `.tezgah`'s own private git repository,
 which `init` creates and `commit` writes to, and a line the project itself
-committed before the move keeps its order proof in the project's history.
+committed before the move keeps its order proof in the project's history. A
+folded `.tezgah` - one the project tracks, with no repository of its own - has
+only the project's history, so `commit` commits the line there.
 
 `check` with no slug reports the open lines in full; a line under `done/` is
 verified by its order seal's hashes alone and named only when they fail, with
@@ -304,8 +307,9 @@ def cmd_init(args):
 
 
 def cmd_commit(args):
-    """Commit one line in the private `.tezgah` repository - the commit the order
-    rule reads. Only the line's own path is staged and committed."""
+    """Commit one line in the private `.tezgah` repository, or in the project's
+    when `.tezgah` is folded - the commit the order rule reads. Only the line's
+    own path is staged and committed."""
     if len(args) != 2 or not args[1].strip():
         return misuse('commit <slug> "<message>"')
     slug, message = args
@@ -317,8 +321,12 @@ def cmd_commit(args):
 
 
 def commit_path(repo, path, message):
-    """Stage and commit `path` alone in the private repository of `repo`."""
+    """Stage and commit `path` alone in the private repository of `repo`, or in
+    the project's own when `.tezgah` is folded - tracked by the project, with no
+    repository of its own (`tr.folded`)."""
     ws = tp.ensure_workspace(repo)
+    if ws is None and tr.folded(repo):
+        return commit_project(repo, path, message)
     if ws is None:
         print("commit refused: %s is not a git work tree (or .tezgah could not be "
               "set up), so there is no private repository to commit into" % repo)
@@ -336,6 +344,32 @@ def commit_path(repo, path, message):
         return 1
     sha = tp.ws_git(repo, "rev-parse", "HEAD").stdout.strip()
     print("committed %s in %s at %s" % (rel, ws, sha))
+    return 0
+
+
+def commit_project(repo, path, message):
+    """Stage and commit `path` alone in the project's repository: the history a
+    folded `.tezgah` lives in. Anything else the owner staged stays staged and
+    out of this commit (`commit -- <path>`); the project's identity, signing and
+    hooks apply, since this is the project's own history."""
+    rel = os.path.relpath(path, repo)
+    git = ["git", "-C", repo]
+    try:
+        done = subprocess.run(git + ["add", "-A", "--", rel], capture_output=True,
+                              text=True)
+        if not done.returncode:
+            done = subprocess.run(git + ["commit", "-q", "-m", message, "--", rel],
+                                  capture_output=True, text=True)
+    except OSError as exc:
+        print("commit failed: %s" % exc)
+        return 1
+    if done.returncode:
+        print("commit failed: %s" % (done.stderr or done.stdout).strip())
+        return 1
+    sha = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True,
+                         text=True).stdout.strip()
+    print("committed %s in the project repository %s at %s (.tezgah is tracked by "
+          "the project, so the project's history carries the line)" % (rel, repo, sha))
     return 0
 
 

@@ -11,7 +11,9 @@ Two stores grow without bound and neither rotates on its own:
 
 It also reports the hosts' own state (~/.codex, ~/.omp, ~/.claude) and never
 touches it: those stores belong to the hosts, and the number is here so a reader
-can decide, not so this tool can act.
+can decide, not so this tool can act. The current checkout's `.tezgah` shape is
+one row: its own repository, or tracked by the project (folded), whose commits
+are then the project's history.
 
 This tool is read-only by default. With --clean it vacuums the opencode database
 (only when opencode is not running, so it cannot fight a live connection).
@@ -65,7 +67,7 @@ HOME = os.path.expanduser("~")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks"))
 from tezgah_paths import (CACHE, CODEGRAPH, codegraph_bin,  # noqa: E402
-                          fallback_cache, root_for, roots)
+                          fallback_cache, project_top, root_for, roots, workspace)
 
 # the coverage rules, in the bench directory next to the hooks that own the roots
 # and the binary resolver. MANIFEST lists it, so it ships; it is also the one file
@@ -214,6 +216,37 @@ def opencode_running():
         return False
 
 
+def workspace_shape(path):
+    """{repo, shape} for the checkout holding `path`: `own` when its `.tezgah`
+    holds a repository of its own (a linked worktree's link to the main
+    checkout's included), `tracked` when the project tracks it (folded:
+    `tezgah_research.folded`, the project's history carries it), else `none`;
+    repo is None outside a git checkout."""
+    import tezgah_research
+    try:
+        out = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True)
+    except OSError:
+        return {"repo": None, "shape": "none"}
+    if out.returncode or not out.stdout.strip():
+        return {"repo": None, "shape": "none"}
+    repo = project_top(out.stdout.strip())
+    if tezgah_research.folded(repo):
+        shape = "tracked"
+    elif os.path.isdir(os.path.join(os.path.realpath(workspace(repo)), ".git")):
+        shape = "own"
+    else:
+        shape = "none"
+    return {"repo": repo, "shape": shape}
+
+
+WORKSPACE_ROWS = {
+    "own": "own repository (`git -C .tezgah`)",
+    "tracked": "tracked by the project: the project's history carries it",
+    "none": "none yet",
+}
+
+
 def collect(pairs):
     cfg = opencode_cfg()
     repos = []
@@ -230,6 +263,7 @@ def collect(pairs):
         "codegraph_repos": repos,
         "codegraph_bytes": sum(r["bytes"] for r in repos),
         "tezgah_cache_bytes": du(TEZGAH_CACHE) if os.path.isdir(TEZGAH_CACHE) else 0,
+        "workspace": workspace_shape(os.getcwd()),
         **host_bytes(),
     }
 
@@ -571,6 +605,9 @@ def report(rep):
                  len(rows) - indexed))
     print("tezgah")
     print("  cache         %s" % human(rep["tezgah_cache_bytes"]))
+    ws = rep["workspace"]
+    print("  workspace     %s" % ("%s  (%s)" % (WORKSPACE_ROWS[ws["shape"]], ws["repo"])
+                                  if ws["repo"] else "not in a git checkout"))
     print("host state (the hosts' own; this tool never touches it)")
     for label, key in (("codex", "codex_bytes"), ("omp", "omp_bytes"),
                        ("claude", "claude_bytes")):

@@ -485,6 +485,20 @@ def _ws_rel(repo, path):
     return rel if os.path.exists(os.path.join(ws, ".git")) else None
 
 
+def folded(repo):
+    """True when `<repo>/.tezgah` is a folded workspace: a directory the project
+    itself tracks and that holds no repository of its own, so the project's
+    history is the one that carries it (`ensure_workspace` answers None for it by
+    design). A symlinked `.tezgah` and a tree with no `.git` are not folded: the
+    first is refused as repository-provided, the second has no history at all.
+    `workspace_tracked` wants positive evidence, so an index that cannot be read
+    is not folded either."""
+    ws = tp.workspace(repo)
+    return (os.path.isdir(ws) and not os.path.islink(ws)
+            and not os.path.lexists(os.path.join(ws, ".git"))
+            and tp.workspace_tracked(repo))
+
+
 def _ws_log(repo, path, *args):
     """(shas, error) of the private repository's `git log <args>` over `path`'s
     own layout names (`_own_names`) along its HEAD, ([], None) when `path` is
@@ -2329,10 +2343,17 @@ def _check_tracking(repo, base, errors, warnings, strict):
             if not pattern:
                 continue
             rel = _ws_rel(repo, path)
-            fix = ("`git -C .tezgah add -f %s`" % rel if rel is not None else
-                   "`.tezgah` has no git repository of its own - `tezgah-research "
-                   "commit %s \"<message>\"` creates it and commits the line there"
-                   % os.path.basename(base))
+            if rel is not None:
+                fix = "`git -C .tezgah add -f %s`" % rel
+            elif folded(repo):
+                # a forced add of a `.tezgah/` path is the control rule's to refuse
+                fix = ("`.tezgah` is tracked by the project - drop that ignore line, "
+                       "then `tezgah-research commit %s \"<message>\"` commits the "
+                       "line in the project's history" % os.path.basename(base))
+            else:
+                fix = ("`.tezgah` has no git repository of its own - `tezgah-research "
+                       "commit %s \"<message>\"` creates it and commits the line there"
+                       % os.path.basename(base))
             _soft(errors, warnings, strict,
                   "experiment %s: %s is ignored by %s, so no commit can show the "
                   "protocol predates the results; %s"

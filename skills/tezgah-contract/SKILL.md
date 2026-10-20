@@ -55,13 +55,13 @@ resolve `skill://` - instead of loading the whole skill.
 Every per-project tezgah artifact - plans, research lines, analysis, lessons -
 lives under `<repo>/.tezgah/`. Session start creates it, appends `/.tezgah/` and
 `/.codegraph/` to the project's `.gitignore` (user lines kept, nothing staged)
-and gives it a private git repository, so evidence that needs history - a
-research protocol committed before its results, a plan moved to `done/` - is
-committed with `git -C .tezgah ...` (or `tezgah-research commit <slug> "<msg>"`)
-and never enters the project's history. Never create `plans/`, `research/` or
-`analysis/` at the project root and never `git add -f` a path under `.tezgah/`:
-the gate refuses a write whose first path segment is one of those three unless
-the project itself already tracks files there. Off: `workspace-off`.
+and gives it a private git repository: evidence that needs history - a research
+protocol before its results, a plan moved to `done/` - is committed with
+`git -C .tezgah ...`, or plain `git add`/`git commit` when the project tracks
+it; `tezgah-research commit` picks the right one. Never create `plans/`,
+`research/` or `analysis/` at the project root and never `git add -f` a path
+under `.tezgah/`: the gate refuses a write whose first path segment is one of
+those three unless the project already tracks files there. Off: `workspace-off`.
 
 ## Kill switches (auto-armed, tezgah roots only)
 
