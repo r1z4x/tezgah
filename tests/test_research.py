@@ -2008,6 +2008,26 @@ class Folded(Workspace):
         self.assertNotIn("src.py", shown)
         self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "src.py")
 
+    def test_folded_commit_message_meets_the_gate_readers(self):
+        # the project's history is public: the message the gate would refuse
+        # through `git commit -m` is refused here too, exit 2, nothing committed
+        repo = self.folded_repo()
+        self.line(repo)
+        self.protocol(repo)
+        head = self.git(repo, "rev-parse", "HEAD").strip()
+        for message, needle in (
+                ("protokol eklendi", "not English (`eklendi`)"),
+                ("protocol h1\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+                 "Attribution is banned")):
+            done = self.cli(repo, "commit", "q", message)
+            self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+            self.assertIn(needle, done.stderr)
+            self.assertEqual(self.git(repo, "rev-parse", "HEAD").strip(), head)
+            self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
+        done = self.cli(repo, "commit", "q", "protocol h1")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotEqual(self.git(repo, "rev-parse", "HEAD").strip(), head)
+
     def test_folded_gate_names_the_project_commit_form(self):
         def reason(repo):
             out, proc = run_json([support.PROBE_GATE],

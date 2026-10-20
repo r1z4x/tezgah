@@ -50,7 +50,9 @@ commits the order rule reads are made in `.tezgah`'s own private git repository,
 which `init` creates and `commit` writes to, and a line the project itself
 committed before the move keeps its order proof in the project's history. A
 folded `.tezgah` - one the project tracks, with no repository of its own - has
-only the project's history, so `commit` commits the line there.
+only the project's history, so `commit` commits the line there, after the
+message passes the gate's own language and attribution readers (exit 2 and
+the gate's refusal when it does not, nothing committed).
 
 `check` with no slug reports the open lines in full; a line under `done/` is
 verified by its order seal's hashes alone and named only when they fail, with
@@ -119,7 +121,8 @@ append. `board`, `dedup` and `yield` are reports: they write nothing and exit 0.
 Exit codes: 0 clean, 1 problems found - a broken line for `check`, a refused
 claim for `claim`, a refused row for `predict`, `idea`, `stage` or `match`, which
 writes nothing and prints one reason per problem, or a new line refused for
-`init` over unfinished ones - 2 misuse.
+`init` over unfinished ones - 2 misuse, or a folded `commit` whose message the
+gate would refuse.
 """
 import json
 import os
@@ -347,11 +350,33 @@ def commit_path(repo, path, message):
     return 0
 
 
+def message_refusal(message):
+    """The refusal the gate prints for `message` as a `git commit -m` value, or
+    None. A folded `commit` writes the project's own history, which the gate
+    never sees through this command, so the message meets the gate's own
+    readers here: the language reader `lang_reason` hands each subject to
+    (`tezgah_lang.refusal`), then the credit forms `attribution` matches
+    (`ATTRIB`), under the same switches."""
+    if tp.off("pretooluse-off"):
+        return None
+    import tezgah_gate as gate  # deferred: only a folded commit pays the import
+    if gate.tezgah_lang is not None and not tp.off("lang-off"):
+        reason = gate.tezgah_lang.refusal("commit subject", message)
+        if reason:
+            return reason
+    return gate.ATTRIB_DENY if gate.ATTRIB.search(message) else None
+
+
 def commit_project(repo, path, message):
     """Stage and commit `path` alone in the project's repository: the history a
     folded `.tezgah` lives in. Anything else the owner staged stays staged and
     out of this commit (`commit -- <path>`); the project's identity, signing and
-    hooks apply, since this is the project's own history."""
+    hooks apply, since this is the project's own history. A message the gate
+    would refuse is refused first, exit 2, and nothing is staged."""
+    refused = message_refusal(message)
+    if refused:
+        print("commit refused: %s" % refused, file=sys.stderr)
+        return 2
     rel = os.path.relpath(path, repo)
     git = ["git", "-C", repo]
     try:
