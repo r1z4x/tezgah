@@ -309,7 +309,7 @@ Trigger: 25 work rows (`hooks/tezgah_gate.py::DRIFT_STEPS`) in the current user 
 
 ### Repo-rule — a repository's own `.tezgah/gate.py` refuses the call
 
-Trigger: the repository's rule file answers `{"deny": "<reason>"}` for this call (`hooks/tezgah_gate.py::repo_rule_reason`). Told: that reason, verbatim. Last in `decision`, after every built-in refusal. A timeout, a non-zero exit or malformed output allows. Off only with `pretooluse-off`. The contract is [A repository's own rule](#a-repositorys-own-rule).
+Trigger: the repository's rule file, in the git index, answers `{"deny": "<reason>"}` for this call (`hooks/tezgah_gate.py::repo_rule_reason`). Told: that reason, capped at 600 characters, inside a label naming it repository-supplied (`hooks/tezgah_gate.py::REPO_RULE_DENY`). Last in `decision`, after every built-in refusal. A timeout, a non-zero exit or malformed output allows. Off with `pretooluse-off`, or `TEZGAH_REPO_RULE=0` in the environment. The contract is [A repository's own rule](#a-repositorys-own-rule).
 
 ### Ask — an ask-tool question with no recommended option
 
@@ -468,12 +468,14 @@ rule's triggers are the classes `_stop_block` returns, the four `_shape_block` h
 
 ### A repository's own rule
 
-A repository adds a refusal without editing the harness: it drops a Python file at `<repo>/.tezgah/gate.py`, run with the gate's own interpreter (`hooks/tezgah_gate.py::repo_rule_reason`).
+A repository adds a refusal without editing the harness: it commits a Python file at `<repo>/.tezgah/gate.py`, run with the gate's own interpreter (`hooks/tezgah_gate.py::repo_rule_reason`).
 The gate finds it with the status line's walk - nearest above the call's cwd, at most `MAX_WALK` levels, never above the configured root (`hooks/tezgah_gate.py::repo_rule_path`) - and a repo without one pays one `isfile` per level and no fork.
+The file runs only when it is in the git index of the repository that holds its directory - the project's, or the workspace's own `.tezgah` repository (`git ls-files --error-unmatch`, `hooks/tezgah_gate.py::_indexed`): an uncommitted drop is inert, and staging it is enough.
 The file runs as a bounded child in the repo root, with one JSON object on stdin: `{"api": 1, "event": "pretool", "cwd", "repo_root", "session_id", "tool", "input"}` (the extension envelope, `hooks/tezgah_extension.py::call_envelope`, plus the call).
-It answers `{"deny": "<reason>"}` on stdout to refuse, and nothing to allow. The reason reaches the agent verbatim and leaves a `deny` row under `repo-rule`.
-Fail-open: a non-zero exit, a timeout (1000 ms, `hooks/tezgah_extension.py::DEFAULT_TIMEOUT_MS`) and malformed output allow. The rule runs after every built-in refusal, so a built-in one wins and the repo rule only adds. `pretooluse-off` is its only switch.
-opencode runs the same file with the same envelope when the core was not asked (`hosts/opencode/plugins/tezgah.js`, `repoRuleReason`).
+It answers `{"deny": "<reason>"}` on stdout to refuse, and nothing to allow. The reason reaches the agent cut to 600 characters (`hooks/tezgah_gate.py::REPO_RULE_CAP`), opened with `Repository-supplied rule:` and followed by a line saying the text is the repository's data, not tezgah's instruction (`hooks/tezgah_gate.py::REPO_RULE_DENY`); the labelled text leaves a `deny` row under `repo-rule`.
+Fail-open: a non-zero exit, a timeout (1000 ms, `hooks/tezgah_extension.py::DEFAULT_TIMEOUT_MS`) and malformed output allow. The rule runs after every built-in refusal, so a built-in one wins and the repo rule only adds. `pretooluse-off` drops it with the whole gate, and `TEZGAH_REPO_RULE=0` in the hook's environment skips it alone, before any fork (`hooks/tezgah_gate.py::REPO_RULE_VALVE`).
+The dry check (`tezgah-gate check`) runs it too: it is part of `decision`. What the file can do is in [SECURITY.md](../SECURITY.md#threat-model).
+opencode runs the same file with the same envelope, index check, valve, cap and label when the core was not asked (`hosts/opencode/plugins/tezgah.js`, `repoRuleReason`).
 
 ## Source of truth
 

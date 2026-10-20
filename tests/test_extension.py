@@ -373,6 +373,20 @@ class Checks(KeyCase):
         self.manifest({"checks": [7, "./bin/ok"]})
         self.assertEqual(te.repo_checks(self.repo), [["bin/ok"]])
 
+    def test_checks_a_lone_no_op_program_is_dropped_and_one_with_words_stays(self):
+        # a bare `echo` declared as a check would license a pass for any echo
+        self.manifest({"checks": ["echo", "true", ["cat"], "/bin/printf", "./ls",
+                                  "echo tested"]})
+        self.assertEqual(te.repo_checks(self.repo), [["echo", "tested"]])
+        for cmd in ("echo hi", "true", "cat x", "/bin/printf ok", "ls"):
+            self.assertIsNone(ti.verify_command(cmd, self.repo), cmd)
+        self.assertEqual(ti.verify_command("echo tested", self.repo), "echo tested")
+        self.ledger()
+        self.assertEqual(self.ran("true")["kind"], "run")
+        row = self.ran("echo tested")
+        self.assertEqual(row["kind"], "verify_ok")
+        self.assertTrue(ti.passing_check(row))
+
 
 class Untrusted(KeyCase):
     def test_untrusted_a_declared_program_is_the_repo_channel(self):
