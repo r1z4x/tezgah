@@ -144,7 +144,7 @@ containing a line that *starts* with a credit (`hooks/tezgah_gate.py::ATTRIB_LIN
 as author is not (`hooks/tezgah_gate.py::ATTRIB_DENY`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py::_CREDIT`).
 The same twin as the shortcut rule's: a credit a heredoc writes into a file is refused from the body (`hooks/tezgah_gate.py::decision`), and no command has to be
 a `git`/`gh` write for it to be this rule's. An MCP `write` or `publish` call meets `ATTRIB_LINE` over its payload text ([MCP](#mcp-a-servers-effect-tool)).
-A folded `.tezgah` (`hooks/tezgah_research.py::folded`) makes `tezgah-research commit` write the project's own history with a message the gate never reads in the command, so the CLI runs it through this rule's `hooks/tezgah_gate.py::ATTRIB` and the language rule's reader (`hooks/tezgah_lang.py::refusal`, under `lang-off`) before committing, and prints the same refusal with exit 2 and nothing committed (`bin/tezgah-research::message_refusal`).
+A folded `.tezgah` (`hooks/tezgah_research.py::folded`) makes `tezgah-research commit` write the project's own history with a message the gate never reads in the command. The CLI runs it through this rule's reader, `hooks/tezgah_gate.py::ATTRIB`, and the language rule's (`hooks/tezgah_lang.py::refusal`, under `lang-off`) before committing. It prints the same refusal, with exit 2 and nothing committed (`bin/tezgah-research::message_refusal`).
 
 ### Language — an identifier or message that is not English
 
