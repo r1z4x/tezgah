@@ -145,6 +145,14 @@ after every built-in mark (`segments()`, `hooks/tezgah_extension.py::segments`,
 `hooks/tezgah_context.py::health_segments`). A relative `command[0]` resolves
 against the repo root, so a manifest travels with its clone.
 
+The walk stops after `MAX_WALK` levels. Past that, a working directory under
+`$TEZGAH_ENGAGEMENTS_ROOT/<slug>` still reads `<slug>/.tezgah/extension.json`
+(`_engagement_manifest()`, `hooks/tezgah_extension.py::_engagement_manifest`).
+An unset root, a cwd outside it and an engagement without a manifest cost one
+`isfile` and no chips. `tezgah-status --manifest=FILE` names the manifest
+outright (`given_manifest()`, `hooks/tezgah_extension.py::given_manifest`). A
+FILE that is not there costs the chips, never the line.
+
 Every call hands the child its own envelope on stdin, as one JSON object:
 
 ```json
@@ -179,6 +187,34 @@ tezgah-cyber is the first extension. Its `bin/engagement-statusline --segments`
 turns an engagement's `notes/status.json` into `cyber-eng`/`cyber-needs`/
 `cyber-running`/`cyber-steps`/`cyber-verified`/`cyber-severity` chips. An operator
 then reads an engagement's state at a glance, in the line they already read.
+
+#### The manifest's other keys
+
+The same manifest carries four more keys. One function in
+`hooks/tezgah_extension.py` reads each, and one caller consumes it. Each reader
+checks its value the way `statusline` does. A wrong type, a malformed entry or
+an unreadable manifest costs that key or that entry, never the line or the gate.
+
+```json
+{"checks": ["./bin/run-tool", "bin/audit --strict"],
+ "untrusted": ["nmap", "sqlmap"],
+ "agents": [{"match": "(?i)\\brecon\\b", "agent": "recon"}],
+ "statusline": {"command": ["bin/my-statusline"], "override": true}}
+```
+
+| Key | Read by | Consumed by | Effect | Fail posture | Bound |
+|---|---|---|---|---|---|
+| `checks` | `repo_checks()` | `hooks/tezgah_integrity.py::repo_checks`, folded into `_check_runs` | a shell command whose words start with one prefix is a check, so its run records `verify_ok`/`verify_fail` and `passing_check` accepts a pass | fail-open to the built-in vocabulary: a non-list, a non-string entry or one shlex rejects is dropped; a prefix inside a quoted argument or a heredoc body is no run; a check whose status a pipe or a later `;` command owns records as ran, as `pytest; echo` does | `MAX_CHECKS` entries |
+| `untrusted` | `untrusted_programs()` | `hooks/tezgah_integrity.py::untrusted_source` | a shell command that runs a listed program (at a command position, `shell_programs`) is the `repo` channel: its result is labelled and the next effect carries the taint notice, as a `network` read does | fail-open to no channel: a non-list or a non-name entry is dropped | `MAX_UNTRUSTED` names |
+| `agents` | `repo_agent()` | `hooks/tezgah_models.py::route` (`_repo_route`) | after the harness judgement, the first entry whose `match` regex finds the brief names the agent; the tier, `via` and the judge stay the harness's, and a brief the override rule pinned keeps its agent | fail-open to the harness pick: a pattern `re` rejects, a non-string pattern or an agent that is no one-word name is dropped | `MAX_AGENTS` entries, `MAX_PATTERN` characters a pattern, `MAX_BRIEF` characters of brief read |
+| `statusline.override` | `override()` | `bin/tezgah-status` | literally `true`: the project owns its line and points its own `statusLine` at `tezgah-status`, which then reads the host payload on stdin (`cwd`/`workspace.current_dir`, `session_id`) when no PATH is given; the built-in marks stay and the chips follow them | anything but `true` is no override and stdin is not read; a malformed payload draws the line from the process directory | `PAYLOAD_MAX` bytes, `PAYLOAD_WAIT` seconds on a silent pipe |
+
+The `checks` and `untrusted` readers need the call's directory. The PostToolUse
+row passes its `cwd`, and the gate's `began` row passes its own, so `_pair`
+finds the pass. Lacking one, the untrusted reader uses the call's `cwd`
+argument, else the hook's own directory. opencode's in-process
+classifier (`hosts/opencode/plugins/tezgah.js`) does not read the manifest.
+There a declared program stays unlabelled: a missed label, never a false one.
 
 ### The two skill-read marks, and `--observable=`
 

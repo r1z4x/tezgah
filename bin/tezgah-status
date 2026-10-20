@@ -78,6 +78,16 @@ their status line; this CLI is how every host (and a human) gets it:
                            the set renders as dim "no state" instead of claiming
                            "armed, not used yet". A host that cannot see a skill
                            read (dsh) passes the tool-use four.
+  tezgah-status --manifest=FILE
+                           read the repository extension from FILE instead of
+                           the `.tezgah/extension.json` discovered from PATH (a
+                           manifest outside the tree, e.g. an engagement's).
+                           With `statusline.override: true` in the manifest the
+                           project owns its line and points its own statusLine
+                           here: the host's status-line payload on stdin (its
+                           `cwd`/`workspace.current_dir` and `session_id`) is
+                           read when no PATH is given, so this is the only line
+                           and it keeps the built-in marks and the chips.
 
 The session id may be passed as the second argument or via TEZGAH_SESSION;
 without it the "used" marks cannot light up, so a host that knows the id should
@@ -97,6 +107,26 @@ from tezgah_context import (  # noqa: E402
 # the line and `--json` carries every row, so a reader can always see what was
 # cut.
 TOP = 15
+# The host payload an override reads on stdin: a status-line host writes one
+# small JSON object and closes the pipe, so the read is bounded in bytes and in
+# how long an empty pipe is waited for - a caller that never writes costs this
+# long, never a hang.
+PAYLOAD_MAX = 65536
+PAYLOAD_WAIT = 0.2
+
+
+def host_payload():
+    """The status-line host's JSON payload on stdin, or {} - a terminal, an
+    empty or silent pipe, malformed JSON or no stdin at all."""
+    import select
+    try:
+        if sys.stdin.isatty() or not select.select([sys.stdin], [], [],
+                                                   PAYLOAD_WAIT)[0]:
+            return {}
+        payload = json.loads(sys.stdin.read(PAYLOAD_MAX) or "{}")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def weeks_arg(args):
@@ -262,7 +292,8 @@ def main():
              "--all", "--trend", "--skill-fitness", "--failure-shapes",
              "--rule-yield", "--enforcers", "--orca", "--judge", "--help"}
     unknown = sorted(f for f in flags
-                     if f not in known and not f.startswith("--observable="))
+                     if f not in known
+                     and not f.startswith(("--observable=", "--manifest=")))
     if unknown:
         sys.stderr.write("tezgah-status: unknown option(s): %s (try --help)\n"
                          % ", ".join(unknown))
@@ -430,7 +461,23 @@ def main():
     spec = next((f.split("=", 1)[1] for f in flags
                  if f.startswith("--observable=")), None)
     observable = set(spec.split(",")) if spec else None
-    segs = health_segments(cwd, session, observable=observable)
+    manifest = next((f.split("=", 1)[1] for f in flags
+                     if f.startswith("--manifest=")), None) or None
+    if not pos:
+        import tezgah_extension
+        if tezgah_extension.override(cwd, manifest):
+            # the project's own statusLine runs this renderer: the host says
+            # which directory and session the line is for
+            payload = host_payload()
+            workspace = payload.get("workspace")
+            where = ((workspace.get("current_dir")
+                      if isinstance(workspace, dict) else None)
+                     or payload.get("cwd"))
+            if isinstance(where, str) and where:
+                cwd = os.path.realpath(where)
+            if isinstance(payload.get("session_id"), str) and payload["session_id"]:
+                session = payload["session_id"]
+    segs = health_segments(cwd, session, observable=observable, manifest=manifest)
     if "--json" in flags:
         print(json.dumps(segs))
         return 0

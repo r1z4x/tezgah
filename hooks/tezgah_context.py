@@ -2881,7 +2881,7 @@ TOOL_USE_MEASURES = frozenset(("consult", "research", "graph", "orch", "judge"))
 
 
 def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
-                    observable=None):
+                    observable=None, manifest=None):
     """The armed/used checklist as structured segments, host-neutral.
 
     Each segment is {"key", "state", "glyph", "text", "group"}, the version
@@ -2911,7 +2911,13 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
 
     idx_override: an idx glyph the host already resolved (one of "✓↻✗?–"), for a
     redraw that must not fork git for a cosmetic line - omp re-renders on every
-    turn_end and tool_result. None probes as before; the other marks stay live."""
+    turn_end and tool_result. None probes as before; the other marks stay live.
+
+    manifest: an extension manifest named outright (the renderer's
+    `--manifest`), read instead of the one discovered from `cwd`. Either way
+    the built-in marks stay and the extension's chips follow them - a manifest
+    that declares `statusline.override` owns where the line is drawn, never
+    what it carries."""
     if session_id:
         bind_session(session_id)  # the marks show the switches this session honors
     base, marks = repo_marks(cwd)
@@ -2978,7 +2984,8 @@ def health_segments(cwd, session_id=None, used_override=None, idx_override=None,
     # not at the top: a broken extension module costs its chips, never the line.
     try:
         import tezgah_extension
-        ext = tezgah_extension.segments(cwd, session_id=session_id)
+        ext = tezgah_extension.segments(cwd, session_id=session_id,
+                                        manifest_file=manifest)
     except Exception:
         ext = []
     if ext:
