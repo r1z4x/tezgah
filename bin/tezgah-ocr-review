@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""tezgah-ocr-review - open-code-review's own review loop on omp's model.
+
+  tezgah-ocr-review [--repo DIR] [--from REF --to REF | --commit SHA]
+                    [--model SELECTOR] [--output FILE] [--allow-secrets]
+
+Runs `ocr review --format json` against a loopback HTTP shim that forwards
+POST /v1/chat/completions and GET /v1/models to one `omp auth-gateway stdio`
+child, so OCR reviews on omp's model and no OCR provider config is written
+anywhere. The shim answers only a request carrying the run's random bearer
+token (handed to OCR as OCR_LLM_TOKEN). Prints OCR's JSON (or writes --output).
+No mode flag reviews the workspace.
+
+Only the OCR process gets a scrubbed env: no OCR_*/ANTHROPIC_*/OPENAI_* and a
+private empty HOME (removed afterwards), because OCR reads
+~/.opencodereview/config.json and shell rc files before OCR_LLM_*. Git under
+OCR still sees the user's own config and global excludes: GIT_CONFIG_GLOBAL
+points at ~/.gitconfig, XDG_CONFIG_HOME at the user's config dir, and a
+core.excludesFile resolved with the user's HOME is passed in absolute. The omp
+child keeps the user's env - it needs its own credentials.
+
+Exit 0 ok; 2 when `ocr` or `omp` is missing; 3 when a path OCR could read looks
+like a secret (its file_read could send it to the model; --allow-secrets skips
+the check) - the working tree with untracked and ignored files, or the tree of
+--to / --commit; 4 when the runner's own setup fails (not a git repository, git
+missing, omp cannot be spawned or never reports ready), one stderr line; any
+other non-zero is OCR's own, its stderr passed through.
+"""
+import argparse
+import hmac
+import itertools
+import json
+import os
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+
+# alibaba/open-code-review 375f64c internal/config/allowlist/default_secret_patterns.json
+SECRET_PATTERNS = ["**/.ssh/**", "**/id_rsa", "**/id_dsa", "**/id_ecdsa", "**/id_ed25519",
+                   "**/.netrc", "**/_netrc", "**/.npmrc", "**/.pypirc", "**/.dockercfg"]
+# ... and secret_path.go there: `.env` / `.env.*` is a secret except these templates
+ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
+ROUTES = {("POST", "/v1/chat/completions"), ("GET", "/v1/models")}
+
+
+def is_secret(path):
+    """OCR's IsSecretPath for the two pattern shapes its list uses."""
+    parts = path.lower().split("/")
+    base = parts[-1]
+    if base not in ENV_TEMPLATES and (base == ".env" or base.startswith(".env.")):
+        return True
+    for pattern in SECRET_PATTERNS:
+        name = pattern[len("**/"):]
+        if name.endswith("/**"):
+            if name[:-3] in parts:
+                return True
+        elif base == name:
+            return True
+    return False
+
+
+assert is_secret("a/.ssh/config") and is_secret("id_rsa") and is_secret("x/.env.local")
+assert not is_secret(".env.example") and not is_secret("src/id_rsa.pub")
+
+
+class SetupError(Exception):
+    """The runner's own failure: exit 4 with one stderr line."""
+
+
+def git(repo, *args):
+    try:
+        r = subprocess.run(["git", "-C", repo, *args], capture_output=True)
+    except OSError as e:
+        raise SetupError("git cannot run: %s" % e)
+    if r.returncode:
+        err = r.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise SetupError("git %s failed in %s: %s"
+                         % (args[0], repo, err[-1] if err else "exit %d" % r.returncode))
+    return r.stdout.decode("utf-8", "surrogateescape")
+
+
+def first_secret(root, ref):
+    """The first secret-looking path OCR could read: the tree of `ref`, or with
+    no ref the working tree, tracked, untracked and ignored alike."""
+    if ref:
+        out = git(root, "ls-tree", "-r", "-z", "--name-only", ref)
+    else:
+        out = git(root, "ls-files", "-z", "--cached", "--others")
+    return next((p for p in out.split("\0") if p and is_secret(p)), None)
+
+
+class Gateway:
+    """One `omp auth-gateway stdio` child; call() is one JSON-lines round trip."""
+
+    def __init__(self, omp, timeout):
+        try:
+            self.child = subprocess.Popen([omp, "auth-gateway", "stdio"], stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, text=True, bufsize=1)
+        except OSError as e:
+            raise SetupError("cannot spawn omp: %s" % e)
+        self.waiting, self.lock, self.ids = {}, threading.Lock(), itertools.count(1)
+        ready = threading.Event()
+        threading.Thread(target=self._read, args=(ready,), daemon=True).start()
+        if not ready.wait(timeout):
+            self.close()
+            raise SetupError("omp auth-gateway stdio did not report ready within %gs"
+                             % timeout)
+
+    def _read(self, ready):
+        for line in self.child.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if not ready.is_set():
+                if msg.get("ready"):
+                    ready.set()
+                continue
+            slot = self.waiting.pop(msg.get("id"), None)
+            if slot:
+                slot[1] = msg
+                slot[0].set()
+        for slot in list(self.waiting.values()):  # child gone: fail the open requests
+            slot[0].set()
+
+    def call(self, req):
+        req["id"] = next(self.ids)
+        slot = [threading.Event(), None]
+        self.waiting[req["id"]] = slot
+        try:
+            with self.lock:
+                self.child.stdin.write(json.dumps(req) + "\n")
+                self.child.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            self.waiting.pop(req["id"], None)
+            return None
+        slot[0].wait()
+        return slot[1]
+
+    def close(self):
+        try:
+            self.child.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.child.wait(5)
+        except subprocess.TimeoutExpired:
+            self.child.kill()
+            self.child.wait()
+
+
+def handler(gateway, token):
+    bearer = ("Bearer " + token).encode()
+
+    class Handler(BaseHTTPRequestHandler):
+        def _call(self, method):
+            auth = self.headers.get("Authorization", "").encode("utf-8", "surrogateescape")
+            if not hmac.compare_digest(auth, bearer):
+                return self._send(401, {"error": "missing or wrong bearer token"})
+            if (method, self.path.split("?", 1)[0]) not in ROUTES:
+                return self._send(404, {"error": "not found"})
+            n = int(self.headers.get("Content-Length") or 0)
+            req = {"method": method, "path": self.path}
+            if n:
+                try:
+                    req["body"] = json.loads(self.rfile.read(n))
+                except ValueError:
+                    return self._send(400, {"error": "request body is not JSON"})
+            msg = gateway.call(req) or {"status": 502, "body": {"error": "omp gateway gone"}}
+            self._send(msg.get("status", 502), msg.get("body"))
+
+        def _send(self, status, body):
+            sse = isinstance(body, str)
+            data = (body if sse else json.dumps(body)).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "text/event-stream" if sse else "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            self._call("POST")
+
+        def do_GET(self):
+            self._call("GET")
+
+        def log_message(self, *args):
+            pass
+
+    return Handler
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="tezgah-ocr-review")
+    ap.add_argument("--repo", default=".")
+    ap.add_argument("--from", dest="base")
+    ap.add_argument("--to", dest="head")
+    ap.add_argument("--commit")
+    ap.add_argument("--model", default="@default")
+    ap.add_argument("--output")
+    ap.add_argument("--allow-secrets", action="store_true")
+    args = ap.parse_args(argv)
+    if args.commit and (args.base or args.head):
+        ap.error("--commit and --from/--to are exclusive")
+    repo = os.path.abspath(args.repo)
+
+    ocr, omp = tp.ocr_bin(), tp.omp_bin()
+    if not ocr or not omp:
+        print("tezgah-ocr-review: `%s` not found" % ("ocr" if not ocr else "omp"),
+              file=sys.stderr)
+        return 2
+    try:
+        return run(args, repo, ocr, omp)
+    except SetupError as e:
+        print("tezgah-ocr-review: %s" % e, file=sys.stderr)
+        return 4
+
+
+def run(args, repo, ocr, omp):
+    root = git(repo, "rev-parse", "--show-toplevel").strip()
+    if not args.allow_secrets:
+        secret = first_secret(root, args.commit or args.head)
+        if secret:
+            print("tezgah-ocr-review: secret-looking path %s - OCR could send it to"
+                  " the model; pass --allow-secrets to review anyway" % secret, file=sys.stderr)
+            return 3
+
+    cmd = [ocr, "review", "--format", "json", "--color", "never"]
+    for flag, value in (("--from", args.base), ("--to", args.head), ("--commit", args.commit)):
+        if value:
+            cmd += [flag, value]
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("OCR_", "ANTHROPIC_", "OPENAI_"))}
+    # OCR's HOME is private (below); git resolves its config and its default
+    # excludes ($XDG_CONFIG_HOME|$HOME/.config/git/ignore) through HOME, so
+    # both are pinned to the user's own here
+    env.setdefault("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    gitconfig = os.path.expanduser("~/.gitconfig")
+    if os.path.isfile(gitconfig):  # an explicit GIT_CONFIG_GLOBAL still wins
+        env.setdefault("GIT_CONFIG_GLOBAL", gitconfig)
+    excludes = subprocess.run(["git", "-C", root, "config", "--path", "--get",
+                               "core.excludesFile"], capture_output=True, text=True)
+    if excludes.returncode == 0 and excludes.stdout.strip():
+        n = int(env.get("GIT_CONFIG_COUNT") or 0)
+        env.update({"GIT_CONFIG_COUNT": str(n + 1),
+                    "GIT_CONFIG_KEY_%d" % n: "core.excludesFile",
+                    "GIT_CONFIG_VALUE_%d" % n: excludes.stdout.strip()})
+    token = secrets.token_urlsafe(32)
+    try:
+        timeout = float(os.environ.get("TEZGAH_OCR_REVIEW_READY_TIMEOUT") or 30)
+    except ValueError:
+        raise SetupError("TEZGAH_OCR_REVIEW_READY_TIMEOUT is not a number")
+
+    gateway = server = proc = out = home = None
+    try:
+        gateway = Gateway(omp, timeout)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler(gateway, token))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        home = tempfile.mkdtemp(prefix="tezgah-ocr-home-")
+        env.update(HOME=home, OCR_LLM_URL="http://127.0.0.1:%d/v1" % server.server_address[1],
+                   OCR_LLM_MODEL=args.model, OCR_LLM_PROTOCOL="openai",
+                   OCR_LLM_TOKEN=token, OCR_NO_UPDATE="1")
+        try:
+            out = open(args.output, "w", encoding="utf-8") if args.output else None
+            proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=out)
+        except OSError as e:
+            raise SetupError("cannot start ocr or write --output: %s" % e)
+        return proc.wait()
+    finally:
+        if proc and proc.poll() is None:
+            proc.terminate()
+            proc.wait()
+        if out:
+            out.close()
+        if server:
+            server.shutdown()
+            server.server_close()
+        if gateway:
+            gateway.close()
+        if home:
+            shutil.rmtree(home, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

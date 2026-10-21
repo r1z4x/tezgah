@@ -28,7 +28,9 @@ import tezgah_apps as ta  # noqa: E402  (the module under test)
 # config.json stores, so a rename is a migration and this list is where it
 # shows up.
 MCP_IDS = ("mcp-playwright", "mcp-mobile-mcp", "mcp-chrome-devtools")
-PLAIN_IDS = ("orx",)
+PLAIN_IDS = ("orx", "ocr")
+# Opt-in plain CLIs: off unless `--enable` names them (plan 125's `ocr`).
+OPT_IN_PLAIN = ("ocr",)
 # Opt-in, serverless: the embedding models a --enable fetches and converts.
 EMBED_IDS = ("embed-mrl", "embed-m2v")
 ALL_IDS = MCP_IDS + PLAIN_IDS + EMBED_IDS
@@ -107,7 +109,8 @@ class DeclaredDefaults(unittest.TestCase):
         self.assertEqual([s["name"] for s in ta.servers()], WAS_ALWAYS_ON)
         self.assertEqual(list(ta.defaults()),
                          [i for i in ALL_IDS
-                          if i != "mcp-chrome-devtools" and i not in EMBED_IDS])
+                          if i != "mcp-chrome-devtools" and i not in EMBED_IDS
+                          and i not in OPT_IN_PLAIN])
 
     def test_an_absent_selection_is_the_declared_default_not_everything(self):
         self.assertEqual(ta.selected_ids(None), ta.defaults())
@@ -127,7 +130,11 @@ class DeclaredDefaults(unittest.TestCase):
         # The mechanism is not MCP-only, and orx was on before it: --install
         # installs it.
         for ident in PLAIN_IDS:
-            self.assertIn(ident, ta.selected_ids(None), ident)
+            if ident in OPT_IN_PLAIN:
+                self.assertNotIn(ident, ta.selected_ids(None), ident)
+                self.assertIn(ident, ta.selected_ids([ident]), ident)
+            else:
+                self.assertIn(ident, ta.selected_ids(None), ident)
 
     def test_a_config_naming_the_retired_ai_research_row_still_loads(self):
         # The row did nothing (the payload ships in the package either way) and

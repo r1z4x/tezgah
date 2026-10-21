@@ -644,6 +644,96 @@ it costs nothing there. On held-out Turkish phrasings of the docs index,
 meaning alone found the page in the top three for 0.91 with `embed-mrl` and 0.78
 with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
+## Opt-in OCR review spec: `ocr`
+
+The `ocr` feature id adds open-code-review (OCR) to a plan's review. It is off by
+default (`"default": False` in `hooks/tezgah_apps.py::REGISTRY`). Turn it on with
+`tezgah-setup --enable ocr`, which runs
+`npm install -g @alibaba-group/open-code-review@1.13.2`, the release whose prompts,
+delegate and rules match the vendored 375f64c texts. The binary is
+found by `ocr_bin()` (`hooks/tezgah_paths.py::ocr_bin`): `TEZGAH_OCR_BIN` first,
+then `ocr` on PATH. The verification step uses it only while `features` in
+config.json lists `ocr`, so an `ocr` installed for other
+work changes nothing. The report prints one `ocr on PATH` row
+(`bin/tezgah-setup::report`). Without `ocr` nothing changes: the verification
+step prints the same lines as before.
+
+With `ocr` installed, round one of the verification step adds an OCR review spec
+(`bin/tezgah-task::print_ocr_spec`). It runs `ocr delegate preview` and
+`ocr delegate rule` over `<base>..HEAD`. Both are deterministic and call no model
+(`bin/tezgah-task::ocr_spec`). The spec is input to the review, never a verdict.
+A failed or timed-out call prints one `OCR spec skipped:` line and the step
+goes on without it (`bin/tezgah-task::ocr_json`).
+
+The spec prints these lines:
+
+- The reviewable files OCR selected.
+- The files OCR excluded, with OCR's reason. OCR excludes tests and `.md` files.
+  They stay in the reviewer's scope: one more tezgah-reviewer reads them over the
+  usual dimensions.
+- The reviewer split, which follows OCR's own bundling thresholds. Under 4 files
+  and under 200 changed lines, one reviewer reads the whole change set. Under 4
+  files, one reviewer reads each file. From 4 files, one reviewer reads each OCR
+  rule group. Each brief carries its group's rule text verbatim and names the
+  vendored `main_task_system.md` as an appendix (`bin/tezgah-task::OCR_PROMPTS`).
+  Without a rule group, the per-dimension fan-out stands.
+- The refuter pass. Once the review merges its findings, one fresh tezgah-reviewer reads
+  the vendored `review_filter_task_system.md` as its instructions. It removes
+  only findings the diff proves wrong.
+- The quote check, `tezgah-review-quote` over the merged findings.
+
+The reviewer brief carries the matching rule
+(`hooks/tezgah_agents.py::_reviewer_body`). A reviewer given an OCR rule group
+accounts for every listed file as reviewed or skipped with a reason. It still
+applies the rest of its brief.
+
+`tezgah-review-quote --from BASE [--to HEAD] FINDINGS.json` places each finding by
+its quoted code (`bin/tezgah-review-quote::main`). Each finding needs `path` and
+`quote`, and may carry the `start_line` it cites. The tool adds a `status`.
+`located` means the quote is in the finding's own file. The match covering the
+cited line wins, else the one new-side match, else the one match. `unlocated`
+with `reason: "ambiguous: N matches"` means several matches and no cited line
+among them. `relocated` means no match in its own file and exactly one in
+another changed file, and `path` moves there. Any other `unlocated` finding goes
+back to its reviewer. A placed finding gets `start_line` and `end_line`, and
+`side: "old"` when the lines are pre-change (`bin/tezgah-review-quote::resolve`).
+It ports OCR's comment positioning from `internal/diff/resolver.go`.
+
+`tezgah-ocr-review [--from REF --to REF | --commit SHA] [--model SELECTOR]
+[--output FILE] [--allow-secrets]` runs OCR's own review loop on omp only. It
+starts one `omp auth-gateway stdio` child (`bin/tezgah-ocr-review::Gateway`).
+OCR then reviews on omp's model with omp's own credentials.
+
+- A loopback HTTP shim forwards OCR's requests to that child
+  (`bin/tezgah-ocr-review::handler`). It accepts `POST /v1/chat/completions` and
+  `GET /v1/models` only, with the per-run bearer token the tool hands OCR.
+  Another local process cannot spend omp's credentials during a run.
+- The tool writes no OCR provider config. OCR runs with a private, empty `HOME`.
+  A `~/.opencodereview/config.json` from standalone OCR use cannot redirect the
+  review.
+- Only the OCR process loses the caller's `OCR_*`, `ANTHROPIC_*` and `OPENAI_*`
+  variables (`bin/tezgah-ocr-review::run`). Git under OCR keeps the user's
+  global config and excludes, so a globally ignored file stays ignored. The omp
+  child keeps the caller's environment, because it needs omp's own credentials.
+- A path that looks like a secret stops the run with exit 3
+  (`bin/tezgah-ocr-review::first_secret`). In workspace mode the check covers
+  tracked, untracked and ignored files. In range or commit mode it covers the
+  tree of the reviewed ref. `--allow-secrets` skips the check. The patterns are
+  OCR's own (`bin/tezgah-ocr-review::SECRET_PATTERNS`).
+- A missing `ocr` or `omp` exits 2. A setup failure of the tool itself exits 4
+  with one line (`bin/tezgah-ocr-review::SetupError`). Three failures count:
+  no git repository, omp cannot start, the gateway never reports ready.
+
+Its findings are candidates for a tezgah-reviewer, never a verdict.
+
+`tezgah-setup` links both CLIs into `~/.config/tezgah/bin`
+(`bin/tezgah-setup::install_common`).
+
+The two OCR prompts live under `third_party/open-code-review/`. Tezgah copies them
+verbatim from alibaba/open-code-review at commit `375f64c`, under the Apache
+License 2.0, with its `LICENSE` beside them. Each prompt has one added first
+line, the modification notice (`third_party/open-code-review/README.md`).
+
 ## Plan records: the lock, `landed`, the close commit
 
 Every `tezgah-task` writer of a plan record holds an exclusive lock on the
@@ -942,6 +1032,10 @@ page exits 1 with the message it always printed (`available()`,
   spawn parser, reconcile, resume, prune and stats.
 - `hooks/tezgah_paths.py`, `hooks/tezgah_context.py` — the paths and `off()`; the
   marks and the kill-switch filtering.
+- `bin/tezgah-task`, `bin/tezgah-review-quote`, `bin/tezgah-ocr-review`,
+  `third_party/open-code-review/` — the opt-in OCR review spec, the quote check,
+  OCR's own loop on omp, and the vendored prompts. `tests/test_task.py`,
+  `tests/test_review_quote.py` and `tests/test_ocr_review.py` pin them.
 - `RELEASING.md`, `README.md`, `AGENTS.md`, `.gitignore`, `tests/test_setup.py` —
   the version rule, the install and configuration sections, the layer map, what
   stays untracked, and the behaviour these checks pin.

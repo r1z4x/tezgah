@@ -1090,6 +1090,8 @@ def install_common(new_roots, hosts):
             ("tezgah-route", os.path.join(HERE, "bin", "tezgah-route")),
             ("tezgah-lessons", os.path.join(HERE, "bin", "tezgah-lessons")),
             ("tezgah-skill", os.path.join(HERE, "bin", "tezgah-skill")),
+            ("tezgah-review-quote", os.path.join(HERE, "bin", "tezgah-review-quote")),
+            ("tezgah-ocr-review", os.path.join(HERE, "bin", "tezgah-ocr-review")),
             # `tezgah` is this installer under the name `tezgah update` is typed
             # with (npm ships the same name). Not here on purpose: tezgah-dsh
             # (wired as ~/.local/bin/dsh, see dsh_launcher) and
@@ -4390,6 +4392,8 @@ def report(hosts):
         ("codegen provider key (OpenRouter, DeepSeek or Inception)",
          tp.have_provider_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
+        ("ocr on PATH (open-code-review spec for the reviewer, opt-in)",
+         bool(tp.ocr_bin())),
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
          os.path.isdir(tezgah_apps.ARTIFACTS)),

@@ -53,6 +53,7 @@ the kill switches are files, not variables, and live in
 |---|---|---|---|
 | `TEZGAH_CODEGRAPH_BIN` | `hooks/tezgah_paths.py::codegraph_bin` | the config file, then `codegraph` on PATH | The codegraph executable the index and the graph marks use. |
 | `TEZGAH_ORX_BIN` | `hooks/tezgah_paths.py::orx_bin` | `orx` on PATH | The OpenResearch CLI the research rule routes to. |
+| `TEZGAH_OCR_BIN` | `hooks/tezgah_paths.py::ocr_bin` | `ocr` on PATH | The open-code-review CLI the opt-in OCR review spec runs ([operations](operations.md#opt-in-ocr-review-spec-ocr)). |
 | `TEZGAH_ORCA_BIN` | `hooks/tezgah_orca.py::cli` | `ORCA_CLI_COMMAND`, then `$ORCA_CLI_BIN_DIR/orca`, then `orca` on PATH (`orca-ide` on Linux outside Orca), then the macOS app's CLI | The Orca CLI `tezgah-status --orca` and `tezgah-setup --status` ask. A missing path is no CLI, never a fallback: the test suite points it at one. |
 | `TEZGAH_OMP_BIN` | `hooks/tezgah_paths.py::omp_bin` | `omp` on PATH | The omp binary the installer, the model table, consult's session-model lookup and the judgement seam's session call run; tests point it at a stand-in. |
 | `TEZGAH_CLAUDE_BIN` | `claude_bin`, `hooks/tezgah_paths.py::claude_bin` | `claude` on PATH | The Claude Code CLI `--install` registers the plugin with (`claude plugin`) and the judgement seam asks in a Claude Code session; the test suite points it at a path that does not exist, or at a stand-in. |
