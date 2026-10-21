@@ -281,6 +281,33 @@ class ShippedProductHint(unittest.TestCase):
         self.assertGreaterEqual(covered / known, sp.HINT_COVER, row)
 
 
+class ShippedHintPrecision(unittest.TestCase):
+    """Prompts from the owner's real transcripts that the hint answered with
+    noise: replayed over 1331 of them, it named tezgah-contract - the long
+    form of the contract every session already carries - 154 times, and a bare
+    repository URL matched a product-analysis section on `https github com`."""
+
+    ROOTS = [os.path.join(REPO, "skills")]
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(sp.tp, "cache_dir", lambda: tmp.name)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_the_contract_mirror_is_searched_but_never_hinted(self):
+        prompt = "onay veriyorum öncesinde ilgili şeyleri commitle"
+        self.assertIn("tezgah-contract",
+                      [h[0] for h in sp.search(prompt, k=3, roots=self.ROOTS)])
+        self.assertNotIn("skill://tezgah-contract",
+                         sp.section_hint(prompt, "s1", roots=self.ROOTS))
+
+    def test_a_url_is_not_a_topic(self):
+        self.assertEqual("", sp.section_hint("https://github.com/aibim-ai/aibim",
+                                             "s1", roots=self.ROOTS))
+
+
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
     dir, so the cached path runs without touching the real index."""
@@ -289,7 +316,7 @@ class CacheHome(FixtureTree):
         super().setUp()
         self.cache = os.path.join(self.tmp.name, "cache")
         patches = (mock.patch.object(sp, "skill_roots",
-                                     lambda extra=(): list(self.roots)),
+                                     lambda extra=(), cwd=None: list(self.roots)),
                    mock.patch.object(sp.tp, "cache_dir", lambda: self.cache))
         for patch in patches:
             patch.start()
@@ -310,17 +337,24 @@ class PostingsIndex(CacheHome):
         import tezgah_rank
         rows = sp._rows(self.roots)
         posts, lengths = sp._postings(rows)
+        texts = [sp._toktext(r) for r in rows]
         for query in self.QUERIES:
             self.assertEqual(
-                tezgah_rank.rank(query, [sp._toktext(r) for r in rows], 5),
+                tezgah_rank.rank(query, texts, 5, tokens=sp.terms),
                 sp.rank_postings(query, posts, lengths, 5), query)
+            # a subset ranks as a corpus of its own: the tiers' path
+            ids = list(range(0, len(rows), 2))
+            self.assertEqual(
+                [ids[j] for j in tezgah_rank.rank(
+                    query, [texts[i] for i in ids], 5, tokens=sp.terms)],
+                sp.rank_postings(query, posts, lengths, 5, ids), query)
 
     def test_the_cache_rebuilds_when_a_skill_file_changes_and_only_then(self):
         with mock.patch.object(sp, "_build", wraps=sp._build) as build:
             first = sp.top_section("database migration backfill")
             sp.top_section("database migration backfill")
             self.assertEqual(1, build.call_count, "a warm lookup rebuilt")
-            self.assertEqual("Migrations", first[0][2])
+            self.assertEqual("beta", first[0][0])
             path = os.path.join(self.root, "beta", "SKILL.md")
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write("\n## Rollback\n\nRevert a failed schema rollout.\n")
@@ -360,9 +394,9 @@ class LocalHint(CacheHome):
     def test_a_prompt_the_corpus_does_not_cover_is_silent(self):
         self.assertEqual("", sp.section_hint("fix the typo in the readme", "s1"))
         self.assertEqual("", sp.section_hint("zzqx vblorb", "s1"))
-        # one shared word among many the section lacks is below the bar
-        self.assertEqual("", sp.section_hint(
-            "migrate the jwt column then backfill tokens schema", "s1"))
+        # words the corpus knows, split across two skills: no one section
+        # carries enough of them
+        self.assertEqual("", sp.section_hint("jwt header, column backfill", "s1"))
 
     def test_a_single_shared_word_is_not_a_topic(self):
         # below the two-term floor: a one-word probe is the CLI's job
@@ -409,6 +443,163 @@ class OmpPromptPath(unittest.TestCase):
                                   r"matched this request: skill://[\w.-]+:"
                                   r"\d+-\d+, \"")
         self.assertNotIn(os.path.join(REPO, "skills"), context)
+
+
+GAMMA = """---
+name: gamma
+description: >
+  Use when the UI needs a token set; tasarım, arayüz, bileşen.
+---
+
+# Gamma
+
+## Tokens
+
+Colour and spacing values live in one file.
+"""
+
+
+class TurkishRecall(CacheHome):
+    """A Turkish ask meets the skill whose description names its words: case
+    and diacritics fold on both sides (a prompt typed without ç/ş/ü still
+    matches), a suffix does not split a word from its stem, and the
+    frontmatter description - the one place a skill states its triggers - is
+    indexed with the skill's entry section. Before plan 126 the hint fired on
+    0/18 Turkish owner prompts (S3SkillMatrix 2.3)."""
+
+    def setUp(self):
+        super().setUp()
+        os.makedirs(os.path.join(self.root, "gamma"))
+        with open(os.path.join(self.root, "gamma", "SKILL.md"), "w") as fh:
+            fh.write(GAMMA)
+
+    def test_an_inflected_turkish_prompt_finds_the_described_skill(self):
+        for prompt in ("arayüzün tasarımını düzenle, bileşenleri",
+                       "ARAYÜZ TASARIMI",
+                       "arayuzun tasarimini duzenle"):
+            hits = self.hits(prompt)
+            self.assertTrue(hits, prompt)
+            self.assertEqual("gamma", hits[0][0], (prompt, hits))
+
+    def test_the_turkish_prompt_earns_the_hint(self):
+        line = sp.section_hint("arayüzün tasarımını ve bileşenlerini düzenle", "s1")
+        self.assertIn("skill://gamma:", line)
+
+
+DELTA = """---
+name: delta
+description: Use when cutting a release.
+---
+
+# Delta
+
+## Release checklist
+
+Bump the version, write the changelog entry, tag the release.
+"""
+
+OMEGA = """---
+name: omega
+description: Use when a release, version, changelog or tag is in question.
+---
+
+# Omega
+
+## Release version changelog tag
+
+Release version changelog tag. Release version changelog tag.
+"""
+
+
+class FirstTier(CacheHome):
+    """tezgah's own skills and the current project's rank before the hosts'
+    machine-wide directories (marketing corpora, cyber skills): S1 counted 16
+    hints into cyber skills in product repos. Those directories are still
+    searched - the CLI lists them after the first tier - and the hint falls
+    back to them only when no first-tier section clears the bar."""
+
+    def setUp(self):
+        super().setUp()
+        self.repo = os.path.join(os.path.realpath(self.tmp.name), "repo")
+        os.makedirs(os.path.join(self.repo, ".git"))
+        self.project = os.path.join(self.repo, ".agents", "skills")
+        os.makedirs(os.path.join(self.project, "delta"))
+        with open(os.path.join(self.project, "delta", "SKILL.md"), "w") as fh:
+            fh.write(DELTA)
+        os.makedirs(os.path.join(self.root, "omega"))
+        with open(os.path.join(self.root, "omega", "SKILL.md"), "w") as fh:
+            fh.write(OMEGA)
+        self.roots = [self.root, self.project]
+        self.elsewhere = os.path.join(os.path.realpath(self.tmp.name), "elsewhere")
+        os.makedirs(self.elsewhere)
+        # the fixture's first root stands in for a host's global directory
+        patch = mock.patch.object(sp, "_host_roots", lambda: [self.root])
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_the_project_skills_dir_is_discovered(self):
+        self.assertIn(self.project, sp.project_roots(os.path.join(self.repo, "src")))
+        self.assertEqual([], sp.project_roots(self.elsewhere))
+
+    def test_a_project_skill_is_listed_before_a_stronger_foreign_one(self):
+        names = [h[0] for h in sp.search("release version changelog tag",
+                                         k=10, roots=self.roots, cwd=self.repo)]
+        self.assertEqual("delta", names[0], names)
+        self.assertIn("omega", names, "the other roots are still searched")
+        self.assertLess(max(i for i, n in enumerate(names) if n == "delta"),
+                        names.index("omega"), names)
+
+    def test_the_hint_names_the_project_skill(self):
+        line = sp.section_hint("release version changelog tag", "s1", cwd=self.repo)
+        self.assertIn("skill://delta:", line)
+
+    def test_another_root_answers_only_what_the_first_tier_cannot(self):
+        line = sp.section_hint("jwt alg none signature header", "s1",
+                               cwd=self.repo)
+        self.assertIn("skill://alpha:", line)
+
+
+class IndexVersion(CacheHome):
+    """An index written by an older build is rebuilt, not read: the weighting
+    and the tokens changed, so its postings would rank with stale terms."""
+
+    def test_an_index_from_the_previous_schema_is_rebuilt(self):
+        import sqlite3
+        os.makedirs(self.cache)
+        path = os.path.join(self.cache, sp.INDEX_CACHE)
+        con = sqlite3.connect(path)
+        # the shape every build before plan 126 wrote: the bare stat signature
+        con.executescript("CREATE TABLE meta(sig TEXT);"
+                          "CREATE TABLE sec(id INTEGER PRIMARY KEY, skill TEXT,"
+                          " path TEXT, title TEXT, start INTEGER, end INTEGER,"
+                          " len INTEGER);"
+                          "CREATE TABLE post(term TEXT, sec INTEGER, n INTEGER,"
+                          " PRIMARY KEY(term, sec)) WITHOUT ROWID;")
+        con.execute("INSERT INTO meta VALUES (?)", (json.dumps(sp._signature()),))
+        con.commit()
+        con.close()
+        with mock.patch.object(sp, "_build", wraps=sp._build) as build:
+            hit = sp.top_section("database migration backfill")
+        self.assertEqual(1, build.call_count, "the old index was read as current")
+        self.assertEqual("beta", hit[0][0])
+
+    def test_two_projects_do_not_rebuild_each_other_s_index(self):
+        repos = []
+        for name in ("one", "two"):
+            repo = os.path.join(os.path.realpath(self.tmp.name), name)
+            os.makedirs(os.path.join(repo, ".git"))
+            os.makedirs(os.path.join(repo, "skills", "beta"))
+            with open(os.path.join(repo, "skills", "beta", "SKILL.md"), "w") as fh:
+                fh.write(BETA)
+            repos.append(repo)
+        with mock.patch.object(sp, "skill_roots",
+                               lambda extra=(), cwd=None:
+                               list(self.roots) + sp.project_roots(cwd)), \
+                mock.patch.object(sp, "_build", wraps=sp._build) as build:
+            for repo in repos + repos:
+                self.assertTrue(sp.top_section("database migration backfill",
+                                               cwd=repo))
+        self.assertEqual(2, build.call_count)
 
 
 if __name__ == "__main__":
