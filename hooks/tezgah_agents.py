@@ -238,6 +238,10 @@ def _reviewer_body(host):
         "output file; do not run the suite, and run at most one `-k` test when a\n"
         "specific accusation needs it. The same defect family confirmed in both\n"
         "rounds is a sign the design needs a pivot, not another patch.\n\n"
+        "When the brief carries an OCR rule group, its rule text is the checklist\n"
+        "for those files: account for every listed file as reviewed or skipped\n"
+        "with a reason, and still apply everything above - OCR output is input,\n"
+        "never a verdict.\n\n"
         "%s" % (_graph_howto(host), _blast_radius(host), EMPTY_IS_NOT_PROOF,
                 decision, decision, _may_use(host)))
 

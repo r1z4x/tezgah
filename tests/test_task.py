@@ -6,6 +6,7 @@ person runs it. Nothing below asserts what the writer meant to write: the
 assertions read the record back through the parser the gate uses, which is the
 thing an agent's write is refused by.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -613,6 +614,23 @@ class Record(unittest.TestCase):
         self.assertTrue(tt.scopes_overlap([], ["docs/x.md"]))
         self.assertFalse(tt.scopes_overlap(["hooks/a*.py"], ["hooks/b*.py"]))
         self.assertFalse(tt.scopes_overlap(["hooks/**", "bin/x"], ["docs/**"]))
+
+
+# Canned `ocr delegate` answers, in the shape the pinned OCR (375f64c) prints:
+# the spike's real output for a tezgah range, trimmed to one file of each kind
+OCR_PREVIEW = {
+    "schema_version": "1", "mode": "range", "total_files": 3,
+    "reviewable_count": 1, "excluded_count": 2,
+    "reviewable_files": [{"path": "bin/tool", "status": "modified",
+                          "insertions": 28, "deletions": 3}],
+    "excluded_files": [
+        {"path": "docs/gate.md", "status": "modified", "insertions": 1,
+         "deletions": 0, "exclude_reason": "unsupported_ext"},
+        {"path": "tests/test_tool.py", "status": "modified", "insertions": 20,
+         "deletions": 0, "exclude_reason": "default_path"}]}
+OCR_RULE = {"schema_version": "1", "groups": [
+    {"group_id": 1, "source": "system", "pattern": "default",
+     "files": ["bin/tool"], "rule": "#### Correctness\nIs the logic correct?"}]}
 
 
 class Cli(TempHome):
@@ -2124,6 +2142,79 @@ class Cli(TempHome):
                       "what a plan under .tezgah/plans/open carries", proc.stdout)
         self.assertIn("FAIL 001: `after: 009` names no plan under .tezgah/plans",
                       proc.stdout)
+
+    def stub(self, body):
+        """An `ocr` stand-in: a python script with `body` after the argv log."""
+        path = os.path.join(self.home, "ocr-stub")
+        log = os.path.join(self.home, "ocr-calls")
+        with open(path, "w") as fh:
+            fh.write("#!%s\nimport json, os, sys\n"
+                     "with open(%r, 'a') as fh:\n"
+                     "    fh.write(json.dumps([sys.argv[1:], "
+                     "os.environ.get('OCR_NO_UPDATE')]) + '\\n')\n%s\n"
+                     % (sys.executable, log, body))
+        os.chmod(path, 0o755)
+        return path, log
+
+    def verify(self, ocr):
+        self.plan("001-first.md", allowed=["hooks/**"])
+        env = self.env(extra={"TEZGAH_OCR_BIN": ocr})
+        proc = support.run([CLI, "start", "001", "--phase", "verification"],
+                           env=env, cwd=self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout
+
+    def test_the_spec_names_files_exclusions_groups_refuter_and_quote_check(self):
+        ocr, log = self.stub(
+            "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+            % (OCR_PREVIEW, OCR_RULE))
+        out = " ".join(self.verify(ocr).split())
+        self.assertIn("reviewable files (1): bin/tool", out)
+        self.assertIn("NOT covered by OCR rules but still in the reviewer's scope",
+                      out)
+        self.assertIn("docs/gate.md (unsupported_ext), tests/test_tool.py "
+                      "(default_path)", out)
+        self.assertIn("one tezgah-reviewer per rule group", out)
+        self.assertIn("rule group 1: source system, pattern default, files bin/tool",
+                      out)
+        self.assertIn("reviewed or skipped-with-reason", out)
+        self.assertIn(os.path.join("open-code-review", "prompts",
+                                   "main_task_system.md"), out)
+        self.assertIn(os.path.join("open-code-review", "prompts",
+                                   "review_filter_task_system.md"), out)
+        self.assertIn("removes only findings the diff proves wrong", out)
+        self.assertIn("tezgah-review-quote --repo %s --from" % self.repo, out)
+        self.assertIn("`unlocated` finding goes back to its reviewer", out)
+        self.assertLess(out.index("only a confirmed critical"),
+                        out.index("OCR review spec"))
+        calls = [json.loads(line) for line in read(log).splitlines()]
+        self.assertEqual([c[0][1] for c in calls], ["preview", "rule"])
+        self.assertEqual({c[1] for c in calls}, {"1"})
+        self.assertIn("--from", calls[0][0])
+        self.assertEqual(calls[0][0][calls[0][0].index("--to") + 1], "HEAD")
+        self.assertEqual(calls[1][0][-1], "bin/tool")
+
+    def test_without_ocr_the_step_is_unchanged(self):
+        missing = self.verify(os.path.join(self.home, "no-such-ocr"))
+        self.assertNotIn("OCR", missing)
+        # the same step with no override at all, the binary absent from PATH
+        env = self.env()
+        env["PATH"] = os.pathsep.join(
+            d for d in env["PATH"].split(os.pathsep)
+            if not os.path.isfile(os.path.join(d, "ocr")))
+        plain = support.run([CLI, "status"], env=env, cwd=self.repo).stdout
+        again = support.run([CLI, "status"], env=self.env(
+            extra={"TEZGAH_OCR_BIN": os.path.join(self.home, "no-such-ocr")}),
+            cwd=self.repo).stdout
+        self.assertEqual(plain, again)
+        self.assertIn("one review of the whole plan", plain)
+
+    def test_a_failing_ocr_is_one_skip_line(self):
+        ocr, _ = self.stub("sys.exit(1)")
+        out = self.verify(ocr)
+        self.assertIn("OCR spec skipped: `ocr delegate preview` exited 1", out)
+        self.assertNotIn("OCR review spec", out)
+        self.assertIn("record its verdict", out)
 
 
 class Acceptance(unittest.TestCase):
