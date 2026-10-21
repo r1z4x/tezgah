@@ -1285,6 +1285,24 @@ class Cli(Workspace):
         with open(os.path.join(base, "state.json")) as fh:
             self.assertEqual(json.load(fh)["question"], "does x help?")
 
+    def test_init_help_prints_the_init_usage_and_exits_zero(self):
+        # `--help` was read as a slug: "'--help' is not a slug", exit 2
+        repo = self.repo()
+        for flag in ("--help", "-h"):
+            proc = self.cli(repo, "init", flag)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("--ask", proc.stdout)
+            self.assertNotIn("not a slug", proc.stdout + proc.stderr)
+
+    def test_a_missing_ask_names_the_accepted_init_form_with_an_example(self):
+        repo = self.repo()
+        proc = self.cli(repo, "init", "probing")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("no --ask", proc.stdout)
+        # the accepted form and one runnable example, not only the refusal
+        self.assertIn('init <slug> --ask "<the user\'s words>"', proc.stderr)
+        self.assertRegex(proc.stderr, r"tezgah-research init [a-z0-9-]+ --ask \"")
+
     def test_check_clean_exits_zero(self):
         repo = self.repo()
         self.line(repo)
