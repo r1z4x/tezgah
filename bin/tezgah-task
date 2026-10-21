@@ -519,6 +519,10 @@ def ocr_spec(where, base):
                              "--to", "HEAD", "--repo", where])
     if isinstance(preview, str):
         return preview
+    # the JSON shape this reader was written against (OCR 375f64c / 1.13.2)
+    if preview.get("schema_version") != "1":
+        return "`ocr delegate preview` schema_version %r is not \"1\"" % (
+            preview.get("schema_version"),)
     files = preview.get("reviewable_files")
     excluded = preview.get("excluded_files", [])
     if not isinstance(files, list) or not isinstance(excluded, list):
@@ -529,11 +533,15 @@ def ocr_spec(where, base):
     preview["reviewable_files"] = files
     paths = [f["path"] for f in files]
     groups = []
-    rule_cmd = [ocr, "delegate", "rule", "--format", "json", "--repo", where] + paths
+    # `--` ends OCR's options, so a changed file named like a flag stays a path
+    rule_cmd = [ocr, "delegate", "rule", "--format", "json", "--repo", where, "--"] + paths
     if paths:
         rule = ocr_json(ocr, rule_cmd[2:])
         if isinstance(rule, str):
             return rule
+        if rule.get("schema_version") != "1":
+            return "`ocr delegate rule` schema_version %r is not \"1\"" % (
+                rule.get("schema_version"),)
         groups = rule.get("groups")
         if not isinstance(groups, list):
             return "`ocr delegate rule` JSON has no groups"

@@ -2267,6 +2267,19 @@ class Cli(TempHome):
             cwd=self.repo).stdout
         self.assertEqual(plain, again)
         self.assertIn("one review of the whole plan", plain)
+        # today's shape, pinned: step 2's last line is followed by step 3, so
+        # any line added between them without ocr shows up here
+        lines = missing.splitlines()
+        end = next(i for i, line in enumerate(lines) if "`approve`" in line)
+        self.assertTrue(lines[end + 1].startswith("  3. record its verdict"),
+                        lines[end + 1])
+
+    def test_an_unknown_schema_version_is_one_skip_line(self):
+        preview = dict(OCR_PREVIEW, schema_version="2")
+        ocr, _ = self.stub("print(json.dumps(%r))" % (preview,))
+        out = self.verify(ocr)
+        self.assertIn("OCR spec skipped: `ocr delegate preview` schema_version '2'", out)
+        self.assertNotIn("OCR review spec", out)
 
     def test_a_failing_ocr_is_one_skip_line(self):
         ocr, _ = self.stub("sys.exit(1)")
