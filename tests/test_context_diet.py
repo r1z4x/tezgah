@@ -86,6 +86,21 @@ class ArmedOncePerSession(TempHome):
                       "in ONE message", "own worktree", "main thread"):
             self.assertIn(words, again)
 
+    def test_the_product_and_design_repeats_keep_the_skill_names(self):
+        # the repeat used to point at `tezgah-contract` only, and one 40-turn
+        # session named an expected skill on 3 turns against 20 in fresh ones
+        # (plan 126, S2): the repeat carries the skill to read for THIS ask
+        for first, again, skills in (
+                ("do a product analysis of the app", "why did retention drop",
+                 ("product-analysis", "pm-frameworks", "feature-audit")),
+                ("set up a design system", "redesign the settings page",
+                 ("design-contract", "design-library", "analyze-app"))):
+            self.prompt(first, "r1")
+            out = self.prompt(again, "r1")
+            self.assertIn("Armed again", out, again)
+            for skill in skills:
+                self.assertIn("`%s`" % skill, out, again)
+
     def test_the_full_paragraph_resurfaces_after_the_pinned_turn_count(self):
         # Cursor and dsh send no compaction signal, so a paragraph shown early
         # in a long session comes back in full on the first match this many
@@ -101,25 +116,23 @@ class ArmedOncePerSession(TempHome):
 
 
 class SkillHintBudget(TempHome):
-    def test_the_skill_hint_goes_before_the_task_the_delta_and_the_pointer(self):
-        order = tc.DROP_ORDER
-        self.assertIn("skill", order)
-        for later in ("task", "delta", "pointer"):
-            self.assertLess(order.index("skill"), order.index(later), later)
-        # an over-budget turn gives the skill hint up and keeps the rest
+    def test_the_skill_hint_outlives_the_lessons_index_and_task_lines(self):
+        # the hint was the first block a turn gave up (32 live drops, plan 126);
+        # it names which skill to read, which the turn cannot work out itself
         proc = subprocess.run(
             [sys.executable, "-c", "import json, sys\nsys.path.insert(0, %r)\n"
-             "import tezgah_context as tc\ntc.CONTEXT_BUDGET['user_prompt'] = 420\n"
+             "import tezgah_context as tc\ntc.CONTEXT_BUDGET['user_prompt'] = 320\n"
              "print(json.dumps(tc.budgeted('user_prompt', [('reminder', 'r' * 100),"
-             " ('skill', 's' * 100), ('task', 't' * 100), ('delta', 'd' * 100),"
-             " ('pointer', 'p' * 100)])))" % support.HOOKS],
+             " ('skill', 's' * 100), ('lessons_turn', 'l' * 100), ('index', 'i' * 100),"
+             " ('task', 't' * 100), ('delta', 'd' * 100)])))" % support.HOOKS],
             capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
-        self.assertNotIn("s" * 100, out)
-        for kept in ("r", "t", "d", "p"):
+        for kept in ("r", "s", "d"):
             self.assertIn(kept * 100, out)
-        self.assertIn("dropped skill (100 B)", out)
+        for gone in ("l", "i", "t"):
+            self.assertNotIn(gone * 100, out)
+        self.assertNotIn("dropped skill", out)
 
 
 if __name__ == "__main__":

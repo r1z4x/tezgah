@@ -36,7 +36,7 @@ one small test); a one-liner needs none. A complex ask ships the lazy version
 and names the fuller one in the same reply instead of stalling. Reply: code
 first; write what was cut only when you consciously cut something the user asked
 for, in at most three lines. In force from the first turn; levels
-lite|full|ultra are set with `tezgah-pony` and ride the per-turn reminder when
+lite|full|ultra are set with `~/.config/tezgah/bin/tezgah-pony` and ride the per-turn reminder when
 not `full`; read the full `ponytail` skill from the router for the level table
 and examples. Off: "stop ponytail".
 
@@ -62,7 +62,7 @@ assumption and ask one diagnostic question. Before sending, delete an opening
 sentence that announces, a closing one that recaps or asks "anything else?", any
 by-the-way sidebar and any hedge that carries no real uncertainty. In force from
 the first answer; read the full `i-have-adhd` skill from the router for the
-examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
+examples. Off: `~/.config/tezgah/bin/tezgah-adhd off`, or the repo's `.no-adhd`.
 
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
@@ -169,7 +169,7 @@ issue for one of its tools mid-session. Name a missing capability in one line,
 use the documented fallback (grep/find, or the second opinion skipped), and carry
 on with the task in hand. Tezgah maintenance is in scope when the user asks for
 it, or when the repo IS the tezgah checkout. Before working a topic an
-installed skill covers, run `tezgah-skill <words>` and read only the range it
+installed skill covers, run `~/.config/tezgah/bin/tezgah-skill <words>` and read only the range it
 returns.
 
 **Workspace: `.tezgah/` only.** Every per-project tezgah artifact - plans,
@@ -181,7 +181,7 @@ it, plain `git add`/`git commit`. Never create `plans/`, `research/` or
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
+`consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `design-off`,
 `reminder-off`, `verify-off` (the integrity rule: its prompt text, the shortcut
 denials and the Stop gate), `task-off` (the task rule), `judge-off` (the
 judgement seam: the triage, the docs fallback and the skill hint), `triage-off`,
@@ -189,6 +189,6 @@ judgement seam: the triage, the docs fallback and the skill hint), `triage-off`,
 rule), `workspace-off` (the root plans/research/analysis refusal),
 `pretooluse-off` (the whole gate);
 per-repo `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`.
-The ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
+The ponytail intensity level is not a switch: `~/.config/tezgah/bin/tezgah-pony lite|full|ultra`.
 
-**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes". Two or more independent items fan out to parallel subagents in one message, one git worktree per writing slice. The design floor a UI turn is judged against is `.tezgah/design-contract.md`: `tezgah-design derive` writes it from the repository's own tokens, `tezgah-design check` measures a change against it, and the `design-contract` skill owns its shape.
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding (`product-analysis`, `pm-frameworks`). The code graph for "who calls X" and "what breaks if Z changes". Two or more independent items fan out to parallel subagents in one message, one git worktree per writing slice. A UI turn reads the `design-contract` skill (`design-library`, `analyze-app`) and is judged against `.tezgah/design-contract.md`: `~/.config/tezgah/bin/tezgah-design derive` writes it from the repository's own tokens and its `check` measures a change against it.

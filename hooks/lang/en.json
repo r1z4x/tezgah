@@ -153,9 +153,16 @@
    "research|literature|hypothes(is|es)|experiment(al)?|ablation|hyperparameter|benchmark|survey|paper|dataset|compar\\w*|(a/?b|ab) tests?|user interview\\w*|root[ -]?cause (analys|investigat)\\w*|reference review|lit(erature)?[ -]review|evaluat(e|ing) (whether|the (librar|technique|approach|tool|option|alternative))|measure(?! how (?:long|fast|much time)| the (?:time|duration|latency|speed|runtime))\\w*|post[ -]?mortem|error budget|incident (review|report)|is (this|that|it) (actually )?(true|right)|does (this|that) (claim )?hold"
   ],
   "product": [
+   "(?:like|as) an? pm|pm (?:review|lens|perspective|eye|hat)\\w*|intended[- ]vs\\.?[- ]implemented|opportunity solution tree\\w*",
    "product(?!ion|ivity|ive)\\w*|feature(?!s?[ -](?:flags?|toggles?|gates?|branch\\w*))\\w*|roadmap|backlog|prd|north star|jtbd|retention|churn|onboarding|cohort|funnel|conversion rate|pricing|prioriti[sz]\\w*|user research|user interview\\w*|ab test|a/b test|activations?\\b|churn(ed|ing|s)?|funnels?|cohorts?|drop-?off|roadmaps?|priorit(y|ies)|adoption|conversion (rate|funnel|drop\\w*)|packaging|monetiz\\w*|price\\w*|tier(?!s?[ -]lists?)\\w*|positioning|value proposition|\\bicp\\b|ideal customer profile|persona\\w*|segment(?!(?:ation)?[ -]faults?)\\w*|(customer|user|product|problem) discovery|opportunity (tree|solution|space|score)|\\bnps\\b|net promoter|\\bcsat\\b|satisfaction|(customer|user)[ -]?feedback\\w*|support ticket\\w*|competitor\\w*|competitive (analysis|landscape|teardown|benchmark)\\w*|wizard|crud|form (validation|field|error|label)|data table|step flow|search (dropdown|box)|form validation|user management|(admin|users?) (panel|screen|page|list)",
    {
     "ui_ask": "(?:admin|users?) table"
+   }
+  ],
+  "design": [
+   "ui|ux|design (?:system|token|language|guide|review|critique|audit|library)\\w*|redesign\\w*|restyle\\w*|revamp\\w*|wireframe\\w*|mockups?|figma|layout|responsive|components?|ui kit|style guides?|typography|colou?rs? (?:palette|scheme|token|contrast)\\w*|palette|dark mode|a11y|wcag\\w*|accessib\\w*|usability|visual (?:hierarchy|design|consistency|critique|review)|landing page|(?:design|sketch|mock)\\w* (?:\\w+ ){0,3}(?:dashboard|screen|page|form|view|layout|landing)s?|improve (?:this|the|our) (?:screen|page|view|form|layout|dashboard)s?|click(?:ing)? through (?:\\w+ ){0,2}(?:screens?|pages?|app|ui)",
+   {
+    "ui_ask": "confusing|inconsistent|cluttered|ugly|clunky"
    }
   ],
   "graph": [
