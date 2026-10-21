@@ -648,8 +648,8 @@ with `embed-m2v`. The fusion found it for 0.75 and 0.74, BM25 for 0.68.
 
 The `ocr` feature id adds open-code-review (OCR) to a plan's review. It is off by
 default (`"default": False` in `hooks/tezgah_apps.py::REGISTRY`). Turn it on with
-`tezgah-setup --enable ocr`, which runs `npm install -g @alibaba-group/open-code-review`
-(on Windows the same command, `bin/tezgah-setup::WINDOWS_DEPS`). The binary is
+`tezgah-setup --enable ocr`, which runs `npm install -g @alibaba-group/open-code-review`.
+The binary is
 found by `ocr_bin()` (`hooks/tezgah_paths.py::ocr_bin`): `TEZGAH_OCR_BIN` first,
 then `ocr` on PATH. The report prints one `ocr on PATH` row
 (`bin/tezgah-setup::report`). Without `ocr` nothing changes: the verification
