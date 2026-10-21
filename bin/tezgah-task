@@ -139,7 +139,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import project_top, say, work_tree  # noqa: E402
+from tezgah_paths import config, ocr_bin, omp_bin, project_top, say, work_tree  # noqa: E402
 
 # Mirrors hooks/tezgah_gate.py::PLAN_TRUNKS: the gate reads these as unplanned
 # whatever a plan declares, so `start --branch` refuses them (plan 113). Not
@@ -479,6 +479,139 @@ MERGE_CHECKS = (
      "python3 skills/plan-add/render_table.py --acceptance --strict"),
 )
 
+# OCR's texts vendored with tezgah (plan 125): the review prompt each per-group
+# reviewer reads as an appendix, the filter prompt the refuter pass follows
+OCR_PROMPTS = os.path.join(HERE, "third_party", "open-code-review", "prompts")
+
+
+def ocr_json(ocr, args):
+    """One `ocr delegate ... --format json` answer as a dict, or the reason it
+    is not one: a non-zero exit, a timeout, output that is not a JSON object."""
+    try:
+        out = subprocess.run([ocr, "delegate"] + args, capture_output=True,
+                             text=True, timeout=30,
+                             env=dict(os.environ, OCR_NO_UPDATE="1"))
+    except subprocess.TimeoutExpired:
+        return "`ocr delegate %s` timed out after 30 s" % args[0]
+    except OSError as exc:
+        return "`ocr delegate %s` did not start: %s" % (args[0], exc)
+    if out.returncode:
+        return "`ocr delegate %s` exited %d" % (args[0], out.returncode)
+    try:
+        data = json.loads(out.stdout)
+    except ValueError:
+        data = None
+    return data if isinstance(data, dict) else \
+        "`ocr delegate %s` printed no JSON object" % args[0]
+
+
+def ocr_spec(where, base):
+    """OCR's deterministic review spec for `base..HEAD`: (preview, rule groups,
+    the rule command), the reason it is skipped, or None without `ocr` or with
+    the `ocr` feature not enabled (`tezgah-setup --enable ocr`) - the step is
+    then today's."""
+    ocr = ocr_bin()
+    if ocr is None or "ocr" not in (config().get("features") or []):
+        return None
+    if base == "<base>":
+        return "no diff base to preview"
+    preview = ocr_json(ocr, ["preview", "--format", "json", "--from", base,
+                             "--to", "HEAD", "--repo", where])
+    if isinstance(preview, str):
+        return preview
+    # the JSON shape this reader was written against (OCR 375f64c / 1.13.2)
+    if preview.get("schema_version") != "1":
+        return "`ocr delegate preview` schema_version %r is not \"1\"" % (
+            preview.get("schema_version"),)
+    files = preview.get("reviewable_files")
+    excluded = preview.get("excluded_files", [])
+    if not isinstance(files, list) or not isinstance(excluded, list):
+        return "`ocr delegate preview` JSON has no file lists"
+    # a row with no string path is dropped here, so neither the rule argv nor
+    # the printed list can meet a None
+    files = [f for f in files if isinstance(f, dict) and isinstance(f.get("path"), str)]
+    preview["reviewable_files"] = files
+    paths = [f["path"] for f in files]
+    groups = []
+    # `--` ends OCR's options, so a changed file named like a flag stays a path
+    rule_cmd = [ocr, "delegate", "rule", "--format", "json", "--repo", where, "--"] + paths
+    if paths:
+        rule = ocr_json(ocr, rule_cmd[2:])
+        if isinstance(rule, str):
+            return rule
+        if rule.get("schema_version") != "1":
+            return "`ocr delegate rule` schema_version %r is not \"1\"" % (
+                rule.get("schema_version"),)
+        groups = rule.get("groups")
+        if not isinstance(groups, list):
+            return "`ocr delegate rule` JSON has no groups"
+    return preview, groups, rule_cmd
+
+
+def print_ocr_spec(where, base):
+    """Step 2's OCR lines: the reviewable files, the exclusions (still in scope),
+    one reviewer per rule group, the refuter pass and the quote check. Prints
+    nothing without `ocr`, one `OCR spec skipped:` line when it fails."""
+    spec = ocr_spec(where, base)
+    if spec is None:
+        return
+    if isinstance(spec, str):
+        print("     OCR spec skipped: %s" % spec)
+        return
+    preview, groups, rule_cmd = spec
+    paths = [f.get("path") for f in preview["reviewable_files"] if isinstance(f, dict)]
+    print("     OCR review spec (`ocr delegate`; its output is input to the "
+          "review, never a verdict):")
+    print("     - reviewable files (%d): %s" % (len(paths), ", ".join(paths) or "none"))
+    out = ["%s (%s)" % (f.get("path"), f.get("exclude_reason", "no reason"))
+           for f in preview.get("excluded_files", []) if isinstance(f, dict)]
+    print("     - excluded by OCR, NOT covered by OCR rules but still in the "
+          "reviewer's scope (tests and docs stay in scope; one more "
+          "tezgah-reviewer reads them over the dimensions above): %s"
+          % (", ".join(out) or "none"))
+    if groups:
+        # OCR's own bundling below its LLM-grouping threshold (task_template.json
+        # GROUPING_MIN_FILES 4, GROUPING_BUNDLE_LINE_THRESHOLD 200): fewer than 4
+        # files are one bundle under 200 changed lines, else one file each.
+        churn = sum(n for f in preview["reviewable_files"]
+                    for n in (f.get("insertions"), f.get("deletions"))
+                    if isinstance(n, int) and not isinstance(n, bool))
+        if len(paths) < 4 and churn < 200:
+            who = ("one tezgah-reviewer for the whole small change set (%d files, "
+                   "%d changed lines), its brief carrying every group's rule text"
+                   % (len(paths), churn))
+        elif len(paths) < 4:
+            who = "one tezgah-reviewer per file, in ONE message"
+        else:
+            who = "one tezgah-reviewer per rule group below, in ONE message"
+        print("     - instead of one reviewer per dimension, spawn %s: a brief "
+              "carries its group's rule text verbatim (`groups[].rule` of `%s`) "
+              "and names %s as an appendix to read; each reviewer accounts for "
+              "every file it owns as reviewed or skipped-with-reason"
+              % (who, shlex.join(rule_cmd),
+                 os.path.join(OCR_PROMPTS, "main_task_system.md")))
+        for g in groups:
+            if isinstance(g, dict):
+                print("       - rule group %s: source %s, pattern %s, files %s"
+                      % (g.get("group_id"), g.get("source"), g.get("pattern"),
+                         ", ".join(g.get("files") or []) or "none"))
+    else:
+        print("     - no OCR rule group: the dimension fan-out above stands")
+    print("     - refuter pass: after merging the findings, one fresh "
+          "tezgah-reviewer reads %s as its instructions and removes only "
+          "findings the diff proves wrong"
+          % os.path.join(OCR_PROMPTS, "review_filter_task_system.md"))
+    print("     - quote check: `tezgah-review-quote --repo %s --from %s "
+          "FINDINGS.json` over the merged findings (a JSON list of path, quote, "
+          "start_line, end_line); an `unlocated` finding goes back to its "
+          "reviewer" % (shlex.quote(where), base))
+    # V4, omp only: OCR's own loop on omp's model; candidates, never findings
+    if os.environ.get("OMPCODE") and omp_bin():
+        print("     - omp: `tezgah-ocr-review --repo %s --from %s --to HEAD "
+              "--output OCR.json` runs OCR's own review on omp's model; hand its "
+              "comments to the reviewers as candidates to confirm or refute, "
+              "never as findings" % (shlex.quote(where), base))
+
 
 def verification_steps(text, path):
     """What the verification phase requires before the plan is done: the plan's
@@ -555,6 +688,7 @@ def verification_steps(text, path):
               "without a new round, or recorded fix-later under ## State only "
               "when it waits on a user decision (%s), and the verdict is "
               "`approve`" % say()["decision"])
+        print_ocr_spec(where, base)
     print("  3. record its verdict: `tezgah-task review %s <reviewer> approve|changes`"
           " (records the reviewed sha);"
           " `tezgah-task close %s done` refuses without an approve" % (ident, ident))

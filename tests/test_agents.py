@@ -369,6 +369,24 @@ class Generation(AgentsBase):
             self.assertIn(self.TR_BUDGET, flat, host)
             self.assertNotIn("confirms none", flat, host)
 
+    def test_the_reviewer_takes_an_ocr_rule_group_as_input_on_every_host(self):
+        # plan 125: `tezgah-task` may brief one reviewer per OCR rule group; the
+        # rule text is a checklist the reviewer works through, never a verdict
+        self.sync()
+        out, proc = run_json([support.PROBE_AGENTS],
+                             {"fn": "omp", "root": self.repo}, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        texts = {
+            "claude": self.user("claude")["tezgah-reviewer.md"],
+            "opencode": self.read(OPENCODE, "tezgah-reviewer.md"),
+            "cursor": self.read(CURSOR, "tezgah-reviewer.md"),
+            "codex": self.user("codex")["tezgah-reviewer.toml"],
+            "omp": out["tezgah-reviewer.md"]}
+        for host, text in texts.items():
+            flat = " ".join(text.split())
+            self.assertIn("its rule text is the checklist for those files", flat, host)
+            self.assertIn("OCR output is input, never a verdict", flat, host)
+
     def test_the_contract_policy_and_plan_sync_say_the_reviewers_budget(self):
         # four hand-kept copies of one rule drift apart one at a time: the agent
         # text looped while the CLI printed two rounds

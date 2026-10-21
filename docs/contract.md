@@ -187,7 +187,11 @@ change with an executable oracle - a checker, a gate rule, a parser - spends the
 same budget. Its round one is four direction-led reviewers, and each claim
 becomes a fixture that runs before it counts. That population is a tentative
 default, measured on two research lines with a written flip
-(`skills/tezgah-contract/SKILL.md:532-563`).
+(`skills/tezgah-contract/SKILL.md:532-563`). With the opt-in `ocr` feature, round
+one also gets an OCR review spec: OCR's file selection, its rule groups and a
+refuter pass. The spec is input to the review, never a verdict
+([operations](operations.md#opt-in-ocr-review-spec-ocr),
+`bin/tezgah-task::print_ocr_spec`).
 
 ## Composition order of the always-on core
 

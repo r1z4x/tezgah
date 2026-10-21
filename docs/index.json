@@ -386,7 +386,8 @@
         "something is broken what do I check first",
         "how do I turn on taste signal capture and measure my corrections",
         "how does taste learn my coding preferences and inject them",
-        "how do I resume or clean up a delegated slice after a crash or a quota stop"
+        "how do I resume or clean up a delegated slice after a crash or a quota stop",
+        "how do I turn on the open-code-review spec for a plan's review"
       ],
       "answers_tr": [
         "bunu bir makineye nasıl kurar, doğrular ve yükseltirim",
@@ -396,7 +397,8 @@
         "bir şey bozuk, önce neyi kontrol etmeliyim",
         "zevk sinyali kaydını nasıl açar ve düzeltmelerimi nasıl ölçerim",
         "taste kodlama tercihlerimi nasıl öğrenir ve oturuma nasıl ekler",
-        "bir çökme veya kota durmasından sonra devredilen bir dilimi nasıl sürdürür veya temizlerim"
+        "bir çökme veya kota durmasından sonra devredilen bir dilimi nasıl sürdürür veya temizlerim",
+        "bir planın incelemesi için open-code-review spesifikasyonunu nasıl açarım"
       ],
       "sources": [
         "bin/tezgah-setup",
@@ -413,7 +415,9 @@
         "hooks/tezgah_taste_ledger.py",
         "bin/tezgah-taste",
         "hooks/tezgah_task.py",
-        "bin/tezgah-task"
+        "bin/tezgah-task",
+        "bin/tezgah-review-quote",
+        "bin/tezgah-ocr-review"
       ]
     },
     {
