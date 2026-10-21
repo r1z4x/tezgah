@@ -10,14 +10,14 @@ links N reference files upstream does not ship.
 
 | entry | file | what it covers | flags |
 |---|---|---|---|
-| `lambda-labs` | `09-infrastructure/lambda-labs/SKILL.md` | Reserved and on-demand GPU cloud instances for ML training and inference. |  |
-| `modal` | `09-infrastructure/modal/SKILL.md` | Serverless GPU cloud platform for running ML workloads. |  |
-| `skypilot` | `09-infrastructure/skypilot/SKILL.md` | Multi-cloud orchestration for ML workloads with automatic cost optimization. |  |
-| `llama-cpp` | `12-inference-serving/llama-cpp/SKILL.md` | Runs LLM inference on CPU, Apple Silicon, and consumer GPUs without NVIDIA hardware. |  |
-| `sglang` | `12-inference-serving/sglang/SKILL.md` | Fast structured generation and serving for LLMs with RadixAttention prefix caching. |  |
-| `tensorrt-llm` | `12-inference-serving/tensorrt-llm/SKILL.md` | Optimizes LLM inference with NVIDIA TensorRT for maximum throughput and lowest latency. |  |
-| `vllm` | `12-inference-serving/vllm/SKILL.md` | Serves LLMs with high throughput using vLLM's PagedAttention and continuous batching. |  |
-| `mlflow` | `13-mlops/mlflow/SKILL.md` | Track ML experiments, manage model registry with versioning, deploy models to production, and reproduce experiments with MLflow - framework-agnostic ML lifecycle platform |  |
-| `swanlab` | `13-mlops/swanlab/SKILL.md` | Provides guidance for experiment tracking with SwanLab. |  |
-| `tensorboard` | `13-mlops/tensorboard/SKILL.md` | Visualize training metrics, debug models with histograms, compare experiments, visualize model graphs, and profile performance with TensorBoard - Google's ML visualization toolkit |  |
-| `weights-and-biases` | `13-mlops/weights-and-biases/SKILL.md` | Track ML experiments with automatic logging, visualize training in real-time, optimize hyperparameters with sweeps, and manage model registry with W&B - collaborative MLOps ... |  |
+| `lambda-labs` | `09-infrastructure/lambda-labs/ENTRY.md` | Reserved and on-demand GPU cloud instances for ML training and inference. |  |
+| `modal` | `09-infrastructure/modal/ENTRY.md` | Serverless GPU cloud platform for running ML workloads. |  |
+| `skypilot` | `09-infrastructure/skypilot/ENTRY.md` | Multi-cloud orchestration for ML workloads with automatic cost optimization. |  |
+| `llama-cpp` | `12-inference-serving/llama-cpp/ENTRY.md` | Runs LLM inference on CPU, Apple Silicon, and consumer GPUs without NVIDIA hardware. |  |
+| `sglang` | `12-inference-serving/sglang/ENTRY.md` | Fast structured generation and serving for LLMs with RadixAttention prefix caching. |  |
+| `tensorrt-llm` | `12-inference-serving/tensorrt-llm/ENTRY.md` | Optimizes LLM inference with NVIDIA TensorRT for maximum throughput and lowest latency. |  |
+| `vllm` | `12-inference-serving/vllm/ENTRY.md` | Serves LLMs with high throughput using vLLM's PagedAttention and continuous batching. |  |
+| `mlflow` | `13-mlops/mlflow/ENTRY.md` | Track ML experiments, manage model registry with versioning, deploy models to production, and reproduce experiments with MLflow - framework-agnostic ML lifecycle platform |  |
+| `swanlab` | `13-mlops/swanlab/ENTRY.md` | Provides guidance for experiment tracking with SwanLab. |  |
+| `tensorboard` | `13-mlops/tensorboard/ENTRY.md` | Visualize training metrics, debug models with histograms, compare experiments, visualize model graphs, and profile performance with TensorBoard - Google's ML visualization toolkit |  |
+| `weights-and-biases` | `13-mlops/weights-and-biases/ENTRY.md` | Track ML experiments with automatic logging, visualize training in real-time, optimize hyperparameters with sweeps, and manage model registry with W&B - collaborative MLOps ... |  |

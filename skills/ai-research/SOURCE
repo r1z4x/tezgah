@@ -10,12 +10,14 @@ contributing author of that entry. Checkout for a re-vendor:
 
 Every skill's `SKILL.md` and every markdown file beside it, in the upstream
 layout, because a vendored path is its provenance. 98 skills across 23
-categories, 365 files, 4202519 bytes.
+categories, 365 files, 4202519 bytes. One rename: each entry's `SKILL.md` sits at
+the upstream path as `ENTRY.md`, bytes unchanged, so a host that lists every
+`SKILL.md` below its skills directory (codex, Cursor) does not list it.
 
 ## What is not, and why
 
 Files: `03-fine-tuning/unsloth/references/llms-full.md`, `03-fine-tuning/unsloth/references/llms-txt.md`, `08-distributed-training/deepspeed/references/tutorials.md` - machine-scraped reference dumps, which the entry's own
-`SKILL.md` already distils.
+`ENTRY.md` already distils.
 
 Directories: `20-ml-paper-writing/ml-paper-writing/templates`, `20-ml-paper-writing/systems-paper-writing/templates` - LaTeX class/bst/bib trees and example PDFs,
 re-downloadable from each venue.
@@ -27,9 +29,9 @@ is dropped by the importer's `*.md` filter, and `demos/`, `docs/`,
 ## The only modification
 
 A markdown file that carries no YAML frontmatter gets one attribution
-comment on its first line. `SKILL.md` files are byte-for-byte upstream,
-frontmatter included. `skills/ai-research/SKILL.md` is tezgah's own and is
-not part of the manifest.
+comment on its first line. `ENTRY.md` files are byte-for-byte upstream
+`SKILL.md`, frontmatter included. `skills/ai-research/SKILL.md` is
+tezgah's own and is not part of the manifest.
 
 ## Re-vendoring
 

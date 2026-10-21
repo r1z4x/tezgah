@@ -31,8 +31,10 @@ skills/pm-frameworks - MIT, Pawel Huryn, https://github.com/phuryn/pm-skills.
                      VENDORED at revision
                      8607e3b077817f89bf4a9b623246219734ac3be0 (2026-09-19): two
                      skills, byte-for-byte upstream -
-                     `intended-vs-implemented/SKILL.md` and
-                     `opportunity-solution-tree/SKILL.md`. The entry point
+                     `intended-vs-implemented/ENTRY.md` and
+                     `opportunity-solution-tree/ENTRY.md`, each upstream's
+                     `SKILL.md` renamed so a host that lists every `SKILL.md`
+                     below its skills directory does not list it. The entry point
                      `skills/pm-frameworks/SKILL.md` is tezgah's own and is not
                      part of the manifest; the other 67 skills and the plugin
                      manifest are not copied. `skills/pm-frameworks/SOURCE`
@@ -47,7 +49,10 @@ skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
                      Orchestra Research's `author` line, two
                      (`ml-training-recipes`, `a-evolve`) keep the contributing
                      author's - and a markdown file with no frontmatter carries
-                     one attribution comment.
+                     one attribution comment. Each entry's `SKILL.md` sits at
+                     the upstream path renamed `ENTRY.md`, bytes unchanged, so a
+                     host that lists every `SKILL.md` below its skills directory
+                     does not list it.
                      Three machine-scraped reference dumps and the LaTeX template
                      trees are not copied, and every drop is named in
                      skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
@@ -59,8 +64,11 @@ skills/design-library (inclusive-design-skills) - MIT, MC Dean,
                      6e0740f04b2130af60bc57abe3401b91e460e70d (2026-06-09): three
                      of its plugins - cognitive-accessibility,
                      adaptive-interfaces, inclusive-interaction - every skill in
-                     them, 30 `SKILL.md`, at the upstream path. ADAPTED, one
-                     body - cognitive-accessibility/skills/adaptive-personalisation/SKILL.md
+                     them, 30 `SKILL.md`, at the upstream path, each renamed
+                     `ENTRY.md` (bytes unchanged) so a host that lists every
+                     `SKILL.md` below its skills directory does not list it.
+                     ADAPTED, one body -
+                     cognitive-accessibility/skills/adaptive-personalisation/ENTRY.md
                      carries `name: contextual-help-design` upstream, which is
                      the sibling `contextual-help-design` skill's name and not
                      its own directory; this copy's `name` matches its
@@ -71,7 +79,8 @@ skills/design-library (designer-skills) - MIT, MC Dean,
                      https://github.com/Owl-Listener/designer-skills. VENDORED at
                      revision 9a6930cf84a822eb458624bd11c61aac5bbdf224
                      (2026-09-05): the whole visual-critique plugin (7
-                     `SKILL.md`) and two skills of design-research
+                     `SKILL.md`, renamed `ENTRY.md` the same way) and two
+                     skills of design-research
                      (`behavioural-analytics`, `qual-quant-triangulation`),
                      byte-for-byte upstream. Nothing in this half is adapted;
                      the 12 other design-research skills and the plugin
@@ -79,7 +88,7 @@ skills/design-library (designer-skills) - MIT, MC Dean,
 
                      ADAPTED across the library, one statement: the
                      inclusive-design-skills copy of
-                     inclusive-interaction/skills/touch-target-design/SKILL.md
+                     inclusive-interaction/skills/touch-target-design/ENTRY.md
                      states the touch minimum as `44x44 CSS pixels (WCAG 2.2
                      Level AA)`. WCAG 2.2 SC 2.5.8 Target Size (Minimum) is
                      Level AA at 24x24 CSS px and SC 2.5.5 Target Size
@@ -99,7 +108,10 @@ skills/rl-env      - Apache-2.0, Adithya S Kolavi and the FineEnvs authors,
                      (2026-10-01): the five environment-authoring skills and
                      every reference file they ship, 14 files under
                      `skills/rl-env/<skill>/`, byte-for-byte upstream including
-                     frontmatter, at their upstream path under `.claude/skills/`.
+                     frontmatter, at their upstream path under `.claude/skills/`,
+                     each entry's `SKILL.md` renamed `ENTRY.md` so a host that
+                     lists every `SKILL.md` below its skills directory does not
+                     list it.
                      Nothing is adapted and nothing is dropped. The entry point
                      `skills/rl-env/SKILL.md` is tezgah's own and is not part of
                      the manifest, and upstream's own install route

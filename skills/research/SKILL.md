@@ -488,8 +488,8 @@ idea's move on purpose:
 | `mutation`, `crossover` | vary one idea, or join two (`parents`) | - |
 | `user` | an idea the person brought | - |
 
-The entries are `skills/ai-research/21-research-ideation/brainstorming-research-ideas/SKILL.md`
-and `.../creative-thinking-for-research/SKILL.md`. A closed line's dead ends
+The entries are `skills/ai-research/21-research-ideation/brainstorming-research-ideas/ENTRY.md`
+and `.../creative-thinking-for-research/ENTRY.md`. A closed line's dead ends
 (`done/`) are the first filter for a new idea.
 
 **The funnel** (`~/.config/tezgah/bin/tezgah-research stage <slug> <idea> <stage> --evidence ...`); an

@@ -200,7 +200,7 @@ class SkillSearchCLI(FixtureTree):
 
 class NestedIndex(FixtureTree):
     """A skill that routes to entries through its own INDEX.md (the shape of
-    design-library: 39 entries under `<plugin>/skills/<entry>/SKILL.md`) has
+    design-library: 39 entries under `<plugin>/skills/<entry>/ENTRY.md`) has
     those entries searched too, addressed `<skill>/<path>`, one row per entry.
     Before plan 072 the search read top-level files only, so no word of an
     entry could match; one row per section instead let short vendored sections
@@ -215,27 +215,27 @@ class NestedIndex(FixtureTree):
         with open(os.path.join(lib, "SKILL.md"), "w") as fh:
             fh.write("---\nname: lib\ndescription: Use when a method is needed.\n"
                      "---\n\n# Lib\n\n## Router\n\nRead INDEX.md.\n")
-        with open(os.path.join(lib, "plug", "skills", "deep", "SKILL.md"), "w") as fh:
+        with open(os.path.join(lib, "plug", "skills", "deep", "ENTRY.md"), "w") as fh:
             fh.write(self.DEEP)
         # a file outside every root, reached three ways an index row could try
         outside = os.path.join(os.path.realpath(self.tmp.name), "outside", "x")
         os.makedirs(outside)
-        with open(os.path.join(outside, "SKILL.md"), "w") as fh:
+        with open(os.path.join(outside, "ENTRY.md"), "w") as fh:
             fh.write("# Outside\n\n## Zebraquux\n\nzebraquux zebraquux zebraquux\n")
         os.symlink(outside, os.path.join(lib, "plug", "linked"))
         with open(os.path.join(lib, "INDEX.md"), "w") as fh:
             fh.write("# Index\n\n## plug\n\n"
-                     "deep - a deep entry - plug/skills/deep/SKILL.md\n"
+                     "deep - a deep entry - plug/skills/deep/ENTRY.md\n"
                      "abs - absolute - %s\n"
-                     "up - relative escape - ../../outside/x/SKILL.md\n"
-                     "link - symlink out - plug/linked/SKILL.md\n"
-                     % os.path.join(outside, "SKILL.md"))
+                     "up - relative escape - ../../outside/x/ENTRY.md\n"
+                     "link - symlink out - plug/linked/ENTRY.md\n"
+                     % os.path.join(outside, "ENTRY.md"))
 
     def test_an_entry_the_index_routes_to_is_searched_as_one_row(self):
         hits = self.hits("dashboard key metrics")
         self.assertTrue(hits, "the nested entry did not score")
         skill, _path, title, start, end = hits[0]
-        self.assertEqual(("lib/plug/skills/deep/SKILL.md", "Deep", 1, 5),
+        self.assertEqual(("lib/plug/skills/deep/ENTRY.md", "Deep", 1, 5),
                          (skill, title, start, end), hits)
 
     def test_an_index_row_leaving_the_skill_is_not_followed(self):
@@ -254,7 +254,7 @@ class NestedIndex(FixtureTree):
         top = sp.search("default dashboard 3-5 key metrics primary actions",
                         k=1, roots=roots)
         self.assertEqual(
-            "design-library/adaptive-interfaces/skills/simplified-views/SKILL.md",
+            "design-library/adaptive-interfaces/skills/simplified-views/ENTRY.md",
             top[0][0], top)
 
 

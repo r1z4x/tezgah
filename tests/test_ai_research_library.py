@@ -92,7 +92,7 @@ class VendoredTree(unittest.TestCase):
             self.assertTrue(entry["purpose"], entry["upstream_path"])
             self.assertTrue(entry["name"], entry["upstream_path"])
             self.assertTrue(entry["files"], entry["upstream_path"])
-            bodies = [f for f in entry["files"] if f["path"].endswith("/SKILL.md")]
+            bodies = [f for f in entry["files"] if f["path"].endswith("/ENTRY.md")]
             self.assertEqual(len(bodies), 1, entry["upstream_path"])
 
     def test_the_committed_tree_passes_its_own_check(self):
@@ -122,7 +122,7 @@ class VendoredTree(unittest.TestCase):
         for entry in self.skills:
             for f in entry["files"]:
                 body = read(os.path.join(SKILL, f["path"]))
-                if f["path"].endswith("/SKILL.md"):
+                if f["path"].endswith("/ENTRY.md"):
                     self.assertTrue(body.startswith("---\n"), f["path"])
                     frontmatter = body.split("---\n", 2)[1]
                     self.assertIn("license: MIT", frontmatter, f["path"])
@@ -183,7 +183,7 @@ class VendoredTree(unittest.TestCase):
         authorship moved and NOTICE has to be read again."""
         authors = []
         for entry in self.skills:
-            body = read(os.path.join(SKILL, entry["upstream_path"], "SKILL.md"))
+            body = read(os.path.join(SKILL, entry["upstream_path"], "ENTRY.md"))
             frontmatter = body.split("---\n", 2)[1]
             authors.append([line for line in frontmatter.splitlines()
                             if line.startswith("author: ")][0])
@@ -273,7 +273,11 @@ class Importer(unittest.TestCase):
                                  "a non-markdown file was vendored: %s" % name)
         guide = read(os.path.join(self.out, "01-model-architecture/skill0/references/a-guide.md"))
         self.assertTrue(guide.startswith("<!-- vendored from"))
-        body = read(os.path.join(self.out, "01-model-architecture/skill0/SKILL.md"))
+        # upstream's SKILL.md lands as ENTRY.md: codex and Cursor list every
+        # nested SKILL.md as a host skill
+        self.assertFalse(os.path.exists(
+            os.path.join(self.out, "01-model-architecture/skill0/SKILL.md")))
+        body = read(os.path.join(self.out, "01-model-architecture/skill0/ENTRY.md"))
         self.assertTrue(body.startswith("---\n"), "the body gained a header")
         self.assertIn("orchestra-research/AI-research-SKILLs", read(
             os.path.join(self.out, "SOURCE")))

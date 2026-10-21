@@ -10,9 +10,9 @@ links N reference files upstream does not ship.
 
 | entry | file | what it covers | flags |
 |---|---|---|---|
-| `0-autoresearch-skill` | `0-autoresearch-skill/SKILL.md` | Orchestrates end-to-end autonomous AI research projects using a two-loop architecture. |  |
-| `brainstorming-research-ideas` | `21-research-ideation/brainstorming-research-ideas/SKILL.md` | Guides researchers through structured ideation frameworks to discover high-impact research directions. |  |
-| `creative-thinking-for-research` | `21-research-ideation/creative-thinking-for-research/SKILL.md` | Applies cognitive science frameworks for creative thinking to CS and AI research ideation. |  |
-| `compiler` | `22-agent-native-research-artifact/compiler/SKILL.md` | Compiles any research input — PDF papers, GitHub repositories, experiment logs, code directories, or raw notes — into a complete Agent-Native Research Artifact (ARA) with ... |  |
-| `research-manager` | `22-agent-native-research-artifact/research-manager/SKILL.md` | Records research provenance as a post-task epilogue, scanning conversation history at the end of a coding or research session to extract decisions, experiments, dead ends, claims ... |  |
-| `rigor-reviewer` | `22-agent-native-research-artifact/rigor-reviewer/SKILL.md` | Performs ARA Seal Level 2 semantic epistemic review on Agent-Native Research Artifacts, scoring six dimensions (evidence relevance, falsifiability, scope calibration, argument ... |  |
+| `0-autoresearch-skill` | `0-autoresearch-skill/ENTRY.md` | Orchestrates end-to-end autonomous AI research projects using a two-loop architecture. |  |
+| `brainstorming-research-ideas` | `21-research-ideation/brainstorming-research-ideas/ENTRY.md` | Guides researchers through structured ideation frameworks to discover high-impact research directions. |  |
+| `creative-thinking-for-research` | `21-research-ideation/creative-thinking-for-research/ENTRY.md` | Applies cognitive science frameworks for creative thinking to CS and AI research ideation. |  |
+| `compiler` | `22-agent-native-research-artifact/compiler/ENTRY.md` | Compiles any research input — PDF papers, GitHub repositories, experiment logs, code directories, or raw notes — into a complete Agent-Native Research Artifact (ARA) with ... |  |
+| `research-manager` | `22-agent-native-research-artifact/research-manager/ENTRY.md` | Records research provenance as a post-task epilogue, scanning conversation history at the end of a coding or research session to extract decisions, experiments, dead ends, claims ... |  |
+| `rigor-reviewer` | `22-agent-native-research-artifact/rigor-reviewer/ENTRY.md` | Performs ARA Seal Level 2 semantic epistemic review on Agent-Native Research Artifacts, scoring six dimensions (evidence relevance, falsifiability, scope calibration, argument ... |  |

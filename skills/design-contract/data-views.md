@@ -80,7 +80,7 @@ finding the reviewer names, since `check` does not require them.
   https://www.carbondesignsystem.com/data-visualization/dashboards
 - Carbon Design System, Empty states,
   https://www.carbondesignsystem.com/building-blocks/core/patterns/empty-states
-- The design library: [colour-independence](../design-library/adaptive-interfaces/skills/colour-independence/SKILL.md)
+- The design library: [colour-independence](../design-library/adaptive-interfaces/skills/colour-independence/ENTRY.md)
   ("Always test charts in greyscale") and
-  [simplified-views](../design-library/adaptive-interfaces/skills/simplified-views/SKILL.md)
+  [simplified-views](../design-library/adaptive-interfaces/skills/simplified-views/ENTRY.md)
   (its Dashboard Simplification patterns: a default of three to five key metrics).
