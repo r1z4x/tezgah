@@ -49,7 +49,7 @@ import urllib.request
 import json
 
 HOOKS = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "hooks")
 sys.path.insert(0, HOOKS)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402

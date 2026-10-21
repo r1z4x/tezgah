@@ -149,7 +149,7 @@ class SearchRanksSections(FixtureTree):
 
 class SkillSearchCLI(FixtureTree):
 
-    def run_cli(self, *args):
+    def run_cli(self, *args, script=os.path.join(REPO, "bin", "tezgah-skill")):
         # HOME alone is not hermetic: CODEX_HOME/XDG point the root discovery
         # at real host directories (a relocated codex home links the live
         # checkout's skills), and the proxies would reach outside loopback
@@ -160,8 +160,7 @@ class SkillSearchCLI(FixtureTree):
                     "HTTP_PROXY", "HTTPS_PROXY"):
             env.pop(key, None)
         return subprocess.run(
-            [sys.executable, os.path.join(REPO, "bin", "tezgah-skill")]
-            + list(args),
+            [sys.executable, script] + list(args),
             capture_output=True, text=True, env=env,
             cwd=os.path.realpath(self.tmp.name))
 
@@ -185,6 +184,18 @@ class SkillSearchCLI(FixtureTree):
         proc = self.run_cli("--root", self.root, "zzqx vblorb fnord")
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertEqual("", proc.stdout.strip())
+
+    def test_the_cli_runs_through_a_symlink_in_another_directory(self):
+        # ~/.config/tezgah/bin/tezgah-skill is a symlink into the checkout's
+        # bin/: an abspath-based HERE looked for hooks/ next to the link and
+        # died with ModuleNotFoundError before parsing an argument.
+        link_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, link_dir, True)
+        link = os.path.join(link_dir, "tezgah-skill")
+        os.symlink(os.path.join(REPO, "bin", "tezgah-skill"), link)
+        proc = self.run_cli("--root", self.root, "jwt alg none", script=link)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertTrue(proc.stdout.startswith("skill://alpha:10-19"), proc.stdout)
 
 
 class NestedIndex(FixtureTree):
