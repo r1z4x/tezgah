@@ -374,7 +374,7 @@ class Inventories(unittest.TestCase):
         self.assertEqual(module.UNCLASSIFIED_SWITCHES, frozenset((
             "agents-off", "update-check-off", "slices-off", "taste-on",
             "skill-suggest-on")))
-        self.assertEqual(len(module.core_switches()), 16)
+        self.assertEqual(len(module.core_switches()), 17)
         self.assertEqual(module.switch_failures(), [])
         failures = module.switch_failures(core=module.core_switches() - {"lang-off"})
         self.assertTrue(any("lang-off" in f for f in failures), failures)

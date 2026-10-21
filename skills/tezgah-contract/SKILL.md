@@ -72,7 +72,7 @@ those three unless the project already tracks files there. Off: `workspace-off`.
 
 Each one removes its own rule from the injected text, not just a status mark. In
 `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
-`research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `reminder-off`,
+`research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `design-off`, `reminder-off`,
 `verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
 `task-off` (all four refusals of the task rule: the phase, the allowlist, the
