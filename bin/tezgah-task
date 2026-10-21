@@ -139,7 +139,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import ocr_bin, project_top, say, work_tree  # noqa: E402
+from tezgah_paths import ocr_bin, omp_bin, project_top, say, work_tree  # noqa: E402
 
 # Mirrors hooks/tezgah_gate.py::PLAN_TRUNKS: the gate reads these as unplanned
 # whatever a plan declares, so `start --branch` refuses them (plan 113). Not
@@ -591,6 +591,12 @@ def print_ocr_spec(where, base):
           "FINDINGS.json` over the merged findings (a JSON list of path, quote, "
           "start_line, end_line); an `unlocated` finding goes back to its "
           "reviewer" % (shlex.quote(where), base))
+    # V4, omp only: OCR's own loop on omp's model; candidates, never findings
+    if os.environ.get("OMPCODE") and omp_bin():
+        print("     - omp: `tezgah-ocr-review --repo %s --from %s --to HEAD "
+              "--output OCR.json` runs OCR's own review on omp's model; hand its "
+              "comments to the reviewers as candidates to confirm or refute, "
+              "never as findings" % (shlex.quote(where), base))
 
 
 def verification_steps(text, path):

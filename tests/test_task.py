@@ -2156,13 +2156,33 @@ class Cli(TempHome):
         os.chmod(path, 0o755)
         return path, log
 
-    def verify(self, ocr):
+    def verify(self, ocr, **extra):
         self.plan("001-first.md", allowed=["hooks/**"])
-        env = self.env(extra={"TEZGAH_OCR_BIN": ocr})
+        env = self.env(extra=dict({"TEZGAH_OCR_BIN": ocr}, **extra))
+        env.pop("OMPCODE", None)
+        env.update(extra)
         proc = support.run([CLI, "start", "001", "--phase", "verification"],
                            env=env, cwd=self.repo)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return proc.stdout
+
+    def test_the_omp_arm_is_named_only_in_an_omp_session_with_omp(self):
+        ocr, _ = self.stub(
+            "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+            % (OCR_PREVIEW, OCR_RULE))
+        omp = os.path.join(self.home, "omp")
+        with open(omp, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        os.chmod(omp, 0o755)
+        out = " ".join(self.verify(ocr, OMPCODE="1", TEZGAH_OMP_BIN=omp).split())
+        self.assertIn("tezgah-ocr-review --repo %s --from" % self.repo, out)
+        self.assertIn("candidates to confirm or refute, never as findings", out)
+        self.tearDown()
+        self.setUp()
+        ocr, _ = self.stub(
+            "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+            % (OCR_PREVIEW, OCR_RULE))
+        self.assertNotIn("tezgah-ocr-review", self.verify(ocr, TEZGAH_OMP_BIN=omp))
 
     def test_the_spec_names_files_exclusions_groups_refuter_and_quote_check(self):
         ocr, log = self.stub(
