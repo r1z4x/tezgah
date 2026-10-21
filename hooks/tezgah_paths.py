@@ -822,6 +822,16 @@ def orx_bin():
     return which_user(os.environ.get("TEZGAH_ORX_BIN") or ORX)
 
 
+def ocr_bin():
+    """The open-code-review `ocr` executable, or None when it is not installed.
+
+    TEZGAH_OCR_BIN points at a specific binary (tests, CI); otherwise the first
+    `ocr` on PATH wins, then a known per-user bin dir - the lookup `orx_bin()`
+    makes. Optional: without it the reviewer brief is today's (plan 125)."""
+    return which_user(os.environ.get("TEZGAH_OCR_BIN") or "ocr")
+
+
+
 def omp_bin():
     """The omp CLI, or None when it is not installed.
 

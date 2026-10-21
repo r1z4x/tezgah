@@ -127,6 +127,10 @@ def _probe_orx():
     return _tp("orx_bin")()
 
 
+def _probe_ocr():
+    return _tp("ocr_bin")()
+
+
 # The fetch-and-convert step of an embedding row, run by the installer as its
 # `cmd`, and the probe that answers whether the pinned file is in place.
 _EMBED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tezgah_embed.py")
@@ -209,6 +213,18 @@ REGISTRY = (
              "cmd": ["sh", "-c",
                      "curl -LsSf https://openresearch.sh/install.sh | sh"],
              "why": "research routing (OpenResearch)"}},
+    # Opt-in, not a server: open-code-review's deterministic review spec
+    # (`ocr delegate preview|rule`, no model call) for the reviewer brief, and
+    # on omp its own loop on omp's model (bin/tezgah-ocr-review). Plan 125.
+    {"id": "ocr",
+     "name": "ocr",
+     "why": "review spec: file selection and per-file rules (open-code-review)",
+     "command": None,
+     "env": None,
+     "default": False,
+     "dep": {"name": "ocr", "probe": _probe_ocr, "needs": ("npm",),
+             "cmd": ["npm", "install", "-g", "@alibaba-group/open-code-review"],
+             "why": "the review spec in the reviewer brief"}},
     # Opt-in, not servers: a static embedding model fused with BM25 for the
     # per-turn lessons and the docs fallback (hooks/tezgah_embed.py). Enabling
     # one fetches and converts its pinned file; the first selected one is used.

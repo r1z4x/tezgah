@@ -2790,6 +2790,7 @@ WINDOWS_DEPS = {
     "cursor-agent": (None, "the cursor-agent installer is Linux and macOS only"),
     "pnpm": ("npm", "npm install -g pnpm"),
     "dsh": ("npm", "npx -y @deepseek-ai/dsh plugin --profile web --version"),
+    "ocr": ("npm", "npm install -g @alibaba-group/open-code-review"),
 }
 
 
@@ -4390,6 +4391,8 @@ def report(hosts):
         ("codegen provider key (OpenRouter, DeepSeek or Inception)",
          tp.have_provider_key()),
         ("orx on PATH (OpenResearch research routing)", bool(tp.orx_bin())),
+        ("ocr on PATH (open-code-review spec for the reviewer, opt-in)",
+         bool(tp.ocr_bin())),
         ("npx on PATH (app-analysis MCP servers)", bool(shutil.which("npx"))),
         ("app artifacts dir %s" % tezgah_apps.ARTIFACTS,
          os.path.isdir(tezgah_apps.ARTIFACTS)),
