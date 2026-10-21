@@ -697,16 +697,29 @@ goes back to its reviewer. A placed finding gets `start_line` and `end_line`, an
 It ports OCR's comment positioning from `internal/diff/resolver.go`.
 
 `tezgah-ocr-review [--from REF --to REF | --commit SHA] [--model SELECTOR]
-[--output FILE] [--allow-secrets]` runs OCR's own review loop. It works on omp
-only: it starts one `omp auth-gateway stdio` child
-(`bin/tezgah-ocr-review::Gateway`), so OCR reviews on omp's model with omp's own
-credentials. A loopback HTTP shim forwards OCR's requests to that child. The tool
-writes no OCR provider config. The child gets no `OCR_*`, `ANTHROPIC_*` or
-`OPENAI_*` variable from the caller (`bin/tezgah-ocr-review::main`). A tracked
-path that looks like a secret stops the run with exit 3
-(`bin/tezgah-ocr-review::first_secret`). OCR's file reads could send that file to
-the model. `--allow-secrets` skips the check. The patterns are OCR's own
-(`bin/tezgah-ocr-review::SECRET_PATTERNS`). A missing `ocr` or `omp` exits 2.
+[--output FILE] [--allow-secrets]` runs OCR's own review loop on omp only. It
+starts one `omp auth-gateway stdio` child (`bin/tezgah-ocr-review::Gateway`).
+OCR then reviews on omp's model with omp's own credentials.
+
+- A loopback HTTP shim forwards OCR's requests to that child
+  (`bin/tezgah-ocr-review::handler`). It accepts `POST /v1/chat/completions` and
+  `GET /v1/models` only, with the per-run bearer token the tool hands OCR.
+  Another local process cannot spend omp's credentials during a run.
+- The tool writes no OCR provider config. OCR runs with a private, empty `HOME`.
+  A `~/.opencodereview/config.json` from standalone OCR use cannot redirect the
+  review.
+- Only the OCR process loses the caller's `OCR_*`, `ANTHROPIC_*` and `OPENAI_*`
+  variables (`bin/tezgah-ocr-review::run`). The omp child keeps the caller's
+  environment, because it needs omp's own credentials.
+- A path that looks like a secret stops the run with exit 3
+  (`bin/tezgah-ocr-review::first_secret`). In workspace mode the check covers
+  tracked, untracked and ignored files. In range or commit mode it covers the
+  tree of the reviewed ref. `--allow-secrets` skips the check. The patterns are
+  OCR's own (`bin/tezgah-ocr-review::SECRET_PATTERNS`).
+- A missing `ocr` or `omp` exits 2. A setup failure of the tool itself exits 4
+  with one line (`bin/tezgah-ocr-review::SetupError`). Three failures count:
+  no git repository, omp cannot start, the gateway never reports ready.
+
 Its findings are candidates for a tezgah-reviewer, never a verdict.
 
 `tezgah-setup` links both CLIs into `~/.config/tezgah/bin`
