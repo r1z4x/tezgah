@@ -2156,8 +2156,10 @@ class Cli(TempHome):
         os.chmod(path, 0o755)
         return path, log
 
-    def verify(self, ocr, **extra):
+    def verify(self, ocr, enabled=True, **extra):
         self.plan("001-first.md", allowed=["hooks/**"])
+        if enabled:
+            self.config({"features": ["ocr"]})
         env = self.env(extra=dict({"TEZGAH_OCR_BIN": ocr}, **extra))
         env.pop("OMPCODE", None)
         env.update(extra)
@@ -2165,6 +2167,23 @@ class Cli(TempHome):
                            env=env, cwd=self.repo)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return proc.stdout
+
+    def test_an_installed_ocr_with_the_feature_off_changes_nothing(self):
+        ocr, log = self.stub(
+            "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+            % (OCR_PREVIEW, OCR_RULE))
+        self.assertNotIn("OCR", self.verify(ocr, enabled=False))
+        self.assertFalse(os.path.exists(log))
+
+    def test_a_preview_row_with_no_string_path_is_dropped_not_fatal(self):
+        preview = dict(OCR_PREVIEW, reviewable_files=OCR_PREVIEW["reviewable_files"]
+                       + [{"status": "modified", "insertions": "x"}])
+        ocr, log = self.stub(
+            "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+            % (preview, OCR_RULE))
+        out = " ".join(self.verify(ocr).split())
+        self.assertIn("reviewable files (1): bin/tool", out)
+        self.assertEqual(json.loads(read(log).splitlines()[1])[0][-1], "bin/tool")
 
     def test_the_omp_arm_is_named_only_in_an_omp_session_with_omp(self):
         ocr, _ = self.stub(

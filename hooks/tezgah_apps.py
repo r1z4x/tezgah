@@ -223,7 +223,9 @@ REGISTRY = (
      "env": None,
      "default": False,
      "dep": {"name": "ocr", "probe": _probe_ocr, "needs": ("npm",),
-             "cmd": ["npm", "install", "-g", "@alibaba-group/open-code-review"],
+             # 1.13.2 is the release under 375f64c (the vendored prompts' commit);
+             # its prompts, delegate and rules are identical to 375f64c's
+             "cmd": ["npm", "install", "-g", "@alibaba-group/open-code-review@1.13.2"],
              "why": "the review spec in the reviewer brief"}},
     # Opt-in, not servers: a static embedding model fused with BM25 for the
     # per-turn lessons and the docs fallback (hooks/tezgah_embed.py). Enabling

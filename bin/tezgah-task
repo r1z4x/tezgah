@@ -139,7 +139,7 @@ import time
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(HERE, "hooks"))
 import tezgah_task as tt  # noqa: E402
-from tezgah_paths import ocr_bin, omp_bin, project_top, say, work_tree  # noqa: E402
+from tezgah_paths import config, ocr_bin, omp_bin, project_top, say, work_tree  # noqa: E402
 
 # Mirrors hooks/tezgah_gate.py::PLAN_TRUNKS: the gate reads these as unplanned
 # whatever a plan declares, so `start --branch` refuses them (plan 113). Not
@@ -507,10 +507,11 @@ def ocr_json(ocr, args):
 
 def ocr_spec(where, base):
     """OCR's deterministic review spec for `base..HEAD`: (preview, rule groups,
-    the rule command), the reason it is skipped, or None without `ocr` - the
-    step is then today's."""
+    the rule command), the reason it is skipped, or None without `ocr` or with
+    the `ocr` feature not enabled (`tezgah-setup --enable ocr`) - the step is
+    then today's."""
     ocr = ocr_bin()
-    if ocr is None:
+    if ocr is None or "ocr" not in (config().get("features") or []):
         return None
     if base == "<base>":
         return "no diff base to preview"
@@ -522,7 +523,11 @@ def ocr_spec(where, base):
     excluded = preview.get("excluded_files", [])
     if not isinstance(files, list) or not isinstance(excluded, list):
         return "`ocr delegate preview` JSON has no file lists"
-    paths = [f.get("path") for f in files if isinstance(f, dict)]
+    # a row with no string path is dropped here, so neither the rule argv nor
+    # the printed list can meet a None
+    files = [f for f in files if isinstance(f, dict) and isinstance(f.get("path"), str)]
+    preview["reviewable_files"] = files
+    paths = [f["path"] for f in files]
     groups = []
     rule_cmd = [ocr, "delegate", "rule", "--format", "json", "--repo", where] + paths
     if paths:
@@ -560,8 +565,9 @@ def print_ocr_spec(where, base):
         # OCR's own bundling below its LLM-grouping threshold (task_template.json
         # GROUPING_MIN_FILES 4, GROUPING_BUNDLE_LINE_THRESHOLD 200): fewer than 4
         # files are one bundle under 200 changed lines, else one file each.
-        churn = sum((f.get("insertions") or 0) + (f.get("deletions") or 0)
-                    for f in preview["reviewable_files"] if isinstance(f, dict))
+        churn = sum(n for f in preview["reviewable_files"]
+                    for n in (f.get("insertions"), f.get("deletions"))
+                    if isinstance(n, int) and not isinstance(n, bool))
         if len(paths) < 4 and churn < 200:
             who = ("one tezgah-reviewer for the whole small change set (%d files, "
                    "%d changed lines), its brief carrying every group's rule text"
