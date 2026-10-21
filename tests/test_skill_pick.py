@@ -91,7 +91,11 @@ class SkillPick(unittest.TestCase):
                       # the real cache dir would keep this case's answers between runs
                       mock.patch.object(tp, "CACHE",
                                         os.path.join(self.home, ".cache", "tezgah")),
-                      mock.patch.object(tp, "OFF_DIRS", (self.config_dir,))):
+                      mock.patch.object(tp, "OFF_DIRS", (self.config_dir,)),
+                      # bound at import from the real HOME: this machine's
+                      # `jev`/`fallback` keys emptied the judge's provider list
+                      mock.patch.object(tp, "CONFIG",
+                                        os.path.join(self.config_dir, "config.json"))):
             patch.start()
             self.addCleanup(patch.stop)
         os.environ.pop("TYPESAFE_API_KEY", None)
