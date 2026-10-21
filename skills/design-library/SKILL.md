@@ -1,14 +1,19 @@
 ---
 name: design-library
 description: >
-  The vendored MC Dean design/UX library - cognitive accessibility, adaptive
-  interfaces, visual-critique vocabulary and behavioural analytics - read one
-  entry at a time from its own index. Use when a UI or product turn needs a
-  cognitive-load, inclusive-interaction or visual-critique method tezgah has no
-  counterpart for.
+  Use when a UI needs a cognitive-load or visual-critique method; bilişsel yük,
+  görsel hiyerarşi, erişilebilirlik. Not for tokens - use `design-contract`.
 ---
 
 # design-library
+
+## When to use
+
+The vendored MC Dean design/UX library - cognitive accessibility, adaptive
+interfaces, visual-critique vocabulary and behavioural analytics - read one
+entry at a time from its own index. Use when a UI or product turn needs a
+cognitive-load, inclusive-interaction or visual-critique method tezgah has no
+counterpart for.
 
 Thirty-nine `SKILL.md` from two Owl-Listener repositories, vendored into this
 repository at pinned revisions (both MIT, `9a6930c` and `6e0740f`) and kept at

@@ -1,23 +1,27 @@
 ---
 name: product-analysis
 description: >
-  Runs a product analysis across five axes - value (HEART's Goals to Signals to
-  Metrics, opportunities before features), usability (Nielsen's heuristics with
-  their severity scale, the cognitive walkthrough, WCAG 2.2 AA, axe-core, and the
-  running app read through analyze-app down to component x state, tree and rendered
-  image both),
-  feasibility (a cited code path, documented intent against the code that enforces
-  it), competition (a teardown with a stated comparison basis, review mining), and
-  triage (keep, fix, cut or bet, with kill criteria) - where every finding names
-  one evidence class. Use when a task is to analyse or improve a product: product
-  analysis, UX audit, competitor teardown, which feature next, retention, churn,
-  funnel, pricing, a PRD or a roadmap and backlog review, or a
-  "should this feature exist" ask. Code discovery belongs to the code graph and ML
-  experiments to the research skill; this one owns the product question. Not for
-  one feature across its layers - use `feature-audit`.
+  Use when doing product analysis: ürün analizi, rakip, UX audit, competitor,
+  retention, which feature next. Not for one feature - use `feature-audit`.
 ---
 
 # product-analysis
+
+## When to use
+
+Runs a product analysis across five axes - value (HEART's Goals to Signals to
+Metrics, opportunities before features), usability (Nielsen's heuristics with
+their severity scale, the cognitive walkthrough, WCAG 2.2 AA, axe-core, and the
+running app read through analyze-app down to component x state, tree and
+rendered image both), feasibility (a cited code path, documented intent against
+the code that enforces it), competition (a teardown with a stated comparison
+basis, review mining), and triage (keep, fix, cut or bet, with kill criteria) -
+where every finding names one evidence class. Use when a task is to analyse or
+improve a product: product analysis, UX audit, competitor teardown, which
+feature next, retention, churn, funnel, pricing, a PRD or a roadmap and backlog
+review, or a "should this feature exist" ask. Code discovery belongs to the code
+graph and ML experiments to the research skill; this one owns the product
+question. Not for one feature across its layers - use `feature-audit`.
 
 A product question is answered from priors unless something forces it to be
 concrete. This skill is that forcing function: five axes, one evidence class per
@@ -152,7 +156,7 @@ The state matrix is mandatory for every interactive component and every data vie
 A state that does not exist is a finding, and a missing empty, loading or error
 state is usually a bigger one than a state that merely looks wrong.
 
-The per-component read is `tezgah-triage --states FILE --component <ref>` over the
+The per-component read is `~/.config/tezgah/bin/tezgah-triage --states FILE --component <ref>` over the
 snapshot `analyze-app` took: one judgement per state over that component's lines.
 A static snapshot shows only the current state - never hover, and only the data
 state the route happens to be in - so `--states` answers what the tree shows now,
@@ -262,8 +266,8 @@ ones the product's stage justifies, and say which were skipped.
 
 ## The artifact
 
-Run it as a research line, not a monologue: `tezgah-research init <slug>
---question "..."` under the repository's `.tezgah/research/`, then `check` before
+Run it as a research line, not a monologue: `~/.config/tezgah/bin/tezgah-research init <slug>
+--ask "<the user's words>" [--question "..."]` under the repository's `.tezgah/research/`, then `check` before
 reporting. Declare the line's `deliverable` in `state.json` as `{"kind":
 "analysis", "path": "<where the analysis lands>", "ask": [<the ask's items>]}`, so
 `check` holds it to answering every ask item. An analysis answers its question
@@ -277,7 +281,7 @@ between goes under `decisions/` with at least three variants. On top of what
    solutions, they are recorded as `decisions/<id>/` (the research skill's
    "Variants"): at least three produced solutions plus the status quo as V0, the
    criterion set committed in `criteria.json` before any solution is scored, every
-   cell appended with `tezgah-research compare` (a judged cell with two raters), and
+   cell appended with `~/.config/tezgah/bin/tezgah-research compare` (a judged cell with two raters), and
    `decision.md` naming the chosen solution, what ruled out each other one and the
    `flip:`. Otherwise the analysis names the recommended one and why.
 4. Risks by class - value, usability, viability, feasibility - each with the

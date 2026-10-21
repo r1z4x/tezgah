@@ -1,12 +1,12 @@
-Run `tezgah-pony $ARGUMENTS` and report the one line it prints.
+Run `~/.config/tezgah/bin/tezgah-pony $ARGUMENTS` and report the one line it prints.
 
 The installed CLI is the source of truth for the level, and it owns the state
 file (`~/.config/tezgah/ponytail.level`) - never edit that file by hand, and do
-not argue for a level: the user's argument is the decision. Resolve the command
-first, because this machine may not have tezgah's bin dir on PATH:
+not argue for a level: the user's argument is the decision. Run the installed path,
+because this machine may not have tezgah's bin dir on PATH:
 
 ```sh
-pony=$(command -v tezgah-pony || echo "$HOME/.config/tezgah/bin/tezgah-pony")
+pony="$HOME/.config/tezgah/bin/tezgah-pony"
 "$pony" $ARGUMENTS
 ```
 

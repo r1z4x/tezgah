@@ -1,17 +1,24 @@
 ---
 name: plan-add
 description: >
-  Creates a new plan file under <git root>/.tezgah/plans/open/ from free text, bootstraps
-  the .tezgah/plans/ layer (README + open/ + done/) if missing, refreshes the README status
-  table, and commits it as `plan: add NNN slug` in the private .tezgah repository. Use when a piece of work
-  spans sessions or waits on something and the user says "/tezgah:plan-add <text>",
-  "add a plan", "track this as a plan", or "make a plan for ...". Do NOT use for
-  small self-contained edits that fit in one session. Not for reading which plans
-  are open - use `plan-status`.
+  Use when work spans sessions: track this as a plan, add a plan,
+  /tezgah:plan-add; plan oluştur, birkaç oturum. Not for open plans - use
+  `plan-status`.
 argument-hint: "<one-line description of the work>"
 ---
 
 # plan-add
+
+## When to use
+
+Creates a new plan file under <git root>/.tezgah/plans/open/ from free text,
+bootstraps the .tezgah/plans/ layer (README + open/ + done/) if missing,
+refreshes the README status table, and commits it as `plan: add NNN slug` in the
+private .tezgah repository. Use when a piece of work spans sessions or waits on
+something and the user says "/tezgah:plan-add <text>", "add a plan", "track this
+as a plan", or "make a plan for ...". Do NOT use for small self-contained edits
+that fit in one session. Not for reading which plans are open - use
+`plan-status`.
 
 Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
 
@@ -41,7 +48,7 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    word `unverifiable` and why, since *when possible* is the loophole
    (`~/.config/tezgah/bin/tezgah-render-table --acceptance` reports the items that
    name no command). An item that names no command keeps the plan out of a
-   writing phase (`tezgah-task` refuses it, through the predicate `--strict`
+   writing phase (`~/.config/tezgah/bin/tezgah-task` refuses it, through the predicate `--strict`
    refuses on), so this is the plan's own check, not a report read later. State:
    `not started` plus the findings from
    step 4. Next: the first concrete action - when the plan holds two or more
@@ -49,14 +56,14 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    worktree and a subset of `allowed_paths:`, spawned in one message. Dates: `date +%F`. `allowed_paths:`:
    the globs the work will write, from the files step 4 found (`apps/admin/**`,
    `packages/ui/src/**`), narrow enough that a write outside them is a surprise
-   - the plan names its own scope, and `tezgah-task start` without `--allow`
+   - the plan names its own scope, and `~/.config/tezgah/bin/tezgah-task start` without `--allow`
    holds the task to it. A plan that has to spike an assumption first (does the
    approach work at all?) writes the four `spike:` keys below: `implementation`
    is refused while `spike_recorded:` names no answer, so the answer is recorded
    before the build rather than after it. `after:`: the ids of the open plans
    this one cannot start before (`after: 012, 015`), only when step 4 found a
    real dependency - a plan with none can run beside the others, and
-   `tezgah-task status` names which ready plans share no `allowed_paths:` prefix.
+   `~/.config/tezgah/bin/tezgah-task status` names which ready plans share no `allowed_paths:` prefix.
 6. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). A new plan has no PR
    state to enrich, so no `--pr-info` here; that enrichment belongs to plan-status.
@@ -69,7 +76,7 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    no "Generated with" / "Made with", no robot emoji, no Claude/Anthropic/OpenAI/
    GPT/Codex/Gemini/Cursor/Copilot credit.
 8. Report the file path and the table row.
-9. Start it yourself with `tezgah-task` - the lifecycle is the session's, never
+9. Start it yourself with `~/.config/tezgah/bin/tezgah-task` - the lifecycle is the session's, never
    a command handed to the user:
    `~/.config/tezgah/bin/tezgah-task start NNN --phase discovery` writes `phase:`
    into this file and clears the phase from every other open plan. To run two
@@ -91,22 +98,22 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    `checkpoint:` - the commit the work returns to - and uncommitted work has none
    to record. Make the checkpoint commit it prints, then run the phase move
    again and the sha is written. Move the phase yourself as the work reaches it
-   (`tezgah-task phase implementation`, then `verification`); when a write is
+   (`~/.config/tezgah/bin/tezgah-task phase implementation`, then `verification`); when a write is
    refused for its path and the plan's work genuinely reaches that file, widen
-   the scope with `tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
+   the scope with `~/.config/tezgah/bin/tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
    the gate refuses a write to it, because the CLI's checks would be skipped.
-   Tick an Acceptance box with `tezgah-task tick NNN <n>` (`--undo` unticks),
-   rewrite State or Next with `tezgah-task note NNN state|next "<text>"`,
-   record the spike's answer with `tezgah-task spike NNN "<answer>"`, which
+   Tick an Acceptance box with `~/.config/tezgah/bin/tezgah-task tick NNN <n>` (`--undo` unticks),
+   rewrite State or Next with `~/.config/tezgah/bin/tezgah-task note NNN state|next "<text>"`,
+   record the spike's answer with `~/.config/tezgah/bin/tezgah-task spike NNN "<answer>"`, which
    writes `spike_recorded:` on the plan, active or not, and annotate an item the
-   owner accepted as not met with `tezgah-task unmet NNN <n> "<reason, who
+   owner accepted as not met with `~/.config/tezgah/bin/tezgah-task unmet NNN <n> "<reason, who
    accepted it>"`, which writes `UNMET:` and is the form `close done` takes in
    place of a tick. These four work from the main checkout or from any of its
    worktrees.
-   After the merge, `tezgah-task close NNN done` deactivates the plan,
+   After the merge, `~/.config/tezgah/bin/tezgah-task close NNN done` deactivates the plan,
    moves it to done and removes every merged worktree. It refuses while an
    Acceptance box is open: tick it, or, only when the owner accepted the item
-   as not met, end it with `tezgah-task unmet NNN <n> "<reason, who accepted
+   as not met, end it with `~/.config/tezgah/bin/tezgah-task unmet NNN <n> "<reason, who accepted
    it>"`, which writes the `UNMET:` line and leaves the box open.
 
 10. If the work settles a decision that is hard to reverse, spans components, or
@@ -147,27 +154,27 @@ after:
 ```
 
 `allowed_paths:` is written here, at creation (step 5): the scope the task's
-writes have to stay inside, one glob per `- ` line. `tezgah-task` adds the rest:
+writes have to stay inside, one glob per `- ` line. `~/.config/tezgah/bin/tezgah-task` adds the rest:
 `phase:` - `discovery`, `implementation` or `verification`, on one open plan, or
 on one plan per worktree when their scopes share no prefix (step 9) - is the
 activation key the gate reads, set when the session starts
 the task itself (step 9); `allowed_from:` records where a scope the CLI replaced came from.
-`tezgah-task phase verification` lists what the plan owes before it is done: its
+`~/.config/tezgah/bin/tezgah-task phase verification` lists what the plan owes before it is done: its
 acceptance commands run unpiped, and a fresh reviewer (the host's
 `tezgah-reviewer` subagent) reading the diff, whose verdict
-`tezgah-task review NNN <reviewer> approve|changes` records as `review:`.
-`tezgah-task close NNN done` (plan-sync) refuses without an `approve`, and on an
+`~/.config/tezgah/bin/tezgah-task review NNN <reviewer> approve|changes` records as `review:`.
+`~/.config/tezgah/bin/tezgah-task close NNN done` (plan-sync) refuses without an `approve`, and on an
 unticked Acceptance item with no `UNMET: <reason>`; `discarded` needs neither.
 
 `after:` names the plans that must be done before this one starts - a `- NNN`
-block or `after: 012, 015`. `tezgah-task status` reads it: each open plan's
+block or `after: 012, 015`. `~/.config/tezgah/bin/tezgah-task status` reads it: each open plan's
 Acceptance boxes ticked (`acceptance 3/8 checked`), what it still waits on
 (`waits on 012 (open)`), and a `parallel:` line naming the ready plans whose
 `allowed_paths:` share no prefix, which can run at once in separate worktrees.
 An `after:` id no plan carries, or an open plan whose `status:` is not open or
 blocked, is a `FAIL` line there.
 
-`checkpoint:` is written by `tezgah-task` when the phase moves to
+`checkpoint:` is written by `~/.config/tezgah/bin/tezgah-task` when the phase moves to
 `implementation`: the sha of the commit the work returns to, or `pending` while
 the tree still holds work no commit names - and while it reads `pending` the gate
 refuses that phase's writes until the tree is committed, because one state to
@@ -177,7 +184,7 @@ return to is what a large refactor has instead of 200 per-file snapshots
 The four `spike:` keys are optional and go together, on a plan that must answer
 one question before it can be built: `spike:` is that question, `spike_box:` the
 time box (minutes, or one focused session), `spike_recorded:` where the answer
-is recorded (`tezgah-task spike NNN "<answer>"` writes it) - empty until it is,
+is recorded (`~/.config/tezgah/bin/tezgah-task spike NNN "<answer>"` writes it) - empty until it is,
 which is what refuses `implementation` - and
 `spike_throwaway:` whether the code is thrown away once it has answered. Nothing
 enforces the throwaway half, because `allowed_paths:` already does: a spike pins
