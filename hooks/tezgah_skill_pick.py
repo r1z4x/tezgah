@@ -105,14 +105,9 @@ def slug(text):
     return re.sub(r"[^A-Za-z0-9]+", "-", str(text)).strip("-")
 
 
-def clause(path):
-    """What the skill is for, in one line: the description sentence carrying the
-    trigger, or the opening one.
-
-    The `Use when ...` sentence wins for the same reason the router line in
-    bin/tezgah-setup takes it over the opening one: a description whose first
-    sentence is a preface otherwise reaches the judge stripped of every word a
-    request matches on. Capped the way that router line is capped."""
+def description(path):
+    """The frontmatter `description` of one SKILL.md, whitespace collapsed, or
+    "" for a file without one."""
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
             text = fh.read(4000)
@@ -127,8 +122,18 @@ def clause(path):
     else:
         inline = _INLINE.search(block.group(1))
         desc = inline.group(1).strip().strip("\"'") if inline else ""
-    desc = re.sub(r"\s+", " ", desc).strip()
-    sentences = re.split(r"(?<=[.!?])\s+", desc)
+    return re.sub(r"\s+", " ", desc).strip()
+
+
+def clause(path):
+    """What the skill is for, in one line: the description sentence carrying the
+    trigger, or the opening one.
+
+    The `Use when ...` sentence wins for the same reason the router line in
+    bin/tezgah-setup takes it over the opening one: a description whose first
+    sentence is a preface otherwise reaches the judge stripped of every word a
+    request matches on. Capped the way that router line is capped."""
+    sentences = re.split(r"(?<=[.!?])\s+", description(path))
     line = next((s for s in sentences if re.match(r"(?:Also )?[Uu]se\b", s)),
                 sentences[0] if sentences else "")
     return line[:CLAUSE_CAP - 3].rstrip() + "..." if len(line) > CLAUSE_CAP else line
@@ -317,7 +322,57 @@ def _omp_custom_dirs(config):
     return roots
 
 
-def skill_roots(extra=()):
+# A project's own skill directories, under its git top: Claude's, the shared
+# `.agents` one Codex and Cursor read, and a plain `skills/` (this repository's
+# own shape).
+PROJECT_SKILL_DIRS = (os.path.join(".claude", "skills"),
+                      os.path.join(".agents", "skills"), "skills")
+
+
+def project_roots(cwd=None):
+    """The skill directories the project holding `cwd` ships, [] outside a
+    git checkout. The nearest `.git` entry (a directory or a worktree's
+    pointer file) marks the project's top; tezgah's own checkout's `skills/`
+    is the plugin's root already, not a project's."""
+    cur = os.path.realpath(cwd or os.getcwd())
+    while not os.path.lexists(os.path.join(cur, ".git")):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return []
+        cur = parent
+    plugin = os.path.realpath(os.path.join(tp.PLUGIN_ROOT, "skills"))
+    return [p for p in (os.path.join(cur, d) for d in PROJECT_SKILL_DIRS)
+            if os.path.isdir(p) and os.path.realpath(p) != plugin]
+
+
+def _host_roots():
+    """The hosts' machine-wide skill directories: omp's user directory and its
+    custom directories, then Claude's, the shared `.agents`, Codex's and
+    opencode's - where the marketing and cyber corpora live."""
+    home = os.path.expanduser("~")
+    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
+    return ([os.path.join(home, ".omp", "agent", "skills")]
+            + _omp_custom_dirs(os.path.join(home, ".omp", "agent", "config.yml"))
+            + [os.path.join(home, ".claude", "skills"),
+               os.path.join(home, ".agents", "skills"),
+               os.path.join(os.environ.get("CODEX_HOME")
+                            or os.path.join(home, ".codex"), "skills"),
+               os.path.join(xdg, "opencode", "skills")])
+
+
+def _second_tier(cwd=None):
+    """Realpaths of the roots that rank after the others: the hosts' global
+    directories, unless one of them is tezgah's own skills or the project's.
+    S1 counted 16 of 54 live hints pointing at cyber skills and S2 3 of 7 at
+    marketing ones, in product repositories, while tezgah's and the project's
+    skills went unnamed. Every other root - tezgah's, the project's, one a
+    caller adds (`tezgah-skill --root`) - ranks first."""
+    first = {os.path.realpath(p) for p in
+             [os.path.join(tp.PLUGIN_ROOT, "skills")] + project_roots(cwd)}
+    return {os.path.realpath(p) for p in _host_roots()} - first
+
+
+def skill_roots(extra=(), cwd=None):
     """Every installed-skill root on this machine, highest-precedence first.
 
     The order mirrors omp's provider priority (the plugin's own skills, omp's
@@ -325,18 +380,10 @@ def skill_roots(extra=()):
     only matters for a name that differs between roots: the first one keeps
     the bare `skill://<name>` address omp resolves. Identical copies (every
     host links the same plugin skills) collapse on realpath, so the order
-    costs nothing on this machine."""
-    home = os.path.expanduser("~")
-    xdg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
-    roots = ([os.path.join(tp.PLUGIN_ROOT, "skills"),
-              os.path.join(home, ".omp", "agent", "skills")]
-             + _omp_custom_dirs(os.path.join(home, ".omp", "agent", "config.yml"))
-             + [os.path.join(home, ".claude", "skills"),
-                os.path.join(home, ".agents", "skills"),
-                os.path.join(os.environ.get("CODEX_HOME")
-                             or os.path.join(home, ".codex"), "skills"),
-                os.path.join(xdg, "opencode", "skills")]
-             + list(extra))
+    costs nothing on this machine. The project's own directories
+    (`project_roots`) follow the plugin's."""
+    roots = ([os.path.join(tp.PLUGIN_ROOT, "skills")] + project_roots(cwd)
+             + _host_roots() + list(extra))
     seen, out = set(), []
     for root in roots:
         real = os.path.realpath(root)
@@ -377,16 +424,30 @@ def _entries(root, name):
     return out
 
 
-def _rows(roots=None):
-    """[(skill, path, title, start, end, text)] over every installed skill's
-    sections, and the entries a skill's INDEX.md routes to, deduplicated on the
-    file's realpath so a skill five hosts link is one entry, not five."""
+# A skill states its triggers in its frontmatter description, the one text the
+# headings below it never repeat, so the description rides the skill's first
+# section, counted this many times (heading weight, `_toktext`). Measured on the
+# 18 English S3 owner prompts (plan 126): 0 -> 2 moved top-1 10 -> 16. That
+# entry section ranks on the description and its own intro only, not on the
+# subsections its range spans: whole, a long skill's title section carried most
+# words of any long prompt, and on 1331 real owner prompts the hint fired 342
+# times, 158 on tezgah-contract and 82 on feature-audit's title; intro-only, 133.
+DESC_WEIGHT = 2
+
+
+def _rows(roots=None, cwd=None):
+    """[(skill, path, title, start, end, text, tier)] over every installed
+    skill's sections, and the entries a skill's INDEX.md routes to,
+    deduplicated on the file's realpath so a skill five hosts link is one
+    entry, not five. `tier` is 1 for a root `_second_tier` names, else 0."""
     out, seen = [], set()
-    for root in (skill_roots() if roots is None else roots):
+    second = _second_tier(cwd)
+    for root in (skill_roots(cwd=cwd) if roots is None else roots):
         try:
             names = sorted(os.listdir(root))
         except OSError:
             continue
+        tier = 1 if os.path.realpath(root) in second else 0
         for name in names:
             for skill, raw in _entries(root, name):
                 path = os.path.realpath(raw)
@@ -400,11 +461,19 @@ def _rows(roots=None):
                     # entry as a whole still carries its topic's words.
                     secs = [(secs[0][0], secs[0][1], secs[-1][2],
                              "\n".join(s[3] for s in secs))]
+                elif len(secs) > 1 and secs[1][1] <= secs[0][2]:
+                    title, start, end, text = secs[0]
+                    secs[0] = (title, start, end, "\n".join(
+                        text.splitlines()[:secs[1][1] - start]))
+                desc = description(path)
                 for title, start, end, text in secs:
                     if (path, start) in seen:
                         continue
                     seen.add((path, start))
-                    out.append((skill, path, title, start, end, text))
+                    if desc:
+                        text = "%s\n%s" % ("\n".join([desc] * DESC_WEIGHT), text)
+                        desc = ""
+                    out.append((skill, path, title, start, end, text, tier))
     return out
 
 
@@ -414,18 +483,63 @@ def index(roots=None):
     return [row[:5] for row in _rows(roots)]
 
 
-def search(query, k=5, roots=None):
+# Turkish asks met English-indexed skills on no word (TR hint 0/18, S3 2.3):
+# a Turkish word carries its case and possessive in suffixes ("tasarımını" is
+# "tasarım" + 2), and a prompt is often typed without ç/ş/ü. So every term folds
+# to ASCII on both sides, and a word longer than STEM letters also indexes its
+# STEM-letter prefix: truncation at 5 letters retrieved Turkish about as well
+# as a lemmatizer-based stemmer (Can et al., JASIST 2008, doi:10.1002/asi.20750).
+# The full word stays a term too, so an exact match outscores a prefix-only one.
+# On the S3/S2 sets with Turkish triggers in the descriptions, 4, 5 and 6 were
+# within 1-3 prompts of each other; 6 lost both short Turkish S2 hints and 4
+# one English S3 hint.
+_ASCII = str.maketrans("çğöşü", "cgosu")
+STEM = 5
+
+
+def _forms(word):
+    word = word.translate(_ASCII)
+    return (word,) if len(word) <= STEM else (word, word[:STEM])
+
+
+def terms(text):
+    """The index terms of `text`: tezgah_rank's words, ASCII-folded, each with
+    its STEM-letter prefix."""
+    return [t for w in tezgah_rank.words(text) for t in _forms(w)]
+
+
+_STOP = frozenset(w.translate(_ASCII) for w in tezgah_rank.STOPWORDS)
+# A link is an address, not a topic: `https github com` matched a product
+# section on 4 bare repository URLs among the owner's real prompts.
+_URL = re.compile(r"\S+://\S+")
+
+
+def _prompt_words(prompt):
+    """{word: its terms} for the prompt's distinct content words, links out:
+    the unit the coverage bar counts, so a word's full form and prefix count
+    once."""
+    return {w: _forms(w) for w in
+            (x.translate(_ASCII) for x in tezgah_rank.words(_URL.sub(" ", prompt)))
+            if w not in _STOP}
+
+
+def search(query, k=5, roots=None, cwd=None):
     """The `k` sections that answer `query`, best first, as
     [(skill, path, title, start, end)]. BM25 over heading (weighted x3) plus
     body via tezgah_rank - the same ranking the per-turn lessons block uses,
     because this is the same problem one level down: which of many short texts
-    a turn's topic is about. A query no section shares a term with returns []."""
-    rows = _rows(roots)
-    # the heading twice more than the body: a section whose TITLE answers the
-    # query outranks one that merely mentions the words in passing
-    ranked = tezgah_rank.rank(query, ["%s\n%s\n%s" % (row[2], row[2], row[5])
-                                      for row in rows], k)
-    return [rows[i][:5] for i in ranked]
+    a turn's topic is about. The first tier (tezgah's and the project's skills)
+    is ranked and listed before the other roots, each tier on its own corpus.
+    A query no section shares a term with returns []."""
+    rows = _rows(roots, cwd)
+    out = []
+    for tier in (0, 1):
+        if len(out) >= k:
+            break
+        ids = [i for i, row in enumerate(rows) if row[6] == tier]
+        out += [ids[j] for j in tezgah_rank.rank(
+            query, [_toktext(rows[i]) for i in ids], k, tokens=terms)]
+    return [rows[i][:5] for i in out[:k]]
 
 
 def skill_path(skill, roots=None):
@@ -454,8 +568,7 @@ def section_of(skill, prompt, roots=None):
         return None
     own = [row for row in _rows([os.path.dirname(os.path.dirname(path))])
            if row[0] == skill]
-    ranked = tezgah_rank.rank(prompt, ["%s\n%s\n%s" % (r[2], r[2], r[5])
-                                       for r in own], 1)
+    ranked = tezgah_rank.rank(prompt, [_toktext(r) for r in own], 1, tokens=terms)
     if not ranked:
         return None
     title, start, end = own[ranked[0]][2:5]
@@ -463,22 +576,35 @@ def section_of(skill, prompt, roots=None):
 
 # ---- the default-on local hint: the same index, cached, no model ----------
 
-# The coverage bar: of the prompt's distinct terms (function words out) that
-# the corpus knows at all, the top section must carry HINT_COVER of them and
-# at least HINT_MIN_TERMS. Coverage, not an absolute BM25 score, because
+# The coverage bar: of the prompt's distinct content words (function words out)
+# that the tier's corpus knows at all, the top section must carry HINT_COVER of
+# them and at least HINT_MIN_TERMS. A word counts once whether its full form or
+# its prefix (`terms`) matched. Coverage, not an absolute BM25 score, because
 # scores scale with corpus size and idf spread - a bar that reads well on the
 # live corpus fires on nothing in a small one and vice versa, while "did the
 # section carry the topic's words" transfers. A word no skill contains (a file
 # name, a typo, the project's own jargon) says nothing about which section
-# fits, so it counts neither for the bar nor against it. Three terms, not two:
+# fits, so it counts neither for the bar nor against it. Three words, not two:
 # on this machine's corpus a two-word overlap put "why is the build failing on
 # CI" on an output-style section, while every topic prompt tried carried 3-8.
+# Re-measured for plan 126 (S3 + S2 sets, 76 prompts): 2 words added 4 hints
+# on the English S2 design/product set, 2 of them right, and sent one Turkish
+# S2 prompt into a foreign skill; a 0.67 cover lost 6 of 14 right S3 English hints.
 HINT_COVER = 0.6
 HINT_MIN_TERMS = 3
 # Only the head of a pasted prompt is ranked: the topic is in its first lines,
 # and a log pasted below it must not cost the turn its time budget.
 HINT_PROMPT_MAX = 600
 INDEX_CACHE = "skill-search.sqlite"
+# Bumped whenever the terms or the row text change: an index written by an
+# older build keeps its stat signature and would otherwise be read as current.
+INDEX_VERSION = 2
+# Searched, never hinted: the long form of the contract every session already
+# carries (the always-on core and its armed paragraphs). Replayed over 1331 real
+# owner prompts with the entry-section fix above, it still took 76 of 123 hints,
+# 51 of them its reporting section on Turkish asks that say "onay" or "yap";
+# S1 counted 25 of 54 live hints there.
+HINT_SKIP = frozenset({"tezgah-contract"})
 
 
 def _toktext(row):
@@ -489,12 +615,12 @@ def _toktext(row):
 
 def _postings(rows):
     """({term: [(section, count), ...]}, [section length]): the inverted index
-    `rank_postings` scores from. Tokenised with the ranker's own `words`, so
-    the index holds exactly the terms it would see."""
+    `rank_postings` scores from. Tokenised with `terms`, the tokens `search`
+    ranks on, so the index holds exactly the terms it would see."""
     posts, lengths = {}, []
     for i, row in enumerate(rows):
         counts = {}
-        for term in tezgah_rank.words(_toktext(row)):
+        for term in terms(_toktext(row)):
             counts[term] = counts.get(term, 0) + 1
         lengths.append(sum(counts.values()))
         for term, n in counts.items():
@@ -502,22 +628,25 @@ def _postings(rows):
     return posts, lengths
 
 
-def rank_postings(query, posts, lengths, k):
-    """`tezgah_rank.rank`'s ordering over postings, no max_df cap. `posts` may
-    hold only the query's own terms - nothing else is read.
+def rank_postings(query, posts, lengths, k, ids=None):
+    """`tezgah_rank.rank`'s ordering over postings, no max_df cap, over the
+    sections `ids` (every section when None) as a corpus of their own. `posts`
+    may hold only the query's own terms - nothing else is read.
 
     The arithmetic is the ranker's own (K1, B, its idf), read from the module
     so a retuned constant moves both paths at once; `PostingsIndex` pins the
     two orderings equal rather than trusting the copy."""
-    terms = set(tezgah_rank.words(query))
-    if not posts or not terms or not lengths:
+    wanted = set(terms(query))
+    keep = None if ids is None else set(ids)
+    n = len(lengths) if keep is None else len(keep)
+    if not posts or not wanted or not n:
         return []
-    n = len(lengths)
-    avg = sum(lengths) / n or 1.0
+    avg = (sum(lengths) if keep is None
+           else sum(lengths[i] for i in keep)) / n or 1.0
     k1, b = tezgah_rank.K1, tezgah_rank.B
     scores = {}
-    for t in terms:
-        entries = posts.get(t)
+    for t in wanted:
+        entries = [e for e in posts.get(t, ()) if keep is None or e[0] in keep]
         if not entries:
             continue
         idf = math.log(1 + (n - len(entries) + 0.5) / (len(entries) + 0.5))
@@ -528,13 +657,13 @@ def rank_postings(query, posts, lengths, k):
     return [i for _s, i in ranked[:k]]
 
 
-def _signature():
+def _signature(cwd=None):
     """[[root, skill, mtime_ns, size]] per installed SKILL.md and per entry an
     INDEX.md routes to: what a rebuild keys on. The file's own stat, not its
     directory's - installing, editing or removing one skill is exactly the
     change the cache must notice."""
     sig = []
-    for root in skill_roots():
+    for root in skill_roots(cwd=cwd):
         try:
             names = sorted(os.listdir(root))
         except OSError:
@@ -561,12 +690,12 @@ def _build(path, sig, rows):
         con.executescript(
             "CREATE TABLE meta(sig TEXT);"
             "CREATE TABLE sec(id INTEGER PRIMARY KEY, skill TEXT, path TEXT,"
-            " title TEXT, start INTEGER, end INTEGER, len INTEGER);"
+            " title TEXT, start INTEGER, end INTEGER, len INTEGER, tier INTEGER);"
             "CREATE TABLE post(term TEXT, sec INTEGER, n INTEGER,"
             " PRIMARY KEY(term, sec)) WITHOUT ROWID;")
         con.execute("INSERT INTO meta VALUES (?)", (sig,))
-        con.executemany("INSERT INTO sec VALUES (?,?,?,?,?,?,?)",
-                        [(i,) + tuple(r[:5]) + (lengths[i],)
+        con.executemany("INSERT INTO sec VALUES (?,?,?,?,?,?,?,?)",
+                        [(i,) + tuple(r[:5]) + (lengths[i], r[6])
                          for i, r in enumerate(rows)])
         con.executemany("INSERT INTO post VALUES (?,?,?)",
                         ((t, i, n) for t, entries in posts.items()
@@ -577,11 +706,17 @@ def _build(path, sig, rows):
     os.replace(tmp, path)
 
 
-def _open_index():
+def _open_index(cwd=None):
     """A read-only connection to the machine's cached index, rebuilt first when
-    any SKILL.md's stat moved since it was written; None when none can be had."""
-    path = os.path.join(tp.cache_dir(), INDEX_CACHE)
-    sig = json.dumps(_signature())
+    any SKILL.md's stat moved since it was written, or it was written by an
+    older INDEX_VERSION; None when none can be had. A project that ships its
+    own skills gets its own file, so two sessions in two such projects do not
+    rebuild each other's index on every turn."""
+    own = project_roots(cwd)
+    name = INDEX_CACHE if not own else "skill-search-%s.sqlite" % hashlib.sha1(
+        "\n".join(own).encode()).hexdigest()[:12]
+    path = os.path.join(tp.cache_dir(), name)
+    sig = json.dumps([INDEX_VERSION, sorted(_second_tier(cwd)), _signature(cwd)])
     for attempt in (0, 1):
         if os.path.isfile(path):
             con = sqlite3.connect("file:%s?mode=ro" % path, uri=True)
@@ -595,42 +730,69 @@ def _open_index():
         if attempt:
             return None
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        _build(path, sig, _rows())
+        _build(path, sig, _rows(cwd=cwd))
     return None
 
 
-def top_section(prompt, roots=None):
+def _clears(covered, known):
+    """The coverage bar `section_hint` holds a hint to."""
+    return covered >= max(HINT_MIN_TERMS, math.ceil(HINT_COVER * known))
+
+
+def top_section(prompt, roots=None, cwd=None):
     """((skill, path, title, start, end), covered, known) for the section that
-    ranks first for `prompt`, or None: `covered` of the prompt's `known`
-    content terms (stopwords out, present in the corpus) occur in it.
+    answers `prompt`, or None: `covered` of the prompt's `known` content words
+    (stopwords out, present in that tier's corpus) occur in it. The first tier
+    (tezgah's and the project's skills) answers when its top section clears
+    the bar; the other roots only when it does not, and when neither does, the
+    first tier's top section is returned for the caller to refuse.
 
     With `roots` the index is built in memory and no cache is read or written,
     so a fixture lookup can never overwrite the machine's own index. Without,
     it is the cached SQLite index: a warm lookup reads the prompt's postings
-    and one integer column, never the corpus."""
-    terms = sorted(set(tezgah_rank.words(prompt[:HINT_PROMPT_MAX])))
-    if not terms:
+    and three columns of the section table, never the corpus. A HINT_SKIP
+    skill is never the answer."""
+    words = _prompt_words(prompt[:HINT_PROMPT_MAX])
+    wanted = sorted({t for forms in words.values() for t in forms})
+    if not wanted:
         return None
-    con = _open_index() if roots is None else None
+    con = _open_index(cwd) if roots is None else None
     if roots is None and con is None:
         return None
     try:
         if con is None:
-            rows = _rows(roots)
+            rows = _rows(roots, cwd)
             every, lengths = _postings(rows)
-            posts = {t: every[t] for t in terms if t in every}
+            posts = {t: every[t] for t in wanted if t in every}
+            tiers = [2 if r[0].split("/")[0] in HINT_SKIP else r[6] for r in rows]
         else:
             posts = {}
             for t, i, n in con.execute(
                     "SELECT term, sec, n FROM post WHERE term IN (%s)"
-                    % ",".join("?" * len(terms)), terms):
+                    % ",".join("?" * len(wanted)), wanted):
                 posts.setdefault(t, []).append((i, n))
-            lengths = [r[0] for r in con.execute(
-                "SELECT len FROM sec ORDER BY id")]
-        top = rank_postings(" ".join(terms), posts, lengths, 1)
-        if not top:
+            secs = con.execute(
+                "SELECT len, tier, skill FROM sec ORDER BY id").fetchall()
+            lengths = [r[0] for r in secs]
+            tiers = [2 if r[2].split("/")[0] in HINT_SKIP else r[1] for r in secs]
+        found = None
+        for tier in (0, 1):
+            ids = {i for i, t in enumerate(tiers) if t == tier}
+            top = rank_postings(" ".join(words), posts, lengths, 1, ids)
+            if not top:
+                continue
+            i = top[0]
+            known = [forms for forms in words.values()
+                     if any(j in ids for t in forms for j, _n in posts.get(t, ()))]
+            covered = sum(1 for forms in known
+                          if any(j == i for t in forms for j, _n in posts.get(t, ())))
+            if found is None or _clears(covered, len(known)):
+                found = (i, covered, len(known))
+            if _clears(covered, len(known)):
+                break
+        if found is None:
             return None
-        i = top[0]
+        i, covered, known = found
         hit = (tuple(rows[i][:5]) if con is None else con.execute(
             "SELECT skill, path, title, start, end FROM sec WHERE id=?",
             (i,)).fetchone())
@@ -639,9 +801,7 @@ def top_section(prompt, roots=None):
             con.close()
     if not hit:
         return None
-    known = [t for t in terms if t in posts and t not in tezgah_rank.STOPWORDS]
-    covered = sum(1 for t in known if any(j == i for j, _n in posts[t]))
-    return tuple(hit), covered, len(known)
+    return tuple(hit), covered, known
 
 
 def _shown(session_id):
@@ -656,7 +816,7 @@ def _remember_shown(session_id, shown):
     tezgah_store.put_doc("section_hint", slug(session_id), shown[-KEPT:])
 
 
-def section_hint(prompt, session_id="", host=None, roots=None):
+def section_hint(prompt, session_id="", host=None, roots=None, cwd=None):
     """The default-on `<skill_relevance>` line: the top SECTION of the local
     index for this prompt, or "".
 
@@ -664,19 +824,21 @@ def section_hint(prompt, session_id="", host=None, roots=None):
     unless a session thought to, and a hint that waits for an opt-in never
     runs. It fires only when the section clears the coverage bar, names each
     section once per session, and carries the absolute path everywhere but
-    omp, whose read tool resolves the `skill://` address itself. Total: an
-    index that cannot be read or built costs the line, never the turn."""
+    omp, whose read tool resolves the `skill://` address itself. `cwd` is the
+    session's project (its own skills rank first); the process's when None.
+    Total: an index that cannot be read or built costs the line, never the
+    turn."""
     prompt = (prompt or "").strip()
     if not prompt or prompt.startswith("/"):
         return ""
     try:
-        found = top_section(prompt, roots)
+        found = top_section(prompt, roots, cwd)
     except (OSError, sqlite3.Error, ValueError):
         return ""
     if not found:
         return ""
     (skill, path, title, start, end), covered, known = found
-    if covered < max(HINT_MIN_TERMS, math.ceil(HINT_COVER * known)):
+    if not _clears(covered, known):
         return ""
     key = "%s:%d" % (path, start)
     shown = _shown(session_id)
