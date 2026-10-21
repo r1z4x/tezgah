@@ -134,6 +134,14 @@ class DraftGuard(CodegenCase):
         p = self.draft("c.py", "x = 1\n", "x = 2\n", script=link)
         self.assertEqual(p.returncode, 0, p.stderr)
 
+    def test_help_prints_the_usage_and_exits_zero(self):
+        # `--help` exited 1 with the usage on stderr, so `codegen --help | head`
+        # under pipefail read as a broken tool
+        p = subprocess.run([sys.executable, CODEGEN, "--help"],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("--files", p.stdout)
+
 
 class Egress(CodegenCase):
     """What codegen refuses to send, and where: the files go whole to a third
