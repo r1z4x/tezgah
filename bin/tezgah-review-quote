@@ -5,17 +5,21 @@
 
 FINDINGS_JSON is a file (or `-` for stdin) holding a JSON list of objects with
 at least `path` and `quote`. Prints that list with `status` added:
-`located` (the quote is in its own file), `relocated` (it is in exactly one
-other changed file; `path` moves there) or `unlocated`; a placed finding gets
-`start_line`/`end_line`, plus `side: "old"` when the lines are pre-change.
+`located` (the quote is in its own file), `relocated` (it is nowhere in its own
+file but exactly once in another changed file; `path` moves there) or
+`unlocated`; a placed finding gets `start_line`/`end_line`, plus `side: "old"`
+when the lines are pre-change. A quote found several times in its own file is
+placed on the match covering the finding's own `start_line`, else it is
+`unlocated` with `reason: "ambiguous: N matches"`.
 
 A Python port of the deterministic comment positioning in
 alibaba/open-code-review (internal/diff/resolver.go: ResolveComment,
 RelocateAcrossFiles; Apache-2.0): each line is trimmed, one leading `+` then
 `-` marker is stripped, blank quote lines are dropped, and the quote must match
 consecutive lines - the hunks' new side, then their old side, then the whole
-new file (where blank file lines are skipped too). Input line numbers are not
-trusted: every finding is placed from its quote alone.
+new file (where blank file lines are skipped too). Unlike OCR, which takes the
+first match, every match is collected so a repeated quote is never placed on
+the wrong copy; a cited line only chooses among the quote's matches.
 """
 import argparse
 import json
@@ -45,7 +49,7 @@ def strip_prefix(path):
 
 def parse_diff(text):
     """One dict per changed file: old/new path and the hunks' two sides as
-    [(line_number, normalised_text)] lists, one pair per hunk."""
+    [(line_number, normalised_text, removed)] lists, one pair per hunk."""
     files, cur, old_no, new_no = [], None, 0, 0
     for line in text.split("\n"):
         if line.startswith("diff --git "):
@@ -66,42 +70,46 @@ def parse_diff(text):
             new_side, old_side = cur["hunks"][-1]
             mark, body = line[:1], norm(line[1:])
             if mark in (" ", ""):
-                new_side.append((new_no, body))
-                old_side.append((old_no, body))
+                new_side.append((new_no, body, False))
+                old_side.append((old_no, body, False))
                 new_no += 1
                 old_no += 1
             elif mark == "+":
-                new_side.append((new_no, body))
+                new_side.append((new_no, body, False))
                 new_no += 1
             elif mark == "-":
-                old_side.append((old_no, body))
+                old_side.append((old_no, body, True))
                 old_no += 1
     return files
 
 
-def match(side, target):
-    """(start, end) of the first consecutive run of `target` in `side`."""
+def matches(side, target):
+    """Every consecutive run of `target` in `side`: (start, end, run)."""
     n = len(target)
-    for i in range(len(side) - n + 1):
-        if all(side[i + j][1] == target[j] for j in range(n)):
-            return side[i][0], side[i + n - 1][0]
-    return None
+    return [(side[i][0], side[i + n - 1][0], side[i:i + n])
+            for i in range(len(side) - n + 1)
+            if all(side[i + j][1] == target[j] for j in range(n))]
 
 
 def resolve(f, target, content):
-    """(start, end, side) of `target` in one changed file, or None."""
-    for which in (0, 1):
-        for hunk in f["hunks"]:
-            hit = match(hunk[which], target)
-            if hit:
-                return (*hit, "old" if which else "new")
+    """Every distinct (start, end, side) of `target` in one changed file: the
+    hunks' new side, their old side, then the whole new file."""
+    hits = [(s, e, "new") for hunk in f["hunks"] for s, e, _ in matches(hunk[0], target)]
+    # an old-side run of context lines only repeats a new-side one
+    hits += [(s, e, "old") for hunk in f["hunks"]
+             for s, e, run in matches(hunk[1], target) if any(p[2] for p in run)]
     if content is not None:
         lines = [(i, norm(t.rstrip("\r")))
                  for i, t in enumerate(content.split("\n"), 1)]
-        hit = match([p for p in lines if p[1]], target)
-        if hit:
-            return (*hit, "new")
-    return None
+        hits += [(s, e, "new") for s, e, _ in matches([p for p in lines if p[1]], target)]
+    return list(dict.fromkeys(hits))
+
+
+def cited(finding):
+    try:
+        return int(finding.get("start_line"))
+    except (TypeError, ValueError):
+        return None
 
 
 def place(finding, f, hit):
@@ -131,7 +139,7 @@ def main(argv=None):
         print(f"tezgah-review-quote: {a.findings}: {e}", file=sys.stderr)
         return 2
     diff = git(a.repo, "diff", "--no-ext-diff", "--no-textconv", "--no-color",
-               "-U3", a.base, a.to)
+               "--src-prefix=a/", "--dst-prefix=b/", "-U3", a.base, a.to)
     if diff.returncode != 0:
         print(f"tezgah-review-quote: git diff: {diff.stderr.strip()}", file=sys.stderr)
         return 2
@@ -147,13 +155,20 @@ def main(argv=None):
     for finding in findings:
         target = quote_lines(str(finding["quote"] or ""))
         own = [f for f in files if finding["path"] in (f["new"], f["old"])]
-        hit = target and own and resolve(own[0], target, content(own[0]))
-        if hit:
-            out.append(dict(place(finding, own[0], hit), status="located"))
+        mine = resolve(own[0], target, content(own[0])) if target and own else []
+        line = cited(finding)
+        covering = [h for h in mine if line is not None and h[0] <= line <= h[1]]
+        if covering or len(mine) == 1:
+            out.append(dict(place(finding, own[0], (covering or mine)[0]),
+                            status="located"))
+            continue
+        if mine:
+            out.append(dict(finding, status="unlocated",
+                            reason=f"ambiguous: {len(mine)} matches"))
             continue
         hits = [] if not target else [
             (f, h) for f in files if f not in own
-            for h in [resolve(f, target, content(f))] if h]
+            for h in resolve(f, target, content(f))]
         if len(hits) == 1:
             out.append(dict(place(finding, *hits[0]), status="relocated"))
         else:

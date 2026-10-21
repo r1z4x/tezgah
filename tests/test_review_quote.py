@@ -15,6 +15,10 @@ A_OLD = ["header_line", "", "second_line"] + [f"filler_{i}" for i in range(4, 10
 A_NEW = [x for x in A_OLD if x != "removed_call()"]
 A_NEW[A_NEW.index("value = 1")] = "value = 2"
 
+# git's own config must not reach the fixture repository (tests/test_task.py)
+GIT_ENV = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull,
+               GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+
 
 class ReviewQuoteTest(unittest.TestCase):
     @classmethod
@@ -24,16 +28,20 @@ class ReviewQuoteTest(unittest.TestCase):
 
         def git(*args):
             subprocess.run(["git", "-C", cls.repo, "-c", "user.name=t",
-                            "-c", "user.email=t@t", *args],
-                           check=True, capture_output=True)
+                            "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                           check=True, capture_output=True, env=GIT_ENV)
 
         def write(name, lines):
+            os.makedirs(os.path.dirname(os.path.join(cls.repo, name)), exist_ok=True)
             with open(os.path.join(cls.repo, name), "w") as f:
                 f.write("\n".join(lines) + "\n")
 
         git("init", "-q")
+        # a prefix-free diff (and a top-level `a/`) must not shift the paths
+        git("config", "diff.noprefix", "true")
         write("a.py", A_OLD)
-        for name in ("b.py", "c.py", "d.py"):
+        write("a/x.py", ["x_old_line"])
+        for name in ("b.py", "c.py", "d.py", "e.py"):
             write(name, [f"# {name}"])
         git("add", "-A")
         git("commit", "-qm", "one")
@@ -41,6 +49,8 @@ class ReviewQuoteTest(unittest.TestCase):
         write("b.py", ["# b.py", "def unique_b():", "    return 'b'"])
         write("c.py", ["# c.py", "shared_boilerplate()"])
         write("d.py", ["# d.py", "shared_boilerplate()"])
+        write("a/x.py", ["x_new_line"])
+        write("e.py", ["# e.py", "dup_call()", "middle", "dup_call()"])
         git("commit", "-qam", "two")
 
     @classmethod
@@ -49,11 +59,11 @@ class ReviewQuoteTest(unittest.TestCase):
 
     def run_tool(self, *args, stdin=None):
         return subprocess.run([sys.executable, TOOL, "--repo", self.repo, *args],
-                              input=stdin, capture_output=True, text=True)
+                              input=stdin, capture_output=True, text=True, env=GIT_ENV)
 
-    def place(self, path, quote):
-        r = self.run_tool("--from", "HEAD~1", "-",
-                          stdin=json.dumps([{"path": path, "quote": quote, "id": 7}]))
+    def place(self, path, quote, **cited):
+        r = self.run_tool("--from", "HEAD~1", "-", stdin=json.dumps(
+            [dict(cited, path=path, quote=quote, id=7)]))
         self.assertEqual(r.returncode, 0, r.stderr)
         [out] = json.loads(r.stdout)
         self.assertEqual(out["id"], 7)
@@ -89,6 +99,31 @@ class ReviewQuoteTest(unittest.TestCase):
         out = self.place("a.py", "shared_boilerplate()")
         self.assertEqual((out["status"], out["path"]), ("unlocated", "a.py"))
         self.assertNotIn("start_line", out)
+
+    def test_cited_line_picks_among_repeats(self):
+        out = self.place("e.py", "dup_call()", start_line=4)
+        self.assertEqual((out["status"], out["start_line"], out["end_line"]),
+                         ("located", 4, 4))
+
+    def test_repeats_without_cited_line_are_ambiguous(self):
+        out = self.place("e.py", "dup_call()")
+        self.assertEqual((out["status"], out.get("reason")),
+                         ("unlocated", "ambiguous: 2 matches"))
+        self.assertNotIn("end_line", out)
+
+    def test_repeats_cited_line_covering_neither_are_ambiguous(self):
+        out = self.place("e.py", "dup_call()", start_line=3)
+        self.assertEqual((out["status"], out.get("reason"), out["start_line"]),
+                         ("unlocated", "ambiguous: 2 matches", 3))
+
+    def test_context_line_is_not_doubled_by_old_side(self):
+        out = self.place("a.py", "keep_11")
+        self.assertEqual((out["status"], out["start_line"]), ("located", 11))
+
+    def test_noprefix_config_and_top_level_a_dir(self):
+        out = self.place("a/x.py", "x_new_line")
+        self.assertEqual((out["status"], out["path"], out["start_line"]),
+                         ("located", "a/x.py", 1))
 
     def test_absent_quote_is_unlocated(self):
         self.assertEqual(self.place("a.py", "no_such_code()")["status"], "unlocated")
