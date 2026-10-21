@@ -24,7 +24,10 @@ so this adapter translates them onto the shared tezgah core:
                          ({"decision": "block", "reason": ...}, which Cursor
                          documents as an automatic follow-up - the native
                          spelling is {"followup_message": ...})
-  beforeSubmitPrompt  -> {"continue": true}
+  beforeSubmitPrompt  -> {"continue": true, "additional_context": <per-turn>}
+                         (the docs list only continue/user_message, but
+                         cursor-agent 2026.10.01-2026.10.19 forwards
+                         additional_context for this event; see CONTEXT_MAX)
 Everything else answers "{}" and never blocks.
 
 Cursor names its own tools, so `hooks.json` has to name them too: the matcher on
@@ -105,6 +108,20 @@ REINFORCE = ("tezgah contract active: keep using the code graph "
 RECOVERY = ("tezgah: tool call failed. Read the error, fix the cause, then "
             "re-run; prefer codegraph_explore/codegraph_callers over guessing "
             "at code.")
+# cursor-agent (2026.10.01-2026.10.19, bundled `HookAdditionalContextTooLargeError`)
+# trims a beforeSubmitPrompt additional_context and drops it WHOLE when it is
+# over 10000 characters; a busy turn (every conditional armed) measured 10288.
+# Cutting the tail keeps the reminder and the first rules instead of nothing.
+CONTEXT_MAX = 10000
+CONTEXT_CUT = "\n[... cut to Cursor's %d-character hook limit]" % CONTEXT_MAX
+
+
+def fit(text):
+    """The text as Cursor will carry it: at most CONTEXT_MAX characters."""
+    text = text.strip()
+    if len(text) <= CONTEXT_MAX:
+        return text
+    return text[:CONTEXT_MAX - len(CONTEXT_CUT)] + CONTEXT_CUT
 
 
 def cwd_of(payload):
@@ -451,7 +468,7 @@ def dispatch(payload):
         text = context_for("user_prompt", cwd, payload)
         out = {"continue": True}
         if text:
-            out["additional_context"] = text
+            out["additional_context"] = fit(text)
     else:
         out = {}
     return out
