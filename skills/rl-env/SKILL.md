@@ -1,17 +1,22 @@
 ---
 name: rl-env
 description: >
-  Use when the task is to build, port or reason about an RL training environment
-  - the vendored FineEnvs set for authoring one across OpenEnv (HTTP + MCP,
-  Hugging Face), OpenReward / ORS (a reward with each tool call), Verifiers
-  (Prime Intellect, in-process tools and rubrics) and NeMo Gym (HTTP plus a
-  post-episode /verify grader), with the orchestrator that interviews the user
-  and ports one description across all four, including prompts like "make an env
-  where the agent does X" or "wrap my game in OpenEnv". Read one entry, never
-  the tree.
+  Use when building an RL training environment; pekiştirmeli öğrenme, ortam;
+  port to OpenEnv, Verifiers, NeMo Gym. Not for model training - use
+  `ai-research`.
 ---
 
 # rl-env: authoring an RL environment
+
+## When to use
+
+Use when the task is to build, port or reason about an RL training environment -
+the vendored FineEnvs set for authoring one across OpenEnv (HTTP + MCP, Hugging
+Face), OpenReward / ORS (a reward with each tool call), Verifiers (Prime
+Intellect, in-process tools and rubrics) and NeMo Gym (HTTP plus a post-episode
+/verify grader), with the orchestrator that interviews the user and ports one
+description across all four, including prompts like "make an env where the agent
+does X" or "wrap my game in OpenEnv". Read one entry, never the tree.
 
 Five upstream skills, vendored byte-for-byte from FineEnvs at the revision
 `SOURCE` names (Apache-2.0; the repository's root `NOTICE` records what changed,

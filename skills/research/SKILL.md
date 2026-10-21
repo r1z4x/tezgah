@@ -1,21 +1,27 @@
 ---
 name: research
 description: >
-  Runs an auditable research line in the repository: the two-loop rhythm
-  (bootstrap, inner experiment loop, outer synthesis), the workspace that holds
-  its state, protocol-before-run so a prediction is provably older than its
-  results, a six-dimension review of the claims before they are reported, and a
-  provenance record of what the session decided. Use when a task's deliverable is
-  evidence rather than a code change: a literature or reference review, a
-  hypothesis to test, a comparison of variants, a benchmark or ablation, a
-  research report or figure, or when the user says "research", "investigate",
-  "araştır", "literatür", "hipotez", "deney", "ablation", "benchmark". Route the
-  execution through the OpenResearch CLI when it is installed. Do NOT use for
-  code discovery ("where is X", "who calls Y") - that is the code graph. Not for
-  a product question - use `product-analysis`.
+  Use when the deliverable is evidence: a literature or reference review;
+  literatür, araştır, hipotez, deney, kaynak. Not for products - use
+  `product-analysis`.
 ---
 
 # research
+
+## When to use
+
+Runs an auditable research line in the repository: the two-loop rhythm
+(bootstrap, inner experiment loop, outer synthesis), the workspace that holds
+its state, protocol-before-run so a prediction is provably older than its
+results, a six-dimension review of the claims before they are reported, and a
+provenance record of what the session decided. Use when a task's deliverable is
+evidence rather than a code change: a literature or reference review, a
+hypothesis to test, a comparison of variants, a benchmark or ablation, a
+research report or figure, or when the user says "research", "investigate",
+"araştır", "literatür", "hipotez", "deney", "ablation", "benchmark". Route the
+execution through the OpenResearch CLI when it is installed. Do NOT use for code
+discovery ("where is X", "who calls Y") - that is the code graph. Not for a
+product question - use `product-analysis`.
 
 A research task's deliverable is evidence. Everything here exists so that the
 evidence survives the session that produced it: the state on disk, the protocol
@@ -86,8 +92,8 @@ One directory per research line, `<repo>/.tezgah/research/<slug>/`:
 | `state.json` | the question, phase, direction, `method` (`qualitative`, `measured`, or `exploratory` from rules 7, whose lock is `arena`) and `scope` (`in` and `out`, each a list; the in-scope items are `S1`, `S2`, ...), the locked evaluation of a measured line (`metric`, `baseline`, `locked_at`, optional `environment`, and the optional two-gate pair `capability_tolerance` + `counter_metric`), the hypothesis list, `rules` (the rule set the line was opened under), `deliverable` (`kind`: design, plan, analysis, code or finding; `path`; `ask`, the ask's items one per entry; `min_variants`), and `supersedes` when it is a new version of an older line |
 | `log.md` | the decision timeline: one line per decision, experiment, dead end or pivot, with the evidence that drove it |
 | `findings.md` | `## What we know`, `## Patterns`, `## Lessons`, `## Open questions` |
-| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `trace` (the in-scope item it answers, `S<n>`, required from rules 5), `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `tezgah-research claim <slug>`, never by editing the file |
-| `ideas.jsonl`, `stages.jsonl`, `tournament.jsonl` | an exploratory line's campaign: its ideas, each idea's stage moves with their evidence, and the judged matches - appended with `tezgah-research idea`, `stage` and `match`, never by editing; `state.json` `arena` is its lock (see "Exploratory lines") |
+| `claims.jsonl` | one claim per line: `statement`, `status`, `provenance`, `kind`, `falsification`, `proof`, `dependencies`, `trace` (the in-scope item it answers, `S<n>`, required from rules 5), `scope` (what the claim's numbers were measured on, and it may not be wider than the rows it rests on), and `supersedes` when the claim replaces an earlier one - recorded with `~/.config/tezgah/bin/tezgah-research claim <slug>`, never by editing the file |
+| `ideas.jsonl`, `stages.jsonl`, `tournament.jsonl` | an exploratory line's campaign: its ideas, each idea's stage moves with their evidence, and the judged matches - appended with `~/.config/tezgah/bin/tezgah-research idea`, `stage` and `match`, never by editing; `state.json` `arena` is its lock (see "Exploratory lines") |
 | `experiments/<hypothesis>/` | `protocol.md`, `results.jsonl` (one JSON object per row, each carrying its `source`, its `scope` - what the numbers were measured on - and, when that scope is `fixture`, the `fixture` description of the input that was generated), `analysis.md`, and `raw/<runId>.log` for a run read back from the engine |
 | `literature/` | one file per source, saved when you read it, not later, and each named by its row in `literature/INDEX.jsonl` - every file under it, at any depth and of any extension, is a source the index names |
 | `decisions/<id>/` | one comparison of the deliverable's variants: `criteria.json`, `variants.jsonl`, `comparison.jsonl` and `decision.md` - see "Variants" below |
@@ -221,7 +227,7 @@ rules the domain library enforces on a compiled artifact apply here:
   command or the node - and every recorded fact in `analysis.md` points at the row
   it came from. One row is one JSON object on its own line; a file whose line three
   is prose loads in nothing. When the source is a run the engine owns, file the log
-  with `tezgah-research source`, so the row and the receipt are written together
+  with `~/.config/tezgah/bin/tezgah-research source`, so the row and the receipt are written together
   and the claim's `orx:<runId>` token resolves to something a reader can open.
 - **An input is part of the evidence: every row declares its `scope`.** `real` (the
   running system and its corpus), `fixture` (a temp HOME, a generated repository, a
@@ -317,7 +323,7 @@ cite the note on the paper or page itself beside it. The grey
 channel is allowed and often the only evidence a practice question has, so it is
 labelled and judged (`quality`) rather than skipped, and a row that records it as
 verified by fewer than two sources is reported: an unlabelled grey source is how a
-marketing claim enters a findings file as a fact. `tezgah-research migrate` writes
+marketing claim enters a findings file as a fact. `~/.config/tezgah/bin/tezgah-research migrate` writes
 the rows it can derive from the notes already saved and tells you which fields
 they do not carry.
 
@@ -363,7 +369,7 @@ they do not carry.
 4. Record the raw result in `results.jsonl` with its `source`, then write what it
    means in `analysis.md`. Label each outcome CONFIRMATORY (predicted by the
    protocol) or EXPLORATORY (noticed during the run). A run the engine owns is
-   recorded with `tezgah-research source <slug> <hypothesis> --run <orxRunId>`,
+   recorded with `~/.config/tezgah/bin/tezgah-research source <slug> <hypothesis> --run <orxRunId>`,
    which files the log under `raw/` and appends the row that names it. Rows are
    append-only once committed: a correction is a new row, and `check` refuses a
    committed row changed or removed afterwards (a line opened before `rules`
@@ -451,14 +457,14 @@ early, and spends runs only on what survived the cheaper stages.
 verbatim>"`, `--in`/`--out` (every idea traces to an `--in` item),
 `--budget "<ideas, pilots, full runs, wall time>"` and, when a number can judge a
 candidate, `--evaluator <path> --metric "<what it returns>"` (its sha256 is
-recorded). Commit it (`tezgah-research commit <slug> "arena"`) before the first
+recorded). Commit it (`~/.config/tezgah/bin/tezgah-research commit <slug> "arena"`) before the first
 idea: `check` refuses ideas or results that entered the history before the arena,
 an arena changed after it, and every stage row while the evaluator no longer
 hashes as locked - the candidate never edits its judge. An arena with no evaluator
 is judged by review only and no idea of it reaches `confirmed`. One campaign is one
 line, so the one-open-line rule holds as it is.
 
-**Ideas are rows** (`tezgah-research idea <slug>`, one JSON object on stdin): `id`
+**Ideas are rows** (`~/.config/tezgah/bin/tezgah-research idea <slug>`, one JSON object on stdin): `id`
 (`I1`, `I2`, ...), `statement` (two sentences at most), `mechanism`, `trace` (the
 `S<n>` it serves), `operator`, `generator` (`{"family", "model"}` as the host reports
 them), `parents` (required for `mutation` and `crossover`), `kill` (the result that
@@ -486,7 +492,7 @@ The entries are `skills/ai-research/21-research-ideation/brainstorming-research-
 and `.../creative-thinking-for-research/SKILL.md`. A closed line's dead ends
 (`done/`) are the first filter for a new idea.
 
-**The funnel** (`tezgah-research stage <slug> <idea> <stage> --evidence ...`); an
+**The funnel** (`~/.config/tezgah/bin/tezgah-research stage <slug> <idea> <stage> --evidence ...`); an
 idea moves forward only, each stage after the one it needs (prior art before
 screening, screening before a pilot, a pilot before a full run, a full run
 before a confirmation), or to `killed --reason` from anywhere; its stage is its
@@ -500,7 +506,7 @@ newest row:
    `literature/INDEX.jsonl` (not agent summaries only), a verdict `novel`,
    `incremental` or `known`, and one sentence on what the idea does differently.
    `known` takes `--reason` and is killed in the same append; it stays on record.
-3. `screened`: judged in `tezgah-research match <slug>` rows - pairs shown in both
+3. `screened`: judged in `~/.config/tezgah/bin/tezgah-research match <slug>` rows - pairs shown in both
    orders, two judges or more, of a model family that generated neither idea (else
    both generators' families). `board` fits a Bradley-Terry score: a prior for
    ordering the pilots, never a verdict, and `check` only warns about the judging.
@@ -516,9 +522,9 @@ Budget discipline: spend pilots only on screened ideas and full runs only on
 piloted ones, never let a ranking stand in for a pilot, and stop at the budget
 the arena names. The report says how many ideas reached piloted and promoted -
 `check` warns when it does not - because fifty ideas tested at the 5% level yield
-about 2.5 winners by chance. After a crash, `tezgah-research board <slug>` is the
+about 2.5 winners by chance. After a crash, `~/.config/tezgah/bin/tezgah-research board <slug>` is the
 whole state: every idea's stage, score and next action, and any torn append to
-re-run. Before the next campaign, `tezgah-research yield` counts per operator and
+re-run. Before the next campaign, `~/.config/tezgah/bin/tezgah-research yield` counts per operator and
 family how far ideas got, and prints the operator weights the next campaign draws
 with: uniform until something is promoted, then 80% in proportion to promoted /
 proposed and 20% kept uniform.
@@ -589,7 +595,7 @@ a finding. It reports a line with a report and no review at all, and `--strict`
 refuses it: a review is a judgement, so nothing can migrate one into existence.
 The review names its `producer` (the session that wrote the line) and its
 `reviewer`, and they differ - a line graded by the session that wrote it is not
-reviewed, so run the review as a fresh subagent or a `consult`. `findings: []`
+reviewed, so run the review as a fresh subagent or a `~/.config/tezgah/bin/consult`. `findings: []`
 warns and `--strict` refuses it, and a review scoring `exploration_integrity` or
 `methodological_rigour` above 3 while `check` refuses the line's order is refused.
 
@@ -616,7 +622,7 @@ opened under):
 |---|---|
 | `criteria.json` | `question`, `baseline_variant` (V0, the status quo or current design) and `criteria[]`, each with `id` (`K1`), `name`, `kind` (`measured` or `judged`), `direction` (`max`, `min` or `pass`), optional `threshold` and `guardrail` |
 | `variants.jsonl` | one row per variant: `id`, `title`, `artifact` (a path in the line or the repository, `git:<branch>` or `orx:<expId>`), `status` (`produced` or `dropped` with `drop_reason`), and `line` when it is an older line's deliverable |
-| `comparison.jsonl` | one row per cell: `variant`, `criterion`, `value` with its `source`, or `not_checked` with the reason; `rater` on a judged cell. Append with `tezgah-research compare <slug> <id>` (one JSON object on stdin), which refuses what `check` refuses |
+| `comparison.jsonl` | one row per cell: `variant`, `criterion`, `value` with its `source`, or `not_checked` with the reason; `rater` on a judged cell. Append with `~/.config/tezgah/bin/tezgah-research compare <slug> <id>` (one JSON object on stdin), which refuses what `check` refuses |
 | `decision.md` | `chosen: V2`, one line per rejected id naming the criterion id that ruled it out, and `flip:` - the result that would reverse the choice |
 
 `check` refuses: fewer produced variants than the deliverable takes; two produced
@@ -638,7 +644,7 @@ deliverable (`"line": "<old>"`); `init` refuses a line asking an existing line's
 question without it, and `check` refuses a line sharing another's
 `deliverable.path` that does not supersede it.
 
-A line that cannot finish is closed on purpose: `tezgah-research close <slug>
+A line that cannot finish is closed on purpose: `~/.config/tezgah/bin/tezgah-research close <slug>
 --limit "<what is left and why>"` concludes it, writes the reasons it was still open
 into `state.json` `closed` and `log.md`, seals its experiments' file hashes
 (`order_seal`), and stops it counting as open; `conclude` seals the same
@@ -704,7 +710,7 @@ The two-loop rhythm, the workspace layout and the six review dimensions adapt th
 orchestration layer of Orchestra Research's MIT-licensed `AI-research-SKILLs`
 library (its `autoresearch`, `ara-rigor-reviewer` and `ara-research-manager`
 skills) to tezgah's contract: the execution engine here is OpenResearch, the
-reporting language is the contract's, the checks are `tezgah-research`'s own, and
+reporting language is the contract's, the checks are `~/.config/tezgah/bin/tezgah-research`'s own, and
 nothing is copied verbatim. The scoring anchors, the finding record, the citation
 workflow and the figure rules come from the same library, which now ships whole
 under the `ai-research` skill.

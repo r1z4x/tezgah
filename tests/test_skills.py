@@ -377,10 +377,14 @@ LIBRARY_SOURCE = os.path.join(LIBRARY, "SOURCE")
 LIBRARY_ROW = re.compile(
     r"^\|\s*`([A-Za-z0-9/_.-]+/SKILL\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
     r"`([0-9a-f]{64})`\s*\|", re.M)
-# The most a shipped entry point's description may carry: the always-on band is
-# the sum of these and the router shows one sentence of each, so a description
-# past this is prose nobody reads. The longest today is 961 (`feature-audit`).
-DESCRIPTION_CAP = 1200
+# The most a shipped entry point's description may carry. Hosts cut it: omp keeps
+# about twelve words, codex and Claude drop descriptions once the skill list
+# passes their budget. Anything longer lives in the body's `When to use`.
+DESCRIPTION_CAP = 160
+# The part of a description every host keeps: the trigger has to lead, and the
+# routing word tests/routing-fixtures.md pins for the skill has to sit in it.
+DESCRIPTION_KEPT = 100
+FIXTURE_ROW = re.compile(r"^\| (.+?) \| `([\w-]+)` \| (.+?) \|$", re.M)
 TRIGGER = re.compile(r"(?:^|[.!?]\s+)(?:Also )?[Uu]se\b")
 KEBAB = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -695,6 +699,20 @@ class Frontmatter(unittest.TestCase):
             desc = frontmatter(read(path))[1]
             self.assertLessEqual(len(desc), DESCRIPTION_CAP,
                                  "%s: %d chars" % (path, len(desc)))
+
+    def test_every_description_leads_with_its_trigger_and_routing_words(self):
+        rows = FIXTURE_ROW.findall(
+            read(os.path.join(support.REPO, "tests", "routing-fixtures.md")))
+        for path in self.paths:
+            name, desc, _ = frontmatter(read(path))
+            self.assertTrue(desc.startswith("Use when"),
+                            "%s: the description does not lead with `Use when`" % path)
+            words = [must for _, skill, must in rows if skill == name]
+            self.assertTrue(words, "%s has no routing fixture" % path)
+            for must in words:
+                self.assertIn(must, desc[:DESCRIPTION_KEPT],
+                              "%s: %r is past the first %d characters"
+                              % (path, must, DESCRIPTION_KEPT))
 
     def test_every_backticked_cross_reference_resolves(self):
         for path in self.paths:

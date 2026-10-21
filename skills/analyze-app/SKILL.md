@@ -1,17 +1,22 @@
 ---
 name: analyze-app
 description: >
-  Analyze a running web or mobile app from its structured accessibility / DOM /
-  native view tree, and from screenshots of the rendered screen. Use when a task
-  must drive,
-  inspect, or verify a running application - walk a flow, read the UI, check the
-  console, network or device logs, or confirm behavior end to end - rather than
-  only read its source. Covers a real browser (Playwright MCP), an iOS Simulator
-  or Android emulator (Mobile MCP), and optional web diagnostics (Chrome
-  DevTools MCP). Not for judging the whole product - use `product-analysis`.
+  Use when verifying a running app: walk a flow, read the UI, console;
+  uygulamayı aç, ekran, tarayıcı, web or mobile. Not for strategy - use
+  `product-analysis`.
 ---
 
 # analyze-app
+
+## When to use
+
+Analyze a running web or mobile app from its structured accessibility / DOM /
+native view tree, and from screenshots of the rendered screen. Use when a task
+must drive, inspect, or verify a running application - walk a flow, read the UI,
+check the console, network or device logs, or confirm behavior end to end -
+rather than only read its source. Covers a real browser (Playwright MCP), an iOS
+Simulator or Android emulator (Mobile MCP), and optional web diagnostics (Chrome
+DevTools MCP). Not for judging the whole product - use `product-analysis`.
 
 Drive the running app through its accessibility tree. The tree answers structure;
 the rendered image answers hierarchy, rhythm, colour and feel - so a screenshot is
@@ -87,7 +92,7 @@ lines that carry the controls. So after the snapshot, and before reading it:
 
 1. **Flatten and keep it**: save the `browser_snapshot` result (or the flattened
    text of one) to a file.
-2. **Triage**: `tezgah-triage --select FILE --task "what this pass is looking
+2. **Triage**: `~/.config/tezgah/bin/tezgah-triage --select FILE --task "what this pass is looking
    for"` sends the tree's repeating units - a row, a table cell, a control on its
    own - and the task in one batched judgement, and prints the line ids under the
    selected units with their original `ref=` values, the unselected count and the
@@ -96,7 +101,7 @@ lines that carry the controls. So after the snapshot, and before reading it:
    when the task is "is anything wrong on this screen at all" - a selection cannot
    answer a question it was not asked.
 
-For one component, `tezgah-triage --states FILE --component "#12"` asks one
+For one component, `~/.config/tezgah/bin/tezgah-triage --states FILE --component "#12"` asks one
 judgement per state over that component's subtree - the interactive pair `focus`
 and `active` arrives as one three-way answer (`neither` / `focus` / `pressed`)
 inside that same call, measured better than two separate questions - covering
@@ -119,7 +124,7 @@ judge from what the tree and the screen actually show, and say what you read. Wh
 the printed selection is most of the screen, the task names a control every row
 repeats and the triage bought coverage rather than skipping - the tool says so
 itself, and reading the snapshot directly is then the cheaper move. With no
-credential, or with the `judge-off` switch on, `tezgah-triage` prints why and
+credential, or with the `judge-off` switch on, `~/.config/tezgah/bin/tezgah-triage` prints why and
 exits 1: read the snapshot directly, the way the loop reads it today, and say the
 triage was unavailable.
 
@@ -138,7 +143,7 @@ path; keep image tokens out of the context.
 
 ## Measurement for design-contract
 
-`tezgah-design check` judges a measurement, and this loop is what writes it:
+`~/.config/tezgah/bin/tezgah-design check` judges a measurement, and this loop is what writes it:
 `.tezgah/design/measurement.json`, one entry per component the repository's
 `.tezgah/design-contract.md` lists. Read the computed styles with `browser_evaluate`,
 one selector per component:

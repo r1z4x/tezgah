@@ -1,16 +1,21 @@
 ---
 name: ai-research
 description: >
-  The vendored AI-research-SKILLs library - 98 upstream skills in 23 categories,
-  MIT - that now ships with tezgah. Use when a research line needs AI or ML
-  machinery: training or fine-tuning a model, serving or quantizing one,
-  evaluating a benchmark, reading model internals, building a retrieval or agent
-  pipeline, tracking runs, or writing the result up. Read the one entry the work
-  needs, never the tree. Do NOT use for code discovery ("where is X", "who calls
-  Y") - that is the code graph.
+  Use when a research line needs AI/ML machinery: training, fine-tuning,
+  serving, evals; ince ayar, dil modeli. Not for RL environments - use `rl-env`.
 ---
 
 # ai-research
+
+## When to use
+
+The vendored AI-research-SKILLs library - 98 upstream skills in 23 categories,
+MIT - that now ships with tezgah. Use when a research line needs AI or ML
+machinery: training or fine-tuning a model, serving or quantizing one,
+evaluating a benchmark, reading model internals, building a retrieval or agent
+pipeline, tracking runs, or writing the result up. Read the one entry the work
+needs, never the tree. Do NOT use for code discovery ("where is X", "who calls
+Y") - that is the code graph.
 
 Ninety-eight skills from Orchestra Research's `AI-research-SKILLs`, vendored into
 this repository at revision `773a529` (2026-06-15, MIT) and kept in the upstream

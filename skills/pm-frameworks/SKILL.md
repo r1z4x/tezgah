@@ -1,17 +1,23 @@
 ---
 name: pm-frameworks
 description: >
-  Two product-management methods vendored offline behind the `product-analysis`
-  skill: the intended-vs-implemented gap audit (a gap is a finding only when the
-  documented intent and the code that enforces it are both cited) and the
-  Opportunity Solution Tree (one outcome, opportunities as needs, solutions
-  compared, the cheapest experiment per assumption). Use when a product question
-  needs the method, not just the framework name: intended-vs-implemented audits,
-  opportunity solution trees, discovery mapping and assumption tests. Read the
-  one entry the task needs, never both by default.
+  Use when a product question needs a method: opportunity solution trees, fırsat
+  çözüm ağacı, intended-vs-implemented. Not for a survey - use
+  `product-analysis`.
 ---
 
 # pm-frameworks
+
+## When to use
+
+Two product-management methods vendored offline behind the `product-analysis`
+skill: the intended-vs-implemented gap audit (a gap is a finding only when the
+documented intent and the code that enforces it are both cited) and the
+Opportunity Solution Tree (one outcome, opportunities as needs, solutions
+compared, the cheapest experiment per assumption). Use when a product question
+needs the method, not just the framework name: intended-vs-implemented audits,
+opportunity solution trees, discovery mapping and assumption tests. Read the one
+entry the task needs, never both by default.
 
 Two methods, kept byte-for-byte from `https://github.com/phuryn/pm-skills` (MIT)
 at the revision recorded in `SOURCE`. They are here so an offline session can

@@ -1,16 +1,21 @@
 ---
 name: design-contract
 description: >
-  The artifact shape of a repository's design contract - the colour roles, the
-  type scale, the spacing unit and its rhythm, the component inventory, and the
-  state set every interactive control and every data view owes - and the rule
-  that derives it from the repository's own tokens.
-  Use when a UI or component turn needs a design floor, tokens, a state set or
-  a named `tezgah-design` check. Not for reading or driving the running app -
-  use `analyze-app`.
+  Use when building or reviewing UI: design floor, tokens, component states,
+  theme; tasarım, arayüz, bileşen, renk. Not for the running app - use
+  `analyze-app`.
 ---
 
 # design-contract
+
+## When to use
+
+The artifact shape of a repository's design contract - the colour roles, the
+type scale, the spacing unit and its rhythm, the component inventory, and the
+state set every interactive control and every data view owes - and the rule that
+derives it from the repository's own tokens. Use when a UI or component turn
+needs a design floor, tokens, a state set or a named `~/.config/tezgah/bin/tezgah-design` check. Not
+for reading or driving the running app - use `analyze-app`.
 
 This skill owns ONE thing: the shape of `.tezgah/design-contract.md`, the
 per-repo floor a UI turn is judged against, and the derivation rule that fills it

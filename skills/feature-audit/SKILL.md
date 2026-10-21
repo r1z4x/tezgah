@@ -1,23 +1,29 @@
 ---
 name: feature-audit
 description: >
-  Audit one feature across every layer it is spread over - the surfaces a person
-  uses (a form control, a list or table, a detail view, a filter, a picker, a step
-  flow, a notification), the route that serves it, the authorization that gates
-  it, the service that validates it, and the data that stores it - and produce the
-  matrices that turn a disagreement between those layers into a finding. Use when
-  the task is about one existing feature rather than the whole product: an admin
-  panel, a CRUD screen, a form, a wizard or step flow, a search or picker control,
-  a data table, a bulk action, a permission surface, or a "why does this not work
-  / what is missing here / make this better" ask, and whenever a UI improvement
-  needs a capability the system does not have, or a feature not built yet needs
-  the same matrices as a spec before the build. The unit of analysis is the
-  feature, not the screen: a screen-level review cannot see a capability no
-  surface reaches, a contract field no view renders, or a step whose precondition
-  nothing enforces. Not for the whole product - use `product-analysis`.
+  Use when auditing one feature: admin panel, CRUD screen, form; uçtan uca
+  denetle; wizard, data table, every layer. Not for the product - use
+  `product-analysis`.
 ---
 
 # feature-audit
+
+## When to use
+
+Audit one feature across every layer it is spread over - the surfaces a person
+uses (a form control, a list or table, a detail view, a filter, a picker, a step
+flow, a notification), the route that serves it, the authorization that gates
+it, the service that validates it, and the data that stores it - and produce the
+matrices that turn a disagreement between those layers into a finding. Use when
+the task is about one existing feature rather than the whole product: an admin
+panel, a CRUD screen, a form, a wizard or step flow, a search or picker control,
+a data table, a bulk action, a permission surface, or a "why does this not work
+/ what is missing here / make this better" ask, and whenever a UI improvement
+needs a capability the system does not have, or a feature not built yet needs
+the same matrices as a spec before the build. The unit of analysis is the
+feature, not the screen: a screen-level review cannot see a capability no
+surface reaches, a contract field no view renders, or a step whose precondition
+nothing enforces. Not for the whole product - use `product-analysis`.
 
 A screen review judges what is on the screen. Most of what goes wrong in a real
 feature is not on the screen: it is a disagreement between two layers, or a

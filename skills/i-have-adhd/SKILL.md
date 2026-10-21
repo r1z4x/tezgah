@@ -1,16 +1,8 @@
 ---
 name: i-have-adhd
 description: >
-  Shapes output for a reader who acts on it: answer or next action on the first
-  line, numbered steps for multi-step work, the position restated in one line
-  while work is in flight, tangents suppressed, errors as location/cause/fix,
-  lists capped at five ranked items, estimates marked as estimates, and no
-  preamble, recap or closer. Use on any answer the reader has to act on - a fix,
-  a plan, a report, a status update. Also use when the user says "i-have-adhd",
-  "adhd mode", "shape the output", "lead with the action", or complains that the
-  answer buried the point. Not for code comments, commit messages, docs and
-  anything else that is not a reply to a person (the exec contract governs
-  those) - use `no-ai-slop` for that prose.
+  Use when the reply is something to act on: a fix, plan, report, status; adhd
+  mode; kısaca, adım adım, ne yapmam lazım. Not for docs - use `no-ai-slop`.
 license: MIT
 metadata:
   tags: "output style, actionability, reporting"
@@ -22,6 +14,19 @@ metadata:
      this skill governs how the answer is arranged inside it. -->
 
 # i-have-adhd
+
+## When to use
+
+Shapes output for a reader who acts on it: answer or next action on the first
+line, numbered steps for multi-step work, the position restated in one line
+while work is in flight, tangents suppressed, errors as location/cause/fix,
+lists capped at five ranked items, estimates marked as estimates, and no
+preamble, recap or closer. Use on any answer the reader has to act on - a fix, a
+plan, a report, a status update. Also use when the user says "i-have-adhd",
+"adhd mode", "shape the output", "lead with the action", or complains that the
+answer buried the point. Not for code comments, commit messages, docs and
+anything else that is not a reply to a person (the exec contract governs those) -
+use `no-ai-slop` for that prose.
 
 The reader acts on the answer. Friction between "got it" and "did it" is where
 the work dies, and a buried answer is friction.

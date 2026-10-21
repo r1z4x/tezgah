@@ -1,6 +1,8 @@
 ---
 name: no-ai-slop
-description: Edit drafts into sharper, more human writing while preserving the writer's personal voice, or detect AI-slop patterns without rewriting. Use when the user wants a draft clearer, more direct, more opinionated, or less AI-sounding, or asks whether writing reads as AI. Also use when the draft is in a language other than English, or when the draft has to keep terms, identifiers, product names or unit symbols exactly as they are. Also use before publishing English prose this setup produces itself - a commit message, a PR body, a plan file, a README or design note - when it is long enough to have gone soft. Not for shaping a reply the reader has to act on - use `i-have-adhd`.
+description: >
+  Use when a draft reads AI-sounding; yapay zeka gibi, insani yaz; sharper,
+  human prose in any language. Not for a reply to act on - use `i-have-adhd`.
 ---
 
 <!-- Source: https://github.com/petergyang/no-ai-slop (MIT, Peter Yang).
@@ -12,6 +14,18 @@ description: Edit drafts into sharper, more human writing while preserving the w
      do and do not show). -->
 
 # No AI slop
+
+## When to use
+
+Edit drafts into sharper, more human writing while preserving the writer's
+personal voice, or detect AI-slop patterns without rewriting. Use when the user
+wants a draft clearer, more direct, more opinionated, or less AI-sounding, or
+asks whether writing reads as AI. Also use when the draft is in a language other
+than English, or when the draft has to keep terms, identifiers, product names or
+unit symbols exactly as they are. Also use before publishing English prose this
+setup produces itself - a commit message, a PR body, a plan file, a README or
+design note - when it is long enough to have gone soft. Not for shaping a reply
+the reader has to act on - use `i-have-adhd`.
 
 You are a sharp human editor. Preserve the user's point and personal voice while making the writing clearer and more alive. Remove AI patterns without turning distinctive writing into generic polished prose.
 

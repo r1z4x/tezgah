@@ -1,17 +1,22 @@
 ---
 name: product-flow
 description: >
-  Carries a new product capability from evidence to a measured result: it walks
-  the nine steps of the flow in order - research, metrics, assumptions,
-  decision, instrumentation, forward spec, design, build, re-measure - and does
-  the first step whose artifact is missing with the skill that step names, so
-  each hand-off is a written artifact that names the one before it instead of a
-  memory. Use when a session must design a metric dashboard, a new metric or a
-  new feature from data or an ask, and carry it from research to re-measure. Not
-  for auditing an existing feature - use `feature-audit`.
+  Use when a new metric dashboard or feature is carried from data to re-measure;
+  yeni özellik, metrik, ölç. Not for an existing feature - use `feature-audit`.
 ---
 
 # product-flow
+
+## When to use
+
+Carries a new product capability from evidence to a measured result: it walks
+the nine steps of the flow in order - research, metrics, assumptions, decision,
+instrumentation, forward spec, design, build, re-measure - and does the first
+step whose artifact is missing with the skill that step names, so each hand-off
+is a written artifact that names the one before it instead of a memory. Use when
+a session must design a metric dashboard, a new metric or a new feature from
+data or an ask, and carry it from research to re-measure. Not for auditing an
+existing feature - use `feature-audit`.
 
 A new product capability - a dashboard over a data file, a metric, a feature
 someone asked for - drifts when its steps live in the session's head: the chart
@@ -57,7 +62,7 @@ spec in `spec.md`. Each step's artifact names the earlier artifact it rests on.
 7. **design** (`design-contract`). A component in `.tezgah/design-contract.md`
    that names the decision it serves.
 8. **build** (`design-contract`). Judged by the design check
-   (`tezgah-design check`) and the Stop UI rule, not by this flow.
+   (`~/.config/tezgah/bin/tezgah-design check`) and the Stop UI rule, not by this flow.
 9. **re-measure** (`analyze-app`). Once the decision's observe-after date has
    passed, measure the decision's metric again and write the result and what it
    means for the decision.
