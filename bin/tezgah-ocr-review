@@ -192,7 +192,7 @@ def main(argv=None):
         env.update(OCR_LLM_URL="http://127.0.0.1:%d/v1" % server.server_address[1],
                    OCR_LLM_MODEL=args.model, OCR_LLM_PROTOCOL="openai",
                    OCR_LLM_TOKEN=PLACEHOLDER_TOKEN, OCR_NO_UPDATE="1")
-        out = open(args.output, "w") if args.output else None
+        out = open(args.output, "w", encoding="utf-8") if args.output else None
         proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=out)
         return proc.wait()
     finally:

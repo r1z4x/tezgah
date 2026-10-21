@@ -2792,7 +2792,6 @@ WINDOWS_DEPS = {
     "cursor-agent": (None, "the cursor-agent installer is Linux and macOS only"),
     "pnpm": ("npm", "npm install -g pnpm"),
     "dsh": ("npm", "npx -y @deepseek-ai/dsh plugin --profile web --version"),
-    "ocr": ("npm", "npm install -g @alibaba-group/open-code-review"),
 }
 
 
