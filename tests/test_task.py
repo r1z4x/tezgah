@@ -2174,7 +2174,8 @@ class Cli(TempHome):
                       out)
         self.assertIn("docs/gate.md (unsupported_ext), tests/test_tool.py "
                       "(default_path)", out)
-        self.assertIn("one tezgah-reviewer per rule group", out)
+        self.assertIn("one tezgah-reviewer for the whole small change set "
+                      "(1 files, 31 changed lines)", out)
         self.assertIn("rule group 1: source system, pattern default, files bin/tool",
                       out)
         self.assertIn("reviewed or skipped-with-reason", out)
@@ -2193,6 +2194,25 @@ class Cli(TempHome):
         self.assertIn("--from", calls[0][0])
         self.assertEqual(calls[0][0][calls[0][0].index("--to") + 1], "HEAD")
         self.assertEqual(calls[1][0][-1], "bin/tool")
+
+    def test_the_reviewer_split_follows_ocr_bundling_thresholds(self):
+        # OCR: < 4 files and < 200 changed lines is one bundle (above), < 4 files
+        # at 200 or more is one per file, 4 or more files is one per rule group
+        for files, churn, expect in ((["a", "b"], 150, "one tezgah-reviewer per file"),
+                                     (["a", "b", "c", "d"], 10,
+                                      "one tezgah-reviewer per rule group")):
+            preview = dict(OCR_PREVIEW, reviewable_files=[
+                {"path": f, "status": "modified", "insertions": churn,
+                 "deletions": 0} for f in files])
+            rule = {"schema_version": "1", "groups": [
+                dict(OCR_RULE["groups"][0], files=files)]}
+            ocr, _ = self.stub(
+                "print(json.dumps(%r if sys.argv[2] == 'preview' else %r))"
+                % (preview, rule))
+            out = " ".join(self.verify(ocr).split())
+            self.assertIn(expect, out, files)
+            self.tearDown()
+            self.setUp()
 
     def test_without_ocr_the_step_is_unchanged(self):
         missing = self.verify(os.path.join(self.home, "no-such-ocr"))

@@ -557,12 +557,24 @@ def print_ocr_spec(where, base):
           "tezgah-reviewer reads them over the dimensions above): %s"
           % (", ".join(out) or "none"))
     if groups:
-        print("     - instead of one reviewer per dimension, spawn one "
-              "tezgah-reviewer per rule group below, in ONE message: its brief "
-              "carries that group's rule text verbatim (`groups[].rule` of `%s`) "
-              "and names %s as an appendix to read; it accounts for every file "
-              "of its group as reviewed or skipped-with-reason"
-              % (shlex.join(rule_cmd),
+        # OCR's own bundling below its LLM-grouping threshold (task_template.json
+        # GROUPING_MIN_FILES 4, GROUPING_BUNDLE_LINE_THRESHOLD 200): fewer than 4
+        # files are one bundle under 200 changed lines, else one file each.
+        churn = sum((f.get("insertions") or 0) + (f.get("deletions") or 0)
+                    for f in preview["reviewable_files"] if isinstance(f, dict))
+        if len(paths) < 4 and churn < 200:
+            who = ("one tezgah-reviewer for the whole small change set (%d files, "
+                   "%d changed lines), its brief carrying every group's rule text"
+                   % (len(paths), churn))
+        elif len(paths) < 4:
+            who = "one tezgah-reviewer per file, in ONE message"
+        else:
+            who = "one tezgah-reviewer per rule group below, in ONE message"
+        print("     - instead of one reviewer per dimension, spawn %s: a brief "
+              "carries its group's rule text verbatim (`groups[].rule` of `%s`) "
+              "and names %s as an appendix to read; each reviewer accounts for "
+              "every file it owns as reviewed or skipped-with-reason"
+              % (who, shlex.join(rule_cmd),
                  os.path.join(OCR_PROMPTS, "main_task_system.md")))
         for g in groups:
             if isinstance(g, dict):
