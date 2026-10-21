@@ -2156,7 +2156,8 @@ def context_for(event, cwd, payload=None, with_core=True):
             hint = tezgah_skill_pick.suggest(prompt, session_id)
             if not hint:
                 host = (payload or {}).get("host") if isinstance(payload, dict) else None
-                hint = tezgah_skill_pick.section_hint(prompt, session_id, host=host)
+                hint = tezgah_skill_pick.section_hint(prompt, session_id, host=host,
+                                                      cwd=cwd)
             if hint:
                 parts.append(("skill", hint))
         # C1 and C3 ride this turn because it is the only channel a live state
