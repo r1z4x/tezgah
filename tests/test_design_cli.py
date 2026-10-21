@@ -232,6 +232,18 @@ class Derive(DesignCase):
         self.assertIn("inert", text)
         self.assertIn("components", proc.stdout)
 
+    def test_derive_runs_through_a_symlink_in_another_directory(self):
+        # ~/.config/tezgah/bin/tezgah-design is a symlink into the checkout's
+        # bin/; hooks/ must be found next to the real file, not the link.
+        link = self.path("linkbin", "tezgah-design")
+        os.makedirs(os.path.dirname(link))
+        os.symlink(CLI, link)
+        self.write("app/styles/tokens.css", TOKENS_CSS)
+        proc = subprocess.run([sys.executable, link, "derive", "--repo", self.dir],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(os.path.isfile(self.path(".tezgah", "design-contract.md")))
+
 
 class Check(DesignCase):
     """`check` compares a measurement - the per-component styles and states the

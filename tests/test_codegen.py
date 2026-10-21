@@ -80,7 +80,7 @@ class CodegenCase(unittest.TestCase):
                            % self.server.server_address[1],
         }
 
-    def draft(self, name, current, body):
+    def draft(self, name, current, body, script=CODEGEN):
         """A file on disk plus the draft that would replace it, run through
         bin/codegen. The reply names the file the caller asked for, which is the
         only path this tool will diff."""
@@ -88,7 +88,7 @@ class CodegenCase(unittest.TestCase):
         with open(path, "w") as fh:
             fh.write(current)
         Fake.reply = "=== FILE: %s ===\n```\n%s\n```\n" % (path, body)
-        return subprocess.run([sys.executable, CODEGEN, "t", "--files", path],
+        return subprocess.run([sys.executable, script, "t", "--files", path],
                               capture_output=True, text=True, env=self.env)
 
 
@@ -122,6 +122,25 @@ class DraftGuard(CodegenCase):
         p = self.draft("b.py", "x = 1\n", "x = 2\n")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertNotIn("was not parsed", p.stderr)
+
+    def test_codegen_runs_through_a_symlink_in_another_directory(self):
+        # ~/.config/tezgah/bin/codegen is a symlink into the checkout's bin/;
+        # hooks/ must be found next to the real file, not next to the link.
+        link_dir = tempfile.mkdtemp()
+        self.addCleanup(os.rmdir, link_dir)
+        link = os.path.join(link_dir, "codegen")
+        os.symlink(CODEGEN, link)
+        self.addCleanup(os.remove, link)
+        p = self.draft("c.py", "x = 1\n", "x = 2\n", script=link)
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_help_prints_the_usage_and_exits_zero(self):
+        # `--help` exited 1 with the usage on stderr, so `codegen --help | head`
+        # under pipefail read as a broken tool
+        p = subprocess.run([sys.executable, CODEGEN, "--help"],
+                           capture_output=True, text=True, env=self.env)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("--files", p.stdout)
 
 
 class Egress(CodegenCase):
