@@ -26,7 +26,7 @@ from tezgah_integrity import (GRANT_KIND, STEP_KINDS, _heredocs, _path as _ledge
                               scratch_evidence, UNTRUSTED_CHANNEL)
 from tezgah_lessons import (lesson_key, lines as lesson_lines,
                             tainted as tainted_lessons)
-from tezgah_policy import (CONDITIONAL_KEYS, CORE, FANOUT_ACTION, POINTERS,
+from tezgah_policy import (ARMED_ACTIONS, BIN_TOOLS, CONDITIONAL_KEYS, CORE, POINTERS,
                            PROMPT_REMINDER, REPLY_ANY, open_lines_note,
                            pony_level_line)
 from tezgah_paths import (CACHE, CONTEXT_NUDGE_TOKENS, REPO_MARKS, SWITCHES,
@@ -145,7 +145,8 @@ def _fanout():
 
 
 PROMPT_HINTS = tuple((key, _hints(key)) for key in
-                     ("spec", "consult", "research", "product", "graph")) + (
+                     ("spec", "consult", "research", "product", "design",
+                      "graph")) + (
     ("fanout", _fanout()),)
 
 # the detached auto-index worker (lock-guarded, retrying); same dir as this file
@@ -173,6 +174,7 @@ CORE_RULES = (
     ("research", "**Research: route it to OpenResearch.**"),
     ("product", "**Product analysis: five axes, one evidence class per "
                 "finding.**"),
+    ("design", "**Design: UI work reads the design skills.**"),
     ("attribution", "**No AI attribution, ever, on any host.**"),
     ("lang", "**Identifiers and messages stay English.**"),
     ("workspace", "**Workspace: `.tezgah/` only.**"),
@@ -233,10 +235,9 @@ def render(text, root=""):
         words.update(REPLY_ANY)
     for key, word in words.items():
         text = text.replace("{%s}" % key.upper(), word)
-    return (text.replace("{CONSULT_BIN}", tool("consult"))
-                .replace("{CODEGEN_BIN}", tool("codegen"))
-                .replace("{ORX_BIN}", orx_bin() or "orx")
-                .replace("{RESEARCH_BIN}", tool("tezgah-research")).replace("{ROUTE_BIN}", tool("tezgah-route"))
+    for placeholder, name in BIN_TOOLS.items():
+        text = text.replace(placeholder, tool(name))
+    return (text.replace("{ORX_BIN}", orx_bin() or "orx")
                 .replace("{AI_RESEARCH_DIR}", ai_research_dir())
                 .replace("{PONY_LEVEL}", _pony_level_line())
                 .replace("{ROOT}", root or ACTIVE_ROOT[0]
@@ -649,10 +650,11 @@ def task_line(task):
     handing those steps to the user."""
     paths = ", ".join(task.get("allowed_paths") or []) or "any path in the repo"
     return ("Active task %s is in phase `%s`; writes allowed on: %s. Move the "
-            "phase yourself with `tezgah-task phase <next>` when the work reaches "
-            "it, and `tezgah-task close %s done` when it is merged - never hand "
+            "phase yourself with `%s phase <next>` when the work reaches "
+            "it, and `%s close %s done` when it is merged - never hand "
             "these steps to the user." % (task.get("id"), task.get("phase"),
-                                          paths, task.get("id")))
+                                          paths, tool("tezgah-task"),
+                                          tool("tezgah-task"), task.get("id")))
 
 
 # --- the resume block: the live turn state a compact loses -------------------
@@ -684,7 +686,7 @@ RESUME_FILES = 3
 # session_start, every prompt's `slices` part while any is pending.
 SLICE_LINES = 3
 SLICE_CHARS = 160
-SLICES_HEAD = "Slices left stopped or open (the journal, `tezgah-task slice reconcile`):"
+SLICES_HEAD = "Slices left stopped or open (the journal, `{TASK_BIN} slice reconcile`):"
 
 
 def _plan_facts(path):
@@ -890,7 +892,7 @@ def lessons(root):
                for ln in lines[-LESSON_LINES:])
     if late:
         more += ("\n(%d of the lines above do not open with their rule; run "
-                 "`tezgah-lessons` for rewrites)" % late)
+                 "`%s` for rewrites)" % (late, tool("tezgah-lessons")))
     return ("## Lessons from past mistakes in this repo (.tezgah/lessons.md)\n"
             + "\n".join("- " + ln for ln in recent) + more + "\n"
             "These are standing constraints: check the spec and the change "
@@ -1012,12 +1014,12 @@ def armed_again(key):
     """The one line a matching prompt pays for a paragraph this session was
     already shown. The research rule keeps its `{OPEN_LINES}` slot: the open
     lines are a fact about the repo now, not rule text the session holds. The
-    fan-out rule keeps its action (`FANOUT_ACTION`): the rule is a thing to do
-    on this turn's list, and a bare reminder that it exists was not done."""
+    fan-out, product and design rules keep their action (`ARMED_ACTIONS`): the
+    rule is a thing to do on this turn's ask, and a bare reminder that it exists
+    was not done."""
     label = dict(CORE_RULES)[key]
-    if key == "fanout":
-        return ("%s Armed again: %s The full rule is in the `tezgah-contract` "
-                "skill." % (label, FANOUT_ACTION))
+    if key in ARMED_ACTIONS:
+        return "%s Armed again: %s" % (label, ARMED_ACTIONS[key])
     return ("%s Armed again: the full rule was given earlier this session and "
             "is in the `tezgah-contract` skill.%s"
             % (label, "{OPEN_LINES}" if key == "research" else ""))
@@ -1154,6 +1156,9 @@ def switches(cwd):
     if off("spec-off"):
         drop.add("spec")
         disabled.append("spec-off")
+    if off("design-off"):
+        drop.add("design")
+        disabled.append("design-off")
     if off("verify-off"):
         drop.add("integrity")
         disabled.append("verify-off")
@@ -1342,10 +1347,9 @@ DEFAULT_BUDGET = 13000
 # value first: text another surface already carries (the plan table lives in the
 # plan-status skill, the sibling checkouts in `tezgah-research --all`, the
 # lessons file is on disk, the generated-subagent note is a one-time fact); the
-# per-turn skill hint - a suggestion of which skill to read first, never an
-# instruction, so it yields to the relevant lessons after it - and those lessons,
-# which first shrink to their first lesson (SHRINK); only the lessons a turn
-# still shows are marked seen, so a later turn may still carry the rest. Then
+# lessons this prompt is about, which first shrink to their first lesson (SHRINK);
+# only the lessons a turn still shows are marked seen, so a later turn may still
+# carry the rest. Then
 # the tooling-availability lines, then the live state lines - the stale-graph
 # glance, then the resume
 # block, which outlives every status and availability line because it is the only
@@ -1355,16 +1359,18 @@ DEFAULT_BUDGET = 13000
 # an omp `/clear` they are the one pointer left to delegated work in flight - then
 # the scratch-path warning, which is about evidence the turn may already have
 # claimed - then the active task's phase, which outlives both because a phase is what
-# stops a refused write before it happens - then the delta, and the skill pointer
-# last. A key absent from this tuple is never dropped: the always-on core, the
+# stops a refused write before it happens - then the per-turn skill hint, which
+# names the skill this ask needs and no other block can work that out (it was
+# the first block given up: 32 live drops, plan 126) - then the delta, and the
+# skill pointer last. A key absent from this tuple is never dropped: the always-on core, the
 # per-turn reminder and an armed paragraph ARE the rules, and a budget that could
 # spend them would turn bloat into rule loss - which is the failure the budget
 # exists to prevent, not one it may cause.
-DROP_ORDER = ("knowledge", "worktrees", "lessons", "skill", "lessons_turn",
+DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate",
-              "index", "resume", "slices", "context", "scratch", "task", "delta",
-              "pointer")
+              "index", "resume", "slices", "context", "scratch", "task", "skill",
+              "delta", "pointer")
 
 
 def _first_item(text):
@@ -2198,7 +2204,7 @@ def context_for(event, cwd, payload=None, with_core=True):
         # next turn and this part is the one that names the work left in flight.
         pending = slice_lines(root, session_id)
         if pending:
-            parts.append(("slices", "\n".join([SLICES_HEAD] + pending)))
+            parts.append(("slices", "\n".join([render(SLICES_HEAD)] + pending)))
         # The router's own context: above the threshold, one line asks it to
         # push heavy reading through a slice (orchestrator-flow-audit S2 F1).
         heavy = context_nudge(payload, session_id)

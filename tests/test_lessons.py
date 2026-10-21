@@ -111,8 +111,8 @@ class FormatAdvisory(Child):
                                   "x" * 130 + SEP + "late separator",
                                   "no separator at all"])
         out = self.call("lessons", repo)
-        self.assertIn("(2 of the lines above do not open with their rule; "
-                      "run `tezgah-lessons` for rewrites)", out)
+        self.assertRegex(out, r"\(2 of the lines above do not open with their rule; "
+                              r"run `/\S+/tezgah-lessons` for rewrites\)")
 
     def test_rule_first_lines_get_none(self):
         repo = self.make_repo()
