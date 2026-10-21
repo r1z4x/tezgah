@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""tezgah-ocr-review - open-code-review's own review loop on omp's model.
+
+  tezgah-ocr-review [--repo DIR] [--from REF --to REF | --commit SHA]
+                    [--model SELECTOR] [--output FILE] [--allow-secrets]
+
+Runs `ocr review --format json` against a loopback HTTP shim that forwards each
+/v1/* request to one `omp auth-gateway stdio` child, so OCR reviews on omp's
+model and no OCR provider config is written anywhere. Prints OCR's JSON (or
+writes --output). No mode flag reviews the workspace.
+
+Exit 0 ok; 2 when `ocr` or `omp` is missing; 3 when a tracked path looks like a
+secret (OCR's file_read could send it to the model; --allow-secrets skips the
+check); any other non-zero is OCR's own, its stderr passed through.
+"""
+import argparse
+import itertools
+import json
+import os
+import subprocess
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path.insert(0, os.path.join(HERE, "hooks"))
+import tezgah_paths as tp  # noqa: E402
+
+# alibaba/open-code-review 375f64c internal/config/allowlist/default_secret_patterns.json
+SECRET_PATTERNS = ["**/.ssh/**", "**/id_rsa", "**/id_dsa", "**/id_ecdsa", "**/id_ed25519",
+                   "**/.netrc", "**/_netrc", "**/.npmrc", "**/.pypirc", "**/.dockercfg"]
+# ... and secret_path.go there: `.env` / `.env.*` is a secret except these templates
+ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
+READY_TIMEOUT = 30
+PLACEHOLDER_TOKEN = "omp-auth-gateway"  # the shim ignores it; OCR wants one set
+
+
+def is_secret(path):
+    """OCR's IsSecretPath for the two pattern shapes its list uses."""
+    parts = path.lower().split("/")
+    base = parts[-1]
+    if base not in ENV_TEMPLATES and (base == ".env" or base.startswith(".env.")):
+        return True
+    for pattern in SECRET_PATTERNS:
+        name = pattern[len("**/"):]
+        if name.endswith("/**"):
+            if name[:-3] in parts:
+                return True
+        elif base == name:
+            return True
+    return False
+
+
+assert is_secret("a/.ssh/config") and is_secret("id_rsa") and is_secret("x/.env.local")
+assert not is_secret(".env.example") and not is_secret("src/id_rsa.pub")
+
+
+def first_secret(repo):
+    out = subprocess.run(["git", "-C", repo, "ls-files", "-z"], capture_output=True,
+                         check=True).stdout.decode("utf-8", "surrogateescape")
+    return next((p for p in out.split("\0") if p and is_secret(p)), None)
+
+
+class Gateway:
+    """One `omp auth-gateway stdio` child; call() is one JSON-lines round trip."""
+
+    def __init__(self, omp):
+        self.child = subprocess.Popen([omp, "auth-gateway", "stdio"], stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, text=True, bufsize=1)
+        self.waiting, self.lock, self.ids = {}, threading.Lock(), itertools.count(1)
+        ready = threading.Event()
+        threading.Thread(target=self._read, args=(ready,), daemon=True).start()
+        if not ready.wait(READY_TIMEOUT):
+            self.close()
+            raise RuntimeError("omp auth-gateway stdio did not report ready within %ds"
+                               % READY_TIMEOUT)
+
+    def _read(self, ready):
+        for line in self.child.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if not ready.is_set():
+                if msg.get("ready"):
+                    ready.set()
+                continue
+            slot = self.waiting.pop(msg.get("id"), None)
+            if slot:
+                slot[1] = msg
+                slot[0].set()
+        for slot in list(self.waiting.values()):  # child gone: fail the open requests
+            slot[0].set()
+
+    def call(self, req):
+        req["id"] = next(self.ids)
+        slot = [threading.Event(), None]
+        self.waiting[req["id"]] = slot
+        try:
+            with self.lock:
+                self.child.stdin.write(json.dumps(req) + "\n")
+                self.child.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            self.waiting.pop(req["id"], None)
+            return None
+        slot[0].wait()
+        return slot[1]
+
+    def close(self):
+        try:
+            self.child.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.child.wait(5)
+        except subprocess.TimeoutExpired:
+            self.child.kill()
+            self.child.wait()
+
+
+def handler(gateway):
+    class Handler(BaseHTTPRequestHandler):
+        def _call(self, method):
+            n = int(self.headers.get("Content-Length") or 0)
+            req = {"method": method, "path": self.path}
+            if n:
+                req["body"] = json.loads(self.rfile.read(n))
+            msg = gateway.call(req) or {"status": 502, "body": {"error": "omp gateway gone"}}
+            body = msg.get("body")
+            sse = isinstance(body, str)
+            data = (body if sse else json.dumps(body)).encode()
+            self.send_response(msg.get("status", 502))
+            self.send_header("Content-Type", "text/event-stream" if sse else "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            self._call("POST")
+
+        def do_GET(self):
+            self._call("GET")
+
+        def log_message(self, *args):
+            pass
+
+    return Handler
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="tezgah-ocr-review")
+    ap.add_argument("--repo", default=".")
+    ap.add_argument("--from", dest="base")
+    ap.add_argument("--to", dest="head")
+    ap.add_argument("--commit")
+    ap.add_argument("--model", default="@default")
+    ap.add_argument("--output")
+    ap.add_argument("--allow-secrets", action="store_true")
+    args = ap.parse_args(argv)
+    if args.commit and (args.base or args.head):
+        ap.error("--commit and --from/--to are exclusive")
+    repo = os.path.abspath(args.repo)
+
+    ocr, omp = tp.ocr_bin(), tp.omp_bin()
+    if not ocr or not omp:
+        print("tezgah-ocr-review: `%s` not found" % ("ocr" if not ocr else "omp"),
+              file=sys.stderr)
+        return 2
+    if not args.allow_secrets:
+        secret = first_secret(repo)
+        if secret:
+            print("tezgah-ocr-review: tracked secret-looking path %s - OCR could send it to"
+                  " the model; pass --allow-secrets to review anyway" % secret, file=sys.stderr)
+            return 3
+
+    cmd = [ocr, "review", "--format", "json", "--color", "never"]
+    for flag, value in (("--from", args.base), ("--to", args.head), ("--commit", args.commit)):
+        if value:
+            cmd += [flag, value]
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("OCR_", "ANTHROPIC_", "OPENAI_"))}
+
+    gateway = server = proc = out = None
+    try:
+        try:
+            gateway = Gateway(omp)
+        except RuntimeError as e:
+            print("tezgah-ocr-review: %s" % e, file=sys.stderr)
+            return 1
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler(gateway))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        env.update(OCR_LLM_URL="http://127.0.0.1:%d/v1" % server.server_address[1],
+                   OCR_LLM_MODEL=args.model, OCR_LLM_PROTOCOL="openai",
+                   OCR_LLM_TOKEN=PLACEHOLDER_TOKEN, OCR_NO_UPDATE="1")
+        out = open(args.output, "w") if args.output else None
+        proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=out)
+        return proc.wait()
+    finally:
+        if proc and proc.poll() is None:
+            proc.terminate()
+            proc.wait()
+        if out:
+            out.close()
+        if server:
+            server.shutdown()
+            server.server_close()
+        if gateway:
+            gateway.close()
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)
