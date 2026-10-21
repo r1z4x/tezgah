@@ -1,0 +1,105 @@
+"""bin/tezgah-review-quote: findings placed on a diff by their quoted code."""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from support import REPO
+
+TOOL = os.path.join(REPO, "bin", "tezgah-review-quote")
+
+A_OLD = ["header_line", "", "second_line"] + [f"filler_{i}" for i in range(4, 10)] + [
+    "value = 1", "keep_11", "removed_call()"] + [f"tail_{i}" for i in range(13, 21)]
+A_NEW = [x for x in A_OLD if x != "removed_call()"]
+A_NEW[A_NEW.index("value = 1")] = "value = 2"
+
+
+class ReviewQuoteTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.repo = cls._tmp.name
+
+        def git(*args):
+            subprocess.run(["git", "-C", cls.repo, "-c", "user.name=t",
+                            "-c", "user.email=t@t", *args],
+                           check=True, capture_output=True)
+
+        def write(name, lines):
+            with open(os.path.join(cls.repo, name), "w") as f:
+                f.write("\n".join(lines) + "\n")
+
+        git("init", "-q")
+        write("a.py", A_OLD)
+        for name in ("b.py", "c.py", "d.py"):
+            write(name, [f"# {name}"])
+        git("add", "-A")
+        git("commit", "-qm", "one")
+        write("a.py", A_NEW)
+        write("b.py", ["# b.py", "def unique_b():", "    return 'b'"])
+        write("c.py", ["# c.py", "shared_boilerplate()"])
+        write("d.py", ["# d.py", "shared_boilerplate()"])
+        git("commit", "-qam", "two")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def run_tool(self, *args, stdin=None):
+        return subprocess.run([sys.executable, TOOL, "--repo", self.repo, *args],
+                              input=stdin, capture_output=True, text=True)
+
+    def place(self, path, quote):
+        r = self.run_tool("--from", "HEAD~1", "-",
+                          stdin=json.dumps([{"path": path, "quote": quote, "id": 7}]))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        [out] = json.loads(r.stdout)
+        self.assertEqual(out["id"], 7)
+        return out
+
+    def test_new_side_with_plus_marker(self):
+        out = self.place("a.py", "+value = 2")
+        self.assertEqual((out["status"], out["start_line"], out["end_line"]),
+                         ("located", 10, 10))
+        self.assertNotIn("side", out)
+
+    def test_old_side_deleted_line(self):
+        out = self.place("a.py", "-removed_call()")
+        self.assertEqual((out["status"], out["start_line"], out.get("side")),
+                         ("located", 12, "old"))
+
+    def test_full_file_outside_hunk_skips_blank_lines(self):
+        out = self.place("a.py", "header_line\n\n\nsecond_line")
+        self.assertEqual((out["status"], out["start_line"], out["end_line"]),
+                         ("located", 1, 3))
+
+    def test_indentation_and_blank_quote_lines_ignored(self):
+        out = self.place("b.py", "\n  def unique_b():\n\n        return 'b'   \n")
+        self.assertEqual((out["status"], out["path"], out["start_line"], out["end_line"]),
+                         ("located", "b.py", 2, 3))
+
+    def test_relocated_on_unique_match(self):
+        out = self.place("a.py", "def unique_b():\n    return 'b'")
+        self.assertEqual((out["status"], out["path"], out["start_line"]),
+                         ("relocated", "b.py", 2))
+
+    def test_ambiguous_match_is_unlocated(self):
+        out = self.place("a.py", "shared_boilerplate()")
+        self.assertEqual((out["status"], out["path"]), ("unlocated", "a.py"))
+        self.assertNotIn("start_line", out)
+
+    def test_absent_quote_is_unlocated(self):
+        self.assertEqual(self.place("a.py", "no_such_code()")["status"], "unlocated")
+
+    def test_misuse_exits_2(self):
+        self.assertEqual(self.run_tool("-", stdin="[]").returncode, 2)
+        self.assertEqual(self.run_tool("--from", "HEAD~1", "-", stdin="{").returncode, 2)
+        self.assertEqual(self.run_tool("--from", "HEAD~1", "-",
+                                       stdin='[{"path": "a.py"}]').returncode, 2)
+        self.assertEqual(self.run_tool("--from", "nope", "-", stdin="[]").returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

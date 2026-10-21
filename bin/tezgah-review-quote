@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""tezgah-review-quote - place review findings on the diff by their quoted code.
+
+    tezgah-review-quote [--repo DIR] --from BASE [--to HEAD] FINDINGS_JSON
+
+FINDINGS_JSON is a file (or `-` for stdin) holding a JSON list of objects with
+at least `path` and `quote`. Prints that list with `status` added:
+`located` (the quote is in its own file), `relocated` (it is in exactly one
+other changed file; `path` moves there) or `unlocated`; a placed finding gets
+`start_line`/`end_line`, plus `side: "old"` when the lines are pre-change.
+
+A Python port of the deterministic comment positioning in
+alibaba/open-code-review (internal/diff/resolver.go: ResolveComment,
+RelocateAcrossFiles; Apache-2.0): each line is trimmed, one leading `+` then
+`-` marker is stripped, blank quote lines are dropped, and the quote must match
+consecutive lines - the hunks' new side, then their old side, then the whole
+new file (where blank file lines are skipped too). Input line numbers are not
+trusted: every finding is placed from its quote alone.
+"""
+import argparse
+import json
+import subprocess
+import sys
+
+
+def norm(line):
+    return line.strip().removeprefix("+").removeprefix("-").strip()
+
+
+def quote_lines(text):
+    return [n for n in map(norm, text.split("\n")) if n]
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True,
+                          text=True, errors="replace")
+
+
+def strip_prefix(path):
+    # ponytail: C-quoted paths (tabs, quotes in names) are not unquoted
+    if path == "/dev/null":
+        return None
+    return path[2:] if path[:2] in ("a/", "b/") else path
+
+
+def parse_diff(text):
+    """One dict per changed file: old/new path and the hunks' two sides as
+    [(line_number, normalised_text)] lists, one pair per hunk."""
+    files, cur, old_no, new_no = [], None, 0, 0
+    for line in text.split("\n"):
+        if line.startswith("diff --git "):
+            cur = {"old": None, "new": None, "hunks": []}
+            files.append(cur)
+        elif cur is None:
+            continue
+        elif line.startswith("--- ") and not cur["hunks"]:
+            cur["old"] = strip_prefix(line[4:].rstrip("\t"))
+        elif line.startswith("+++ ") and not cur["hunks"]:
+            cur["new"] = strip_prefix(line[4:].rstrip("\t"))
+        elif line.startswith("@@"):
+            spans = line.split("@@")[1].split()
+            old_no = int(spans[0][1:].split(",")[0])
+            new_no = int(spans[1][1:].split(",")[0])
+            cur["hunks"].append(([], []))
+        elif cur["hunks"] and not line.startswith("\\"):
+            new_side, old_side = cur["hunks"][-1]
+            mark, body = line[:1], norm(line[1:])
+            if mark in (" ", ""):
+                new_side.append((new_no, body))
+                old_side.append((old_no, body))
+                new_no += 1
+                old_no += 1
+            elif mark == "+":
+                new_side.append((new_no, body))
+                new_no += 1
+            elif mark == "-":
+                old_side.append((old_no, body))
+                old_no += 1
+    return files
+
+
+def match(side, target):
+    """(start, end) of the first consecutive run of `target` in `side`."""
+    n = len(target)
+    for i in range(len(side) - n + 1):
+        if all(side[i + j][1] == target[j] for j in range(n)):
+            return side[i][0], side[i + n - 1][0]
+    return None
+
+
+def resolve(f, target, content):
+    """(start, end, side) of `target` in one changed file, or None."""
+    for which in (0, 1):
+        for hunk in f["hunks"]:
+            hit = match(hunk[which], target)
+            if hit:
+                return (*hit, "old" if which else "new")
+    if content is not None:
+        lines = [(i, norm(t.rstrip("\r")))
+                 for i, t in enumerate(content.split("\n"), 1)]
+        hit = match([p for p in lines if p[1]], target)
+        if hit:
+            return (*hit, "new")
+    return None
+
+
+def place(finding, f, hit):
+    out = dict(finding, path=f["new"] or f["old"],
+               start_line=hit[0], end_line=hit[1])
+    out.pop("side", None)
+    if hit[2] == "old":
+        out["side"] = "old"
+    return out
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="tezgah-review-quote")
+    ap.add_argument("--repo", default=".")
+    ap.add_argument("--from", dest="base", required=True)
+    ap.add_argument("--to", default="HEAD")
+    ap.add_argument("findings")
+    a = ap.parse_args(argv)
+    try:
+        src = sys.stdin if a.findings == "-" else open(a.findings, encoding="utf-8")
+        with src:
+            findings = json.load(src)
+        if not isinstance(findings, list) or not all(
+                isinstance(x, dict) and "path" in x and "quote" in x for x in findings):
+            raise ValueError("expected a JSON list of objects with path and quote")
+    except (OSError, ValueError) as e:
+        print(f"tezgah-review-quote: {a.findings}: {e}", file=sys.stderr)
+        return 2
+    diff = git(a.repo, "diff", "--no-ext-diff", "--no-textconv", "--no-color",
+               "-U3", a.base, a.to)
+    if diff.returncode != 0:
+        print(f"tezgah-review-quote: git diff: {diff.stderr.strip()}", file=sys.stderr)
+        return 2
+    files, contents = parse_diff(diff.stdout), {}
+
+    def content(f):
+        if f["new"] and f["new"] not in contents:
+            r = git(a.repo, "show", f"{a.to}:{f['new']}")
+            contents[f["new"]] = r.stdout if r.returncode == 0 else None
+        return contents.get(f["new"])
+
+    out = []
+    for finding in findings:
+        target = quote_lines(str(finding["quote"] or ""))
+        own = [f for f in files if finding["path"] in (f["new"], f["old"])]
+        hit = target and own and resolve(own[0], target, content(own[0]))
+        if hit:
+            out.append(dict(place(finding, own[0], hit), status="located"))
+            continue
+        hits = [] if not target else [
+            (f, h) for f in files if f not in own
+            for h in [resolve(f, target, content(f))] if h]
+        if len(hits) == 1:
+            out.append(dict(place(finding, *hits[0]), status="relocated"))
+        else:
+            out.append(dict(finding, status="unlocated"))
+    json.dump(out, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
