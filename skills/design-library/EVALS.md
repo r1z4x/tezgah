@@ -29,7 +29,7 @@ Must-contain line is met and no Must-not line is triggered.
 
 **Why this case** - upstream's touch-target body said exactly this; it is the one
 body `SOURCE` records as adapted
-(`inclusive-interaction/skills/touch-target-design/SKILL.md`). An answer that
+(`inclusive-interaction/skills/touch-target-design/ENTRY.md`). An answer that
 parrots the library without the correction fails on the first Must-not line.
 
 ---

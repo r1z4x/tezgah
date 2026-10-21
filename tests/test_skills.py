@@ -181,7 +181,7 @@ class SkillStandards(unittest.TestCase):
         root = os.path.join(SKILLS, "pm-frameworks")
         source = read(os.path.join(root, "SOURCE"))
         rows = dict(re.findall(
-            r"`([\w-]+/SKILL\.md)`\s*\|\s*`[^`]*`\s*\|\s*`([0-9a-f]{64})`",
+            r"`([\w-]+/ENTRY\.md)`\s*\|\s*`[^`]*`\s*\|\s*`([0-9a-f]{64})`",
             source))
         self.assertTrue(rows, "SOURCE records no file/hash pair")
         for rel, want in rows.items():
@@ -375,7 +375,7 @@ class PlanSkillsStayInTheWorkspace(unittest.TestCase):
 LIBRARY = os.path.join(SKILLS, "design-library")
 LIBRARY_SOURCE = os.path.join(LIBRARY, "SOURCE")
 LIBRARY_ROW = re.compile(
-    r"^\|\s*`([A-Za-z0-9/_.-]+/SKILL\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
+    r"^\|\s*`([A-Za-z0-9/_.-]+/ENTRY\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
     r"`([0-9a-f]{64})`\s*\|", re.M)
 # The most a shipped entry point's description may carry. Hosts cut it: omp keeps
 # about twelve words, codex and Claude drop descriptions once the skill list
@@ -420,13 +420,13 @@ def library_manifest():
 
 
 def vendored_skill_files():
-    """Every SKILL.md whose frontmatter is upstream's bytes, not tezgah's: the
-    bodies under a `skills/<name>/` that ships a SOURCE manifest. Their integrity
-    is that library's own hash test, and their frontmatter is not tezgah's to
-    rewrite without breaking it."""
+    """Every entry body whose frontmatter is upstream's bytes, not tezgah's: the
+    ENTRY.md files under a `skills/<name>/` that ships a SOURCE manifest. Their
+    integrity is that library's own hash test, and their frontmatter is not
+    tezgah's to rewrite without breaking it."""
     out = set()
     for source in glob.glob(os.path.join(SKILLS, "*", "SOURCE")):
-        out |= set(glob.glob(os.path.join(os.path.dirname(source), "**", "SKILL.md"),
+        out |= set(glob.glob(os.path.join(os.path.dirname(source), "**", "ENTRY.md"),
                              recursive=True))
     return out
 
@@ -461,7 +461,7 @@ class DesignLibrary(unittest.TestCase):
         # The library's own entry point sits at the root and is not vendored, so
         # the tree's adopted bodies are the ones under a plugin directory.
         cls.bodies = sorted(p[len(LIBRARY) + 1:] for p in
-                            glob.glob(os.path.join(LIBRARY, "**", "SKILL.md"),
+                            glob.glob(os.path.join(LIBRARY, "**", "ENTRY.md"),
                                       recursive=True)
                             if os.sep in p[len(LIBRARY) + 1:])
 
@@ -471,7 +471,7 @@ class DesignLibrary(unittest.TestCase):
                          "SOURCE and the tree disagree about which bodies exist")
         for rel in self.rows:
             self.assertEqual(len(rel.split("/")), 4,
-                             "%s is not at <plugin>/skills/<name>/SKILL.md" % rel)
+                             "%s is not at <plugin>/skills/<name>/ENTRY.md" % rel)
 
     def test_every_listed_body_is_present_and_matches_its_hash(self):
         for rel, want in sorted(self.rows.items()):
@@ -574,7 +574,7 @@ class TapTarget(unittest.TestCase):
 
     def test_the_adopted_copy_states_24_as_the_aa_floor_and_44_as_aaa(self):
         body = frontmatter(read(os.path.join(
-            LIBRARY, "inclusive-interaction/skills/touch-target-design/SKILL.md")))[2]
+            LIBRARY, "inclusive-interaction/skills/touch-target-design/ENTRY.md")))[2]
         self.assertIn("Minimum: 24\u00d724 CSS pixels (WCAG 2.2 SC 2.5.8, Level AA)",
                       body)
         self.assertIn("Enhanced: 44\u00d744 CSS pixels (WCAG 2.2 SC 2.5.5, Level AAA",
@@ -618,7 +618,7 @@ class DesignLibraryIndex(unittest.TestCase):
     entry, `name - what it makes - path`, inside the router's own budget."""
 
     LINE = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*) - (.+) - "
-                      r"([A-Za-z0-9/_.-]+/SKILL\.md)$")
+                      r"([A-Za-z0-9/_.-]+/ENTRY\.md)$")
 
     @classmethod
     def setUpClass(cls):
@@ -671,10 +671,10 @@ class Frontmatter(unittest.TestCase):
                          ["ai-research", "design-library", "pm-frameworks", "rl-env"],
                          "the vendored set changed: name it here, or lint it")
         for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
-            covered = (path in self.paths or
-                       any(path.startswith(root + os.sep) for root in self.roots))
-            self.assertTrue(covered,
-                            "%s is neither an entry point nor vendored" % path)
+            self.assertIn(path, self.paths,
+                          "%s is a nested SKILL.md: codex and Cursor list every "
+                          "SKILL.md below a skills directory as its own skill, so "
+                          "a vendored entry is named ENTRY.md" % path)
 
     def test_every_entry_point_declares_a_name_matching_its_directory(self):
         for path in self.paths:

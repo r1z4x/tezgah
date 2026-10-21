@@ -395,13 +395,14 @@ def skill_roots(extra=(), cwd=None):
 
 
 # One routing line of a skill's own INDEX.md: `name - what it makes - path`.
-_INDEX_ROW = re.compile(r"^\S+ - .+ - (\S+/SKILL\.md)\s*$")
+_INDEX_ROW = re.compile(r"^\S+ - .+ - (\S+/ENTRY\.md)\s*$")
 
 
 def _entries(root, name):
     """[(skill, path)] for one skill directory: its SKILL.md, then every entry its
     INDEX.md routes to. design-library keeps 39 entries under
-    `<plugin>/skills/<entry>/SKILL.md` and reaches them only through that index,
+    `<plugin>/skills/<entry>/ENTRY.md` (not SKILL.md: codex and Cursor list every
+    nested SKILL.md as a skill) and reaches them only through that index,
     so a search over top-level files alone never saw a word of them. A nested
     entry is addressed `<skill>/<path>`, the form `skill://` resolves."""
     base = os.path.join(root, name)

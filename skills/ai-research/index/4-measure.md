@@ -10,16 +10,16 @@ links N reference files upstream does not ship.
 
 | entry | file | what it covers | flags |
 |---|---|---|---|
-| `nnsight` | `04-mechanistic-interpretability/nnsight/SKILL.md` | Provides guidance for interpreting and manipulating neural network internals using nnsight with optional NDIF remote execution. |  |
-| `pyvene` | `04-mechanistic-interpretability/pyvene/SKILL.md` | Provides guidance for performing causal interventions on PyTorch models using pyvene's declarative intervention framework. |  |
-| `saelens` | `04-mechanistic-interpretability/saelens/SKILL.md` | Provides guidance for training and analyzing Sparse Autoencoders (SAEs) using SAELens to decompose neural network activations into interpretable features. |  |
-| `transformer-lens` | `04-mechanistic-interpretability/transformer-lens/SKILL.md` | Provides guidance for mechanistic interpretability research using TransformerLens to inspect and manipulate transformer internals via HookPoints and activation caching. |  |
-| `constitutional-ai` | `07-safety-alignment/constitutional-ai/SKILL.md` | Anthropic's method for training harmless AI through self-improvement. | dead-links: 3 |
-| `llamaguard` | `07-safety-alignment/llamaguard/SKILL.md` | Meta's 7-8B specialized moderation model for LLM input/output filtering. | dead-links: 1 |
-| `nemo-guardrails` | `07-safety-alignment/nemo-guardrails/SKILL.md` | NVIDIA's runtime safety framework for LLM applications. | dead-links: 1 |
-| `prompt-guard` | `07-safety-alignment/prompt-guard/SKILL.md` | Meta's 86M prompt injection and jailbreak detector. |  |
-| `bigcode-evaluation-harness` | `11-evaluation/bigcode-evaluation-harness/SKILL.md` | Evaluates code generation models across HumanEval, MBPP, MultiPL-E, and 15+ benchmarks with pass@k metrics. |  |
-| `lm-evaluation-harness` | `11-evaluation/lm-evaluation-harness/SKILL.md` | Evaluates LLMs across 60+ academic benchmarks (MMLU, HumanEval, GSM8K, TruthfulQA, HellaSwag). |  |
-| `nemo-evaluator` | `11-evaluation/nemo-evaluator/SKILL.md` | Evaluates LLMs across 100+ benchmarks from 18+ harnesses (MMLU, HumanEval, GSM8K, safety, VLM) with multi-backend execution. |  |
-| `langsmith` | `17-observability/langsmith/SKILL.md` | LLM observability platform for tracing, evaluation, and monitoring. |  |
-| `phoenix` | `17-observability/phoenix/SKILL.md` | Open-source AI observability platform for LLM tracing, evaluation, and monitoring. |  |
+| `nnsight` | `04-mechanistic-interpretability/nnsight/ENTRY.md` | Provides guidance for interpreting and manipulating neural network internals using nnsight with optional NDIF remote execution. |  |
+| `pyvene` | `04-mechanistic-interpretability/pyvene/ENTRY.md` | Provides guidance for performing causal interventions on PyTorch models using pyvene's declarative intervention framework. |  |
+| `saelens` | `04-mechanistic-interpretability/saelens/ENTRY.md` | Provides guidance for training and analyzing Sparse Autoencoders (SAEs) using SAELens to decompose neural network activations into interpretable features. |  |
+| `transformer-lens` | `04-mechanistic-interpretability/transformer-lens/ENTRY.md` | Provides guidance for mechanistic interpretability research using TransformerLens to inspect and manipulate transformer internals via HookPoints and activation caching. |  |
+| `constitutional-ai` | `07-safety-alignment/constitutional-ai/ENTRY.md` | Anthropic's method for training harmless AI through self-improvement. | dead-links: 3 |
+| `llamaguard` | `07-safety-alignment/llamaguard/ENTRY.md` | Meta's 7-8B specialized moderation model for LLM input/output filtering. | dead-links: 1 |
+| `nemo-guardrails` | `07-safety-alignment/nemo-guardrails/ENTRY.md` | NVIDIA's runtime safety framework for LLM applications. | dead-links: 1 |
+| `prompt-guard` | `07-safety-alignment/prompt-guard/ENTRY.md` | Meta's 86M prompt injection and jailbreak detector. |  |
+| `bigcode-evaluation-harness` | `11-evaluation/bigcode-evaluation-harness/ENTRY.md` | Evaluates code generation models across HumanEval, MBPP, MultiPL-E, and 15+ benchmarks with pass@k metrics. |  |
+| `lm-evaluation-harness` | `11-evaluation/lm-evaluation-harness/ENTRY.md` | Evaluates LLMs across 60+ academic benchmarks (MMLU, HumanEval, GSM8K, TruthfulQA, HellaSwag). |  |
+| `nemo-evaluator` | `11-evaluation/nemo-evaluator/ENTRY.md` | Evaluates LLMs across 100+ benchmarks from 18+ harnesses (MMLU, HumanEval, GSM8K, safety, VLM) with multi-backend execution. |  |
+| `langsmith` | `17-observability/langsmith/ENTRY.md` | LLM observability platform for tracing, evaluation, and monitoring. |  |
+| `phoenix` | `17-observability/phoenix/ENTRY.md` | Open-source AI observability platform for LLM tracing, evaluation, and monitoring. |  |

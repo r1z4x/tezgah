@@ -25,8 +25,11 @@ read the method rather than cite its name.
 
 | Read | When |
 |---|---|
-| `intended-vs-implemented/SKILL.md` | auditing what a system says it does against what the code does - permissions, trust boundaries, an "internal only" comment that nothing enforces. The PE axis of `product-analysis`. |
-| `opportunity-solution-tree/SKILL.md` | structuring discovery: one outcome, opportunities as customer needs, three or more solutions compared before a choice, the cheapest experiment per risky assumption. The PM axis of `product-analysis`. |
+| `intended-vs-implemented/ENTRY.md` | auditing what a system says it does against what the code does - permissions, trust boundaries, an "internal only" comment that nothing enforces. The PE axis of `product-analysis`. |
+| `opportunity-solution-tree/ENTRY.md` | structuring discovery: one outcome, opportunities as customer needs, three or more solutions compared before a choice, the cheapest experiment per risky assumption. The PM axis of `product-analysis`. |
+
+Each is upstream's `SKILL.md` renamed `ENTRY.md`, bytes unchanged, so a host that
+lists every `SKILL.md` below its skills directory does not list it.
 
 `product-analysis` is the tezgah skill that consumes both; this one is the text.
 Neither file is a rule: the contract's evidence classes, the `research`

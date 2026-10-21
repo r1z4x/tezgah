@@ -10,12 +10,12 @@ links N reference files upstream does not ship.
 
 | entry | file | what it covers | flags |
 |---|---|---|---|
-| `huggingface-tokenizers` | `02-tokenization/huggingface-tokenizers/SKILL.md` | Fast tokenizers optimized for research and production. |  |
-| `sentencepiece` | `02-tokenization/sentencepiece/SKILL.md` | Language-independent tokenizer treating text as raw Unicode. |  |
-| `nemo-curator` | `05-data-processing/nemo-curator/SKILL.md` | GPU-accelerated data curation for LLM training. |  |
-| `ray-data` | `05-data-processing/ray-data/SKILL.md` | Scalable data processing for ML workloads. |  |
-| `chroma` | `15-rag/chroma/SKILL.md` | Open-source embedding database for AI applications. |  |
-| `faiss` | `15-rag/faiss/SKILL.md` | Facebook's library for efficient similarity search and clustering of dense vectors. |  |
-| `pinecone` | `15-rag/pinecone/SKILL.md` | Managed vector database for production AI applications. |  |
-| `qdrant` | `15-rag/qdrant/SKILL.md` | High-performance vector similarity search engine for RAG and semantic search. |  |
-| `sentence-transformers` | `15-rag/sentence-transformers/SKILL.md` | Framework for state-of-the-art sentence, text, and image embeddings. |  |
+| `huggingface-tokenizers` | `02-tokenization/huggingface-tokenizers/ENTRY.md` | Fast tokenizers optimized for research and production. |  |
+| `sentencepiece` | `02-tokenization/sentencepiece/ENTRY.md` | Language-independent tokenizer treating text as raw Unicode. |  |
+| `nemo-curator` | `05-data-processing/nemo-curator/ENTRY.md` | GPU-accelerated data curation for LLM training. |  |
+| `ray-data` | `05-data-processing/ray-data/ENTRY.md` | Scalable data processing for ML workloads. |  |
+| `chroma` | `15-rag/chroma/ENTRY.md` | Open-source embedding database for AI applications. |  |
+| `faiss` | `15-rag/faiss/ENTRY.md` | Facebook's library for efficient similarity search and clustering of dense vectors. |  |
+| `pinecone` | `15-rag/pinecone/ENTRY.md` | Managed vector database for production AI applications. |  |
+| `qdrant` | `15-rag/qdrant/ENTRY.md` | High-performance vector similarity search engine for RAG and semantic search. |  |
+| `sentence-transformers` | `15-rag/sentence-transformers/ENTRY.md` | Framework for state-of-the-art sentence, text, and image embeddings. |  |
