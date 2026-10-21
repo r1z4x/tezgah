@@ -40,7 +40,7 @@ STUB_OMP = textwrap.dedent("""\
 
 STUB_OCR = textwrap.dedent("""\
     #!%s
-    import json, os, sys, urllib.error, urllib.request
+    import json, os, subprocess, sys, urllib.error, urllib.request
     base = os.environ["OCR_LLM_URL"]
     good = "Bearer " + os.environ["OCR_LLM_TOKEN"]
 
@@ -66,10 +66,14 @@ STUB_OCR = textwrap.dedent("""\
                  "models": send("/models?x=1", method="GET"),
                  "bad_json": send("/chat/completions", b"{nope")}
     home = os.environ["HOME"]
+    ignored = None
+    if os.environ.get("STUB_OCR_IGNORE"):
+        ignored = subprocess.call(["git", "check-ignore", "-q",
+                                   os.environ["STUB_OCR_IGNORE"]]) == 0
     print(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "status": status,
                       "reply": reply["choices"][0]["message"]["content"],
                       "probe": probe, "home": home, "home_entries": os.listdir(home),
-                      "xdg": os.environ.get("XDG_CONFIG_HOME"),
+                      "xdg": os.environ.get("XDG_CONFIG_HOME"), "ignored": ignored,
                       "git_global": os.environ.get("GIT_CONFIG_GLOBAL"),
                       "env": {k: v for k, v in os.environ.items() if k.startswith("OCR_")},
                       "leaked": [k for k in os.environ
@@ -171,8 +175,35 @@ class OcrReviewTest(unittest.TestCase):
         self.assertNotEqual(os.path.realpath(out["home"]), os.path.realpath(self.home))
         self.assertEqual(out["home_entries"], [])
         self.assertFalse(os.path.exists(out["home"]))
-        self.assertIsNone(out["xdg"])
+        self.assertEqual(out["xdg"], self.env["XDG_CONFIG_HOME"])
         self.assertEqual(out["git_global"], gitconfig)
+
+    def test_git_under_ocr_keeps_the_users_global_excludes(self):
+        # the default excludes file under XDG, and a ~-path core.excludesFile:
+        # both resolve through HOME, which OCR gets a private copy of
+        self.write(".envrc", "export X=1\n", add=False)
+        xdg = os.path.join(self.home, ".config")
+        os.makedirs(os.path.join(xdg, "git"))
+        with open(os.path.join(xdg, "git", "ignore"), "w") as f:
+            f.write(".envrc\n")
+        del self.env["XDG_CONFIG_HOME"]
+        r = self.run_tool(STUB_OCR_IGNORE=".envrc")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(json.loads(r.stdout)["ignored"], "XDG default excludes")
+        os.remove(os.path.join(xdg, "git", "ignore"))
+        with open(os.path.join(self.home, "my-ignore"), "w") as f:
+            f.write(".envrc\n")
+        gitconfig = os.path.join(self.home, ".gitconfig")
+        with open(gitconfig, "w") as f:
+            f.write("[core]\n\texcludesFile = ~/my-ignore\n")
+        r = self.run_tool(STUB_OCR_IGNORE=".envrc", GIT_CONFIG_GLOBAL=gitconfig)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(json.loads(r.stdout)["ignored"], "~-path core.excludesFile")
+
+    def test_an_unwritable_output_is_a_setup_failure(self):
+        r = self.run_tool("--output", os.path.join(self.tmp.name, "no", "dir", "o.json"))
+        self.assertEqual(r.returncode, 4, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
 
     def test_output_file_and_default_model(self):
         dest = os.path.join(self.tmp.name, "review.json")

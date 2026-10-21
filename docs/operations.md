@@ -688,11 +688,14 @@ accounts for every listed file as reviewed or skipped with a reason. It still
 applies the rest of its brief.
 
 `tezgah-review-quote --from BASE [--to HEAD] FINDINGS.json` places each finding by
-its quoted code, never by its line numbers (`bin/tezgah-review-quote::main`). Each
-finding needs `path` and `quote`. The tool adds a `status`. `located` means the
-quote is in the finding's own file. `relocated` means it is in exactly one other
-changed file, and `path` moves there. `unlocated` means neither, and that finding
-goes back to its reviewer. A placed finding gets `start_line` and `end_line`, and
+its quoted code (`bin/tezgah-review-quote::main`). Each finding needs `path` and
+`quote`, and may carry the `start_line` it cites. The tool adds a `status`.
+`located` means the quote is in the finding's own file. The match covering the
+cited line wins, else the one new-side match, else the one match. `unlocated`
+with `reason: "ambiguous: N matches"` means several matches and no cited line
+among them. `relocated` means no match in its own file and exactly one in
+another changed file, and `path` moves there. Any other `unlocated` finding goes
+back to its reviewer. A placed finding gets `start_line` and `end_line`, and
 `side: "old"` when the lines are pre-change (`bin/tezgah-review-quote::resolve`).
 It ports OCR's comment positioning from `internal/diff/resolver.go`.
 
@@ -709,8 +712,9 @@ OCR then reviews on omp's model with omp's own credentials.
   A `~/.opencodereview/config.json` from standalone OCR use cannot redirect the
   review.
 - Only the OCR process loses the caller's `OCR_*`, `ANTHROPIC_*` and `OPENAI_*`
-  variables (`bin/tezgah-ocr-review::run`). The omp child keeps the caller's
-  environment, because it needs omp's own credentials.
+  variables (`bin/tezgah-ocr-review::run`). Git under OCR keeps the user's
+  global config and excludes, so a globally ignored file stays ignored. The omp
+  child keeps the caller's environment, because it needs omp's own credentials.
 - A path that looks like a secret stops the run with exit 3
   (`bin/tezgah-ocr-review::first_secret`). In workspace mode the check covers
   tracked, untracked and ignored files. In range or commit mode it covers the

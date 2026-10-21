@@ -43,6 +43,7 @@ class ReviewQuoteTest(unittest.TestCase):
         write("a/x.py", ["x_old_line"])
         for name in ("b.py", "c.py", "d.py", "e.py"):
             write(name, [f"# {name}"])
+        write("f.py", ["# f.py", "  ws_call()"])
         git("add", "-A")
         git("commit", "-qm", "one")
         write("a.py", A_NEW)
@@ -51,6 +52,8 @@ class ReviewQuoteTest(unittest.TestCase):
         write("d.py", ["# d.py", "shared_boilerplate()"])
         write("a/x.py", ["x_new_line"])
         write("e.py", ["# e.py", "dup_call()", "middle", "dup_call()"])
+        # a whitespace-only change: the same normalised line on both sides
+        write("f.py", ["# f.py", "    ws_call()"])
         git("commit", "-qam", "two")
 
     @classmethod
@@ -119,6 +122,11 @@ class ReviewQuoteTest(unittest.TestCase):
     def test_context_line_is_not_doubled_by_old_side(self):
         out = self.place("a.py", "keep_11")
         self.assertEqual((out["status"], out["start_line"]), ("located", 11))
+
+    def test_whitespace_only_change_is_one_new_side_hit(self):
+        out = self.place("f.py", "ws_call()")
+        self.assertEqual((out["status"], out["start_line"], out.get("side")),
+                         ("located", 2, None))
 
     def test_noprefix_config_and_top_level_a_dir(self):
         out = self.place("a/x.py", "x_new_line")

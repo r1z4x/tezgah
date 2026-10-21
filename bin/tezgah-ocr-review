@@ -11,11 +11,13 @@ anywhere. The shim answers only a request carrying the run's random bearer
 token (handed to OCR as OCR_LLM_TOKEN). Prints OCR's JSON (or writes --output).
 No mode flag reviews the workspace.
 
-Only the OCR process gets a scrubbed env: no OCR_*/ANTHROPIC_*/OPENAI_*, no
-XDG_CONFIG_HOME, and a private empty HOME (removed afterwards), because OCR
-reads ~/.opencodereview/config.json and shell rc files before OCR_LLM_*; the
-user's git config is kept through GIT_CONFIG_GLOBAL. The omp child keeps the
-user's env - it needs its own credentials.
+Only the OCR process gets a scrubbed env: no OCR_*/ANTHROPIC_*/OPENAI_* and a
+private empty HOME (removed afterwards), because OCR reads
+~/.opencodereview/config.json and shell rc files before OCR_LLM_*. Git under
+OCR still sees the user's own config and global excludes: GIT_CONFIG_GLOBAL
+points at ~/.gitconfig, XDG_CONFIG_HOME at the user's config dir, and a
+core.excludesFile resolved with the user's HOME is passed in absolute. The omp
+child keeps the user's env - it needs its own credentials.
 
 Exit 0 ok; 2 when `ocr` or `omp` is missing; 3 when a path OCR could read looks
 like a secret (its file_read could send it to the model; --allow-secrets skips
@@ -236,10 +238,21 @@ def run(args, repo, ocr, omp):
         if value:
             cmd += [flag, value]
     env = {k: v for k, v in os.environ.items()
-           if k != "XDG_CONFIG_HOME" and not k.startswith(("OCR_", "ANTHROPIC_", "OPENAI_"))}
+           if not k.startswith(("OCR_", "ANTHROPIC_", "OPENAI_"))}
+    # OCR's HOME is private (below); git resolves its config and its default
+    # excludes ($XDG_CONFIG_HOME|$HOME/.config/git/ignore) through HOME, so
+    # both are pinned to the user's own here
+    env.setdefault("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
     gitconfig = os.path.expanduser("~/.gitconfig")
     if os.path.isfile(gitconfig):  # an explicit GIT_CONFIG_GLOBAL still wins
         env.setdefault("GIT_CONFIG_GLOBAL", gitconfig)
+    excludes = subprocess.run(["git", "-C", root, "config", "--path", "--get",
+                               "core.excludesFile"], capture_output=True, text=True)
+    if excludes.returncode == 0 and excludes.stdout.strip():
+        n = int(env.get("GIT_CONFIG_COUNT") or 0)
+        env.update({"GIT_CONFIG_COUNT": str(n + 1),
+                    "GIT_CONFIG_KEY_%d" % n: "core.excludesFile",
+                    "GIT_CONFIG_VALUE_%d" % n: excludes.stdout.strip()})
     token = secrets.token_urlsafe(32)
     try:
         timeout = float(os.environ.get("TEZGAH_OCR_REVIEW_READY_TIMEOUT") or 30)
@@ -255,8 +268,11 @@ def run(args, repo, ocr, omp):
         env.update(HOME=home, OCR_LLM_URL="http://127.0.0.1:%d/v1" % server.server_address[1],
                    OCR_LLM_MODEL=args.model, OCR_LLM_PROTOCOL="openai",
                    OCR_LLM_TOKEN=token, OCR_NO_UPDATE="1")
-        out = open(args.output, "w", encoding="utf-8") if args.output else None
-        proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=out)
+        try:
+            out = open(args.output, "w", encoding="utf-8") if args.output else None
+            proc = subprocess.Popen(cmd, cwd=repo, env=env, stdout=out)
+        except OSError as e:
+            raise SetupError("cannot start ocr or write --output: %s" % e)
         return proc.wait()
     finally:
         if proc and proc.poll() is None:
