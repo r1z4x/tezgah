@@ -37,6 +37,16 @@ CAP.commit_capture = lambda repo, base, rels, command, slug: CAP.commits.append(
     (tuple(rels), command, slug))
 CAP.fetch_url = lambda url, body=None, headers=None: CAP.answers.get(
     "POST %s %s" % (url, hashlib.sha256(body).hexdigest()), (404, b""))
+
+
+def _append_rows(base, rel, objs):
+    path = os.path.join(base, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("".join(json.dumps(o) + "\n" for o in objs))
+
+
+CAP.append_rows = _append_rows
 CAP.citation_problem = lambda row: None if row.get("title", "").startswith("Sound") \
     else "resolves in no registry"
 CAP.quote_problem = lambda quote, text: None if quote in text \

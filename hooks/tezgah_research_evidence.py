@@ -431,10 +431,8 @@ def _line(repo, slug):
 
 
 def _append(base, rel, rows):
-    path = os.path.join(base, rel)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        fh.write("".join(json.dumps(r) + "\n" for r in rows))
+    import tezgah_research_capture as cap
+    cap.append_rows(base, rel, rows)
 
 
 def _commit(repo, base, rels, command, slug):
