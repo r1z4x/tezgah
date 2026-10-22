@@ -289,6 +289,23 @@ class Install(SetupBase):
         self.assertIs(oc["compaction"]["prune"], False)
         self.assertIn(".git/**", oc["watcher"]["ignore"])
 
+    def test_opencode_2_gets_no_v1_tui_wiring_and_no_prune(self):
+        """opencode 2 migrates tui.json into cli.json once and ignores it after,
+        and drops compaction.prune as an unsupported legacy key (measured on
+        v2.0.32), so neither is written where cli.json exists."""
+        self.write_json(self.path(".config", "opencode", "cli.json"),
+                        {"$schema": "https://opencode.ai/v2/cli.json", "plugins": []})
+        proc = self.setup("--install", "--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("compaction", oc)
+        self.assertIn(self.path(".config", "tezgah", "opencode-skills.md"), oc["instructions"])
+        self.assertFalse(os.path.exists(self.path(".config", "opencode", "tui.json")))
+        self.assertEqual(self.read_json(self.path(".config", "opencode", "cli.json"))["plugins"], [])
+        report = self.setup("--report", "--hosts", "opencode").stdout
+        self.assertNotIn("compaction.prune", report)
+        self.assertNotIn("status line plugin", report)
+
     def test_apps_mcp_wired_optional_devtools_and_removable(self):
         self.setup("--install", "--hosts", ALL)
         self.assertTrue(os.path.isdir(self.path(".cache", "tezgah", "apps")))
@@ -1521,6 +1538,15 @@ class CodexHome(SetupBase):
         self.assertTrue(row.strip().startswith("MISS"), row)
         self.assertIn("(omp) match the hosts wired (codex)", row)
         self.assertEqual(self.read_json(path)["hosts"], ["omp"])
+
+    def test_arming_one_host_keeps_the_others_on_record(self):
+        # `--install --hosts opencode` on a machine armed for codex used to
+        # write hosts=["opencode"]: --upgrade and a full uninstall then skipped
+        # codex, though its wiring was still on disk.
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        self.assertEqual(self.setup("--install", "--hosts", "opencode").returncode, 0)
+        path = self.path(".config", "tezgah", "config.json")
+        self.assertEqual(self.read_json(path)["hosts"], ["codex", "opencode"])
 
     def test_the_codex_roles_land_in_the_relocated_home(self):
         proc = self.setup("--install", "--hosts", "codex")
