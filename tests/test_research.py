@@ -6261,5 +6261,37 @@ class Exploratory(Workspace):
                              self.warnings(repo, slug="camp", git=False)))
 
 
+class OrxModuleNames(unittest.TestCase):
+    """Every `orx skill <name>` the research skill and the policy text name is a
+    module orx 0.2.20 ships; a bare name resolves to its `orx-` prefixed module.
+    When orx is installed, each name also loads (`orx skill <name>` exits 0)."""
+
+    MODULES = ("orx-create", "orx-experiment-tree", "orx-git",
+               "orx-agent-delegation", "orx-compute", "orx-instances", "orx-logs",
+               "orx-results", "orx-reports", "orx-figures", "orx-paper",
+               "orx-customize", "orx-lit-review", "orx-feedback")
+    SOURCES = ("skills/research/SKILL.md", "hooks/tezgah_policy.py")
+    NAME = re.compile(r"(?:orx|\{ORX_BIN\})[ \t]+skill[ \t]+([a-z][a-z0-9-]*)")
+
+    def names(self):
+        found = set()
+        for rel in self.SOURCES:
+            found.update(self.NAME.findall(read(os.path.join(REPO, rel))))
+        return sorted(found)
+
+    def test_every_named_module_exists_in_orx(self):
+        names = self.names()
+        self.assertTrue(names)
+        unknown = [n for n in names if n not in self.MODULES
+                   and "orx-" + n not in self.MODULES]
+        self.assertEqual(unknown, [])
+        orx = shutil.which("orx") or os.path.expanduser("~/.cargo/bin/orx")
+        if not os.path.exists(orx):
+            return
+        failed = [n for n in names if subprocess.run(
+            [orx, "skill", n], capture_output=True).returncode != 0]
+        self.assertEqual(failed, [])
+
+
 if __name__ == "__main__":
     unittest.main()
