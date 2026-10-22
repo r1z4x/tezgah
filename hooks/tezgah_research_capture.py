@@ -19,6 +19,7 @@ Interface (plan 127):
 - engine_runs(state) -> (runs|None, error): `orx runs` scoped by experiment.
 - citation_problem(row) / quote_problem(quote, text) -> str|None: release-check's scorers.
 """
+import decimal
 import hashlib
 import html
 import json
@@ -65,10 +66,22 @@ CAPTURE = re.compile(r"^(?:literature/\.receipts/|literature/\.sources/|searches
                      r"|experiments/[^/]+/raw/|instruments/gold/)")
 LEDGER = re.compile(r"^(?:literature/\.receipts/RECEIPTS|literature/\.sources/SOURCES"
                     r"|searches/SEARCHES|instruments/[^/]+)\.jsonl$")
-LOG_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w]|\.\d)")
+# A number as `source --value` takes it: `12`, `-0.5`, `1.2e-3`.
+VALUE_NUMBER = r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?"
+# A number as a run log writes it: VALUE_NUMBER, or one grouped by thousands (`12,345`),
+# which is read whole, so its tail is never a number of its own (K6 rater Y2).
+# ponytail: a CSV row of integers whose later fields have three digits (`5,300`) reads
+# as one grouped number; a log that means two fields there is the ceiling.
+LOG_NUMBER = re.compile(r"(?<![\w.])-?(?:[1-9]\d{0,2}(?:,\d{3})+|\d+)(?:\.\d+)?"
+                        r"(?:[eE][-+]?\d+)?(?![\w]|\.\d)")
 
 NO_REGISTRY = "resolves in no registry"
 NOT_IN_SOURCE = "quote not in the captured source text"
+
+
+def log_numbers(text):
+    """Every number of a run log, as Decimals: what a `--value` has to equal."""
+    return {decimal.Decimal(t.replace(",", "")) for t in LOG_NUMBER.findall(text)}
 
 
 # --- the shared capture helpers -------------------------------------------------
