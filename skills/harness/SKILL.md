@@ -1,8 +1,8 @@
 ---
 name: harness
 description: >
-  Use when the ask needs depth: an audit, every call site, what breaks if, end
-  to end; detaylı incele, tüm çağrı noktaları. Not for evidence - use
+  Use when the ask needs depth: an audit, every call site, what breaks if;
+  detaylı incele, tüm çağrı noktaları; ultracode. Not for evidence - use
   `research`.
 ---
 

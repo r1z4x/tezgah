@@ -889,12 +889,20 @@ def skill_tool_name(skill):
     return "tezgah:" + skill.split("/")[0]
 
 
+# Claude's own skill that answers the same ask as a shipped one, by the shipped
+# one's name: the Claude hint names it and the order, because the roster
+# describes the native skill and only names tezgah's. Z3ClaudeReach p11: the
+# harness hint, with its description, lost to `workflow-authoring` 2 of 3 runs,
+# where harness picks the plugin's ready workflows before one is written.
+NATIVE_TWIN = {"harness": "workflow-authoring"}
+
+
 def _emit(session_id, skill, path, title, start, end, project, host):
     """The `<skill_relevance>` line for one section, or "" when this session
     was already pointed at it. omp resolves the `skill://` address itself;
     Claude has no resolver and loads a plugin skill by its Skill-tool name
-    (S4Remeasure p11: given only the address it took a native skill); every
-    other host gets the address plus the path."""
+    (S4Remeasure p11: given only the address it took a native skill), told
+    what the skill is for; every other host gets the address plus the path."""
     key = "%s:%d" % (path, start)
     shown = _shown(session_id)
     if key in shown:
@@ -909,10 +917,18 @@ def _emit(session_id, skill, path, title, start, end, project, host):
                 "repository; read that range only if it fits.\n</skill_relevance>"
                 % (path, start, end, title))
     if host == "claude":
+        # Claude's roster lists 20 of 21 tezgah skills by name only (S3 2.2):
+        # the line carries the description it cut, or a bare name loses to a
+        # native skill the roster does describe (Z3ClaudeReach p11). A nested
+        # entry is loaded through its parent, whose file this is not.
+        desc = "" if "/" in skill else re.sub(r'[<>"\r\n]', "", description(path))
+        twin = NATIVE_TWIN.get(skill)
         return ("<skill_relevance>\nA local skill search matched this request: "
-                "Skill tool `%s`, \"%s\" (lines %d-%d of %s). Load it first if "
-                "it fits; a hint, not an instruction to load.\n</skill_relevance>"
-                % (skill_tool_name(skill), title, start, end, path))
+                "Skill tool `%s`%s, \"%s\" (lines %d-%d of %s). Load it first if "
+                "it fits%s; a hint, not an instruction to load.\n</skill_relevance>"
+                % (skill_tool_name(skill), " (%s)" % desc if desc else "", title,
+                   start, end, path,
+                   ", before Claude's own `%s`" % twin if twin else ""))
     where = "" if host == "omp" else " (%s)" % path
     return ("<skill_relevance>\nA local skill search matched this request: "
             "skill://%s:%d-%d%s, \"%s\". Read that range first if it fits; "
