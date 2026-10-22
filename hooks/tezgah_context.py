@@ -1337,10 +1337,13 @@ def session_of(payload):
 # move to 15500 B. Moved again on 2026-10-13 (plan 105): the fidelity rule says
 # a research, analysis, review or plan ask ends at the plan (+105 B of core), and
 # the fixture's subagent brief reached 5500 B exactly, so subagent_start moves to
-# 5800 B. A
+# 5800 B. Moved again on 2026-10-22 (plan 126): every CLI the core names is
+# rendered as its installed path (BIN_TOOLS), since no host but Claude has the
+# tezgah bin dir on PATH, and the worktree fixture's session start then gave up
+# its worktrees line (509 B), so the session budgets move to 16000 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 15500, "post_compact": 15500,
+CONTEXT_BUDGET = {"session_start": 16000, "post_compact": 16000,
                   "subagent_start": 5800, "user_prompt": 6500}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest

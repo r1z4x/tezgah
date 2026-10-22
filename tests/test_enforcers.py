@@ -150,7 +150,7 @@ class Cli(unittest.TestCase):
         proc = self.run_status()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         lines = proc.stdout.splitlines()
-        self.assertRegex(lines[0], r"^17 always-on CORE rules: \d+ enforced, "
+        self.assertRegex(lines[0], r"^18 always-on CORE rules: \d+ enforced, "
                                    r"\d+ partial, \d+ record only, \d+ prose-only")
         rules = [r["rule"] for r in docs_module().enforcers()]
         for rule in rules:
@@ -166,7 +166,7 @@ class Cli(unittest.TestCase):
         proc = self.run_status("--json")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         found = json.loads(proc.stdout)
-        self.assertEqual(len(found["rows"]), 17)
+        self.assertEqual(len(found["rows"]), 18)
         self.assertEqual(found["failures"], [])
 
 
