@@ -257,10 +257,23 @@ def normalise(text):
     return " ".join(text.split()).casefold().strip()
 
 
+# A bare arXiv id: new style `YYMM.NNNN[N]`, old style `archive[.SUB]/YYMMNNN`
+ARXIV_BARE = re.compile(r"((?:\d{2}(?:0[1-9]|1[0-2])\.\d{4,5})|(?:[a-z-]+(?:\.[A-Z]{2})?/"
+                        r"\d{2}(?:0[1-9]|1[0-2])\d{3}))(?:v\d+)?$")
+
+
 def norm_id(raw):
-    """The normalised id (`arXiv:`, `doi:`, `openalex:W`, `s2:`), or None."""
+    """The normalised id (`arXiv:`, `doi:`, `openalex:W`, `s2:`), or None. A bare arXiv
+    id is read from a string only: a JSON number is a number, never an id."""
     s = str(raw or "").strip()
     low = s.lower()
+    if low.startswith(("https://", "http://", "arxiv.org/", "www.arxiv.org/")):
+        m = ARXIV_URL.search(s)
+        if m:
+            return "arXiv:" + m.group(1)
+    m = ARXIV_BARE.match(s) if isinstance(raw, str) else None
+    if m:
+        return "arXiv:" + m.group(1)
     if re.match(r"10\.\d{4,9}/\S", low):
         s = low = "doi:" + low
     for prefix in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/"):

@@ -3832,12 +3832,20 @@ def experiment_record(base, h):
     return exp
 
 
+def falsifier_unscoped(text, groups):
+    """True when a structured falsifier names no `on <group>` while the rows hold
+    more than one group: its mean would pool the control with the arm it judges."""
+    found = FALSIFIER_FORM.match(text)
+    return bool(found and not found.group(5) and len(groups) > 1)
+
+
 def falsifier_fired(exp):
     """(falsifier, mean) when the structured `falsifier:` holds over its rows, else
-    None - also when the group holds no row carrying the field."""
+    None - also when the group holds no row carrying the field, and when it names no
+    group over several (`falsifier_unscoped`)."""
     text = _first(exp["fields"], "falsifier")
     found = FALSIFIER_FORM.match(text)
-    if not found:
+    if not found or falsifier_unscoped(text, exp["groups"]):
         return None
     field, symbol, words, number, group = found.groups()
     op = FALSIFIER_OPS.get(" ".join((symbol or words).casefold().split()))
@@ -3996,7 +4004,8 @@ def _experiment_steps(claim, cited, cls, measured, rejected):
         if measured and not all(_first(fields, k) for k in ("alpha", "power", "mde", "n")):
             out.append("no-power-plan")
         falsifier = _first(fields, "falsifier")
-        if measured and falsifier and not falsifier_testable(falsifier):
+        if measured and falsifier and (not falsifier_testable(falsifier)
+                                       or falsifier_unscoped(falsifier, groups)):
             out.append("falsifier-not-evaluable")
         if eff:
             planned = _number(_first(fields, "n"))
@@ -4091,7 +4100,7 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
     if report is not None:
         excused = {" ".join(v.split(":", 1)[0].casefold().split())
                    for v in fields.get("not_reported", []) if ":" in v}
-        text = report.casefold()
+        text = " ".join(report.casefold().split())
         for metric, key in zip(metrics, norm):
             # a registered metric that refines the locked one (the rule above's
             # equivalence) is reported where the report names the locked metric
@@ -4144,8 +4153,10 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
 
 
 def _check_evaluator(repo, base, exp, evaluator, label, errors, git):
-    """An `evaluator:` file holds the bytes it held at the protocol's first commit,
-    and its declared `sha256:` (spec 2.4)."""
+    """An `evaluator:` file holds the bytes it held at the protocol's first commit -
+    in a history that does not hold that commit (a project evaluator of a line in
+    `.tezgah`'s repository), its latest version not after that commit's time - and
+    its declared `sha256:` (spec 2.4)."""
     import hashlib
     parts = evaluator.split()
     path = next((p for p in (os.path.join(base, parts[0]), os.path.join(repo, parts[0]))
@@ -4163,15 +4174,25 @@ def _check_evaluator(repo, base, exp, evaluator, label, errors, git):
         return
     if not git:
         return
-    proto = file_versions(repo, os.path.join(exp["dir"], "protocol.md"))
+    proto_path = os.path.join(exp["dir"], "protocol.md")
+    proto = file_versions(repo, proto_path)
     if not proto:
         return
-    locked = None
+    sha, stamp, locked = proto[0][0], "", None
+    for top, _rel in _histories(repo, proto_path):
+        out, err = _git_out(top, "show", "-s", "--format=%cI", sha)
+        stamp = stamp or ("" if err else out.strip())
     for top, rel in _histories(repo, path):
-        if _holds(top, proto[0][0]):
-            out, err = _git_out(top, "show", "%s:%s" % (proto[0][0], rel))
-            locked = None if err else out
+        rev = sha if _holds(top, sha) else None
+        if rev is None and stamp:
+            out, err = _git_out(top, "log", "-1", "--format=%H", "--until=" + stamp,
+                                "--", rel)
+            rev = None if err else out.strip()
+        if rev:
+            out, err = _git_out(top, "show", "%s:%s" % (rev, rel))
+            locked = locked if err else out
     if locked is None:
+        # committed only after the lock: its first version is the nearest to it
         versions = file_versions(repo, path)
         locked = versions[0][1] if versions else None
     if locked is not None and locked.encode("utf-8") != now:

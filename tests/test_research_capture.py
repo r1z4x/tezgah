@@ -66,6 +66,23 @@ class Pure(unittest.TestCase):
         self.assertEqual(cap.norm_id("https://openalex.org/W9"), "openalex:W9")
         self.assertEqual(cap.identity(["openalex:W9", "doi:10.1/x", "arXiv:1"]), "arXiv:1")
 
+    def test_a_bare_arxiv_id_and_an_arxiv_url_read_as_arxiv(self):
+        # K6 Y2: a bare `1805.08612` INDEX id was skipped by `cite` and refused; X2 (4):
+        # an `arxiv.org/abs/...` URL as an id was not normalised
+        for raw, want in (("1805.08612", "arXiv:1805.08612"),
+                          ("1805.08612v3", "arXiv:1805.08612"),
+                          ("hep-th/9901001", "arXiv:hep-th/9901001"),
+                          ("math.GT/0309136v2", "arXiv:math.GT/0309136"),
+                          ("https://arxiv.org/abs/1805.08612v2", "arXiv:1805.08612"),
+                          ("http://arxiv.org/pdf/1805.08612.pdf", "arXiv:1805.08612"),
+                          ("https://arxiv.org/html/2401.00001v1", "arXiv:2401.00001"),
+                          ("arxiv.org/abs/hep-th/9901001", "arXiv:hep-th/9901001")):
+            self.assertEqual(cap.norm_id(raw), want, raw)
+        self.assertTrue(cap.receipt_urls(cap.norm_id("1805.08612")))
+        # a number is no id: a JSON float, a year, a ratio, a month 13
+        for raw in (1805.08612, "3.14", "2024", "0.05", "1813.08612", "12345.6789"):
+            self.assertIsNone(cap.norm_id(raw), raw)
+
     def test_title_measure_year_window_and_author(self):
         rec = {"title": TITLE, "year": 2024, "first_author": "Smith"}
         self.assertTrue(cap.header_agrees({"title": "Caching for Tail Latency",
