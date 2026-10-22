@@ -129,6 +129,14 @@ class ShortcutCommand(unittest.TestCase):
         for c in ("true `:`\\\n#;touch x", "true `x`#;touch x"):
             self.assertIn("touch x", ti.mask(c), c)
 
+    def test_a_kill_switch_after_a_backtick_hash_is_a_control_write(self):
+        # plan 129: bash runs the `touch` after `` `:`\<nl># `` because that `#`
+        # is mid-word, so the gate's control rule must see it
+        switch = os.path.expanduser("~/.config/tezgah/exec-mode.off")
+        for c in ("true `:`\\\n#;touch %s" % switch,
+                  "true `x`#;touch %s" % switch):
+            self.assertIn("kill switch", tg.shell_control(c, "/tmp") or "", c)
+
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
         # F4: `-S`/`-u` take no separate word, so the `-n` after them is a flag
