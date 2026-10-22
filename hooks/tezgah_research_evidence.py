@@ -292,15 +292,24 @@ def _ppi_line(slug, name, arm, record, labels, arm_items):
 
 
 def _items_at(base, rev):
-    """{name: {arm: set(items)}} from the results files as committed at `rev`, or None."""
+    """{name: {arm: set(items)}} from the results files as committed at `rev`, or as they
+    are on disk when `rev` is None."""
     out = {}
     for h in tr._experiment_names(base):
         rel = "experiments/%s/results.jsonl" % h
-        done = subprocess.run(["git", "-C", base, "show", "%s:./%s" % (rev, rel)],
-                              capture_output=True, text=True)
-        if done.returncode:
-            continue
-        for raw in done.stdout.splitlines():
+        if rev is None:
+            try:
+                with open(os.path.join(base, rel), encoding="utf-8") as fh:
+                    text = fh.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+        else:
+            done = subprocess.run(["git", "-C", base, "show", "%s:./%s" % (rev, rel)],
+                                  capture_output=True, text=True)
+            if done.returncode:
+                continue
+            text = done.stdout
+        for raw in text.splitlines():
             try:
                 row = json.loads(raw)
             except ValueError:
@@ -555,6 +564,16 @@ def cmd_gold(repo, args):
     items = instrument_items(base).get(name, {}).get(arm, {})
     if len(items) < n:
         return _fail(slug, "%s arm %s has %d items, fewer than --n %d" % (name, arm, len(items), n))
+    # the draw has to be the one the rows committed with the gold file give, or `check`'s
+    # add-time reading misses it and the next row makes it `differs from the seeded draw`
+    # for good (K6 rater X2); no git work tree commits nothing, so nothing is frozen
+    if not tr._git_out(repo, "rev-parse", "--is-inside-work-tree")[1] \
+            and _items_at(base, None).get(name, {}).get(arm) \
+            != _items_at(base, "HEAD").get(name, {}).get(arm):
+        return _fail(slug, "%s arm %s has results rows that are not committed, so the gold "
+                     "file would differ from the seeded draw of the rows committed with it "
+                     "- commit them first (`tezgah-research commit %s \"<message>\"`); "
+                     "nothing was written" % (name, arm, slug))
     record = {"instrument": name, "arm": arm, "seed": seed, "n": n,
               "items": seeded_draw(items, seed, arm, n)}
     data = (json.dumps(record, indent=2) + "\n").encode("utf-8")

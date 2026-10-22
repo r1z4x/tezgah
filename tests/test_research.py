@@ -3139,6 +3139,147 @@ class SourceRun(Workspace):
         errors = self.errors(repo)
         self.assertFalse(hit("was not locked before", errors), errors)
 
+    def summarising_orx(self, repo, body, declared=None):
+        """An `orx logs` that prints what orx 0.2.20 prints: the path of the full log,
+        its size and the last 500 characters, never the log itself."""
+        log = os.path.join(self.home, "run-logs", "r1.log")
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "wb") as fh:
+            fh.write(body)
+        size = len(body) if declared is None else declared
+        summary = ("This is the path to the full log file: %s\nIt is %d bytes.\n\n"
+                   "Here are the last 500 characters of the log file:\n%s\n"
+                   "Use targeted search on this path. This preview is not proof of "
+                   "absence.\n" % (log, size, body.decode("utf-8")[-500:]))
+        return self.with_orx(repo, logs=summary)
+
+    def test_a_summarising_orx_logs_is_followed_to_the_full_log(self):
+        """K6 rater Y2: orx 0.2.20's `orx logs` prints a summary, so `source` matched
+        `--value` against the last 500 characters and stored the summary as the log.
+        The full log at the path orx names is the receipt, held to the size orx
+        printed; a declared size above the bound is refused naming the bound."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        body = ("first p95=118\n" + "".join("rep=%d ms=%d.5\n" % (n, n) for n in range(80))
+                ).encode("utf-8")
+        self.assertGreater(len(body), 1000)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--value", "p95=118",
+                        env=self.summarising_orx(repo, body))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(os.path.join(self.exp_dir(repo), "raw", "r1.log"), "rb") as fh:
+            self.assertEqual(fh.read(), body)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1",
+                        env=self.summarising_orx(repo, body, declared=len(body) + 7))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("orx logs r1 said %d bytes and" % (len(body) + 7), proc.stdout)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1",
+                        env=self.summarising_orx(repo, body, declared=tr.RUN_LOG_BOUND + 1))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("above the %d-byte bound" % tr.RUN_LOG_BOUND, proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw", "r1.1.log")))
+
+    def test_log_numbers_read_thousands_separators_and_exponents(self):
+        """K6 rater Y2: `12,345` is 12345 and never 345, `1.2e-3` is 0.0012, and
+        `--value k=1.2e-3` is a number; matching stays numeric equality."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="tokens 12,345\nlat 1.2e-3\nwall 0.25\n")
+        for n, value in enumerate(("tokens=12345", "lat=0.0012", "lat=1.2e-3",
+                                   "wall=2.5E-1")):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "r%d" % n, "--value", value,
+                            env=env)
+            self.assertEqual(proc.returncode, 0, (value, proc.stdout + proc.stderr))
+        rows = [json.loads(line) for line in
+                read(os.path.join(self.exp_dir(repo), "results.jsonl")).splitlines()]
+        self.assertEqual([r.get("tokens", r.get("lat", r.get("wall"))) for r in rows],
+                         [12345, 0.0012, 0.0012, 0.25])
+        for value in ("tokens=345", "tokens=12"):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "rx", "--value", value,
+                            env=env)
+            self.assertEqual(proc.returncode, 1, (value, proc.stdout + proc.stderr))
+            self.assertIn("value not in the run log", proc.stdout)
+
+    def test_a_rules8_capture_over_an_uncommitted_protocol_is_refused(self):
+        """K6 rater X2 (1): the capture commits its results at once, so a protocol not
+        yet committed would enter the history after them for good (`protocol.md
+        entered the history after results.jsonl`). Refused, nothing written."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.protocol(repo)
+        args = ("source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real")
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("experiments/h1/protocol.md is not committed", proc.stdout)
+        self.assertIn('tezgah-research commit q "<message>"', proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        proc = self.cli(repo, "commit", "q", "protocol", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(hit("entered the history after", self.errors(repo)))
+
+    def test_a_rules8_capture_over_an_invalid_protocol_is_refused(self):
+        """K6 rater X2 (1): once results are committed an invalid protocol number is
+        frozen - left, it is refused; fixed, `protocol.md changed after the run`.
+        Refused before anything is written, naming the record."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "alpha: 2\n")
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real",
+                        env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("experiments/h1/protocol.md carries an invalid record", proc.stdout)
+        self.assertIn("alpha", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+
+    def test_gold_over_uncommitted_results_rows_is_refused(self):
+        """K6 rater X2 (6): `gold` drew over rows not yet committed, so the gold file
+        matched neither the rows at its add nor, once rows grew, the rows now -
+        `differs from the seeded draw` for good. Refused naming `tezgah-research
+        commit`, nothing written; committed, the draw survives grown rows."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.protocol(repo)
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        results = os.path.join(self.exp_dir(repo), "results.jsonl")
+        rows = [{"instrument": "j", "arm": "a", "item": "i%03d" % n, "outcome": n % 2,
+                 "scope": "real", "source": "fixture.py i%03d" % n} for n in range(1, 41)]
+        self.write(results, "".join(json.dumps(r) + "\n" for r in rows[:10]))
+        proc = self.cli(repo, "commit", "q", "ten rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for row in rows[10:20]:
+            self.append_line(results, row)
+        gold = ("gold", "q", "j", "--arm", "a", "--n", "5", "--seed", "3")
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("not committed", proc.stdout)
+        self.assertIn("tezgah-research commit q", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(tr.line_dir(repo, "q"), "instruments",
+                                                     "gold")))
+        proc = self.cli(repo, "commit", "q", "twenty rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for row in rows[20:]:
+            self.append_line(results, row)
+        proc = self.cli(repo, "commit", "q", "forty rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo)
+        self.assertFalse(hit("differs from the seeded draw", errors), errors)
+
 
 class RegisteredMetric(Workspace):
     """Rules 8 (2.3): every registered metric is reported or marked `not_reported:`."""

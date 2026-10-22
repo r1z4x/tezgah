@@ -5598,6 +5598,40 @@ def urlsplit_host(source):
     return host[4:] if host.startswith("www.") else host
 
 
+# ponytail: a run log above 16 MiB is refused rather than committed as a receipt; a run
+# that logs more is the ceiling, filed by hand with its log trimmed.
+RUN_LOG_BOUND = 16 * 1024 * 1024
+# What orx 0.2.20's `orx logs` prints instead of the log: the path, the size, a tail.
+ORX_LOG_SUMMARY = re.compile(r"\s*This is the path to the full log file: (.+?)[ \t]*\n"
+                             r"\s*It is ([\d,]+) bytes\.")
+
+
+def _full_log(repo, run, out):
+    """(bytes, problem): the run log `orx logs` printed - its output, or, when that is
+    orx's summary, the file the summary names, held to the size it printed (K6 rater
+    Y2: the summary's 500-character tail is not the log)."""
+    found = ORX_LOG_SUMMARY.match(out)
+    if not found:
+        if out.lstrip().startswith("This is the path to the full log file:"):
+            return None, ("orx logs %s printed the log's path without its size, so the "
+                          "file cannot be held to what orx saw" % run)
+        return out.encode("utf-8"), None
+    path, size = os.path.join(repo, found.group(1)), int(found.group(2).replace(",", ""))
+    if size > RUN_LOG_BOUND:
+        return None, ("orx logs %s said %d bytes, above the %d-byte bound a receipt is "
+                      "committed under" % (run, size, RUN_LOG_BOUND))
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(RUN_LOG_BOUND + 1)
+    except OSError as exc:
+        return None, "cannot read the log orx logs %s names: %s" % (run, exc)
+    if len(data) != size:
+        return None, ("orx logs %s said %d bytes and %s holds %d: the run is still "
+                      "writing it or it changed since, so it is not the log orx saw - "
+                      "file the run once its log is complete" % (run, size, path, len(data)))
+    return data, None
+
+
 def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="",
                arm="", item="", values=(), instrument=""):
     """(path, problems): file one orx run as this experiment's receipt.
@@ -5658,14 +5692,34 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
                           "its results would come before the lock for good - commit the "
                           "line first (`tezgah-research commit %s \"<message>\"`); nothing "
                           "was written" % slug]
-    log, err = _run([orx, "logs", run], cwd=repo)
+    if _evidence(state):
+        # the same reason as the lock: what the capture commits next would leave the
+        # protocol refused for good - entered after its results, or frozen invalid
+        # (left, refused; fixed, `changed after the run`) - K6 rater X2
+        commit = 'commit the line first (`tezgah-research commit %s "<message>"`); ' \
+                 'nothing was written' % slug
+        invalid = experiment_record(base, hypothesis)["invalid"]
+        if invalid:
+            return None, ["experiments/%s/protocol.md carries an invalid record (%s): the "
+                          "capture commits its results at once, after which the protocol "
+                          "cannot be fixed - fix it, then %s"
+                          % (hypothesis, "; ".join(invalid), commit)]
+        if not _git_out(repo, "rev-parse", "--is-inside-work-tree")[1] and not any(
+                _oldest_adds(repo, os.path.join(experiment, "protocol.md"))[0].values()):
+            return None, ["experiments/%s/protocol.md is not committed: the capture commits "
+                          "its results at once, so the protocol would enter the history "
+                          "after them for good - %s" % (hypothesis, commit)]
+    out, err = _run([orx, "logs", run], cwd=repo)
     if err:
         return None, ["orx logs %s failed: %s" % (run, err)]
-    if not log.strip():
+    data, problem = _full_log(repo, run, out)
+    if problem:
+        return None, [problem]
+    if not data.strip():
         return None, ["orx logs %s returned nothing, so there is no receipt to "
                       "file" % run]
     import tezgah_research_capture as cap  # deferred: it imports this module
-    logged = {decimal.Decimal(t) for t in cap.LOG_NUMBER.findall(log)}
+    logged = cap.log_numbers(data.decode("utf-8", "replace"))
     for field, written in values:
         if decimal.Decimal(written) not in logged:
             return None, ["%s=%s: value not in the run log (orx logs %s holds no number "
@@ -5677,8 +5731,8 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
         n += 1
         name = "%s.%d.log" % (run, n)
     path = os.path.join(raw, name)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(log)
+    with open(path, "wb") as fh:
+        fh.write(data)
     row = {"source": "orx:%s" % run, "log": "raw/%s" % name}
     if _evidence(state):
         row["run"] = run
@@ -5689,7 +5743,7 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     if item:
         row["item"] = item
     for field, written in values:
-        row[field] = float(written) if "." in written else int(written)
+        row[field] = int(written) if re.fullmatch(r"-?\d+", written) else float(written)
     if command:
         row["command"] = command
     if scope:

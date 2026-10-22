@@ -683,6 +683,7 @@ def cmd_migrate(args):
 def cmd_source(args):
     """File one orx run's log as the receipt of an experiment."""
     import re
+    import tezgah_research_capture as cap
     reserved = ("source", "log", "run", "arm", "item", "instrument", "scope", "fixture",
                 "status", "command")
     usage = ('source <slug> <hypothesis> --run <orxRunId> [--instrument <name>] [--arm <a>] '
@@ -717,7 +718,7 @@ def cmd_source(args):
             if field in reserved:
                 return misuse("--value %s: %s is a reserved row key" % (field, field))
             if not re.fullmatch(r"[A-Za-z_][\w.-]*", field) or not re.fullmatch(
-                    r"-?\d+(?:\.\d+)?", number):
+                    cap.VALUE_NUMBER, number):
                 return misuse("--value needs <field>=<number>, not %r" % (field + _eq + number))
             values.append((field, number))
         else:
