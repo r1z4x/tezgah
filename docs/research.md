@@ -1180,17 +1180,21 @@ ledgers only grow. `check` refuses what changed anyway
 
 - a capture file that differs from the blob its first commit added
   (`changed after its first commit`)
-- a ledger row that a later version dropped or changed:
-  `a row changed or went missing after its first commit; a ledger is append-only`.
-  Every row of each earlier version has to stay in the latest one, compared as a
-  multiset with the order aside. Two branches that appended and merged pass.
+- a ledger row that a later version dropped, changed or moved:
+  `a row changed, moved or went missing after its first commit; a ledger is append-only`.
+  The rows of each earlier version have to stay in the latest one in their order.
+  Two branches that appended and merged pass. `check` refuses a reordered ledger,
+  because its readers take the latest SOURCES record, the first label and the
+  first gold draw.
 - a ledger row whose file does not hash to its `sha256`: `hash mismatch`.
 
 Each RECEIPTS and SEARCHES row records `parser`, the version of the parser that
 derived it (`hooks/tezgah_research_capture.py::PARSER`). A row without the field
-reads as version 0. `check` re-derives a row only under its own version. It holds
-an older row to its hash alone and warns once per ledger:
-`rows of parser version <v> are held to their hash alone; this check re-derives parser version 1 rows only`.
+reads as version 0. `check` re-derives every row under the current parser, so no
+row is held to its hash on its own say-so. A later tezgah wrote any row that names
+a newer version than the tool's, and `check` refuses it
+(`hooks/tezgah_research_capture.py::_newer`):
+`names parser version <v>, newer than this check's 1`.
 
 The append-only ledgers are read across every ref, as the results file is. The
 stopping-rule order and the capture files read the current branch's lineage only
