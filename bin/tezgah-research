@@ -39,6 +39,23 @@
   tezgah-research dedup <slug> [--threshold <(0,1]>] [--json]
                                                    cluster the proposed ideas, write nothing
   tezgah-research yield [--json] [--all-lines]     how far ideas got, per operator and family
+  tezgah-research cite <slug>                      query four registries for each formal INDEX id
+  tezgah-research fetch <slug> <note> [--file <path> --ack "<the user's words>" | --orx]
+                                                   capture a note's source text and its quotes
+  tezgah-research search <slug> --tag primary|snowball|counter|known [--item "<scope.in item>"]
+                         -- <connector> <args...>  capture one search on an allowlisted connector
+  tezgah-research instrument add <slug> <name> --kind measure|verdict --rung R1|R2|R3|R4
+                         --construct "<text>"      register an instrument
+  tezgah-research gold <slug> <instrument> --arm <a> --n N --seed S
+                                                   draw an arm's seeded gold sample
+  tezgah-research label <slug> <instrument> --arm <a> (--human "<name>" --ack "<the user's words>"
+                        | --provider openrouter --model <m>)
+                                                   label an arm's gold sample
+  tezgah-research switch <slug> <instrument> (--to R1|R2|R3|R4|<method> | --narrow "<what the
+                         claims now say>") --reason "<why>"
+                                                   record a switch away from an instrument
+  tezgah-research release-check [--fixtures <dir>] score the known-truth cases, exit 1 past the bounds
+  tezgah-research calibration                      Brier score over resolved hypotheses
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
