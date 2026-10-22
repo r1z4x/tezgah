@@ -217,6 +217,11 @@ def opencode_v2():
     return os.path.isfile(os.path.join(OPENCODE, "cli.json"))
 
 
+# The opencode 2 status line: a link to the plugin directory hosts/opencode/tui/cli,
+# listed in cli.json `plugins` as file://<this path>.
+OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
+
+
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
@@ -1892,15 +1897,25 @@ def install_opencode():
     write_artifact(SKILL_ROUTER_FULL, full, write_if_changed)
     print("%s %s (always-on, %d chars)" % (OK, SKILL_ROUTER, len(always)))
     print("%s %s (on demand, %d chars)" % (OK, SKILL_ROUTER_FULL, len(full)))
-    # TUI status line: opencode has no command statusLine, only a TUI plugin
-    # declared in tui.json. Local path spec resolves relative to tui.json.
-    # ponytail: opencode 2 loads CLI plugins from cli.json and only in the
-    # Plugin.define({id, setup}) shape; tezgah-tui.tsx is the v1 `tui:` shape, so
-    # on v2 the status line is skipped rather than wired into a file v2 ignores.
+    # TUI status line: opencode has no command statusLine, only a TUI plugin.
+    # opencode 1 declares it in tui.json (a local spec resolves relative to it);
+    # opencode 2 ignores tui.json and lists CLI plugins in cli.json `plugins`. A
+    # local v2 entry must name a DIRECTORY whose `tui` module default-exports
+    # Plugin.define({id, setup}) - a spec naming a file is skipped (measured on
+    # v2.0.32) - so the directory hosts/opencode/tui/cli is what gets linked.
     v2 = opencode_v2()
     if v2:
-        print("%s opencode 2: status line not wired (tezgah-tui.tsx is a v1 TUI plugin)"
-              % OK)
+        dst = OPENCODE_CLI_PLUGIN
+        print(link(os.path.join(HERE, "hosts", "opencode", "tui", "cli"), dst))
+        cpath = os.path.join(OPENCODE, "cli.json")
+        cli = read_config(cpath, {})
+        if cli is not None:
+            plugins = cli.get("plugins") or []
+            if "file://" + dst not in plugins:
+                plugins.append("file://" + dst)
+            cli["plugins"] = plugins
+            write_json(cpath, cli)
+            print("%s cli.json (status line plugin)" % OK)
     else:
         print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
                    os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
@@ -3423,9 +3438,12 @@ def verify_uninstall(hosts, full):
     if "opencode" in hosts:
         claim("opencode plugin unlinked",
               [os.path.join(OPENCODE, d, "tezgah.js") for d in ("plugins", "plugin")]
-              + [os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")])
+              + [os.path.join(OPENCODE, "tui-plugins", n)
+                 for n in ("tezgah-tui.tsx", "tezgah-cli")])
         clean("opencode opencode.json unwired",
               [os.path.join(OPENCODE, "opencode.json")])
+        clean("opencode cli.json unwired", [os.path.join(OPENCODE, "cli.json")],
+              needle=OPENCODE_CLI_PLUGIN)
         claim("opencode generated routers gone", [SKILL_ROUTER, SKILL_ROUTER_FULL])
     if "cursor" in hosts:
         clean("cursor hooks.json unwired", [os.path.join(CURSOR, "hooks.json")])
@@ -3559,6 +3577,14 @@ def unwire_opencode_config():
                 tj.pop("plugin", None)
             write_json(t, tj)
             print("%s removed tezgah TUI plugin from %s" % (OK, t))
+    cp = os.path.join(OPENCODE, "cli.json")
+    cj = read_json(cp, None)
+    if cj and isinstance(cj.get("plugins"), list):
+        kept = [x for x in cj["plugins"] if x != "file://" + OPENCODE_CLI_PLUGIN]
+        if kept != cj["plugins"]:
+            cj["plugins"] = kept
+            write_json(cp, cj)
+            print("%s removed tezgah CLI plugin from %s" % (OK, cp))
 
 
 def uninstall_claude():
@@ -3620,7 +3646,8 @@ def uninstall_opencode():
         unlink_tezgah(os.path.join(OPENCODE, "skills", s))
     for d in ("plugins", "plugin"):
         unlink_tezgah(os.path.join(OPENCODE, d, "tezgah.js"))
-    unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))
+    for name in ("tezgah-tui.tsx", "tezgah-cli"):
+        unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", name))
     unwire_opencode_config()
     for path in (SKILL_ROUTER, SKILL_ROUTER_FULL):
         try:
@@ -4756,6 +4783,7 @@ def host_checks_codex():
 def host_checks_opencode():
     cfg = read_json(os.path.join(OPENCODE, "opencode.json"), {})
     tui = read_json(os.path.join(OPENCODE, "tui.json"), {})
+    cli = read_json(os.path.join(OPENCODE, "cli.json"), {})
     instr = cfg.get("instructions") or []
     specs = [p if isinstance(p, str) else p[0] for p in (tui.get("plugin") or [])]
     return [
@@ -4773,7 +4801,11 @@ def host_checks_opencode():
     ] + mcp_rows(set(cfg.get("mcp") or {}), "opencode.json") + [
         mcp_row(TEZGAH_MCP_NAME, (cfg.get("mcp") or {}).get(TEZGAH_MCP_NAME),
                 "opencode.json", tezgah_mcp_command()),
-    ] + ([] if opencode_v2() else [
+    ] + ([
+        ("status line plugin in cli.json + linked",
+         "file://" + OPENCODE_CLI_PLUGIN in (cli.get("plugins") or [])
+         and os.path.exists(OPENCODE_CLI_PLUGIN)),
+    ] if opencode_v2() else [
         ("context pruning armed (compaction.prune)",
          (cfg.get("compaction") or {}).get("prune") is True),
         ("status line plugin in tui.json + linked",
