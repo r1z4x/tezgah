@@ -2529,7 +2529,7 @@ class Plan128(Rules8):
         fx.must(["commit", "q", "SOURCES rows reordered: the latest record changes"])
         rc, out = fx.check()
         self.assertEqual(rc, 1, out)
-        self.assertRegex(out, r"(?m)^FAIL q: .*SOURCES\.jsonl: a row changed or went missing"
+        self.assertRegex(out, r"(?m)^FAIL q: .*SOURCES\.jsonl: a row changed.*went missing"
                               r".*a ledger is append-only")
 
     def test_c9_no_row_is_held_to_its_hash_on_its_own_say_so(self):
