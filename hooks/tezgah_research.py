@@ -4095,38 +4095,84 @@ def falsifier_testable(text):
                 or (FALSIFIER_TEST.search(text) and FALSIFIER_ALPHA.search(text)))
 
 
+# A `metric:` list splits at the commas that separate names: never inside parentheses
+# (`(ms, median of 5 runs)`), never between digit groups (`10,000-piece`), and never
+# inside the locked name, which is one name (plan 128 K1, K3).
+METRIC_COMMA = re.compile(r",(?![^()]*\))(?!(?<=\d,)\d)")
+
+
+def _metric_key(name):
+    """A metric name as the rules compare it: casefolded, whitespace collapsed, a
+    trailing parenthetical (`(ms)`) dropped."""
+    return " ".join(re.sub(r"\s*\([^)]*\)\s*$", "", str(name or "")).casefold().split())
+
+
+def _same_metric(a, b):
+    """True when one metric key is the other or a word-boundary prefix of it, either
+    way: `p95 latency` and `p95 latency of the read path` (plan 128 K2)."""
+    return a == b or a.startswith(b + " ") or b.startswith(a + " ")
+
+
+def _registered(state, fields):
+    """(names, keys, locked key): the metrics a protocol's `metric:` lines register,
+    split at METRIC_COMMA with the locked name kept whole, and the line's lock."""
+    evaluation = state.get("evaluation") if isinstance(state.get("evaluation"), dict) else {}
+    locked = _metric_key(evaluation.get("metric"))
+    whole = re.compile(r"\s*,\s*".join(r"\s+".join(map(re.escape, part.split()))
+                                       for part in locked.split(",")), re.I) \
+        if "," in locked else None
+    names = []
+    for value in fields.get("metric", []):
+        if whole:
+            value = whole.sub(lambda m: m.group(0).replace(",", "\0"), value)
+        names += [m.strip().replace("\0", ",") for m in METRIC_COMMA.split(value)
+                  if m.strip()]
+    return names, [_metric_key(m) for m in names], locked
+
+
+def metric_problem(state, fields):
+    """The locked-metric refusal of a protocol's `metric:` lines, or None (spec 2.2):
+    one of them has to be the locked metric (`_same_metric`). `source` asks it
+    before a rules-8 capture freezes the protocol (plan 128 K4)."""
+    names, keys, locked = _registered(state, fields)
+    if locked and keys and not any(_same_metric(k, locked) for k in keys):
+        return ("protocol.md registers a metric other than the locked one (%s, locked: %s)"
+                % (", ".join(names), locked))
+    return None
+
+
 def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, strict,
-                       git, lines):
+                       git, lines, code=None):
     """One experiment's rules-8 refusals (2.2, 2.4) and report lines (2.3)."""
     import tezgah_research_stats as stats
     h, fields = exp["h"], exp["fields"]
     label = "experiment %s" % h
     errors.extend("%s: %s" % (label, problem) for problem in exp["invalid"])
-    metrics = [m.strip() for v in fields.get("metric", []) for m in v.split(",")
-               if m.strip()]
-    evaluation = state.get("evaluation") if isinstance(state.get("evaluation"), dict) else {}
-    locked = " ".join(re.sub(r"\s*\([^)]*\)\s*$", "", str(evaluation.get("metric") or ""))
-                      .casefold().split())
-    norm = [" ".join(m.casefold().split()) for m in metrics]
-    if locked and norm and not any(m == locked or m.startswith(locked + " ")
-                                   for m in norm):
-        errors.append("%s: protocol.md registers a metric other than the locked one "
-                      "(%s, locked: %s)" % (label, ", ".join(metrics), locked))
+    problem = metric_problem(state, fields)
+    if problem:
+        errors.append("%s: %s" % (label, problem))
     if report is not None:
-        excused = {" ".join(v.split(":", 1)[0].casefold().split())
+        metrics, norm, locked = _registered(state, fields)
+        excused = {_metric_key(v.split(":", 1)[0])
                    for v in fields.get("not_reported", []) if ":" in v}
         text = " ".join(report.casefold().split())
+        # protocol.md is frozen once the run is filed (`changed after the run`), so
+        # `not_reported:` is an exit only before it (plan 128 K5)
+        exit_ = ("the run is filed, so protocol.md is frozen: name it in to_human/report.md"
+                 if exp["rows"] else
+                 "name it in to_human/report.md, or before the run mark it "
+                 "`not_reported: <metric>: <reason>` in protocol.md")
         for metric, key in zip(metrics, norm):
-            # a registered metric that refines the locked one (the rule above's
+            # a registered metric that is the locked one (the rule above's
             # equivalence) is reported where the report names the locked metric
-            refines = locked and (key == locked or key.startswith(locked + " "))
+            refines = locked and _same_metric(key, locked)
             if (key not in text and not (refines and locked in text)
                     and key not in excused):
                 errors.append("%s: registered metric %r is neither reported nor marked "
-                              "not_reported in protocol.md" % (label, metric))
+                              "not_reported - %s" % (label, metric, exit_))
     evaluator = _first(fields, "evaluator")
     if evaluator:
-        _check_evaluator(repo, base, exp, evaluator, label, errors, git)
+        _check_evaluator(repo, base, state, exp, evaluator, label, errors, git, code)
     select = re.match(r"(?i)^(min|max)\s+([\w.-]+)", _first(fields, "select"))
     if select:
         field = select.group(2)
@@ -4167,23 +4213,85 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
                         "none" if eff["mde"] is None else "%.4f" % eff["mde"]))
 
 
-def _check_evaluator(repo, base, exp, evaluator, label, errors, git):
+def evaluator_file(repo, base, code, rel):
+    """(path, root): an `evaluator:` path looked up in the line, the repository and
+    the checkout `check` runs from (`code`, plan 128 K9), with the repository whose
+    history holds it; (None, None) when none holds the file."""
+    for root, at in ((repo, base), (repo, repo), (code, code)):
+        if at and os.path.isfile(os.path.join(at, rel)):
+            return os.path.join(at, rel), root
+    return None, None
+
+
+def _commit_time(repo, path, sha):
+    """The commit time of `sha` in the first history of `path` that holds it, or ""."""
+    stamp = ""
+    for top, _rel in _histories(repo, path):
+        out, err = _git_out(top, "show", "-s", "--format=%cI", sha)
+        stamp = stamp or ("" if err else out.strip())
+    return stamp
+
+
+def _text_at(root, path, sha, stamp):
+    """`path`'s committed text at commit `sha` - in a history that does not hold that
+    commit (a project file read against a line in `.tezgah`'s repository), its latest
+    version not after `stamp` - or None."""
+    found = None
+    for top, rel in _histories(root, path):
+        rev = sha if _holds(top, sha) else None
+        if rev is None and stamp:
+            out, err = _git_out(top, "log", "-1", "--format=%H", "--until=" + stamp,
+                                "--", rel)
+            rev = None if err else out.strip()
+        if rev:
+            out, err = _git_out(top, "show", "%s:%s" % (rev, rel))
+            found = found if err else out
+    return found
+
+
+def _sealed_evaluator(repo, base, state, h, root, path, git):
+    """The evaluator's sha256 at the line's conclusion, or None for a line not
+    concluded (plan 128 K8): the hash `conclude` sealed, and for a seal older than
+    that field the evaluator at the first committed state.json holding the seal."""
+    import hashlib
+    seal = state.get(SEAL)
+    if not isinstance(seal, dict):
+        return None
+    rows = seal.get("experiments") if isinstance(seal.get("experiments"), dict) else {}
+    row = rows.get(h) if isinstance(rows.get(h), dict) else {}
+    if SHA256_HEX.fullmatch(str(row.get("evaluator") or "")):
+        return row["evaluator"]
+    if not git:
+        return None
+    state_path = os.path.join(base, "state.json")
+    for top, rel in _histories(repo, state_path):
+        for sha, text in _versions(top, rel):
+            try:
+                held = SEAL in json.loads(text)
+            except (ValueError, TypeError):
+                held = False
+            if held:
+                at = _text_at(root, path, sha, _commit_time(repo, state_path, sha))
+                return None if at is None else hashlib.sha256(at.encode("utf-8")).hexdigest()
+    return None
+
+
+def _check_evaluator(repo, base, state, exp, evaluator, label, errors, git, code=None):
     """An `evaluator:` file holds the bytes it held at the protocol's first commit -
     in a history that does not hold that commit (a project evaluator of a line in
     `.tezgah`'s repository), its latest version not after that commit's time - and
-    its declared `sha256:` (spec 2.4)."""
+    its declared `sha256:` (spec 2.4). A concluded line reads the evaluator as it was
+    at the conclusion (`_sealed_evaluator`), so a later project edit is not its own."""
     import hashlib
     parts = evaluator.split()
-    path = next((p for p in (os.path.join(base, parts[0]), os.path.join(repo, parts[0]))
-                 if os.path.isfile(p)), None)
+    path, root = evaluator_file(repo, base, code, parts[0])
     declared = next((p.split(":", 1)[1] for p in parts[1:] if p.startswith("sha256:")), "")
     if path is None:
-        errors.append("%s: evaluator %s is not a file in the line or the repository"
-                      % (label, parts[0]))
+        errors.append("%s: evaluator %s is not a file in the line, the repository or the "
+                      "checkout" % (label, parts[0]))
         return
-    with open(path, "rb") as fh:
-        now = fh.read()
-    if declared and hashlib.sha256(now).hexdigest() != declared.lower():
+    now = _sealed_evaluator(repo, base, state, exp["h"], root, path, git) or _digest(path)
+    if declared and now != declared.lower():
         errors.append("%s: evaluator file changed after lock: %s no longer hashes to its "
                       "declared sha256" % (label, parts[0]))
         return
@@ -4193,24 +4301,13 @@ def _check_evaluator(repo, base, exp, evaluator, label, errors, git):
     proto = file_versions(repo, proto_path)
     if not proto:
         return
-    sha, stamp, locked = proto[0][0], "", None
-    for top, _rel in _histories(repo, proto_path):
-        out, err = _git_out(top, "show", "-s", "--format=%cI", sha)
-        stamp = stamp or ("" if err else out.strip())
-    for top, rel in _histories(repo, path):
-        rev = sha if _holds(top, sha) else None
-        if rev is None and stamp:
-            out, err = _git_out(top, "log", "-1", "--format=%H", "--until=" + stamp,
-                                "--", rel)
-            rev = None if err else out.strip()
-        if rev:
-            out, err = _git_out(top, "show", "%s:%s" % (rev, rel))
-            locked = locked if err else out
+    sha = proto[0][0]
+    locked = _text_at(root, path, sha, _commit_time(repo, proto_path, sha))
     if locked is None:
         # committed only after the lock: its first version is the nearest to it
-        versions = file_versions(repo, path)
+        versions = file_versions(root, path)
         locked = versions[0][1] if versions else None
-    if locked is not None and locked.encode("utf-8") != now:
+    if locked is not None and hashlib.sha256(locked.encode("utf-8")).hexdigest() != now:
         errors.append("%s: evaluator file changed after lock: %s differs from its state "
                       "at the protocol's first commit" % (label, parts[0]))
 
@@ -4378,7 +4475,7 @@ def _check_review8(base, claims, review, errors, warnings, strict):
                   "reads the bytes an evidence claim rests on")
 
 
-def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
+def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps, code=None):
     rows = _row_objects(os.path.join(base, "claims.jsonl"))
     claims = [c for c in rows if isinstance(c.get("id"), str) and c["id"]]
     superseded = _superseded(rows)
@@ -4391,7 +4488,7 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
     lines = steps.setdefault("#report", [])
     for h in sorted(exps):
         _check_experiment8(repo, slug, base, state, exps[h], report, errors, warnings,
-                           strict, git, lines)
+                           strict, git, lines, code)
     rejected = _multiplicity(base, exps)
     every = _routing_steps(base, state, exps, review)
     cls, measured = state.get("question_class"), state.get("method") == "measured"
@@ -4439,7 +4536,8 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
                                 % (line_name, cid))
 
 
-def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=None):
+def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=None,
+                  code=None):
     """steps of a rules-8 line: the capture checks, the core ones, then the evidence
     module, which reads every step found and holds the certainty engine. A module
     that cannot be imported is an error on a rules-8 line, never a silent pass. A
@@ -4450,7 +4548,7 @@ def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=
     import importlib
     for name in ("tezgah_research_capture", None, "tezgah_research_evidence"):
         if name is None:
-            _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps)
+            _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps, code)
             continue
         try:
             module = importlib.import_module(name)
@@ -4503,7 +4601,8 @@ def check_line(repo, slug, git=True, strict=False, code=None, flags=None, extra=
     _check_review_integrity(base, errors, warnings, strict)
     state = _state(base)
     if _evidence(state):
-        steps = _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags)
+        steps = _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags,
+                              code)
         if extra is not None:
             extra["report"] = list(steps.get("#report", []))
             extra["certainty"] = dict(steps.get("#certainty", {}))
@@ -4714,7 +4813,9 @@ def _last_add(repo, path):
 
 def _seal_rows(repo, base):
     """{experiment: seal row}: the blob hashes of every experiment holding a
-    protocol.md, and the add commits of a run one, informational only."""
+    protocol.md, and the add commits of a run one, informational only. A protocol
+    naming an `evaluator:` also seals the evaluator's hash, the version `check`
+    reads for the concluded line (`_sealed_evaluator`, plan 128 K8)."""
     out = {}
     for h, (proto, results) in _seal_files(base).items():
         row = {"protocol": _digest(proto),
@@ -4722,6 +4823,11 @@ def _seal_rows(repo, base):
         if results:
             row["commits"] = {"protocol": _last_add(repo, proto),
                               "results": _last_add(repo, results)}
+        words = _first(_fields(_note_text(proto)), "evaluator").split()
+        evaluator = evaluator_file(repo, base, tp.work_tree(repo), words[0])[0] \
+            if words else None
+        if evaluator:
+            row["evaluator"] = _digest(evaluator)
         out[h] = row
     return out
 
@@ -5701,31 +5807,42 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     if not os.path.isfile(os.path.join(experiment, "protocol.md")):
         return None, ["experiments/%s holds no protocol.md: write and commit the "
                       "plan before filing the run it predicts" % hypothesis]
-    if _evidence(state) and _orders_lock(state):
+    if _evidence(state) and (_orders_lock(state) or _exploratory(state)):
         # the capture is committed at once, after HEAD of the history carrying the
         # line, so an uncommitted lock would follow its results for good: the order
-        # `_check_evaluation_order` reads, asked of that HEAD before anything is written
+        # `_check_evaluation_order` reads - an exploratory line's lock is its arena,
+        # ordered by `_check_arena_order` (plan 128 K12) - asked of that HEAD before
+        # anything is written
         lock_path = os.path.join(base, "state.json")
         top = _histories(repo, lock_path)[-1][0]
-        if _answers(repo, _evaluation_commit(repo, lock_path), {top: "HEAD"}).get(top) \
-                is not True:
-            return None, ["the evaluation lock is not committed: no committed state.json "
-                          "holding the metric and the baseline precedes this capture, so "
-                          "its results would come before the lock for good - commit the "
-                          "line first (`tezgah-research commit %s \"<message>\"`); nothing "
-                          "was written" % slug]
+        arena = _exploratory(state)
+        firsts = _arena_lock(repo, base)[0] if arena else _evaluation_commit(repo, lock_path)
+        if _answers(repo, firsts, {top: "HEAD"}).get(top) is not True:
+            return None, ["%s is not committed: no committed state.json holding %s "
+                          "precedes this capture, so its results would come before the "
+                          "lock for good - commit the line first (`tezgah-research commit "
+                          "%s \"<message>\"`); nothing was written"
+                          % ((("the arena", "the arena") if arena else
+                              ("the evaluation lock", "the metric and the baseline"))
+                             + (slug,))]
     if _evidence(state):
         # the same reason as the lock: what the capture commits next would leave the
         # protocol refused for good - entered after its results, or frozen invalid
         # (left, refused; fixed, `changed after the run`) - K6 rater X2
         commit = 'commit the line first (`tezgah-research commit %s "<message>"`); ' \
                  'nothing was written' % slug
-        invalid = experiment_record(base, hypothesis)["invalid"]
-        if invalid:
+        record = experiment_record(base, hypothesis)
+        if record["invalid"]:
             return None, ["experiments/%s/protocol.md carries an invalid record (%s): the "
                           "capture commits its results at once, after which the protocol "
                           "cannot be fixed - fix it, then %s"
-                          % (hypothesis, "; ".join(invalid), commit)]
+                          % (hypothesis, "; ".join(record["invalid"]), commit)]
+        metric = metric_problem(state, record["fields"])
+        if metric:
+            return None, ["experiments/%s/%s: the capture commits its results at once, "
+                          "after which the protocol cannot be fixed - name the locked "
+                          "metric in its `metric:` line, then %s" % (hypothesis, metric,
+                                                                     commit)]
         if not _git_out(repo, "rev-parse", "--is-inside-work-tree")[1] and not any(
                 _oldest_adds(repo, os.path.join(experiment, "protocol.md"))[0].values()):
             return None, ["experiments/%s/protocol.md is not committed: the capture commits "

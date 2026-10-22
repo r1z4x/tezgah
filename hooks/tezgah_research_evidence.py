@@ -161,10 +161,39 @@ def _is_label(row):
     return row.get("truth") is not None and row.get("output") is not None
 
 
+def _replaced(base):
+    """{(instrument, arm, item): outcomes of the rows a refile replaced} - the rows
+    `tr._live` drops for a later row of the same run, arm, item and instrument."""
+    out = {}
+    for h in tr._experiment_names(base):
+        rows = _rows(base, "experiments/%s/results.jsonl" % h)
+        live = {id(r) for r in tr._live(rows)}
+        for row in rows:
+            name = _row_instrument(row)
+            if (name and row.get("item") is not None and row.get("run") is not None
+                    and id(row) not in live and row.get("status") not in tr.DEAD_ROWS):
+                out.setdefault((name, str(row.get("arm") or "all"), str(row["item"])),
+                               []).append(_outcome(row))
+    return out
+
+
+def _stale(row, items, replaced):
+    """True when a label copied the outcome of a row a later refile replaced (plan 128
+    K7): it labels a run that no longer counts, so it does not count either."""
+    key = (row.get("instrument"), str(row.get("arm")), str(row.get("item")))
+    held = _outcome(items.get(key[0], {}).get(key[1], {}).get(key[2])) \
+        if isinstance(key[0], str) else None
+    return row["output"] != held and row["output"] in replaced.get(key, ())
+
+
 def first_labels(base):
-    """({(instrument, arm, item): label row}, [repeated items]) - the first label counts."""
+    """({(instrument, arm, item): label row}, [repeated items]) - the first label counts;
+    a stale one (`_stale`) counts nowhere, so its item reads unlabelled."""
+    items, replaced = instrument_items(base), _replaced(base)
     out, repeated = {}, []
     for row in filter(_is_label, _rows(base, LABELS)):
+        if _stale(row, items, replaced):
+            continue
         key = (row.get("instrument"), str(row.get("arm")), str(row.get("item")))
         if key in out:
             repeated.append(key)
@@ -175,14 +204,15 @@ def first_labels(base):
 
 def label_problems(base):
     """The `label output differs from its results row` refusals: `label` copies a label's
-    output from the results row's outcome, so a label holding anything else was not."""
-    items = instrument_items(base)
+    output from the results row's outcome, so a label holding anything else was not -
+    unless it holds the outcome of a row a refile replaced (`_stale`)."""
+    items, replaced = instrument_items(base), _replaced(base)
     problems = []
     for row in filter(_is_label, _rows(base, LABELS)):
         name, arm, item = row.get("instrument"), str(row.get("arm")), str(row.get("item"))
         held = _outcome(items.get(name, {}).get(arm, {}).get(item)) \
             if isinstance(name, str) else None
-        if row["output"] != held:
+        if row["output"] != held and not _stale(row, items, replaced):
             problems.append("label output differs from its results row: %s arm %s item %s "
                             "output %s, results row %s"
                             % (name, arm, item, row["output"], "none" if held is None else held))
@@ -291,11 +321,12 @@ def _ppi_line(slug, name, arm, record, labels, arm_items):
 
 
 def _items_at(base, rev):
-    """{name: {arm: set(items)}} from the results files as committed at `rev`, or as they
-    are on disk when `rev` is None."""
+    """{name: {arm: set(items)}} from the results files and the verdicts ledger - the
+    pool `instrument_items` draws from (plan 128 K11) - as committed at `rev`, or as
+    they are on disk when `rev` is None."""
     out = {}
-    for h in tr._experiment_names(base):
-        rel = "experiments/%s/results.jsonl" % h
+    rels = ["experiments/%s/results.jsonl" % h for h in tr._experiment_names(base)]
+    for rel in rels + [VERDICTS]:
         if rev is None:
             try:
                 with open(os.path.join(base, rel), encoding="utf-8") as fh:
@@ -316,10 +347,12 @@ def _items_at(base, rev):
                 continue
             if isinstance(row, dict):
                 rows.append(row)
-        for row in tr._live(rows):
+        # verdict rows are read whole and under arm `all`, as `instrument_items` reads them
+        for row in (rows if rel == VERDICTS else tr._live(rows)):
             if _row_instrument(row) and row.get("item") is not None:
                 out.setdefault(_row_instrument(row), {}).setdefault(
-                    str(row.get("arm") or "all"), set()).add(str(row["item"]))
+                    "all" if rel == VERDICTS else str(row.get("arm") or "all"),
+                    set()).add(str(row["item"]))
     return out
 
 
@@ -572,7 +605,8 @@ def cmd_gold(repo, args):
     if not tr._git_out(repo, "rev-parse", "--is-inside-work-tree")[1] \
             and _items_at(base, None).get(name, {}).get(arm) \
             != _items_at(base, "HEAD").get(name, {}).get(arm):
-        return _fail(slug, "%s arm %s has results rows that are not committed, so the gold "
+        return _fail(slug, "%s arm %s has results or verdict rows that are not committed, "
+                     "so the gold "
                      "file would differ from the seeded draw of the rows committed with it "
                      "- commit them first (`tezgah-research commit %s \"<message>\"`); "
                      "nothing was written" % (name, arm, slug))

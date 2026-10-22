@@ -1990,8 +1990,12 @@ class Tracking(Workspace):
         self.assertEqual(self.errors(repo), [])
         # the project's own index is never touched
         self.assertEqual(self.git(repo, "diff", "--cached", "--name-only").strip(), "")
-        # nothing left to commit is a failure, not a silent success
-        self.assertEqual(self.cli(repo, "commit", "q", "again").returncode, 1)
+        # plan 128 K10: nothing left to commit is said and exits 0 - a session that
+        # followed a writer's own commit is not a failure
+        again = self.cli(repo, "commit", "q", "again")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertIn("nothing to commit", again.stdout)
+        self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
         self.assertEqual(self.cli(repo, "commit", "nope", "x").returncode, 2)
 
     def test_commit_waits_out_a_brief_index_lock(self):
@@ -3292,6 +3296,73 @@ class SourceRun(Workspace):
         errors = self.errors(repo)
         self.assertFalse(hit("differs from the seeded draw", errors), errors)
 
+    def test_gold_over_uncommitted_verdict_rows_is_refused(self):
+        """Plan 128 K11: `gold` draws over `instruments/verdicts.jsonl` items too, and
+        its guard and `check`'s add-time reading read results rows alone - a draw over
+        uncommitted verdict rows went through, and once verdict rows grew the gold
+        file was `differs from the seeded draw` for good. Both read the verdicts."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.protocol(repo)
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        verdicts = os.path.join(base, "instruments", "verdicts.jsonl")
+        rows = [{"instrument": "v", "item": "v%03d" % n, "outcome": n % 2}
+                for n in range(1, 41)]
+        self.write(verdicts, "".join(json.dumps(r) + "\n" for r in rows[:20]))
+        gold = ("gold", "q", "v", "--arm", "all", "--n", "5", "--seed", "3")
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("not committed", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(base, "instruments", "gold")))
+        proc = self.cli(repo, "commit", "q", "twenty verdicts", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for row in rows[20:]:
+            self.append_line(verdicts, row)
+        proc = self.cli(repo, "commit", "q", "forty verdicts", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo)
+        self.assertFalse(hit("differs from the seeded draw", errors), errors)
+
+    def test_a_rules8_capture_over_a_metric_other_than_the_locked_one_is_refused(self):
+        """Plan 128 K4: the capture commits its results at once, after which the
+        protocol is frozen (`changed after the run`), so a `metric:` line the lock
+        refuses would be refused for good. Refused before anything is written."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n", "metric: p50 latency\n"))
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real",
+                        env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("experiments/h1/protocol.md registers a metric other than the locked "
+                      "one", proc.stdout)
+        self.assertIn('tezgah-research commit q "<message>"', proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+
+    def test_a_log_number_with_a_unit_glued_on_is_that_number(self):
+        """Plan 128 K6: `22.3ms`, `1.2s`, `512MB`, `3.2x` and `45%` are those numbers;
+        a number glued to letters in front (`r1`, `h2`) or to digits after letters
+        (a sha such as `2fb1370`) stays no number."""
+        import tezgah_research_capture as cap
+        self.assertEqual(cap.log_numbers("p95=22.3ms took 1.2s mem 512MB speedup 3.2x "
+                                         "hits 45% run r1 h2 at 2fb1370"),
+                         {cap.decimal.Decimal(v) for v in ("22.3", "1.2", "512", "3.2",
+                                                           "45")})
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--value", "p95=22.3",
+                        env=self.with_orx(repo, logs="p95=22.3ms\n"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+
 
 class RegisteredMetric(Workspace):
     """Rules 8 (2.3): every registered metric is reported or marked `not_reported:`."""
@@ -3334,6 +3405,85 @@ class RegisteredMetric(Workspace):
         errors = self.errors(repo, git=False)
         self.assertFalse(hit("registered metric 'error rate'", errors), errors)
 
+    def lock(self, base, metric):
+        path = os.path.join(base, "state.json")
+        state = json.loads(read(path))
+        state["evaluation"]["metric"] = metric
+        self.write(path, json.dumps(state))
+
+    def register(self, repo, line):
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n", "metric: %s\n" % line))
+
+    def test_a_comma_in_parentheses_or_a_number_does_not_split_a_metric(self):
+        """Plan 128 K1: the `metric:` list splits at the commas that separate names,
+        never inside parentheses or between digit groups - so neither the lock rule
+        nor the report rule reads `median of 5 runs)` or `000-piece string` as a name."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nms per build of a 10,000-piece string fell.\n")
+        for lock, line in (("p95", "p95 latency (ms, median of 5 runs)"),
+                           ("ms per build of a 10,000-piece string",
+                            "ms per build of a 10,000-piece string")):
+            with self.subTest(line=line):
+                self.lock(base, lock)
+                self.register(repo, line)
+                errors = self.errors(repo, git=False)
+                self.assertFalse(hit(["metric other than the locked one", "is neither reported"],
+                                     errors), errors)
+
+    def test_a_metric_and_the_lock_match_by_a_word_prefix_either_way(self):
+        """Plan 128 K2: either name is the other or a word-boundary prefix of it."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        for lock, line, refused in (("p95 latency of the read path", "p95 latency", False),
+                                    ("p95", "p95 latency of the read path", False),
+                                    ("p95 latency of the read path", "p50 latency", True),
+                                    ("p95 lat", "p95 latency", True)):
+            with self.subTest(lock=lock, line=line):
+                self.lock(base, lock)
+                self.register(repo, line)
+                errors = self.errors(repo, git=False)
+                self.assertEqual(hit("metric other than the locked one", errors), refused,
+                                 errors)
+
+    def test_a_comma_in_the_locked_metric_never_splits_it(self):
+        """Plan 128 K3: the lock is one name, so the `metric:` list keeps it whole and
+        splits only the names beside it."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nlatency, read path fell.\n")
+        self.lock(base, "latency, read path")
+        self.register(repo, "latency, read path, error rate")
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit("metric other than the locked one", errors), errors)
+        self.assertEqual([e for e in errors if "is neither reported" in e and "h1" in e],
+                         [e for e in errors if "registered metric 'error rate'" in e], errors)
+        self.assertTrue(hit("registered metric 'error rate'", errors), errors)
+
+    def test_the_unreported_metric_names_its_exit_before_and_after_the_run(self):
+        """Plan 128 K5: `not_reported:` in protocol.md is an exit only before the run -
+        after it the protocol is frozen (`changed after the run`) and the report is
+        the exit."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        self.register(repo, "p95 latency, error rate")
+        needle = "registered metric 'error rate' is neither reported nor marked not_reported"
+        before = named(self.errors(repo, git=False), needle)
+        self.assertEqual(len(before), 1, before)
+        self.assertIn("`not_reported: <metric>: <reason>` in protocol.md", before[0])
+        self.results(repo)
+        after = named(self.errors(repo, git=False), needle)
+        self.assertEqual(len(after), 1, after)
+        self.assertIn("to_human/report.md", after[0])
+        self.assertNotIn("not_reported:", after[0])
+        self.assertNotIn("not_reported in protocol.md", after[0])
+
 
 class EvaluatorLock(Workspace):
     """Rules 8 (2.4): a project `evaluator:` holds its bytes at the protocol's lock."""
@@ -3361,6 +3511,79 @@ class EvaluatorLock(Workspace):
         self.commit(repo, "evaluator after the lock", when=AFTER)
         errors = self.errors(repo)
         self.assertTrue(hit(needle, errors), errors)
+
+    def concluded(self, repo, edit_before=False, seal_hash=True):
+        """A rules-8 line with a project evaluator, locked at BEFORE and concluded
+        (sealed) on 2020-06-01; `edit_before` edits the evaluator between the two.
+        `seal_hash=False` is a seal written before the seal recorded the evaluator."""
+        script = os.path.join(repo, "eval", "score.py")
+        self.write(script, "print(1)\n")
+        self.commit(repo, "evaluator", when="2019-01-01T00:00:00+0000")
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "evaluator: eval/score.py\n")
+        self.commit(repo, "protocol", when=BEFORE)
+        if edit_before:
+            self.write(script, "print(2)\n")
+            self.commit(repo, "evaluator before the conclusion", when="2020-03-01T00:00:00+0000")
+        state_path = os.path.join(base, "state.json")
+        state = json.loads(read(state_path))
+        state.update(phase="concluded", direction="conclude")
+        state[tr.SEAL] = tr.order_seal(repo, base, "2020-06-01")
+        if not seal_hash:
+            for row in state[tr.SEAL]["experiments"].values():
+                row.pop("evaluator", None)
+        self.write(state_path, json.dumps(state))
+        self.commit(repo, "conclude", when="2020-06-01T00:00:00+0000")
+        return script
+
+    def test_a_concluded_line_compares_its_evaluator_at_the_conclusion(self):
+        """Plan 128 K8: a project edit after the line concluded - committed or not -
+        no longer refuses the done line; the seal records the evaluator's hash at
+        `conclude`, and an older seal reads the evaluator at the seal's first commit.
+        An edit between the lock and the conclusion still refuses."""
+        needle = "evaluator file changed after lock"
+        for seal_hash in (True, False):
+            with self.subTest(seal_hash=seal_hash):
+                repo = self.repo("after-%s" % seal_hash)
+                script = self.concluded(repo, seal_hash=seal_hash)
+                self.write(script, "print(3)\n")
+                errors = self.errors(repo)
+                self.assertFalse(hit(needle, errors), errors)
+                self.commit(repo, "a later project edit", when=AFTER)
+                errors = self.errors(repo)
+                self.assertFalse(hit(needle, errors), errors)
+        repo = self.repo("before")
+        self.concluded(repo, edit_before=True)
+        errors = self.errors(repo)
+        self.assertTrue(hit(needle, errors), errors)
+
+    def test_an_evaluator_in_the_code_checkout_is_found_there(self):
+        """Plan 128 K9: the evaluator is looked up in the line, the repository and
+        the checkout `check` runs from (`code`), and compared in that checkout's
+        history: found and unchanged passes, an edit there after the lock refuses."""
+        repo = self.repo()
+        self.write(os.path.join(repo, "README"), "x\n")
+        self.commit(repo, "root", when="2019-01-01T00:00:00+0000")
+        code = os.path.join(os.path.dirname(repo), "code")
+        self.git(repo, "worktree", "add", "-q", "-b", "feature", code)
+        script = os.path.join(code, "eval", "score.py")
+        self.write(script, "print(1)\n")
+        self.git(code, "add", "eval/score.py")
+        self.git(code, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "evaluator",
+                 when="2019-06-01T00:00:00+0000")
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "evaluator: eval/score.py\n")
+        self.commit(repo, "protocol", when=BEFORE)
+        errors = tr.check_line(repo, "q", code=code)[0]
+        self.assertFalse(hit(["is not a file in the line", "changed after lock"], errors),
+                         errors)
+        self.write(script, "print(2)\n")
+        self.git(code, "-c", "commit.gpgsign=false", "commit", "-q", "-am", "edit",
+                 when=AFTER)
+        errors = tr.check_line(repo, "q", code=code)[0]
+        self.assertTrue(hit("evaluator file changed after lock", errors), errors)
 
 
 class LiteratureIndex(Workspace):
@@ -6239,6 +6462,40 @@ class Exploratory(Workspace):
                    json.dumps({"score": 1, "source": "eval", "scope": "fixture",
                                "fixture": "toy"}) + "\n")
         self.write(os.path.join(d, "analysis.md"), "# a\n")
+
+    def test_a_rules8_capture_before_the_arena_is_committed_is_refused(self):
+        """Plan 128 K12: a rules-8 `source` commits its capture at once, so on an
+        exploratory line whose arena is not committed the results would enter the
+        history before the arena lock for good (`entered the history before the
+        arena was locked`). Refused with nothing written; after `commit` it lands
+        and the order holds."""
+        repo = self.repo()
+        base = self.campaign(repo, evaluator=False, commit=False, rules=None)
+        self.assertEqual(tr._state(base).get("rules"), tr.EVIDENCE_RULES)
+        d = os.path.join(base, "experiments", "h1")
+        self.write(os.path.join(d, "protocol.md"),
+                   "idea: I1\nkill: %s\nprediction: it scores\nfalsifier: %s\n"
+                   "headroom: 10 points\nmetric: score\nunit: points\n" % (KILL, KILL))
+        ws = os.path.join(repo, ".tezgah")
+        self.assertTrue(os.path.isdir(os.path.join(ws, ".git")))
+        self.git(ws, "add", "-f", os.path.relpath(os.path.join(d, "protocol.md"), ws))
+        self.git(ws, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "protocol",
+                 when=BEFORE)
+        env = self.env(extra={"TEZGAH_ORX_BIN": self.stub_orx(repo, logs="score 1\n")})
+        args = ("source", "camp", "h1", "--run", "9f0c1d2e", "--scope", "real")
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("the arena is not committed", proc.stdout)
+        self.assertIn('tezgah-research commit camp "<message>"', proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(d, "raw")))
+        self.assertFalse(os.path.exists(os.path.join(d, "results.jsonl")))
+        proc = self.cli(repo, "commit", "camp", "arena", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo, slug="camp")
+        self.assertFalse(hit("entered the history before the arena was locked", errors),
+                         errors)
 
     def test_init_locks_the_arena_from_rules_7_on(self):
         repo = self.repo()

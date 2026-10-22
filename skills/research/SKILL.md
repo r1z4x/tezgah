@@ -148,8 +148,9 @@ On a rules-8 line, run `cite <slug>` after adding a formal INDEX row: it stores
 each registry's receipt for its arXiv id or DOI - a bare DOI (`10.1109/...`), a
 `doi:` one or a `https://doi.org/` URL. A source no registry indexes records
 `unindexed_reason` and narrows its claims instead of failing the line. A registered
-metric the report leaves out takes a `not_reported: <metric>: <reason>` line in
-`protocol.md`. Three or more words in double quotation marks in a claim's
+metric the report leaves out is named in the report; before the run it may instead
+take a `not_reported: <metric>: <reason>` line in `protocol.md`, which is frozen
+once the run is filed. Three or more words in double quotation marks in a claim's
 `statement` are a quote, and `check` looks for them in the text `fetch` captured
 and in the receipts' abstracts, so write a paraphrase without quotation marks. A
 falsifier `check` evaluates reads `<field> <op> <number> [on <group>]` over the
