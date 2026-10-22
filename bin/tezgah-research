@@ -165,8 +165,8 @@ def misuse(message):
 
 
 INIT_USAGE = ('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
-              ' [--method qualitative|measured|exploratory] [--in "<covered>"]...'
-              ' [--out "<left alone>"]... [--question "..."]'
+              ' [--method qualitative|measured|exploratory] [--class R1..R12]'
+              ' [--in "<covered>"]... [--out "<left alone>"]... [--question "..."]'
               ' [--allow-open "<reason>"] [--supersedes <slug>]'
               ' [--arena "<problem>" --budget "<budget>"'
               ' [--evaluator <path> --metric "<metric>"]]')
@@ -175,6 +175,12 @@ INIT_EXAMPLE = ('tezgah-research init cache-latency --ask "does the cache cut p9
 
 
 def cmd_init(args):
+    # R0 is refused before any other argument is read (spec 3.3): a factual or
+    # reference question gets its answer in the reply, never a line
+    if any(a == "--class" and b == "R0" for a, b in zip(args, args[1:])):
+        print("FAIL init: R0 gets no line: a factual or reference question is answered "
+              "in the reply with its evidence")
+        return 1
     if not args:
         return misuse("init needs a slug")
     if args[0] in ("-h", "--help"):
@@ -189,7 +195,7 @@ def cmd_init(args):
                       "and dashes" % args[0])
     question, allow, supersedes = "", None, None
     ask, tier, method, scope_in, scope_out = "", str(tr.DEFAULT_TIER), "", [], []
-    arena = {}
+    arena, question_class = {}, ""
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
@@ -203,6 +209,9 @@ def cmd_init(args):
             method = rest.pop(0)
         elif flag == "--in" and rest:
             scope_in.append(rest.pop(0))
+        elif flag == "--class" and rest and rest[0] in tr.QUESTION_CLASSES[1:] \
+                and not question_class:
+            question_class = rest.pop(0)
         elif flag == "--out" and rest:
             scope_out.append(rest.pop(0))
         elif flag == "--allow-open" and rest:
@@ -284,7 +293,8 @@ def cmd_init(args):
                                  arena.get("--metric", "").strip())
     made = tr.init(repo, slug, question=question, created=created,
                    supersedes=supersedes, ask=ask, tier=tier, method=method,
-                   scope_in=scope_in, scope_out=scope_out, arena=record)
+                   scope_in=scope_in, scope_out=scope_out, arena=record,
+                   question_class=question_class)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -295,6 +305,11 @@ def cmd_init(args):
         print("  wrote %s" % path)
     for problem in tr.scope_problems(tr.line_state(repo, slug)):
         print("  owed: %s" % problem)
+    if question_class:
+        print("obligations: %s" % ", ".join(tr.obligations(question_class, method)))
+        print(tr.budget(slug, tr.line_dir(repo, slug), tr.line_state(repo, slug))[0])
+        for line, cid, status, sim in tr.overlaps(repo, question or ask, slug):
+            print("overlap: %s/%s %s %.2f" % (line, cid, status, sim))
     if method == "exploratory":
         print("\nnext: commit the arena now, before any idea - `~/.config/tezgah/bin/tezgah-research commit "
               "%s \"arena\"`; an idea committed with it or before it is refused. Then "
@@ -416,13 +431,14 @@ def cmd_check(args):
     as_json = "--json" in flags
     strict = "--strict" in flags
     ask_orx = "--orx" in flags
+    online = "--online" in flags
     all_lines = "--all-lines" in flags
     rest = [a for a in flags
-            if a not in ("--json", "--strict", "--orx", "--all-lines")] + after
+            if a not in ("--json", "--strict", "--orx", "--online", "--all-lines")] + after
     repo = repo_root(os.getcwd())
     if len(rest) > 1:
-        return misuse("check [<slug>] [--json] [--strict] [--orx] [--all-lines] "
-                      "[-- <slug>]")
+        return misuse("check [<slug>] [--json] [--strict] [--orx] [--online] "
+                      "[--all-lines] [-- <slug>]")
     known = tr.slugs(repo)
     if rest and rest[0] not in known:
         print("FAIL %s: no such research line (have: %s)"
@@ -432,13 +448,18 @@ def cmd_check(args):
     report = {}
     if known:
         report = tr.check(repo, rest[0] if rest else None, strict=strict,
-                          all_lines=all_lines, code=checkout_root(os.getcwd()))
+                          all_lines=all_lines, code=checkout_root(os.getcwd()),
+                          flags={"online": online, "orx": ask_orx})
         for slug, row in report.items():
             for err in row["errors"]:
                 problems += 1
                 print("FAIL %s: %s" % (slug, err))
             for warn in row["warnings"]:
                 print("warn %s: %s" % (slug, warn))
+            # rules 8's report lines (certainty, stats, effect, budget, ...): never
+            # problems, and inside the JSON row rather than before it
+            for line in [] if as_json else row.get("report", []):
+                print(line)
     else:
         print("no research line under %s" % tr.root(repo))
     lines = len(report)
@@ -1132,9 +1153,23 @@ def main(argv):
                 "board": cmd_board, "dedup": cmd_dedup, "yield": cmd_yield}
     if cmd in campaign:
         return campaign[cmd](rest)
+    # rules 8's capture and evidence commands, imported only when asked for so a
+    # missing optional module never breaks another command. Each handler takes
+    # (repo, args), prints its own output and returns its exit code; `release-check`
+    # and `calibration` need no line and run from any directory.
+    import importlib
+    for name in ("tezgah_research_capture", "tezgah_research_evidence"):
+        try:
+            commands = importlib.import_module(name).COMMANDS
+        except (ImportError, AttributeError):
+            continue
+        if cmd in commands:
+            return commands[cmd](repo_root(os.getcwd()), rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
                   "components, migrate, source, compare, verdict, conclude, migrate-layout, "
-                  "close, seal, import, next, idea, stage, match, board, dedup, yield)" % cmd)
+                  "close, seal, import, next, idea, stage, match, board, dedup, yield, cite, "
+                  "fetch, search, instrument, gold, label, switch, release-check, "
+                  "calibration)" % cmd)
 
 
 if __name__ == "__main__":
