@@ -387,7 +387,7 @@ def receipt_ids(provider, data):
         doc = doc if isinstance(doc, dict) else {}
         values = []
         if provider == "crossref":
-            values = ["doi:%s" % _dig(doc, "message", "DOI")]
+            values = [("doi:", _dig(doc, "message", "DOI"))]
         elif provider == "openalex":
             ids = doc.get("ids") if isinstance(doc.get("ids"), dict) else {}
             places = [doc.get("primary_location"), doc.get("best_oa_location")]
@@ -397,9 +397,11 @@ def receipt_ids(provider, data):
                 for k in ("landing_page_url", "pdf_url")]
         elif provider == "semanticscholar":
             ext = doc.get("externalIds") if isinstance(doc.get("externalIds"), dict) else {}
-            values = ["s2:%s" % doc.get("paperId"), "doi:%s" % ext.get("DOI"),
-                      "arXiv:%s" % ext.get("ArXiv")]
-    return {i for i in map(_url_id, values) if i and not i.endswith(":None")}
+            values = [("s2:", doc.get("paperId")), ("doi:", ext.get("DOI")),
+                      ("arXiv:", ext.get("ArXiv"))]
+    values = [v[0] + v[1] if isinstance(v, tuple) and isinstance(v[1], str) else v
+              for v in values]
+    return {i for i in map(_url_id, values) if i}
 
 
 def parse_receipt(provider, rid, status, data):

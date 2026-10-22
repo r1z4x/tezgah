@@ -95,6 +95,21 @@ class Pure(unittest.TestCase):
         self.assertTrue(cap.parse_receipt("semanticscholar", rid, 200, s2.encode())["resolved"])
         self.assertFalse(cap.parse_receipt("crossref", rid, 404, cross.encode())["resolved"])
 
+    def test_receipt_ids_by_provider(self):
+        self.assertEqual(cap.receipt_ids("crossref", b'{"message": {"title": ["x"]}}'), set())
+        self.assertEqual(cap.receipt_ids("crossref", b'{"message": {"DOI": "10.1/X"}}'),
+                         {"doi:10.1/x"})
+        merged = json.dumps({"doi": "https://doi.org/10.65215/a", "ids": {"mag": "1"},
+                             "locations": [{"landing_page_url": "https://arxiv.org/abs/%s"
+                                            % ARX}]})
+        self.assertEqual(cap.receipt_ids("openalex", merged.encode()),
+                         {"doi:10.65215/a", "arXiv:" + ARX})
+        s2 = json.dumps({"paperId": "abc", "externalIds": {"ArXiv": ARX}})
+        self.assertEqual(cap.receipt_ids("semanticscholar", s2.encode()),
+                         {"s2:abc", "arXiv:" + ARX})
+        self.assertEqual(cap.receipt_ids("arxiv", atom([(ARX, TITLE, "x", 2024, "A B")])
+                                         .encode()), {"arXiv:" + ARX})
+
     def test_citation_verdicts(self):
         row = {"title": TITLE, "year": 2024}
         good = {"resolved": True, "title": TITLE, "year": 2024}
