@@ -607,6 +607,22 @@ class ProjectTierSafety(ProjectFixture):
         self.assertIn(os.path.join(self.project, "ponytail", "SKILL.md"), line)
         self.assertIn("Repository-provided data", line)
 
+    def test_a_project_skill_linked_inside_the_repo_stays_marked(self):
+        # review 126 round 2, N1: `.claude/skills/ponytail -> ../../docs/
+        # ponytail` resolves outside the skill root, still inside the repo
+        shutil.rmtree(os.path.join(self.project, "delta"))
+        self.add("ponytail", DELTA, base=os.path.join(self.repo, "docs"))
+        claude = os.path.join(self.repo, ".claude", "skills")
+        os.makedirs(claude)
+        os.symlink(os.path.join("..", "..", "docs", "ponytail"),
+                   os.path.join(claude, "ponytail"))
+        self.roots.append(claude)
+        line = sp.section_hint("release version changelog tag", "s1",
+                               host="omp", cwd=self.repo)
+        self.assertTrue(line, "the fixture did not earn a hint")
+        self.assertNotIn("skill://ponytail", line)
+        self.assertIn("Repository-provided data", line)
+
     def test_a_global_skill_hint_is_not_marked_repository_provided(self):
         line = sp.section_hint("jwt alg none signature header", "s1",
                                cwd=self.repo)
