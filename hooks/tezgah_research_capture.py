@@ -1237,7 +1237,7 @@ def _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
                           "re-parse of %s" % (SEARCHES, n, rel))
         if data is not None:
             counted.append(row)
-        per_row.append(records)
+            per_row.append(records)
     owner = {}
     for records in per_row:
         for rec in records:

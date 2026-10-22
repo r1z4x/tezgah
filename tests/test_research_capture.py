@@ -628,15 +628,17 @@ class Captures(unittest.TestCase):
                             "commit" in e for e in errors), errors)
 
     def test_search_row_naming_a_file_outside_searches_raw_has_no_capture(self):
-        # R2-4
+        # R2-4: refused, and it counts for nothing - not even saturation's last run
         self.run_cmd("cite", "q")
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
         receipt = next(r for r in self.rows(cap.RECEIPTS) if r["file"])
-        self.append(cap.SEARCHES, {"n": 1, "tag": "primary", "connector": "openalex",
+        self.append(cap.SEARCHES, {"n": 2, "tag": "primary", "connector": "openalex",
                                    "file": receipt["file"], "sha256": receipt["sha256"],
                                    "hits": 0, "ids": []})
-        errors, _w, _s = self.check()
-        self.assertTrue(any(cap.SEARCHES in e and "row 1" in e and "has no capture" in e
+        errors, _w, steps = self.check()
+        self.assertTrue(any(cap.SEARCHES in e and "row 2" in e and "has no capture" in e
                             for e in errors), errors)
+        self.assertIn("stopping q: saturation not met", steps["#report"])
 
     def test_one_capture_backs_one_search_row(self):
         # R2-5: a second row borrowing row 1's capture under another connector
