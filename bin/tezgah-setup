@@ -1661,11 +1661,32 @@ def skill_description(path):
     else:
         inline = re.search(r"description:\s*(.+)", block.group(1))
         desc = inline.group(1).strip().strip("\"'") if inline else ""
+    return _trigger_line(desc)
+
+
+def _trigger_line(desc):
+    """The sentence of `desc` carrying its `Use when ...` trigger, cut at 140."""
     desc = re.sub(r"\s+", " ", desc).strip()
     sentences = re.split(r"(?<=[.!?])\s+", desc)
     line = next((s for s in sentences if re.match(r"(?:Also )?[Uu]se\b", s)),
                 sentences[0] if sentences else "")
     return line[:137].rstrip() + "..." if len(line) > 140 else line
+
+
+def skill_when_line(path):
+    """The trigger line of a SKILL.md body's `## When to use` first paragraph.
+
+    The frontmatter description is a short bilingual trigger list now, too short
+    for two near-neighbours to share subject words; the long text it replaced
+    opens the body's `## When to use`, and that is what still tells them apart.
+    Best effort like skill_description: anything unreadable yields ""."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    para = re.search(r"^## When to use\n\s*\n(.*?)(?:\n\s*\n|\Z)", text, re.M | re.S)
+    return _trigger_line(para.group(1)) if para else ""
 
 
 def skill_category(name, path=""):
@@ -1748,12 +1769,12 @@ under out up down off again more most other some such only own same too very can
 will just don should now read reads reading use used uses using also one two
 three every each any all both new old
 """.split())
-# Two skills a session could pick either way from: their router lines share this
-# many subject words, so the description alone cannot settle the choice. Three is
-# where the shipped set stops pairing near-neighbours - `plan-add` / `plan-status`
-# / `plan-sync` share four terms and `product-analysis` / `feature-audit` three,
-# while at two `harness` / `no-ai-slop` pair over "asks, user" and the section
-# reads as noise.
+# Two skills a session could pick either way from: the trigger lines of their
+# `## When to use` share this many subject words, so the description alone
+# cannot settle the choice. Three is where the shipped set pairs near-neighbours -
+# `plan-add` / `plan-status` / `plan-sync` share four or five terms,
+# `product-analysis` / `feature-audit` and `design-contract` / `design-library`
+# three - while `ponytail` / `i-have-adhd` stay apart.
 COLLISION_SHARED = 3
 
 
@@ -1772,7 +1793,7 @@ def skill_collisions(groups):
     router is what a session picks from when the descriptions tie. It reads the
     shipped names only: a vendored library's internal collisions are its own
     index's business, and a pair tezgah cannot rename is not a tezgah decision."""
-    lines = {name: skill_description(path)
+    lines = {name: skill_when_line(path)
              for cat in ROUTER_ORDER for name, path in groups[cat]
              if name in SKILLS}
     names = sorted(lines)
@@ -1792,7 +1813,8 @@ def _collision_section(pairs):
     out = [
         "## Collisions",
         "",
-        "Pairs a description alone cannot settle: both router lines carry the"
+        "Pairs a description alone cannot settle: both entries' `## When to use`"
+        " lines carry the"
         " words below, so a session could pick either way from them. Read both"
         " entries before choosing.",
         "",
