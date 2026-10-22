@@ -680,6 +680,25 @@ class Rules8(unittest.TestCase):
         fx = self.build(spec)
         return fx, fx.check(*flags)[1]
 
+    def invalid_protocol(self, old, new):
+        """C0 whose h1 protocol carries `new` for `old` and no captured run yet (F-3: `source`
+        refuses over it). Asserts the writer side - `source` exits 1 with `carries an invalid
+        record` and writes nothing - and returns `check`'s (rc, out)."""
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol().replace(old, new)
+        del spec["runs"]["h1"]
+        spec["orx_extra"] = {"r1": {"log": "run r1 arm cache\np95 90\n", "status": "completed"}}
+        fx = self.build(spec)
+        before = line_snapshot(fx)
+        rc, out = fx.run(["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value",
+                          "p95=90", "--scope", "real"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("carries an invalid record", out)
+        self.assertEqual(line_snapshot(fx), before, "source wrote over an invalid protocol")
+        rc, out = fx.check()
+        self.assertNotIn("Traceback", out)
+        return rc, out
+
 
 # ----------------------------------------------------------------- C0, C1, P1-P12
 class Controls(Rules8):
@@ -1732,9 +1751,10 @@ class RoundOne(Rules8):
         for old, new, text in (("alpha: 0.05", "alpha: 1.5", "is not a number in (0, 1)"),
                                ("mde: 10", "mde: 0", "is not a number above 0")):
             with self.subTest(value=new):
-                spec = mixed_spec()
-                spec["protocol"]["h1"] = protocol().replace(old, new)
-                self.refused(spec, text)
+                rc, out = self.invalid_protocol(old, new)
+                self.assertEqual(rc, 1, out)
+                self.assertRegex(out, r"(?m)^FAIL q: .*" + re.escape(new.split(": ")[0])
+                                 + r".*" + re.escape(text))
 
     def test_ppi_with_one_gold_item_prints_no_interval(self):
         spec = mixed_spec()
@@ -1902,10 +1922,7 @@ class RoundOne(Rules8):
 class RoundTwo(Rules8):
     def test_degenerate_alpha_is_refused_without_a_traceback(self):
         # R2-1: alpha 1e-20 is refused by key and value, never by a traceback.
-        spec = mixed_spec()
-        spec["protocol"]["h1"] = protocol().replace("alpha: 0.05", "alpha: 1e-20")
-        fx = self.build(spec)
-        rc, out = fx.check()
+        rc, out = self.invalid_protocol("alpha: 0.05", "alpha: 1e-20")
         self.assertEqual(rc, 1, out)
         self.assertNotIn("Traceback", out)
         self.assertRegex(out, r"(?m)^FAIL q: .*\balpha\b.*1e-20")
