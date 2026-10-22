@@ -14,6 +14,7 @@ import unittest.mock
 import bash_vectors
 import support
 from support import TempHome, run_json
+from test_agents import bare_cli_pattern
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_integrity as ti  # noqa: E402  (call_id only: the digest a grant carries)
@@ -1376,7 +1377,8 @@ class Gate(TempHome):
                       "(owns src/a.py, docs/**)", reason)
         self.assertIn("`write agent://LeaseA`", reason)
         # review of S6, F3: the refusal names the command that frees the lease
-        self.assertIn("`tezgah-task slice done LeaseA` frees it", reason)
+        self.assertIn("`~/.config/tezgah/bin/tezgah-task slice done LeaseA` frees it",
+                      reason)
         # a shell redirect relative to the cwd is the same write
         self.assertIn("Lease: docs/x.md", self.decide(
             "Bash", {"command": "echo x > docs/x.md"}, session_id="kidB") or "")
@@ -2290,7 +2292,8 @@ class TaskGate(TempHome):
         scope_reason = self.write_path("src/y.py")
         self.assertIn("tezgah-task phase implementation", phase_reason)
         # S2 F4b: the ready line keeps the current globs (allow replaces the list)
-        self.assertIn("`tezgah-task allow 'hooks/**' src/y.py --why", scope_reason)
+        self.assertIn("`~/.config/tezgah/bin/tezgah-task allow 'hooks/**' src/y.py --why",
+                      scope_reason)
         for reason in (phase_reason, scope_reason):
             self.assertNotIn("the user", reason, reason)
             self.assertNotIn("task-off", reason, reason)
@@ -2299,7 +2302,7 @@ class TaskGate(TempHome):
         os.makedirs(os.path.join(other, ".git"))
         outside = self.write_path(os.path.join(other, "elsewhere.py"))
         self.assertIn("outside this repository", outside)
-        self.assertNotIn("`tezgah-task allow '", outside)
+        self.assertNotIn("tezgah-task allow '", outside)
 
     def test_a_path_under_no_checkout_is_not_the_tasks(self):
         # Plan 094: with a task active, `pbpaste > ~/.config/runpod/key` - the
@@ -2971,6 +2974,10 @@ class TaskGate(TempHome):
         path = self.plan(phase="discovery", allowed=("app/**",))
         for command in ("bin/tezgah-task phase implementation",
                         "tezgah-task allow 'app/**' 'lib/**'",
+                        # the installed path the refusals name, as typed and expanded
+                        "~/.config/tezgah/bin/tezgah-task phase implementation",
+                        os.path.join(self.home, ".config", "tezgah", "bin", "tezgah-task")
+                        + " allow 'app/**' 'lib/**' --why x",
                         "bin/tezgah-task start 001 --phase implementation",
                         "cd /x && bin/tezgah-task stop",
                         "bin/tezgah-task review 001 tezgah-reviewer approve",
@@ -2981,6 +2988,18 @@ class TaskGate(TempHome):
         self.assertIn("tezgah-task phase implementation", reason)
         self.assertNotIn("the user", reason)
         self.assertIn("record", self.write_path(path))
+
+    def test_no_refusal_names_a_tezgah_cli_bare(self):
+        # Plan 126 review F4: a refusal is read by a session whose shell has no
+        # ~/.config/tezgah/bin on PATH (every host but Claude), so the command
+        # it names is the installed path, which the gate itself lets run.
+        bare = bare_cli_pattern()
+        texts = {k: v for k, v in vars(tg).items() if k.isupper() and isinstance(v, str)}
+        for name, text in texts.items():
+            self.assertEqual(bare.findall(text), [], name)
+        self.plan(phase="implementation", allowed=("hooks/**",))
+        reason = self.write_path("src/y.py") or ""
+        self.assertEqual(bare.findall(reason), [], reason)
 
     # ---- the checkpoint the implementation phase starts from --------------
     def test_the_commit_a_pending_checkpoint_names_clears_the_refusal(self):

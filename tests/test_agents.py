@@ -32,6 +32,15 @@ def setup_mcp_tools():
         return re.search(r'"CODEGRAPH_MCP_TOOLS": "([^"]+)"', fh.read()).group(1).split(",")
 
 
+def bare_cli_pattern(exclude=()):
+    """A tezgah CLI (an executable under bin/) named without a directory in
+    front of it; `exclude` drops names that are also role names."""
+    bindir = os.path.join(support.REPO, "bin")
+    names = sorted(n for n in os.listdir(bindir) if "." not in n
+                   and os.access(os.path.join(bindir, n), os.X_OK) and n not in exclude)
+    return re.compile(r"(?<![\w/.~-])(%s)(?![\w-])" % "|".join(map(re.escape, names)))
+
+
 class AgentsBase(TempHome):
     def setUp(self):
         super().setUp()
@@ -160,6 +169,21 @@ class Generation(AgentsBase):
         for name in tezgah_agents.SPECIALISTS:
             self.assertIn("-> " + name, line)
             self.assertIn(name, orch)
+
+    def test_no_generated_text_names_a_tezgah_cli_bare(self):
+        # Plan 126 review F4: only Claude puts ~/.config/tezgah/bin on PATH, so a
+        # bare `tezgah-task` in a role body is `command not found` on every
+        # other host; the text names the installed path instead.
+        bare = bare_cli_pattern(exclude=tezgah_agents.OWNED_NAMES)
+        self.sync()
+        texts = {"steer": self.steer(), "opencode": json.dumps(self.opencode_json())}
+        for host in ("claude", "codex"):
+            texts.update(("%s/%s" % (host, n), t) for n, t in self.user(host).items())
+        for d in (CURSOR, OPENCODE):
+            texts.update((os.path.join(d, n), self.read(d, n)) for n in self.names(d))
+        for name, text in texts.items():
+            text = text.replace(tezgah_agents.MARKER, "")
+            self.assertEqual(bare.findall(text), [], name)
 
     def test_list_prints_every_role_with_its_tier(self):
         proc = subprocess.run(

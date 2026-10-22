@@ -46,7 +46,10 @@ anything, and never claim a training result this skill cannot produce.
 
 Each entry file is upstream's `SKILL.md` renamed `ENTRY.md`, bytes unchanged, so a
 host that lists every `SKILL.md` below its skills directory does not list it; a
-body that says `SKILL.md` means its own `ENTRY.md`.
+body that says `SKILL.md` means its own `ENTRY.md`. Hosts no longer list the four
+ports as skills either, so where the orchestrator says "trigger `generate-*-env`
+skill" or "trigger the framework-specific skill", read that entry's `ENTRY.md`
+(`generate-openenv-env/ENTRY.md` and so on) instead.
 
 Each of the four ports ships its own `references/architecture.md`; the
 orchestrator ships one reference per framework beside its interview notes. The
