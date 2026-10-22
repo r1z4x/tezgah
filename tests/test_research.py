@@ -3167,6 +3167,48 @@ class RegisteredMetric(Workspace):
                         errors)
         self.assertFalse(hit(needle, errors), errors)
 
+    def test_a_hard_wrapped_metric_name_in_the_report_is_reported(self):
+        """K6 X2 (2): the match collapses whitespace in the report as it does in the
+        metric name, so `error rate` wrapped over two lines is reported."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n",
+                                            "metric: p95 latency, error rate\n"))
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nthe error\nrate  stayed flat.\n")
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit("registered metric 'error rate'", errors), errors)
+
+
+class EvaluatorLock(Workspace):
+    """Rules 8 (2.4): a project `evaluator:` holds its bytes at the protocol's lock."""
+
+    def test_a_project_evaluator_is_compared_with_its_version_at_the_lock(self):
+        """K6 X2 (3): the line's protocol is committed in `.tezgah`'s repository, which
+        the project's history does not hold, so the evaluator was compared with its
+        oldest project version: an edit before the line existed refused for good. It
+        is compared with the latest project version not after the lock; an edit after
+        the lock still refuses."""
+        repo = self.repo()
+        script = os.path.join(repo, "eval", "score.py")
+        self.write(script, "print(1)\n")
+        self.commit(repo, "evaluator", when="2019-01-01T00:00:00+0000")
+        self.write(script, "print(2)\n")
+        self.commit(repo, "evaluator fix", when="2019-06-01T00:00:00+0000")
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "evaluator: eval/score.py\n")
+        self.commit(repo, "protocol", when=BEFORE)
+        needle = "evaluator file changed after lock"
+        errors = self.errors(repo)
+        self.assertFalse(hit(needle, errors), errors)
+        self.write(script, "print(3)\n")
+        self.commit(repo, "evaluator after the lock", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit(needle, errors), errors)
+
 
 class LiteratureIndex(Workspace):
     """I5: what the line read, indexed, and labelled by channel."""
@@ -6574,6 +6616,31 @@ class Rules8Core(Workspace):
         claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
                      status="supported")
         self.assertTrue(hit("while its falsifier fired", tr.claim_problems(claim, base, repo)))
+
+    def test_a_falsifier_on_no_group_over_several_groups_is_not_evaluated(self):
+        """K6 X2 (5): `p95 > 100` with no `on <group>` was the mean over every arm,
+        the control's included - 105.5 here, so a supported claim was refused while
+        the cache arm sits at 90.5. Over several groups it is `falsifier-not-evaluable`;
+        over one group it is evaluated over every row as before."""
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        path = os.path.join(self.exp_dir(repo), "protocol.md")
+        self.write(path, read(path).replace("falsifier: p95 > 110 on cache",
+                                            "falsifier: p95 > 100"))
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     status="supported")
+        self.assertFalse(hit("while its falsifier fired",
+                             tr.claim_problems(claim, base, repo)))
+        self.claims(repo, claim)
+        extra = {}
+        errors, _ = bounded(tr.check_line, repo, "q", False, False, None, None, extra)
+        self.assertFalse(hit("while its falsifier fired", errors), errors)
+        self.assertIn("falsifier-not-evaluable", extra["certainty"]["c1"]["steps"], extra)
+        rows = [{"p95": 120}, {"p95": 121}]
+        self.assertEqual(tr.falsifier_fired({"fields": {"falsifier": ["p95 > 100"]},
+                                             "groups": {"all": rows}, "rows": rows}),
+                         ("p95 > 100", 120.5))
 
     def test_concluded_line_needs_terminal_hypotheses(self):
         state = {"hypotheses": [{"id": "H1", "text": "x", "status": "testing"},
