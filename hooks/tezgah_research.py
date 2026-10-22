@@ -150,11 +150,11 @@ PROTOCOL_RULES = 4
 SCOPE_RULES = 5
 HOLDOUT_RULES = 6
 EXPLORE_RULES = 7
-RULES = EXPLORE_RULES
 # Rules 8 (plan 127): evidence captured by the tool and claims narrowed rather
-# than lines refused. `check` reads a line that declares it; `init` still writes
-# `RULES` until the plan's last wave moves `RULES` here.
+# than lines refused. `init` writes it since the plan's last wave moved `RULES`
+# here.
 EVIDENCE_RULES = 8
+RULES = EVIDENCE_RULES
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
