@@ -2840,20 +2840,22 @@ def _concluding(base, state):
             or os.path.isfile(os.path.join(base, "to_human", "report.md")))
 
 
-def file_versions(repo, path):
+def file_versions(repo, path, every_ref=True):
     """[(sha, text)] of every committed version of `path`, oldest first; [] when git
     cannot say. The append-only rule compares versions, which the added/last-touched
     pair cannot. The project's history is read first and the private `.tezgah`
     repository's after it, like `added_commits`: a line committed in the project
     before the move has its older versions there.
 
-    The order rules read HEAD's lineage; this reads every ref of the private
-    repository (`--all`), because it looks for a rewrite and not an order: a row
-    amended away while a tag keeps the old commit is a result rewritten after the
-    run, which HEAD alone no longer shows (an internal research decision). A side
-    ref can only add a version, so it can refuse a line and never pass one."""
+    By default this reads every ref of the private repository (`--all`), because
+    the results rule looks for a rewrite: a row amended away while a tag keeps the
+    old commit is a result rewritten after the run, which HEAD alone no longer
+    shows (an internal research decision). `every_ref=False` reads HEAD's lineage
+    only, for the order and write-once rules of the captures: a backdated side
+    branch read through `--all` supplied the oldest version and satisfied the
+    stopping-rule order, and a draft branch's rewrite refused the line on HEAD."""
     return [v for top, rel in _histories(repo, path)
-            for v in _versions(top, rel, ("--all",) if top != repo else ())]
+            for v in _versions(top, rel, ("--all",) if every_ref and top != repo else ())]
 
 
 def _versions(top, rel, extra=()):

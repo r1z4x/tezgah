@@ -410,6 +410,179 @@ class Captures(unittest.TestCase):
         self.assertEqual(cap.fetch_url("https://x.example/api", body), (200, b"answer"))
         self.assertEqual(cap.fetch_url("https://x.example/none"), (404, b""))
 
+    # plan 127 review round one, group G2 -----------------------------------------
+    def append(self, rel, *rows):
+        with open(self.at(rel), "a") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in rows))
+
+    def index(self, **row):
+        self.write(self.at("literature/INDEX.jsonl"), json.dumps(dict({
+            "note": NOTE, "id": "arXiv:" + ARX, "class": "formal", "title": TITLE,
+            "year": 2024, "first_author": "Smith"}, **row)) + "\n")
+
+    def wsgit(self, *args, when=None):
+        env = dict(os.environ, GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when) if when else None
+        return subprocess.run(["git", "-C", os.path.join(self.repo, ".tezgah")] + list(args),
+                              check=True, capture_output=True, text=True, env=env).stdout
+
+    def test_search_row_with_no_file_has_no_capture_and_counts_for_nothing(self):
+        # D1-1: a hand-typed counter row on a second connector, with no capture
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
+        self.append(cap.SEARCHES, {"n": 2, "tag": "counter", "item": ITEM,
+                                   "connector": "crossref", "hits": 0, "ids": []})
+        errors, _w, steps = self.check()
+        self.assertTrue(any("row 2" in e and "has no capture" in e for e in errors), errors)
+        self.assertIn("one-connector", steps.get("C1", []))
+        self.assertIn("no-counter-search", steps.get("C1", []))
+
+    def test_source_row_without_its_own_record_sets_no_access(self):
+        # D1-2: no `file`; a receipt's file; another note's source record
+        self.run_cmd("cite", "q")
+        receipt = next(r for r in self.rows(cap.RECEIPTS) if r["file"])
+        record = json.dumps({"note": "lit/other.md", "access": "full", "passages": []}).encode()
+        rel = "literature/.sources/%s.json" % hashlib.sha256(record).hexdigest()
+        os.makedirs(self.at("literature/.sources"), exist_ok=True)
+        with open(self.at(rel), "wb") as fh:
+            fh.write(record)
+        for row in ({"note": NOTE, "access": "full"},
+                    {"note": NOTE, "file": receipt["file"], "sha256": receipt["sha256"],
+                     "access": "full"},
+                    {"note": NOTE, "file": rel, "sha256": hashlib.sha256(record).hexdigest(),
+                     "access": "full"}):
+            self.append(cap.SOURCES, row)
+            errors, _w, steps = self.check()
+            self.assertIn("source-not-captured", steps.get("C1", []), row)
+        self.assertTrue(any(cap.SOURCES in e and "row 1" in e and "has no capture" in e
+                            for e in errors), errors)
+
+    def test_receipt_for_another_id_or_url_is_refused(self):
+        # D1-4: the raw bytes must name the INDEX id, the url must be the table's
+        fake, real = "10.9999/invented.2024.001", "10.1000/real.2024.042"
+        self.index(id="doi:" + fake)
+        rows = []
+        for provider, url, body in (
+                ("crossref", "https://api.crossref.org/works/" + fake,
+                 {"message": {"DOI": real, "title": [TITLE], "author": [{"family": "Smith"}],
+                              "issued": {"date-parts": [[2024]]}}}),
+                ("openalex", "https://api.openalex.org/works/doi:" + real,
+                 {"doi": "https://doi.org/" + fake, "title": TITLE, "publication_year": 2024,
+                  "authorships": [{"author": {"display_name": "Ann Smith"}}]})):
+            data = json.dumps(body).encode()
+            rel = "literature/.receipts/%s.raw" % hashlib.sha256(data).hexdigest()
+            os.makedirs(self.at("literature/.receipts"), exist_ok=True)
+            with open(self.at(rel), "wb") as fh:
+                fh.write(data)
+            rows.append({"id": "doi:" + fake, "provider": provider, "url": url, "status": 200,
+                         "resolved": True, "file": rel,
+                         "sha256": hashlib.sha256(data).hexdigest(), "title": TITLE,
+                         "first_author": "Smith", "year": 2024, "abstract": None})
+        self.append(cap.RECEIPTS, *rows)
+        errors, _w, _s = self.check()
+        self.assertTrue(any("crossref" in e and "not derived from its capture" in e
+                            and "doi:" + real in e for e in errors), errors)
+        self.assertTrue(any("openalex" in e and "is not the openalex receipt URL" in e
+                            for e in errors), errors)
+        self.assertTrue(any(cap.NO_REGISTRY in e for e in errors), errors)
+
+    def test_online_compares_the_id(self):
+        # D1-4: a re-fetch naming another paper is id drift
+        self.run_cmd("cite", "q")
+        self.set_map({OPENALEX: openalex(aid="2401.99999")})
+        _e, _w, steps = self.check({"online": True})
+        self.assertIn("online q: arXiv:%s openalex id drifted" % ARX, steps["#report"])
+
+    def test_stopping_committed_after_search_side_branch_neither_passes_nor_breaks(self):
+        # D1-11: setUp committed no stopping rule for this case
+        fork = self.wsgit("rev-parse", "HEAD").strip()
+        main = self.wsgit("branch", "--show-current").strip()
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
+        st = tr._state(self.base)
+        st["stopping"] = {"rule": "pragmatic", "risk": "late"}
+        self.write(self.at("state.json"), json.dumps(st))
+        self.cli("commit", "q", "late stopping")
+        with open(self.at(cap.SEARCHES)) as fh:
+            ledger = fh.read()
+        raw = self.rows(cap.SEARCHES)[0]["file"]
+        with open(self.at(raw)) as fh:
+            raw_text = fh.read()
+        self.wsgit("checkout", "-q", "-b", "draft", fork)
+        self.write(self.at("state.json"), json.dumps(st))
+        self.wsgit("commit", "-qam", "stopping", when="2020-01-01T00:00:00Z")
+        self.write(self.at(cap.SEARCHES), ledger)
+        self.write(self.at(raw), raw_text)
+        self.wsgit("add", "-A")
+        self.wsgit("commit", "-qm", "search", when="2020-01-02T00:00:00Z")
+        self.write(self.at(cap.SEARCHES), ledger.replace('"hits": 1', '"hits": 7'))
+        self.write(self.at(raw), raw_text + "edited")
+        self.wsgit("commit", "-qam", "rewrite", when="2020-01-03T00:00:00Z")
+        self.wsgit("checkout", "-q", main)
+        errors, _w, steps = self.check()
+        self.assertIn("no-stopping-rule", steps["C1"])
+        self.assertFalse([e for e in errors if "after its first commit" in e], errors)
+
+    def test_proof_ending_in_a_period_still_cites_the_note(self):
+        # D2-4, D2-5: one cited-note reading for the quote check and the capture step
+        note = "smith2020"
+        self.write(self.at("literature/" + note), '# Smith\n\n> "%s" (sec. 4)\n' % QUOTE)
+        self.index(note=note)
+        self.write(self.at("claims.jsonl"), json.dumps({
+            "id": "C1", "statement": "Smith reports lower tail latency", "kind": "literature",
+            "proof": "see literature/%s." % note,
+            "quote": "retrieval eliminates hallucinated citations"}) + "\n")
+        self.run_cmd("cite", "q")
+        _e, _w, steps = self.check()
+        self.assertIn("source-not-captured", steps.get("C1", []))
+        self.run_cmd("fetch", "q", note)
+        errors, _w, _s = self.check()
+        self.assertTrue(any("retrieval eliminates" in e and cap.NOT_IN_SOURCE in e
+                            for e in errors), errors)
+
+    def test_quote_fragments_must_be_found_in_order_at_check(self):
+        # D2-3: both halves are in the source, the second only before the first
+        self.write(self.at("claims.jsonl"), json.dumps({
+            "id": "C1", "statement": "Smith reports lower tail latency", "kind": "literature",
+            "proof": ["literature/" + NOTE],
+            "quote": "in every workload we measured ... caching lowers tail latency"}) + "\n")
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        errors, _w, _s = self.check()
+        self.assertTrue(any("in every workload we measured ..." in e and cap.NOT_IN_SOURCE in e
+                            for e in errors), errors)
+
+    def test_quote_fragments_far_apart_in_order_are_found(self):
+        self.write(self.at("literature/" + NOTE), "# Smith\n")
+        self.set_map({HTML: "<p>caching lowers tail latency, %s and in every workload we "
+                            "measured.</p>" % ("as table two shows " * 60)})
+        self.write(self.at("claims.jsonl"), json.dumps({
+            "id": "C1", "statement": "Smith reports lower tail latency", "kind": "literature",
+            "proof": ["literature/" + NOTE],
+            "quote": "caching lowers tail latency ... in every workload we measured"}) + "\n")
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+
+    def test_citation_marker_split_by_tags_is_dropped(self):
+        # D2-10: LaTeXML's `[<a>12</a>]` reads `[ 12 ]` once its tags are dropped
+        self.set_map({HTML: '<p>caching lowers tail latency <cite>[<a href="#bib.bib12">12'
+                            '</a>, <a href="#bib.bib13">13</a>]</cite> in every workload we '
+                            'measured.</p>'})
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+        self.assertEqual(cap.normalise("latency [ 12 ] in [3 , 4]"), "latency in")
+
+    def test_formal_row_with_an_empty_id_resolves_in_no_registry(self):
+        # D2-6
+        self.index(id="")
+        errors, _w, _s = self.check()
+        self.assertTrue(any(cap.NO_REGISTRY in e for e in errors), errors)
+        self.index(id="", unindexed_reason="a workshop with no DOI")
+        errors, _w, steps = self.check()
+        self.assertFalse([e for e in errors if cap.NO_REGISTRY in e], errors)
+        self.assertIn("unindexed-source", steps.get("C1", []))
+
 
 if __name__ == "__main__":
     unittest.main()

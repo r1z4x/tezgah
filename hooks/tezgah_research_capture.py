@@ -249,7 +249,8 @@ QUOTE_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201
 def normalise(text):
     """Spec 0's text normalisation, for quotes, passages and titles."""
     text = unicodedata.normalize("NFKC", str(text or ""))
-    text = re.sub(r"\[\d+(?:[,\u2013-]\s*\d+)*\]", "", text).translate(QUOTE_MARKS)
+    # a marker split by tags or spaces (LaTeXML's `[<a>12</a>]` reads `[ 12 ]`) too
+    text = re.sub(r"\[\s*\d+(?:\s*[,\u2013-]\s*\d+)*\s*\]", "", text).translate(QUOTE_MARKS)
     text = re.sub(r"-\s+", "", text)
     return " ".join(text.split()).casefold().strip()
 
@@ -363,6 +364,42 @@ def receipt_urls(rid):
                 ("openalex", "https://api.openalex.org/works/doi:" + d),
                 ("semanticscholar", S2_PAPER % ("DOI:" + d))]
     return []
+
+
+ARXIV_URL = re.compile(r"(?i)arxiv\.org/(?:abs|pdf|html)/(\S+?)(?:v\d+)?(?:\.pdf)?/?$")
+
+
+def _url_id(value):
+    if not isinstance(value, str):
+        return None
+    m = ARXIV_URL.search(value.strip())
+    return "arXiv:" + m.group(1) if m else norm_id(value)
+
+
+def receipt_ids(provider, data):
+    """The normalised ids a provider's answer names: arXiv entry ids, Crossref
+    `message.DOI`, OpenAlex `doi`/`ids` and location URLs (a merged work keeps an
+    arXiv preprint there), S2 `paperId`/`externalIds`."""
+    if provider == "arxiv":
+        values = [e["id"] for e in _atom_entries(data or b"")]
+    else:
+        doc = _json(data or b"")
+        doc = doc if isinstance(doc, dict) else {}
+        values = []
+        if provider == "crossref":
+            values = ["doi:%s" % _dig(doc, "message", "DOI")]
+        elif provider == "openalex":
+            ids = doc.get("ids") if isinstance(doc.get("ids"), dict) else {}
+            places = [doc.get("primary_location"), doc.get("best_oa_location")]
+            places += doc.get("locations") if isinstance(doc.get("locations"), list) else []
+            values = [doc.get("doi")] + list(ids.values()) + [
+                p.get(k) for p in places if isinstance(p, dict)
+                for k in ("landing_page_url", "pdf_url")]
+        elif provider == "semanticscholar":
+            ext = doc.get("externalIds") if isinstance(doc.get("externalIds"), dict) else {}
+            values = ["s2:%s" % doc.get("paperId"), "doi:%s" % ext.get("DOI"),
+                      "arXiv:%s" % ext.get("ArXiv")]
+    return {i for i in map(_url_id, values) if i and not i.endswith(":None")}
 
 
 def parse_receipt(provider, rid, status, data):
@@ -545,9 +582,16 @@ def _claims(base):
     return [c for c in _rows(base, "claims.jsonl") if isinstance(c.get("id"), str)]
 
 
+def cited_tokens(proof):
+    """The path tokens a proof cites, trailing sentence punctuation stripped: one
+    reading for the capture rules (`_citing`) and the start level (`start_level`),
+    so `see literature/smith2020.` cites `smith2020` for both."""
+    return {t.rstrip(".,;:)") for t in tr._cited(proof)}
+
+
 def _citing(claims, note):
     want = {"literature/" + note, note}
-    return [c for c in claims if want & set(tr._cited(c.get("proof")))]
+    return [c for c in claims if want & cited_tokens(c.get("proof"))]
 
 
 def gather_quotes(base, note, claims):
@@ -818,8 +862,7 @@ def _check_write_once(repo, base, errors):
     seen = set()
     for top, rel in tr._histories(repo, base):
         names = tr._own_names(rel)
-        extra = ("--all",) if top != repo else ()
-        out, err = tr._git_out(top, "log", *extra, "--root", "--format=%x00%H", "--raw",
+        out, err = tr._git_out(top, "log", "--root", "--format=%x00%H", "--raw",
                                "--no-abbrev", "--no-renames", "--", *names)
         if err:
             continue
@@ -849,7 +892,7 @@ def _check_write_once(repo, base, errors):
                               "once, so a new capture is a new file" % (key, first_sha[:12]))
     for rel in _ledgers(base):
         path = os.path.join(base, rel)
-        versions = [text for _sha_, text in tr.file_versions(repo, path)]
+        versions = [text for _sha_, text in tr.file_versions(repo, path, every_ref=False)]
         current, exc = tr._committed_text(path)
         if not exc:
             versions.append(current)
@@ -871,10 +914,13 @@ def _ledgers(base):
 
 
 def _check_ledger_files(base, errors):
-    """Every ledger row's `file` exists and hashes to its `sha256`."""
+    """Every ledger row's `file` exists and hashes to its `sha256`; a SEARCHES or
+    SOURCES row with no `file` has no capture."""
     for rel in _ledgers(base):
         for n, row in enumerate(_rows(base, rel), 1):
             if not row.get("file"):
+                if rel in (SEARCHES, SOURCES):
+                    errors.append("%s row %d names no file, so it has no capture" % (rel, n))
                 continue
             data = _read(base, row["file"])
             if data is None:
@@ -896,27 +942,43 @@ def _notes_by_id(base):
 def _check_receipts(slug, base, claims, errors, steps, report, online):
     parsed = []
     for n, row in enumerate(_rows(base, RECEIPTS), 1):
-        rid = norm_id(row.get("id"))
+        rid, provider = norm_id(row.get("id")), row.get("provider")
         data = _read(base, row.get("file")) if row.get("file") else b""
         if data is None:
             continue
-        got = parse_receipt(row.get("provider"), rid, row.get("status"), data)
+        got = parse_receipt(provider, rid, row.get("status"), data)
         wrong = [k for k in ("resolved", "title", "first_author", "year") if got[k] != row.get(k)]
         if wrong:
             errors.append("%s row %d (%s %s) is not derived from its capture: %s differ from "
-                          "a re-parse of its raw bytes" % (RECEIPTS, n, rid, row.get("provider"),
+                          "a re-parse of its raw bytes" % (RECEIPTS, n, rid, provider,
                                                            ", ".join(wrong)))
+        named = receipt_ids(provider, data)
+        got["id"] = rid if rid in named else None
+        if got["resolved"]:
+            url = dict(receipt_urls(rid)).get(provider)
+            if not got["id"]:
+                errors.append("%s row %d (%s %s) is not derived from its capture: its raw "
+                              "bytes name %s, not that id" % (RECEIPTS, n, rid, provider,
+                                                              ", ".join(sorted(named))
+                                                              or "no id"))
+                continue
+            if row.get("url") != url:
+                errors.append("%s row %d (%s %s): %s is not the %s receipt URL for that id "
+                              "(%s)" % (RECEIPTS, n, rid, provider, row.get("url"), provider,
+                                        url))
+                continue
         parsed.append((row, rid, got))
     for row in _rows(base, INDEX):
-        if row.get("class") != "formal" or not str(row.get("id") or "").strip():
+        if row.get("class") != "formal":
             continue
-        rid = norm_id(row["id"]) or row["id"]
+        rid = norm_id(row.get("id")) or row.get("id")
         note = str(row.get("note"))
         verdict = citation_verdict(row, [(r.get("provider"), g) for r, i, g in parsed
-                                         if i == rid])
+                                         if rid and i == rid])
         if verdict == NO_REGISTRY:
             errors.append("literature/%s: %s %s - no receipt resolved it (run `cite`, or "
-                          "record `unindexed_reason`)" % (note, row["id"], NO_REGISTRY))
+                          "record `unindexed_reason`)" % (note, row.get("id") or "an empty id",
+                                                          NO_REGISTRY))
         elif verdict == FEWER:
             errors.append("literature/%s: %s has %s (alphaXiv and orx count as arxiv)"
                           % (note, row["id"], FEWER))
@@ -929,31 +991,59 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
         targets = sorted(targets, key=lambda t: str(t[0].get("sha256") or ""))[:10]
     notes = _notes_by_id(base)
     for row, rid, got in targets:
-        status, data = fetch_url(str(row.get("url") or ""))
-        now = parse_receipt(row.get("provider"), rid, status, data)
-        for field, key in (("id", "resolved"), ("title", "title"),
-                           ("first_author", "first_author"), ("year", "year")):
-            if now[key] != got[key]:
-                report.append("online %s: %s %s %s drifted" % (slug, rid, row.get("provider"),
-                                                                field))
+        provider = row.get("provider")
+        status, data = fetch_url(dict(receipt_urls(rid)).get(provider)
+                                 or str(row.get("url") or ""))
+        now = parse_receipt(provider, rid, status, data)
+        now["id"] = rid if rid in receipt_ids(provider, data) else None
+        for field in ("id", "title", "first_author", "year"):
+            if now[field] != got[field]:
+                report.append("online %s: %s %s %s drifted" % (slug, rid, provider, field))
                 for note in notes.get(rid, ()):
                     _step(steps, _citing(claims, note), "online-drift")
 
 
 def _source_records(base):
-    """{note: [(ledger row, record)]} in ledger order."""
+    """{note: [(ledger row, record)]} in ledger order. A row counts only when its
+    `file` is a `.sources/` record for that note: a row with no file, or naming a
+    receipt or another note's record, sets no access."""
     out = {}
     for row in _rows(base, SOURCES):
-        record = _json(_read(base, row.get("file")) or b"")
-        if isinstance(row.get("note"), str):
-            out.setdefault(row["note"], []).append((row, record if isinstance(record, dict)
-                                                    else {}))
+        note, rel = row.get("note"), row.get("file")
+        if not (isinstance(note, str) and isinstance(rel, str)
+                and rel.startswith("literature/.sources/") and rel.endswith(".json")):
+            continue
+        record = _json(_read(base, rel) or b"")
+        if isinstance(record, dict) and record.get("note") == note:
+            out.setdefault(note, []).append((row, record))
     return out
 
 
 def _access(entry):
-    row, record = entry
-    return record.get("access") or row.get("access")
+    return entry[1].get("access")
+
+
+def _in_order(frags, texts):
+    """Fragment k in texts[k], and no adjacent pair reversed in a window holding both."""
+    if len(texts) != len(frags) or not all(f in t for f, t in zip(frags, texts)):
+        return False
+    return not any(frags[k] in t and frags[k + 1] in t and _locate(frags[k:k + 2], t)[1][1] < 0
+                   for k in range(len(frags) - 1) for t in texts[k:k + 2])
+
+
+def _found(quote, records):
+    """1.2 at `check`: every fragment of `quote` found in order - all in one passage
+    text of the captures, or fragment k in the k-th passage a capture stored for this
+    quote (fragments far apart sit in separate windows)."""
+    frags = quote_fragments(quote)
+    if not frags:
+        return True
+    stored = [[p for p in r.get("passages") or () if isinstance(p, dict)] for r in records]
+    if any(all(i >= 0 for _f, i in _locate(frags, str(p.get("text") or "")))
+           for ps in stored for p in ps):
+        return True
+    return any(_in_order(frags, [str(p.get("text") or "") for p in ps if p.get("quote") == quote])
+               for ps in stored)
 
 
 def _check_sources(base, state, claims, errors, warnings, strict, steps):
@@ -971,11 +1061,9 @@ def _check_sources(base, state, claims, errors, warnings, strict, steps):
         elif access == "abstract":
             _step(steps, citing, "abstract-only")
         elif access in ("full", "user"):
-            texts = [p.get("text") or "" for entry in mine if _access(entry) in ("full", "user")
-                     for p in entry[1].get("passages") or () if isinstance(p, dict)]
+            records = [rec for _row, rec in mine if rec.get("access") in ("full", "user")]
             for quote in gather_quotes(base, note, claims):
-                frags = quote_fragments(quote)
-                if not all(any(f in t for t in texts) for f in frags):
+                if not _found(quote, records):
                     errors.append('literature/%s: "%s": %s (run `fetch` again when the claim '
                                   'was written after the capture)' % (note, quote, NOT_IN_SOURCE))
     formal = [r.get("note") for r in index if r.get("class") == "formal"]
@@ -1019,10 +1107,11 @@ def _valid_stopping(stop):
 def _stopping_first(repo, base):
     """True when a valid `state.stopping` was committed strictly before the commit
     that added the first SEARCHES row (or when no search row is committed yet)."""
-    searches = tr.file_versions(repo, os.path.join(base, SEARCHES))
+    searches = tr.file_versions(repo, os.path.join(base, SEARCHES), every_ref=False)
     if not searches:
         return True
-    first = next((sha for sha, text in tr.file_versions(repo, os.path.join(base, "state.json"))
+    first = next((sha for sha, text in tr.file_versions(repo, os.path.join(base, "state.json"),
+                                                        every_ref=False)
                   if _valid_stopping(_dig(_json(text.encode("utf-8")), "stopping"))), None)
     return bool(first) and first != searches[0][0] and tr.is_ancestor(
         repo, first, searches[0][0]) is True
@@ -1030,10 +1119,11 @@ def _stopping_first(repo, base):
 
 def _check_searches(repo, slug, base, state, claims, errors, steps, report, git):
     rows = _rows(base, SEARCHES)
-    per_row = []
+    per_row, counted = [], []
     for n, row in enumerate(rows, 1):
-        connector = row.get("connector")
-        data = _read(base, row.get("file"))
+        connector, rel = row.get("connector"), row.get("file")
+        # only a row whose file is a search capture counts (connector, tag, records)
+        data = _read(base, rel) if str(rel or "").startswith("searches/raw/") else None
         if not _allowed(connector, row.get("argv")):
             errors.append("%s row %d names %r: connector not on the allowlist"
                           % (SEARCHES, n, connector))
@@ -1042,7 +1132,9 @@ def _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
         if data is not None and (row.get("hits") != len(records)
                                  or row.get("ids") != [identity(r) for r in records]):
             errors.append("%s row %d is not derived from its capture: hits/ids differ from a "
-                          "re-parse of %s" % (SEARCHES, n, row.get("file")))
+                          "re-parse of %s" % (SEARCHES, n, rel))
+        if data is not None:
+            counted.append(row)
         per_row.append(records)
     owner = {}
     for records in per_row:
@@ -1063,12 +1155,11 @@ def _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
         return
     literature = [c for c in claims if any(t.startswith("literature/")
                                            for t in tr._cited(c.get("proof")))]
-    connectors = {(r.get("connector"), tuple(r.get("argv") or ())[1:2]) for r in rows
-                  if _allowed(r.get("connector"), r.get("argv"))}
+    connectors = {(r.get("connector"), tuple(r.get("argv") or ())[1:2]) for r in counted}
     if len(connectors) < 2:
         _step(steps, literature, "one-connector")
     for item in tr._scope_items(state):
-        if not any(r.get("tag") == "counter" and r.get("item") == item for r in rows):
+        if not any(r.get("tag") == "counter" and r.get("item") == item for r in counted):
             _step(steps, literature, "no-counter-search")
     stop = state.get("stopping")
     if not _valid_stopping(stop) or (git and not _stopping_first(repo, base)):
