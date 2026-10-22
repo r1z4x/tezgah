@@ -98,6 +98,13 @@ shared config, contract hash and the CLI symlinks every host shell can call
   (`instructions`, `mcp`, `permission.skill=deny`, `compaction.prune`,
   `watcher.ignore`, the two `external_directory` grants) and `tui.json` +
   `tui-plugins/tezgah-tui.tsx`.
+  The installer detects opencode 2 by its `cli.json` (`bin/tezgah-setup::opencode_v2`).
+  On opencode 2 the plugin, the skill links, `opencode.json` and its
+  `instructions` still load.
+  `tui.json` and `compaction.prune` are not written there: opencode 2 ignores
+  `tui.json` after its first start and does not support `compaction.prune`, a legacy setting.
+  The install report drops those two rows on opencode 2.
+  opencode 2: status line port pending in plan 126
 - **dsh** - `install_dsh` (`bin/tezgah-setup::install_dsh`): `~/.dsh/skills/*` symlinks,
   a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup::dsh_patch_block`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
@@ -124,7 +131,7 @@ has to hash to one id - `hosts/codex/hook.py::gate_name`, `hosts/cursor/hook.py:
 draws the line, and returns the host's own output shape. The contract text, the
 gate decision, the evidence ledger, the untrusted-content marks and the segment
 builder stay in the shared core under `hooks/` (`hosts/omp/hook.py:1-12`,
-`hosts/cursor/hook.py:1-41`).
+`hosts/cursor/hook.py:1-44`).
 
 ## Where the always-on core reaches each host
 
@@ -251,7 +258,7 @@ In order, each step verified by the one below it:
    (`hosts/omp/tezgah-hook.ts.in` rendered at `hooks/tezgah_attest.py::omp_bridge`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
    (`bin/tezgah-setup::INSTALLERS`), and `uninstall_<host>()` removing only
-   tezgah-managed links and blocks (`bin/tezgah-setup:3287-3419`).
+   tezgah-managed links and blocks (`bin/tezgah-setup:3331-3463`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
    written, registered in `HOST_CHECKS` (`bin/tezgah-setup::HOST_CHECKS`); the
    `--report` output is that list (`bin/tezgah-setup::report`). Give the row a home-qualified
@@ -398,8 +405,13 @@ In order, each step verified by the one below it:
   (`hosts/opencode/plugins/tezgah.js:11-14`).
 - **Cursor only runs a PreToolUse hook for the tool types its matcher names**, so
   the matcher must list the write spellings or the gate's edit branches are
-  unreachable there (`hosts/cursor/hook.py:30-39`,
+  unreachable there (`hosts/cursor/hook.py:33-42`,
   `bin/tezgah-setup::CURSOR_PRETOOL_MATCHER`).
+- **Cursor carries the per-turn text only up to 10000 characters.**
+  cursor-agent drops a `beforeSubmitPrompt` `additional_context` whole when it is
+  longer. A busy turn with every conditional rule armed measured 10288.
+  `fit()` cuts the tail to `CONTEXT_MAX` and marks the cut, so the reminder and
+  the first rules arrive (`hosts/cursor/hook.py::fit`, `hosts/cursor/hook.py::CONTEXT_MAX`).
 - **Claude, dsh, omp, codex and cursor run the gate only for the tool names
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.

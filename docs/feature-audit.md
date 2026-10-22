@@ -21,8 +21,8 @@ sourced to WAI-ARIA APG and WCAG 2.2.
 It is reached the same way `product-analysis` is: the `product` task class arms the
 rule (`hooks/tezgah_context.py::PROMPT_HINTS`), whose coherence paragraph
 (`hooks/tezgah_policy.py::CORE`) names the feature unit and the matrices, and
-`skills/product-analysis/SKILL.md:74` runs the coherence pass before its axes.
-`skills/tezgah-contract/SKILL.md:738-750` carries the long form for a session that
+`skills/product-analysis/SKILL.md:78` runs the coherence pass before its axes.
+`skills/tezgah-contract/SKILL.md:743-755` carries the long form for a session that
 reads the contract.
 
 The unit is the feature, not the screen, and every interface element and every data

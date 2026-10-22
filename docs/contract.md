@@ -9,16 +9,24 @@ used here are defined once in [glossary.md](glossary.md); which host gets which
 surface is [hosts.md](hosts.md).
 
 Every string is a module constant in `hooks/tezgah_policy.py`, so that every
-host says the same thing (`hooks/tezgah_policy.py:14-15`); path placeholders
+host says the same thing (`hooks/tezgah_policy.py:19-20`); path placeholders
 (`{ROOT}`, `{CONSULT_BIN}`, `{ORX_BIN}`, …) are filled at injection time by
 `render()` (`hooks/tezgah_context.py::render`).
+Every tezgah CLI the injected text names is a placeholder in `BIN_TOOLS`
+(`hooks/tezgah_policy.py::BIN_TOOLS`): `{CONSULT_BIN}`, `{CODEGEN_BIN}`,
+`{RESEARCH_BIN}`, `{ROUTE_BIN}`, `{SKILL_BIN}`, `{DESIGN_BIN}`, `{TASK_BIN}`,
+`{PONY_BIN}`, `{ADHD_BIN}` and `{LESSONS_BIN}`.
+`render()` fills each with the installed absolute path, `tezgah_paths.tool(<name>)`.
+A bare `tezgah-pony` in the text failed on a host whose shell PATH lacks
+`~/.config/tezgah/bin`.
+The hookless static copies spell the same path from `~`.
 
 ## The five surfaces
 
 | Surface | Text | Paid |
 |---|---|---|
-| always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the six conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
-| conditional paragraph | one of the six keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
+| always-on core | `CORE` (`hooks/tezgah_policy.py::CORE`) minus the seven conditional paragraphs, plus the pointer line | once per session: `session_start` and `post_compact` |
+| conditional paragraph | one of the seven keyed by `CONDITIONAL_KEYS` (`hooks/tezgah_policy.py::CONDITIONAL_KEYS`) | in full on the first turn of a session whose prompt matches its task class; a later match pays one line (`hooks/tezgah_context.py::armed_again`) until a compaction or `ARMED_RESURFACE` turns (`hooks/tezgah_context.py::ARMED_RESURFACE`) bring the full text back |
 | per-turn reminder | `PROMPT_REMINDER` (`hooks/tezgah_policy.py::PROMPT_REMINDER`) | every user prompt |
 | skill suggestion | one `<skill_relevance>` line naming at most one installed skill and the SECTION of it that matches the turn (`skill://<name>:<start>-<end>` plus the absolute path), written by `suggest` (`hooks/tezgah_skill_pick.py::suggest`) when `skill-suggest-on` is armed, else by the model-free section search (`hooks/tezgah_skill_pick.py::section_hint`), default on | only on a turn the judgement answers with a skill, or whose prompt one section covers (each section once per session) |
 | on-demand full contract | the long-form blocks of `hooks/tezgah_policy.py` (`EXEC`, `CONSULT`, `RESEARCH`, …), shipped hand-kept as `skills/tezgah-contract/SKILL.md` | only when the session loads that skill |
@@ -187,7 +195,7 @@ change with an executable oracle - a checker, a gate rule, a parser - spends the
 same budget. Its round one is four direction-led reviewers, and each claim
 becomes a fixture that runs before it counts. That population is a tentative
 default, measured on two research lines with a written flip
-(`skills/tezgah-contract/SKILL.md:532-563`). With the opt-in `ocr` feature, round
+(`skills/tezgah-contract/SKILL.md:537-568`). With the opt-in `ocr` feature, round
 one also gets an OCR review spec: OCR's file selection, its rule groups and a
 refuter pass. The spec is input to the review, never a verdict
 ([operations](operations.md#opt-in-ocr-review-spec-ocr),
@@ -198,29 +206,29 @@ refuter pass. The spec is input to the review, never a verdict
 Paragraphs are concatenated in the order they appear in `CORE` and identified by
 the bold label each starts with (`CORE_RULES`, `hooks/tezgah_context.py::CORE_RULES`).
 That order, with the line each label sits on in `hooks/tezgah_policy.py`:
-`**{REPLY_LANG}, BLUF.**` :713, `**Ponytail (minimal code).**` :722, `**Output shape:
-ADHD-friendly.**` :739, `**Deliver the whole ask; never the shortcut.**` :763,
-`**Integrity: evidence, or a named blocker.**` :778, `**Loop discipline.**` :811,
-`**Spec before building.**` :820 *(conditional)*, `**Lessons ledger: stop
-repeating mistakes.**` :834, `**Code discovery: graph first.**` :842
-*(conditional)*, `**Consult before irreversible.**` :851 *(conditional)*,
-`**Research: route it to OpenResearch.**` :869 *(conditional)*, `**Product
-analysis: five axes, one evidence class per finding.**` :896 *(conditional)*,
-`**No AI attribution, ever, on any host.**` :931, `**Identifiers and messages
-stay English.**` :941, `**Session scope: the user's repo, not tezgah.**` :947,
-``**Workspace: `.tezgah/` only.**`` :958, `**Parallel by default: fan out
-independent items.**` :965 *(conditional)*,
-`**Kill switches:**` :990. The first label renders as `**Turkish, BLUF.**` under
+`**{REPLY_LANG}, BLUF.**` :802, `**Ponytail (minimal code).**` :811, `**Output shape:
+ADHD-friendly.**` :828, `**Deliver the whole ask; never the shortcut.**` :852,
+`**Integrity: evidence, or a named blocker.**` :869, `**Loop discipline.**` :915,
+`**Spec before building.**` :925 *(conditional)*, `**Lessons ledger: stop
+repeating mistakes.**` :939, `**Code discovery: graph first.**` :947
+*(conditional)*, `**Consult before irreversible.**` :956 *(conditional)*,
+`**Research: route it to OpenResearch.**` :974 *(conditional)*, `**Product
+analysis: five axes, one evidence class per finding.**` :1003 *(conditional)*,
+`**Design: UI work reads the design skills.**` :1039 *(conditional)*,
+`**No AI attribution, ever, on any host.**` :1048, `**Identifiers and messages
+stay English.**` :1058, `**Session scope: the user's repo, not tezgah.**` :1064,
+``**Workspace: `.tezgah/` only.**`` :1075, `**Parallel by default: fan out
+independent items.**` :1082 *(conditional)*,
+`**Kill switches:**` :1112. The first label renders as `**Turkish, BLUF.**` under
 `language` `tr`.
 
-`always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the six
-conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py::POINTERS`):
-one line each saying the rule exists and where its full text lives — spec-first,
-a second opinion, OpenResearch routing, product analysis, the code graph, parallel
-fan-out, and the
-per-repo design contract `bin/tezgah-design` checks a UI change against (the one
-pointer with no conditional paragraph behind it, because the Stop rule's `no
-ui_ok` class is what asks for the check). That is
+`always_on_core()` (`hooks/tezgah_context.py::always_on_core`) drops the seven
+conditional paragraphs and appends `POINTERS` (`hooks/tezgah_policy.py::POINTERS`).
+That is one line each saying the rule exists and where its full text lives.
+The lines cover spec-first, a second opinion, OpenResearch routing, product analysis
+(`product-analysis`, `pm-frameworks`), the code graph, parallel fan-out and design.
+The design pointer names the `design-contract` skill and the per-repo design
+contract `bin/tezgah-design` checks a UI change against. That is
 what a host with no prompt-time hook writes into a static file: opencode's
 `~/.config/tezgah/opencode-contract.md` (`bin/tezgah-setup::OPENCODE_CONTRACT`) and omp's
 managed `RULES.md` (`bin/tezgah-setup::STATIC_RULES`). Claude gets it from the
@@ -342,12 +350,13 @@ sentence of the rule.
 | research | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. |
 | product | Owner decision ADR 010 (2026-10-05): no new research rule until plan 062 reports. The product rule is the research route. |
 | fanout | A refusal cannot see a serial run that should have been parallel: nothing is called that a gate could deny. The prompt-shape arming (`hooks/tezgah_context.py::PROMPT_HINTS`) and the generated specialists line are the mechanism. |
+| design | A refusal cannot see which skill a UI turn read. The prompt arming (`hooks/tezgah_context.py::PROMPT_HINTS`) is the mechanism, and the Stop rule's `no ui_ok` class asks for the design check. |
 | scope | no decision |
 
 ## Arming the conditional paragraphs, and the per-turn reminder
 
 `PROMPT_HINTS` (`hooks/tezgah_context.py::PROMPT_HINTS`) is one compiled pattern per key
-— `spec`, `consult`, `research`, `product`, `graph`, `fanout` — and `classify_prompt()` returns the keys
+— `spec`, `consult`, `research`, `product`, `design`, `graph`, `fanout` — and `classify_prompt()` returns the keys
 a prompt matches (`hooks/tezgah_context.py::classify_prompt`). It also adds `product`
 for a data ask: a dashboard, a chart or a metric to choose. The check reads each
 clause on its own (`hooks/tezgah_context.py::_data_ask`). A code marker in that
@@ -361,8 +370,15 @@ say "do it with subagents, in parallel". On that turn only, the matching
 paragraphs are appended after the reminder
 (`hooks/tezgah_context.py::context_for`); a session that never asks such a question
 pays the one-line pointer instead. A later match in the same session pays one
-line. The fan-out line still names the action
-(`hooks/tezgah_context.py::armed_again`). The patterns carry Turkish stems because the
+line (`hooks/tezgah_context.py::armed_again`). For `fanout`, `product` and
+`design` that line carries the rule's action from `ARMED_ACTIONS`
+(`hooks/tezgah_policy.py::ARMED_ACTIONS`), not a bare "Armed again".
+The product line names `product-analysis`, `pm-frameworks`, `feature-audit`,
+`analyze-app` and `product-flow`.
+The design line names `design-contract`, `design-library`, `analyze-app` and
+`feature-audit`, and sends UI build work to a worker that loads `design-contract`.
+A bare reminder did not work.
+In one 40-turn session the product skills came up on 3 turns, against 20 in fresh sessions (plan 126). The patterns carry Turkish stems because the
 user writes Turkish, and a plain prompt arms nothing. The same prompt arms the
 same rules on every host (`tests/test_context.py::ArmingConformance.test_all_hosts_arm_the_same_rules`) and each advisory
 rule keeps a pointer line in the always-on text (`tests/test_context.py::ArmingConformance.test_every_advisory_rule_has_an_always_on_pointer`).
@@ -426,6 +442,7 @@ a keyword match, not intent: "don't touch `verify-off`" names the switch too.
 | `ponytail-auto.off` | `**Ponytail (minimal code).**` | `hooks/tezgah_context.py::switches` |
 | `adhd-off` | `**Output shape: ADHD-friendly.**` | `hooks/tezgah_context.py::switches` |
 | `spec-off` | `**Spec before building.**` | `hooks/tezgah_context.py::switches` |
+| `design-off` | `**Design: UI work reads the design skills.**` | `hooks/tezgah_context.py::switches` |
 | `verify-off` | `**Integrity: evidence…**`, and the per-turn evidence-scope line with it | `hooks/tezgah_context.py::switches`, `hooks/tezgah_context.py::context_for` |
 | `consult-off` | `**Consult before irreversible.**` | `hooks/tezgah_context.py::switches` |
 | `research-off` | `**Research: route it to OpenResearch.**` | `hooks/tezgah_context.py::switches` |
@@ -534,19 +551,22 @@ fixture then gave up a lessons, plans or knowledge block. The session budgets mo
 The subagent brief stays the same size.
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A
-`user_prompt` that arms all five conditional rules
-for the first time builds 7503 B. That is over its budget on purpose: an armed paragraph
+`user_prompt` that arms all seven conditional rules
+for the first time builds 11979 B. That figure comes from a fixture repo with one lesson and one plan. That is over its budget on purpose: an armed paragraph
 is never dropped, and every later match in the session pays one line. The
 budget is a byte count, not a token estimate.
 
 Over budget, `budgeted()` gives up blocks in `DROP_ORDER`, lowest value
 first — the text another surface already carries (project knowledge, the
-sibling-checkout line, lessons), the skill hint (a suggestion, never an
-instruction), the per-turn relevant lessons and the plan table first, then the Orca line, the tooling-availability lines and the live graph
-glance, then the resume state (it outlives those because it is the only one that
-says what this session was doing, and it still yields to a rule), then the
-evidence-scope warning, the task phase, the delta, and the skill pointer last
-(`hooks/tezgah_context.py::DROP_ORDER`). Any key absent from that tuple is
+sibling-checkout line, lessons), the per-turn relevant lessons and the plan
+table first, then the Orca line, the tooling-availability lines and the live graph
+glance, then the index line and the resume state (it outlives those because it
+is the only one that says what this session was doing, and it still yields to a
+rule), then the evidence-scope warning, the task phase, the skill hint, the
+delta, and the skill pointer last (`hooks/tezgah_context.py::DROP_ORDER`).
+The skill hint moved from near the front to after `lessons_turn`, `index` and
+`task`. It names the skill this ask needs, and no other block can work that out.
+It was the first block given up in 32 logged live drops (plan 126). Any key absent from that tuple is
 never dropped: the core, the reminder, the armed paragraphs and the user's pinned
 constraints are the rules, and
 a budget able to spend them would turn bloat into rule loss. The note naming what

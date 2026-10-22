@@ -22,7 +22,14 @@ generated in every tezgah root because routing needs no capability (`ROLES`,
 `hooks/tezgah_agents.py::ROLES`; their brief, `_worker_body`,
 `hooks/tezgah_agents.py::_worker_body`). So are the five specialists:
 `tezgah-tester`, `tezgah-docs`, `tezgah-security`, `tezgah-ui` and
-`tezgah-researcher` (`hooks/tezgah_agents.py::SPECIALISTS`). A specialist's
+`tezgah-researcher` (`hooks/tezgah_agents.py::SPECIALISTS`). The steering line names the agent per
+task class (`hooks/tezgah_agents.py::STEER`).
+Software design, invariants and unknown-cause debugging go to `tezgah-frontier`.
+A UI, screen or component build or redesign goes to `tezgah-standard`.
+Every tier worker's brief tells a UI build to read the `design-contract` skill, and
+`design-library` for critique (`hooks/tezgah_agents.py::_worker_body`).
+It then derives and checks with `~/.config/tezgah/bin/tezgah-design` before editing.
+Running-app UI or design analysis stays with `tezgah-ui`. A specialist's
 description names its slot from `AGENT_SLOT`. The tier a host shows and the
 model line it runs therefore cannot disagree, and `tezgah-agents --list` prints
 both. A cheaper worker that meets work above its tier answers `ESCALATE: <why>`,

@@ -11,10 +11,29 @@ install step that links them. The always-on rule text a session is told is
 A skill is `skills/<name>/SKILL.md`: YAML frontmatter carrying `name` and
 `description`, then a markdown body. The body is instructions for the model - the
 read tool opens it, nothing executes it. `plan-add` and `ponytail` also declare
-`argument-hint` in that frontmatter (`skills/plan-add/SKILL.md:11`,
-`skills/ponytail/SKILL.md:16`), and Claude exposes each skill as
+`argument-hint` in that frontmatter (`skills/plan-add/SKILL.md:7`,
+`skills/ponytail/SKILL.md:6`), and Claude exposes each skill as
 `/tezgah:<name>` - a bare `/plan-add` is a command that does not exist
 (`tests/test_skills.py::SkillStandards.test_slash_commands_carry_the_prefix_the_plugin_registers`).
+
+Every host shows the `description`, and hosts cut it.
+The omp host keeps about twelve words.
+Codex and Claude drop descriptions once the skill list passes their budget. So a shipped description opens with `Use when`, names its
+English and Turkish triggers, and stays within 160 characters
+(`tests/test_skills.py::DESCRIPTION_CAP`).
+The routing word `tests/routing-fixtures.md` pins for the skill sits in its first
+100 characters (`tests/test_skills.py::DESCRIPTION_KEPT`).
+The longer text a description used to carry opens the body, under `## When to use`.
+A skill body that calls a tezgah CLI writes its installed path,
+`~/.config/tezgah/bin/<cmd>`: no host but Claude puts that directory on PATH.
+
+A vendored library entry nested under a skill is `ENTRY.md`, not `SKILL.md`.
+Codex and Cursor list every `SKILL.md` below a skills directory, nested ones
+included. There are 144 vendored entries: 98 in `ai-research`, 39 in
+`design-library`, 5 in `rl-env` and 2 in `pm-frameworks`.
+Those hosts listed each one as a skill, which pushed codex past its skills budget. Each keeps its bytes and upstream path under the new
+name, and `bin/tezgah-import-ai-research` writes `ENTRY.md` on a re-vendor
+(`bin/tezgah-import-ai-research::vendored`).
 
 Two neighbours are not skills. A **slash command** is a file under `commands/`
 wired only through the Claude plugin channel - `commands/ponytail.md` and
@@ -67,8 +86,11 @@ A line is cut at 140 characters with a trailing `...`; a description with no
 trigger sentence keeps its first sentence.
 
 The on-demand file also carries a **collision table**: the pairs among tezgah's
-own skills whose descriptions share three or more subject words, computed from
-the router lines themselves (`skill_collisions()`, `bin/tezgah-setup::skill_collisions`).
+own skills whose `## When to use` trigger lines share three or more subject words
+(`skill_collisions()`, `bin/tezgah-setup::skill_collisions`).
+`skill_when_line()` reads that line from the body (`bin/tezgah-setup::skill_when_line`).
+The short bilingual description shares too few words for two near-neighbours to pair.
+The longer `## When to use` text still tells them apart.
 It rides `opencode-skills.full.md` and never the always-on file, because it is
 read when a session is about to choose, not every turn. It is a view, not a
 rename: it names `plan-add` / `plan-status` / `plan-sync` and
@@ -124,9 +146,37 @@ CLI into `~/.config/tezgah/bin` beside the other tezgah commands.
 On a turn the judgement does not answer, the same search runs on its own,
 default on and with no model (`hooks/tezgah_skill_pick.py::section_hint`). It
 keeps its index as SQLite in the tezgah cache dir (`skill-search.sqlite`). It
-rebuilds that index only when a SKILL.md's mtime or size moves
-(`hooks/tezgah_skill_pick.py::_open_index`). A prompt reads its own terms'
-postings and the length column, never the corpus.
+rebuilds that index only when a SKILL.md's mtime or size moves, or when an older
+`INDEX_VERSION` wrote the index
+(`hooks/tezgah_skill_pick.py::_open_index`, `hooks/tezgah_skill_pick.py::INDEX_VERSION`).
+A prompt reads its own terms' postings and the length column, never the corpus.
+
+The hint reads the project's skills from the session's cwd (`section_hint(..., cwd=)`).
+`project_roots()` finds the nearest `.git` top and takes its `.claude/skills`,
+`.agents/skills` and `skills/` directories (`hooks/tezgah_skill_pick.py::project_roots`).
+A project that ships its own skills gets its own index file,
+`skill-search-<hash>.sqlite`.
+Two sessions in two such projects then do not rebuild each other's index on every turn.
+
+Ranking runs in two tiers (`hooks/tezgah_skill_pick.py::search`).
+tezgah's own skills and the project's rank first.
+The hosts' machine-wide directories (omp's, Claude's, `~/.agents`, Codex's,
+opencode's) answer only when the first tier cannot (`hooks/tezgah_skill_pick.py::_second_tier`).
+Before the split, 16 of 54 live hints in one transcript set pointed at cyber skills.
+In another set, 3 of 7 pointed at marketing skills. Both sets came from product repositories.
+The search covers `tezgah-contract`, but the hint never names it (`hooks/tezgah_skill_pick.py::HINT_SKIP`).
+Replayed over 1331 owner prompts, it still took 76 of 123 hints.
+
+A skill's frontmatter description rides its first section twice
+(`hooks/tezgah_skill_pick.py::DESC_WEIGHT`).
+On the 18 English owner prompts of the adoption set, top-1 moved from 10 to 16.
+Every term folds Turkish letters to ASCII on both sides (`ç ğ ö ş ü` to `c g o s u`).
+A word longer than five letters also indexes its five-letter prefix
+(`hooks/tezgah_skill_pick.py::STEM`, `hooks/tezgah_skill_pick.py::terms`).
+A Turkish word carries case and possessive in suffixes, so "tasarımını" meets
+"tasarım" only through the prefix. Before folding, the Turkish hint matched 0 of 18 prompts.
+The full word stays a term too, so an exact match outscores a prefix-only one.
+A link is an address, not a topic: the hint drops URLs from the prompt before ranking.
 
 Some skills route through their own `INDEX.md`, like design-library's 39 entries.
 The search indexes each routed entry as one row for the whole file, addressed
@@ -236,7 +286,7 @@ adaptation changed - the same record an added adaptation is expected to carry.
 `skills/ai-research` is the large vendored tree: 98 upstream skills in 23
 categories, bodies byte-for-byte upstream including frontmatter and `author`
 lines, at revision `773a52944ba4747a18bd4ae9ade53fff041adcbc`
-([skills/ai-research/SOURCE:1-20]). No machine-scraped reference dumps and no
+([skills/ai-research/SOURCE:1-22]). No machine-scraped reference dumps and no
 LaTeX template trees were copied, and every drop is named in that file.
 `bin/tezgah-import-ai-research --check` verifies the tree against its manifest.
 
@@ -270,7 +320,7 @@ trap cases the library is scored against. Two bodies depart from upstream, and
 `skills/design-library/SOURCE` and `NOTICE` name both: the touch-target entry
 paired `44x44 CSS pixels` with `WCAG 2.2 Level AA`, where SC 2.5.8 is Level AA at
 24x24 and SC 2.5.5 is Level AAA at 44x44 - 24 is the floor `bin/tezgah-design`
-enforces - and `adaptive-personalisation/SKILL.md` carried the sibling
+enforces - and `adaptive-personalisation/ENTRY.md` carried the sibling
 `contextual-help-design` skill's `name`, which a host that loads a skill from its
 directory skips. `tests/test_skills.py` hashes every listed body, fails on an
 unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
@@ -278,9 +328,11 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
 ## Adding a skill
 
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
-   `description` whose **later** sentence begins `Use when ...` - that sentence
-   is the router line, and it must carry the words a session would match on
-   (`bin/tezgah-setup::skill_description`).
+   `description` that opens `Use when ...`, names its English and Turkish
+   triggers and stays within 160 characters. That sentence is the router line,
+   and it must carry the words a session would match on
+   (`bin/tezgah-setup::skill_description`). Put the longer text in the body's
+   first section, `## When to use`. The collision table reads it.
 2. Add the name to `SKILLS` (`bin/tezgah-setup::SKILLS`). `SKILLS` drives the
    router, the linking, the uninstall and the budget; a name without a
    `SKILL.md`, or a directory without a `SKILLS` entry, is not a shipped skill.
