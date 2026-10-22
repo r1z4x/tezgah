@@ -89,7 +89,8 @@ class ArmedOncePerSession(TempHome):
     def test_the_product_and_design_repeats_keep_the_skill_names(self):
         # the repeat used to point at `tezgah-contract` only, and one 40-turn
         # session named an expected skill on 3 turns against 20 in fresh ones
-        # (plan 126, S2): the repeat carries the skill to read for THIS ask
+        # (plan 126, S2): the repeat carries the skill to read for THIS ask -
+        # under its condition, since the hint that armed it can be a misfire
         for first, again, skills in (
                 ("do a product analysis of the app", "why did retention drop",
                  ("product-analysis", "pm-frameworks", "feature-audit")),
@@ -97,7 +98,7 @@ class ArmedOncePerSession(TempHome):
                  ("design-contract", "design-library", "analyze-app"))):
             self.prompt(first, "r1")
             out = self.prompt(again, "r1")
-            self.assertIn("Armed again", out, again)
+            self.assertIn("Armed again: if this ask is ", out, again)
             for skill in skills:
                 self.assertIn("`%s`" % skill, out, again)
 
@@ -116,9 +117,15 @@ class ArmedOncePerSession(TempHome):
 
 
 class SkillHintBudget(TempHome):
-    def test_the_skill_hint_outlives_the_lessons_index_and_task_lines(self):
+    def test_the_skill_hint_outlives_the_lessons_and_index_lines_not_the_task(self):
         # the hint was the first block a turn gave up (32 live drops, plan 126);
-        # it names which skill to read, which the turn cannot work out itself
+        # it names which skill to read, which the turn cannot work out itself.
+        # The task's phase still outlives it: a phase is what stops a refused
+        # write before it happens.
+        order = tc.DROP_ORDER
+        self.assertLess(order.index("lessons_turn"), order.index("index"))
+        self.assertLess(order.index("index"), order.index("skill"))
+        self.assertLess(order.index("skill"), order.index("task"))
         proc = subprocess.run(
             [sys.executable, "-c", "import json, sys\nsys.path.insert(0, %r)\n"
              "import tezgah_context as tc\ntc.CONTEXT_BUDGET['user_prompt'] = 320\n"
@@ -128,11 +135,11 @@ class SkillHintBudget(TempHome):
             capture_output=True, text=True, env=self.env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
-        for kept in ("r", "s", "d"):
+        for kept in ("r", "t", "d"):
             self.assertIn(kept * 100, out)
-        for gone in ("l", "i", "t"):
+        for gone in ("l", "i", "s"):
             self.assertNotIn(gone * 100, out)
-        self.assertNotIn("dropped skill", out)
+        self.assertIn("dropped lessons_turn (100 B), index (100 B), skill (100 B)", out)
 
 
 if __name__ == "__main__":

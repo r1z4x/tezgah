@@ -350,8 +350,28 @@ CORPUS = {
     "spacing and colors are inconsistent across pages": {"spec", "design"},
     "open the app and click through the screens, list problems": {"design"},
     "API tasarla": set(),
-    "formu doldur": {"product"},
     "inconsistent results from the parser": set(),
+    # the generic craft words name a UI only beside a UI object (round 1 of
+    # plan 126's review): a schema, a thread, a struct, an endpoint, a parser
+    # or a test keeps the spec rule it had and arms no design rule
+    "redesign the database schema": {"spec"},
+    "REST API tasarımı yap": {"spec"},
+    "veritabanı şeması tasarımı": {"consult", "spec"},
+    "the ui thread blocks on io": {"spec"},
+    "fix the memory layout of this struct": {"spec"},
+    "bu endpoint erişilebilir mi": {"spec"},
+    "the server is not accessible from outside": {"spec"},
+    "is this button accessible": {"spec", "design"},
+    "add a components field to the JSON schema": {"spec"},
+    "write unit tests for the parser components": {"spec"},
+    "test bileşenlerini ayır": {"spec"},
+    # ... and the product stems: an identifier, a test order, building a
+    # feature and filling a form in are code work
+    "urun_id kolonunu ekle": set(),
+    "ürün_id ekle": set(),
+    "öncelik sırasına göre testleri çalıştır": set(),
+    "bu özelliği implement et": set(),
+    "formu doldur": set(),
     # product (plan 126): the PM asks, ASCII-typed Turkish and the mutated stem
     "PM gözüyle değerlendir bu uygulamayı": {"product"},
     "PM gozuyle degerlendir bu uygulamayi": {"product"},
@@ -373,7 +393,8 @@ class HintCoverage(unittest.TestCase):
 
     def test_every_request_arms_the_rules_it_is_reviewed_to_arm(self):
         for prompt, want in CORPUS.items():
-            self.assertEqual(tc.classify_prompt(prompt), want, prompt)
+            with self.subTest(prompt=prompt):
+                self.assertEqual(tc.classify_prompt(prompt), want, prompt)
 
     def test_the_corpus_is_not_thin(self):
         # a corpus that quietly shrank would keep passing; 100 is far under the

@@ -1134,7 +1134,9 @@ CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "design", "graph",
 # that named a rule the session had to recall, so the second list of a session
 # was worked one item at a time, and the product skills were named on 3 turns of
 # a 40-turn session against 20 in fresh ones (plan 126). Each is the paragraph's
-# own clause, cut to one sentence.
+# own clause, cut to one sentence; the product and design lines keep the
+# paragraph's condition, because the hint that armed them is a word match and a
+# misfire must not become an order to read a skill the ask has no use for.
 ARMED_ACTIONS = {
     "fanout": "count the independent items, spawn one subagent per item in "
               "ONE message, each the agent `{ROUTE_BIN}` names - a specialist "
@@ -1144,12 +1146,12 @@ ARMED_ACTIONS = {
               "dispatch every ready step before any `wait`; a subagent does "
               "its own slice and never fans out again. The full rule is in the "
               "`tezgah-contract` skill.",
-    "product": "read the `product-analysis` skill for this ask now - "
-               "`pm-frameworks` for an intended-vs-implemented gap or an "
-               "Opportunity Solution Tree, `feature-audit` for one feature, "
-               "`analyze-app` for the running app, `product-flow` for a new "
-               "capability.",
-    "design": "read the `design-contract` skill for this ask now - "
+    "product": "if this ask is a product question, read the "
+               "`product-analysis` skill now - `pm-frameworks` for an "
+               "intended-vs-implemented gap or an Opportunity Solution Tree, "
+               "`feature-audit` for one feature, `analyze-app` for the running "
+               "app, `product-flow` for a new capability.",
+    "design": "if this ask is UI work, read the `design-contract` skill now - "
               "`design-library` for critique methods, `analyze-app` for the "
               "running UI, `feature-audit` for a form or admin flow; UI build "
               "work goes to a worker whose brief loads `design-contract`.",

@@ -160,9 +160,12 @@
    }
   ],
   "design": [
-   "ui|ux|design (?:system|token|language|guide|review|critique|audit|library)\\w*|redesign\\w*|restyle\\w*|revamp\\w*|wireframe\\w*|mockups?|figma|layout|responsive|components?|ui kit|style guides?|typography|colou?rs? (?:palette|scheme|token|contrast)\\w*|palette|dark mode|a11y|wcag\\w*|accessib\\w*|usability|visual (?:hierarchy|design|consistency|critique|review)|landing page|(?:design|sketch|mock)\\w* (?:\\w+ ){0,3}(?:dashboard|screen|page|form|view|layout|landing)s?|improve (?:this|the|our) (?:screen|page|view|form|layout|dashboard)s?|click(?:ing)? through (?:\\w+ ){0,2}(?:screens?|pages?|app|ui)",
+   "ui(?![ -]threads?\\b)|ux|design (?:system|token|language|guide|review|critique|audit|library)\\w*|wireframe\\w*|mockups?|figma|(?<!memory )(?<!data )(?<!disk )(?<!file )(?<!struct )(?<!record )(?<!keyboard )layout|responsive|(?:ui|react|vue|svelte|angular|frontend|front-end|button|form|card|modal|input|nav\\w*|header|footer|sidebar)[ -]components?|components? librar\\w*|ui kit|style guides?|typography|colou?rs? (?:palette|scheme|token|contrast)\\w*|palette|dark mode|a11y|wcag\\w*|accessibility|usability|visual (?:hierarchy|design|consistency|critique|review)|landing page|(?:design|sketch|mock)\\w* (?:\\w+ ){0,3}(?:dashboard|screen|page|form|view|layout|landing)s?|improve (?:this|the|our) (?:screen|page|view|form|layout|dashboard)s?|click(?:ing)? through (?:\\w+ ){0,2}(?:screens?|pages?|app|ui)",
    {
     "ui_ask": "confusing|inconsistent|cluttered|ugly|clunky"
+   },
+   {
+    "ui_ask": "redesign\\w*|restyle\\w*|revamp\\w*|accessible"
    }
   ],
   "graph": [
