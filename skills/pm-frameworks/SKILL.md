@@ -1,8 +1,8 @@
 ---
 name: pm-frameworks
 description: >
-  Use when a product question needs a method: opportunity solution trees, fırsat
-  çözüm ağacı, intended-vs-implemented. Not for a survey - use
+  Use when a PM ask needs a method: opportunity solution trees, PM gözüyle,
+  fırsat çözüm ağacı, intended-vs-implemented. Not for surveys - use
   `product-analysis`.
 ---
 
