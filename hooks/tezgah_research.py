@@ -2851,10 +2851,10 @@ def file_versions(repo, path, every_ref=True):
     By default this reads every ref of the private repository (`--all`), because
     the results rule looks for a rewrite: a row amended away while a tag keeps the
     old commit is a result rewritten after the run, which HEAD alone no longer
-    shows (an internal research decision). `every_ref=False` reads HEAD's lineage
-    only, for the order and write-once rules of the captures: a backdated side
-    branch read through `--all` supplied the oldest version and satisfied the
-    stopping-rule order, and a draft branch's rewrite refused the line on HEAD."""
+    shows (an internal research decision); the append-only capture ledgers read it
+    the same way. `every_ref=False` reads HEAD's lineage only, for the order rule of
+    the captures: a backdated side branch read through `--all` supplied the oldest
+    version and satisfied the stopping-rule order."""
     return [v for top, rel in _histories(repo, path)
             for v in _versions(top, rel, ("--all",) if every_ref and top != repo else ())]
 

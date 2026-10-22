@@ -1,10 +1,11 @@
 """Captured evidence for research rules 8 (plan 127, spec 1.1-1.5).
 
 The tool, not the session, fetches what a line cites: `cite` stores each registry's
-raw answer as a receipt, `fetch` stores the passages of a source around every quote
-the line makes of it, `search` stores each connector's raw output. `check` re-derives
-every receipt and search from those bytes offline, refuses a capture that changed
-after its first commit, and names the certainty steps a missing capture costs.
+raw answer as a receipt, `fetch` stores a source's extracted text and the passages
+around every quote the line makes of it, `search` stores each connector's raw
+output. `check` re-derives every receipt and search from those bytes offline,
+refuses a capture that changed after its first commit, and names the certainty
+steps a missing capture costs.
 
 Interface (plan 127):
 - COMMANDS = {"cite", "fetch", "search"}: handler(repo, args) -> exit code, prints.
@@ -67,7 +68,6 @@ LEDGER = re.compile(r"^(?:literature/\.receipts/RECEIPTS|literature/\.sources/SO
 LOG_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w]|\.\d)")
 
 NO_REGISTRY = "resolves in no registry"
-FEWER = "receipts from fewer than 2 providers"
 NOT_IN_SOURCE = "quote not in the captured source text"
 
 
@@ -252,6 +252,8 @@ def normalise(text):
     # a marker split by tags or spaces (LaTeXML's `[<a>12</a>]` reads `[ 12 ]`) too
     text = re.sub(r"\[\s*\d+(?:\s*[,\u2013-]\s*\d+)*\s*\]", "", text).translate(QUOTE_MARKS)
     text = re.sub(r"-\s+", "", text)
+    # a hyphen between two letters reads as a space: `tail-latency` quotes `tail latency`
+    text = re.sub(r"(?<=[^\W\d_])-(?=[^\W\d_])", " ", text)
     return " ".join(text.split()).casefold().strip()
 
 
@@ -259,6 +261,8 @@ def norm_id(raw):
     """The normalised id (`arXiv:`, `doi:`, `openalex:W`, `s2:`), or None."""
     s = str(raw or "").strip()
     low = s.lower()
+    if re.match(r"10\.\d{4,9}/\S", low):
+        s = low = "doi:" + low
     for prefix in ("https://doi.org/", "http://doi.org/", "https://dx.doi.org/"):
         if low.startswith(prefix):
             s = low = "doi:" + low[len(prefix):]
@@ -482,15 +486,15 @@ def _provider(name):
 
 def citation_verdict(row, recs):
     """The 1.1 refusal substring, the step name, or None, for an INDEX row and its
-    [(provider, parsed receipt)]."""
+    [(provider, parsed receipt)]: one provider is the `one-provider` step."""
     resolved = [(p, r) for p, r in recs if r.get("resolved")]
     if not resolved:
         reason = row.get("unindexed_reason")
         return "unindexed-source" if isinstance(reason, str) and reason.strip() else NO_REGISTRY
-    if len({_provider(p) for p, _r in resolved}) < 2:
-        return FEWER
     if not any(header_agrees(row, r) for _p, r in resolved):
         return "header-mismatch"
+    if len({_provider(p) for p, _r in resolved}) < 2:
+        return "one-provider"
     return None
 
 
@@ -698,9 +702,18 @@ def cmd_fetch(repo, args):
     record = {"note": note, "id": rid, "url": url, "access": access, "reason": reason,
               "ack": ack, "sha256": _sha(data) if data is not None else None,
               "chars": len(text or ""), "passages": passages}
+    files = {}
+    if text is not None:
+        # the whole extracted text, write-once beside its record: `check` finds a quote
+        # written after the capture in it, with no refetch
+        whole = text.encode("utf-8")
+        record.update(text_file="literature/.sources/%s.txt" % _sha(whole),
+                      text_sha256=_sha(whole))
+        files[record["text_file"]] = whole
     body = (json.dumps(record, indent=1) + "\n").encode("utf-8")
     rel = "literature/.sources/%s.json" % _sha(body)
-    code = _store(repo, base, slug, "fetch", {rel: body}, SOURCES, [
+    files[rel] = body
+    code = _store(repo, base, slug, "fetch", files, SOURCES, [
         {"note": note, "file": rel, "sha256": _sha(body), "access": access, "url": url,
          "fetched_at": _now()}])
     if not code:
@@ -728,6 +741,33 @@ def _oa_url(base, receipts):
 def _allowed(connector, argv):
     return connector in PROVIDERS or (connector == "orx" and isinstance(argv, list)
                                       and argv[1:2] in ([c] for c in ORX_CONNECTORS))
+
+
+def schema_ok(connector, data):
+    """True when a search's raw bytes parse under its connector's response schema: an
+    Atom feed (arXiv), a JSON object holding `message.items` (Crossref), `results`
+    (OpenAlex) or `data`/`total` (Semantic Scholar, which omits `data` at 0 hits),
+    UTF-8 text (orx). A capture filed under another connector is not derived from it."""
+    if connector == "arxiv":
+        try:
+            return ET.fromstring(data).tag == ATOM + "feed"
+        except ET.ParseError:
+            return False
+    if connector == "orx":
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        return True
+    doc = _json(data)
+    if not isinstance(doc, dict):
+        return False
+    if connector == "crossref":
+        return isinstance(_dig(doc, "message", "items"), list)
+    if connector == "openalex":
+        return isinstance(doc.get("results"), list)
+    return connector == "semanticscholar" and (isinstance(doc.get("data"), list)
+                                               or "total" in doc)
 
 
 def search_records(connector, data):
@@ -810,10 +850,19 @@ def cmd_search(repo, args):
         print("FAIL %s: the %s search answered %s; nothing was written"
               % (slug, connector, "status %s" % status if url else "exit %s" % status))
         return 1
+    if not schema_ok(connector, data):
+        print("FAIL %s: the %s answer does not parse as a %s response; nothing was written"
+              % (slug, connector, connector))
+        return 1
     records = search_records(connector, data)
     rows = _rows(base, SEARCHES)
-    n = 1 + max([r["n"] for r in rows if isinstance(r.get("n"), int)] or [0])
     rel = "searches/raw/%s.raw" % _sha(data)
+    twin = next((r for r in rows if r.get("file") == rel), None)
+    if twin:
+        print("search: the %s answer is byte-identical to search %s's capture; one capture "
+              "backs one row, so no row was written" % (connector, twin.get("n")))
+        return 0
+    n = 1 + max([r["n"] for r in rows if isinstance(r.get("n"), int)] or [0])
     row = {"n": n, "tag": tag, "item": item, "connector": connector, "query": " ".join(words)}
     row.update({"argv": argv} if argv else {"url": url})
     row.update({"file": rel, "sha256": _sha(data), "hits": len(records),
@@ -894,7 +943,8 @@ def _check_write_once(repo, base, errors):
                               "once, so a new capture is a new file" % (key, first_sha[:12]))
     for rel in _ledgers(base):
         path = os.path.join(base, rel)
-        versions = [text for _sha_, text in tr.file_versions(repo, path, every_ref=False)]
+        # the results reading, every ref: a row a tag still holds was committed
+        versions = [text for _sha_, text in tr.file_versions(repo, path)]
         current, exc = tr._committed_text(path)
         if not exc:
             versions.append(current)
@@ -942,11 +992,14 @@ def _notes_by_id(base):
 
 
 def _check_receipts(slug, base, claims, errors, steps, report, online):
+    # a receipt is judged for an id the INDEX holds now: a corrected id, cited again,
+    # leaves the old id's rows in the append-only ledger unjudged
+    held = {norm_id(r.get("id")) for r in _rows(base, INDEX) if r.get("class") == "formal"}
     parsed = []
     for n, row in enumerate(_rows(base, RECEIPTS), 1):
         rid, provider = norm_id(row.get("id")), row.get("provider")
         data = _read(base, row.get("file")) if row.get("file") else b""
-        if data is None:
+        if data is None or not rid or rid not in held:
             continue
         got = parse_receipt(provider, rid, row.get("status"), data)
         wrong = [k for k in ("resolved", "title", "first_author", "year") if got[k] != row.get(k)]
@@ -960,9 +1013,9 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
             url = dict(receipt_urls(rid)).get(provider)
             if not got["id"]:
                 errors.append("%s row %d (%s %s) is not derived from its capture: its raw "
-                              "bytes name %s, not that id" % (RECEIPTS, n, rid, provider,
-                                                              ", ".join(sorted(named))
-                                                              or "no id"))
+                              "bytes name %s, not that id - correct the INDEX id and run "
+                              "`cite` again" % (RECEIPTS, n, rid, provider,
+                                                ", ".join(sorted(named)) or "no id"))
                 continue
             if row.get("url") != url:
                 errors.append("%s row %d (%s %s): %s is not the %s receipt URL for that id "
@@ -981,9 +1034,6 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
             errors.append("literature/%s: %s %s - no receipt resolved it (run `cite`, or "
                           "record `unindexed_reason`)" % (note, row.get("id") or "an empty id",
                                                           NO_REGISTRY))
-        elif verdict == FEWER:
-            errors.append("literature/%s: %s has %s (alphaXiv and orx count as arxiv)"
-                          % (note, row["id"], FEWER))
         elif verdict:
             _step(steps, _citing(claims, note), verdict)
     if not online:
@@ -1033,24 +1083,56 @@ def _in_order(frags, texts):
                    for k in range(len(frags) - 1) for t in texts[k:k + 2])
 
 
-def _found(quote, records):
-    """1.2 at `check`: every fragment of `quote` found in order - all in one passage
-    text of the captures, or fragment k in the k-th passage a capture stored for this
-    quote (fragments far apart sit in separate windows)."""
+def _found(quote, records, texts=()):
+    """1.2 at `check`: every fragment of `quote` found in order - all in one whole
+    captured text (normalised `texts`: the sources' extracted text, the receipts'
+    abstracts) or one passage text of the captures, or fragment k in the k-th passage
+    a capture stored for this quote (fragments far apart sit in separate windows)."""
     frags = quote_fragments(quote)
     if not frags:
         return True
     stored = [[p for p in r.get("passages") or () if isinstance(p, dict)] for r in records]
-    if any(all(i >= 0 for _f, i in _locate(frags, str(p.get("text") or "")))
-           for ps in stored for p in ps):
+    if any(all(i >= 0 for _f, i in _locate(frags, t))
+           for t in list(texts) + [str(p.get("text") or "") for ps in stored for p in ps]):
         return True
     return any(_in_order(frags, [str(p.get("text") or "") for p in ps if p.get("quote") == quote])
                for ps in stored)
 
 
+def _source_text(base, record, errors):
+    """The whole extracted text a `fetch` record names, or None; a named text file that
+    is gone or hashes otherwise is refused like a ledger's capture."""
+    rel = record.get("text_file")
+    if not rel:
+        return None
+    data = _read(base, rel) if str(rel).startswith("literature/.sources/") else None
+    if data is None:
+        problem = "a source record names %s, which has no capture" % rel
+    elif _sha(data) != record.get("text_sha256"):
+        problem = "hash mismatch - %s does not hash to its text_sha256" % rel
+    else:
+        return data.decode("utf-8", "replace")
+    if problem not in errors:
+        errors.append(problem)
+    return None
+
+
+def _receipt_abstracts(base, rid):
+    """The abstracts re-parsed from the raw receipts that name `rid`."""
+    out = []
+    for row in _receipts_for(base, rid) if rid else ():
+        provider, data = row.get("provider"), _read(base, row.get("file"))
+        if data and rid in receipt_ids(provider, data):
+            abstract = parse_receipt(provider, rid, row.get("status"), data)["abstract"]
+            out += [abstract] if abstract else []
+    return out
+
+
 def _check_sources(base, state, claims, errors, warnings, strict, steps):
     captures = _source_records(base)
     index = _rows(base, INDEX)
+    texts = {n: [_source_text(base, rec, errors) for _row, rec in c]
+             for n, c in captures.items()}
     for row in index:
         note = row.get("note")
         if not isinstance(note, str):
@@ -1064,10 +1146,14 @@ def _check_sources(base, state, claims, errors, warnings, strict, steps):
             _step(steps, citing, "abstract-only")
         elif access in ("full", "user"):
             records = [rec for _row, rec in mine if rec.get("access") in ("full", "user")]
+            whole = [normalise(t) for (_row, rec), t in zip(mine, texts.get(note, []))
+                     if t is not None and rec.get("access") in ("full", "user")]
+            whole += [normalise(a) for a in _receipt_abstracts(base, norm_id(row.get("id")))]
             for quote in gather_quotes(base, note, claims):
-                if not _found(quote, records):
-                    errors.append('literature/%s: "%s": %s (run `fetch` again when the claim '
-                                  'was written after the capture)' % (note, quote, NOT_IN_SOURCE))
+                if not _found(quote, records, whole):
+                    errors.append('literature/%s: "%s": %s (if it is not a quote, rephrase it '
+                                  'without quotation marks; if it is, `fetch --file` the '
+                                  'version quoted)' % (note, quote, NOT_IN_SOURCE))
     formal = [r.get("note") for r in index if r.get("class") == "formal"]
     if not formal or not tr._concluding(base, state):
         return
@@ -1121,14 +1207,28 @@ def _stopping_first(repo, base):
 
 def _check_searches(repo, slug, base, state, claims, errors, steps, report, git):
     rows = _rows(base, SEARCHES)
-    per_row, counted = [], []
+    per_row, counted, backs = [], [], {}
     for n, row in enumerate(rows, 1):
         connector, rel = row.get("connector"), row.get("file")
-        # only a row whose file is a search capture counts (connector, tag, records)
-        data = _read(base, rel) if str(rel or "").startswith("searches/raw/") else None
+        # only a row whose file is a search capture, backing no earlier row, counts
+        # (connector, tag, records)
+        data = None
+        if rel and not str(rel).startswith("searches/raw/"):
+            errors.append("%s row %d names %s, which is not under searches/raw/, so it has "
+                          "no capture" % (SEARCHES, n, rel))
+        elif rel in backs:
+            errors.append("%s row %d names %s, which backs row %d: one capture backs one "
+                          "row, so it has no capture" % (SEARCHES, n, rel, backs[rel]))
+        elif rel:
+            backs[rel] = n
+            data = _read(base, rel)
         if not _allowed(connector, row.get("argv")):
             errors.append("%s row %d names %r: connector not on the allowlist"
                           % (SEARCHES, n, connector))
+            data = None
+        if data is not None and not schema_ok(connector, data):
+            errors.append("%s row %d is not derived from its capture: %s does not parse as a "
+                          "%s response" % (SEARCHES, n, rel, connector))
             data = None
         records = search_records(connector, data) if data is not None else []
         if data is not None and (row.get("hits") != len(records)
@@ -1137,26 +1237,26 @@ def _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
                           "re-parse of %s" % (SEARCHES, n, rel))
         if data is not None:
             counted.append(row)
-        per_row.append(records)
+            per_row.append(records)
     owner = {}
     for records in per_row:
         for rec in records:
             for i in rec:
                 owner.setdefault(i, identity(rec))
+    literature = [c for c in claims if any(t.startswith("literature/")
+                                           for t in tr._cited(c.get("proof")))]
     labels, decided = [], set()
-    for n, row in enumerate(_rows(base, SCREENING), 1):
+    for row in _rows(base, SCREENING):
         sid = norm_id(row.get("id")) or row.get("id")
         if sid not in owner:
-            errors.append("%s row %d: %s - it screens an id no captured search returned"
-                          % (SCREENING, n, row.get("id")))
+            # a hand search's record: screened, but no capture shows a search returned it
+            _step(steps, literature, "screened-outside-search")
             continue
         if owner[sid] not in decided and row.get("decision") in ("kept", "dropped"):
             decided.add(owner[sid])
             labels.append(1 if row["decision"] == "kept" else 0)
     if not _search_line(state):
         return
-    literature = [c for c in claims if any(t.startswith("literature/")
-                                           for t in tr._cited(c.get("proof")))]
     connectors = {(r.get("connector"), tuple(r.get("argv") or ())[1:2]) for r in counted}
     if len(connectors) < 2:
         _step(steps, literature, "one-connector")
