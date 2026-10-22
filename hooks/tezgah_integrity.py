@@ -4768,9 +4768,21 @@ HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/null\b")
 SHELL_OPENERS = frozenset(("if", "then", "elif", "else", "do", "while", "until",
                            "!", "{"))
 SHELL_CLOSERS = frozenset(("done", "fi", "}"))
-# a loop variable the shell itself never reads: lowercase, so not PATH, IFS,
-# BASH_ENV or a GIT_* setting
-LOOP_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+# a loop variable no shell reads: one lowercase letter. A longer lowercase
+# name can be one zsh ties to a setting (`path` is PATH, and `cdpath`, `fpath`,
+# `manpath`, `module_path`, `psvar`, `watch`, `histchars`, `prompt`, `status`
+# and the modules' `options`, `mapfile`... are its own), and its list grows
+# with every loaded module
+LOOP_NAME = re.compile(r"[a-z]")
+# A word this reader passes on: bash expands neither a brace list nor an
+# operator form to anything it can read. `{-delete,-print}` is two words,
+# `${x:--delete}` an option, `$[x]`, `$((x))` and `${a[x]}` evaluate x as
+# arithmetic, which runs a `$( )` in its value. Read on `_shell_read`'s masks.
+BRACE_EXPANSION = re.compile(r"\{[^\s{};|&<>()]*(?:,|\.\.)[^\s{};|&<>()]*\}")
+PLAIN_DOLLAR = re.compile(r"\$(?:[A-Za-z_]\w*|\{(?:[A-Za-z_]\w*|[0-9@*#?$!-])\}|"
+                          r"[0-9@*#?$!-]|(?![\[{(]))")
+# a function's arguments: values this reader never sees
+POSITIONAL = re.compile(r"\$\{?[0-9@*#]")
 # the readers no option of which writes or runs: the only ones a value this
 # reader never sees (a loop word, a substitution's output) may reach
 OPTION_FREE = READ_ONLY_PROGRAMS - set(WRITING_OPTIONS)
@@ -4795,6 +4807,11 @@ def _shell_read(cmd, subst=False):
     an unterminated one or an empty delimiter cannot be read, and a quote still
     open at the end means the reading lost sync with bash (review N1).
 
+    Also an effect: a brace expansion (unquoted `{a,b}`), a function definition
+    (`name()`: its body runs with arguments read nowhere), and a word whose `$`
+    is more than a plain `$name`/`${name}` or holds a `[` (`PLAIN_DOLLAR`;
+    double quotes still expand it, single quotes do not).
+
     `subst=True` reads an unquoted `$(` as no effect of its own: its body is a
     command `_shell_segments` returns, and its redirects are in the bare text;
     inside double quotes it stays one word that reader never splits."""
@@ -4811,7 +4828,7 @@ def _shell_read(cmd, subst=False):
         blank(start, stop)
         blank(body, term[1])
     cmd = "".join(out)
-    bare, quote, i = [], None, 0
+    bare, lit, dq, quote, i = [], [], [], None, 0
     while i < n:
         ch = cmd[i]
         if quote == "'":
@@ -4824,6 +4841,8 @@ def _shell_read(cmd, subst=False):
         elif ch == "\\":
             i += 2
             bare.append(" ")
+            lit.append("_")
+            dq.append("_")
             continue
         elif ch == "`" or (cmd.startswith("$(", i) and (quote or not subst)):
             return True, ""
@@ -4842,12 +4861,23 @@ def _shell_read(cmd, subst=False):
             quote = ch
         else:
             bare.append(ch)
+            lit.append(ch)
+            dq.append(ch)
             i += 1
             continue
         bare.append(" ")
+        # `lit` keeps only unquoted text, `dq` double-quoted text too
+        lit.append("_")
+        dq.append(ch if quote == '"' or ch == '"' and not quote else "_")
         i += 1
     if quote:
         return True, ""
+    lit, dq = "".join(lit), "".join(dq)
+    if BRACE_EXPANSION.search(lit) or re.search(r"\(\s*\)", lit) or "$((" in dq:
+        return True, ""
+    for word in re.split(r"[\s;&|()<>]+", dq):
+        if "$" in word and ("[" in word or "$" in PLAIN_DOLLAR.sub("", word)):
+            return True, ""
     text = HARMLESS_REDIRECT.sub(" ", "".join(bare))
     # every `<` left is an input redirect or a here-string, both reads; blanking
     # them keeps `_shell_segments`' own heredoc pass from reading one again
@@ -4887,9 +4917,10 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     `loops=True` (plan 126) also reads a `for NAME in WORDS` loop, the
     `if`/`while`/`{` openers and closers around reads, and an unquoted `$( )`
     whose body reads. The values those bind - a loop word, a substitution's
-    output - are text this reader never sees, so in such a command a `$` word
-    may only reach a reader no option of which writes (`OPTION_FREE`), and the
-    loop variable is a lowercase name the shell does not read (`LOOP_NAME`).
+    output, a positional parameter (`POSITIONAL`) - are text this reader never
+    sees, so in such a command a `$` word may only reach a reader no option of
+    which writes (`OPTION_FREE`), and the loop variable is one letter no shell
+    reads (`LOOP_NAME`).
 
     ponytail: `git commit` and `git push` run the repository's hooks, and a
     pre-commit autofixer can rewrite files the row never names. They stay on
@@ -4900,7 +4931,8 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     if effect:
         return False
     segs = _shell_segments(text)
-    unseen = loops and any("for" in w or any("$(" in a for a in w) for w in segs)
+    unseen = loops and any("for" in w or any("$(" in a or POSITIONAL.search(a)
+                                             for a in w) for w in segs)
     for words in segs:
         i = 0
         while i < len(words) and (words[i] in GIT_WRAPPER

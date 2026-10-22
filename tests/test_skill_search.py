@@ -333,6 +333,8 @@ class ShippedHintRecall(unittest.TestCase):
                                    roots=ShippedHintPrecision.ROOTS)
             self.assertIn("i-have-adhd", line)
             self.assertIn("line 1 is step 1 itself", line)
+            # the skill's own condition: the rule is for an answer of steps
+            self.assertIn("when the answer is steps, line 1 is step 1", line)
 
 
 class CacheHome(FixtureTree):
@@ -418,10 +420,21 @@ class LocalHint(CacheHome):
         self.assertIn("skill://alpha:10-19,", line)
         self.assertNotIn(self.alpha, line)
 
+    def as_plugin(self):
+        """The fixture root as the plugin's own skills directory, the one
+        root whose skills Claude loads as `tezgah:<name>`."""
+        top = os.path.join(self.tmp.name, "plugin")
+        os.makedirs(top)
+        os.symlink(self.root, os.path.join(top, "skills"))
+        patch = mock.patch.object(sp.tp, "PLUGIN_ROOT", top)
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_claude_gets_the_skill_tool_name_and_the_path(self):
         # Claude lists a plugin skill as `tezgah:<name>` and loads it through its
         # Skill tool; it has no skill:// resolver, so the address would be a
         # name it cannot call (S4Remeasure p11: it took a native skill instead)
+        self.as_plugin()
         line = sp.section_hint(self.TOPIC, "s1", host="claude")
         self.assertIn("Skill tool `tezgah:alpha`", line)
         self.assertIn("lines 10-19 of %s" % self.alpha, line)
@@ -431,6 +444,7 @@ class LocalHint(CacheHome):
         # Claude lists 20 of 21 tezgah skills by name only (S3 2.2), so the one
         # line naming a skill carries what the roster cut (Z3ClaudeReach p11:
         # a bare name lost to Claude's own workflow-authoring skill 3 of 3)
+        self.as_plugin()
         line = sp.section_hint(self.TOPIC, "s1", host="claude")
         self.assertIn("`tezgah:alpha` (Use when authentication tokens are in "
                       "scope.)", line)
@@ -444,6 +458,27 @@ class LocalHint(CacheHome):
             self.assertIn("before Claude's own `native-alpha`", line)
             self.assertNotIn("native-alpha", sp.section_hint(self.TOPIC, "s2",
                                                              host="omp"))
+
+    def test_claude_names_a_host_root_skill_by_its_own_name(self):
+        # review 126 round 3, P2: `top_section` searches the hosts' roots too,
+        # and Claude was told `tezgah:seo-audit` for a ~/.claude/skills one
+        # that has no such name, with its ~600-character description whole
+        home = os.path.join(self.tmp.name, "home")
+        skill = os.path.join(home, ".claude", "skills", "seo-audit")
+        os.makedirs(skill)
+        with open(os.path.join(skill, "SKILL.md"), "w") as fh:
+            fh.write(ALPHA.replace("name: alpha", "name: seo-audit").replace(
+                "Use when authentication tokens are in scope.",
+                "Use when authentication tokens are in scope. " + "x " * 300))
+        with mock.patch.dict(os.environ, {"HOME": home}):
+            roots = [r for r in sp._host_roots() if os.path.isdir(r)]
+            line = sp.section_hint(self.TOPIC, "s1", host="claude", roots=roots)
+        self.assertIn("A local skill search matched this request: `seo-audit` (", line)
+        self.assertIn(os.path.join(skill, "SKILL.md"), line)
+        self.assertNotIn("tezgah:", line)
+        desc = line.split("`seo-audit` (", 1)[1].split('), "', 1)[0]
+        self.assertLessEqual(len(desc), sp.DESCRIPTION_CAP)
+        self.assertTrue(desc.endswith("..."), desc)
 
     def test_claude_names_a_nested_entry_by_its_parent_skill(self):
         self.assertEqual("tezgah:design-library", sp.skill_tool_name(

@@ -903,9 +903,13 @@ NATIVE_TWIN = {"harness": "workflow-authoring"}
 # (Z3ClaudeReach), the misses opening on a diagnosis ("Ana sorun: ...") or an
 # unnumbered sentence; `skills/i-have-adhd` rule 1 says the same.
 IN_FORCE = {"i-have-adhd": (
-    "In force on this reply whether or not the skill is loaded: line 1 is step 1 "
-    "itself (`1. <path or command>: <what to do>`), with no lead sentence and no "
-    "diagnosis above it; the cause goes inside that step.")}
+    "In force on this reply whether or not the skill is loaded: when the answer "
+    "is steps, line 1 is step 1 itself (`1. <path or command>: <what to do>`), "
+    "with no lead sentence and no diagnosis above it; the cause goes inside "
+    "that step.")}
+# the bound a shipped skill's description keeps (tests/test_skills.py), so a
+# host-root skill's long one does not ride the Claude line whole
+DESCRIPTION_CAP = 160
 
 
 def _emit(session_id, skill, path, title, start, end, project, host):
@@ -932,14 +936,21 @@ def _emit(session_id, skill, path, title, start, end, project, host):
         # Claude's roster lists 20 of 21 tezgah skills by name only (S3 2.2):
         # the line carries the description it cut, or a bare name loses to a
         # native skill the roster does describe (Z3ClaudeReach p11). A nested
-        # entry is loaded through its parent, whose file this is not.
+        # entry is loaded through its parent, whose file this is not. Only the
+        # plugin's own skills are the Skill tool's `tezgah:<name>`; a host
+        # root's skill keeps its plain name beside its path.
         desc = "" if "/" in skill else re.sub(r'[<>"\r\n]', "", description(path))
+        if len(desc) > DESCRIPTION_CAP:
+            desc = desc[:DESCRIPTION_CAP - 3].rstrip() + "..."
+        plugin = os.path.realpath(os.path.join(tp.PLUGIN_ROOT, "skills")) + os.sep
+        name = ("Skill tool `%s`" % skill_tool_name(skill)
+                if os.path.realpath(path).startswith(plugin)
+                else "`%s`" % skill.split("/")[0])
         twin = NATIVE_TWIN.get(skill)
         return ("<skill_relevance>\nA local skill search matched this request: "
-                "Skill tool `%s`%s, \"%s\" (lines %d-%d of %s). Load it first if "
-                "it fits%s; a hint, not an instruction to load.%s\n</skill_relevance>"
-                % (skill_tool_name(skill), " (%s)" % desc if desc else "", title,
-                   start, end, path,
+                "%s%s, \"%s\" (lines %d-%d of %s). Load it first if it fits%s; "
+                "a hint, not an instruction to load.%s\n</skill_relevance>"
+                % (name, " (%s)" % desc if desc else "", title, start, end, path,
                    ", before Claude's own `%s`" % twin if twin else "", rule))
     where = "" if host == "omp" else " (%s)" % path
     return ("<skill_relevance>\nA local skill search matched this request: "
