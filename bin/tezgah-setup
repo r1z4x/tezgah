@@ -3801,6 +3801,13 @@ def uninstall(hosts, dry_run=False):
         remove_install_tree()
     elif armed:
         rest = sorted(set(armed) - set(hosts))
+        # install_common only ever merges into the record, so this is the one
+        # place a host leaves it; kept, it made every later uninstall partial
+        # and `tezgah update` re-armed it from the record
+        cfg = read_config(tp.CONFIG, {})
+        if cfg is not None:
+            cfg["hosts"] = [h for h in armed if h in rest]
+            write_json(tp.CONFIG, cfg)
         print("\n%s still armed: %s keeps its config and the install tree"
               % (NO, ", ".join(rest)))
     remaining = verify_uninstall(hosts, full)

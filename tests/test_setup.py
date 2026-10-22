@@ -1826,6 +1826,22 @@ class Uninstall(SetupBase):
         self.assertTrue(os.path.exists(self.path(".config", "tezgah",
                                                  "config.json")))
 
+    def test_partial_uninstall_takes_the_host_off_the_record(self):
+        """The record only ever grows on install (merged, never replaced), so a
+        partial uninstall that left its host recorded kept it there for good: a
+        later uninstall of the rest stayed partial and `tezgah update`, which
+        passes the recorded hosts, re-armed the host the user removed."""
+        config = self.path(".config", "tezgah", "config.json")
+        self.setup("--install", "--hosts", "codex")
+        self.setup("--install", "--hosts", "opencode")
+        proc = self.setup("--uninstall", "--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(["codex"], self.read_json(config)["hosts"])
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("(full run)", proc.stdout)
+        self.assertFalse(os.path.exists(config), proc.stdout)
+
     def test_omp_mcp_json_is_removed_when_only_tezgah_keys_remain(self):
         """install_omp writes `$schema` and `mcpServers` into a file it may have
         created; an uninstall that left those two behind left a wired-but-empty
@@ -3309,6 +3325,28 @@ class VersionPrefixIsNotContract(SetupBase):
         # CLI paths the render now writes do not tie the pin to one HOME.
         self.assertEqual(13160, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
+
+    def test_the_rendered_always_on_band_is_unchanged(self):
+        """What a session is actually sent: the core rendered, with each CLI
+        named by its installed absolute path under a fixed HOME (so the path
+        lengths are inside the number) and the default language. The unrendered
+        pin above misses a change that only shows once rendered."""
+        body = ("import importlib.machinery, importlib.util, os, sys\n"
+                "loader = importlib.machinery.SourceFileLoader('s', sys.argv[1])\n"
+                "m = importlib.util.module_from_spec("
+                "importlib.util.spec_from_loader('s', loader))\n"
+                "sys.modules['s'] = m\n"
+                "loader.exec_module(m)\n"
+                "c = m.tezgah_context\n"
+                "c.tool = lambda name: os.path.join(m.tp.BIN_DIR, name)\n"
+                "print(len(c.render(c.always_on_core())))\n")
+        env = {"PATH": self.env["PATH"], "HOME": "/tezgah-band-pin"}
+        proc = subprocess.run([sys.executable, "-c", body, SETUP],
+                              capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Pinned 2026-10-22 (plan 126 review round 1): rendered under
+        # HOME=/tezgah-band-pin, language `tr`.
+        self.assertEqual(13409, int(proc.stdout), "the rendered band moved")
 
 
 if __name__ == "__main__":
