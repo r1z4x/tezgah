@@ -277,12 +277,13 @@ def gold_problems(base, git):
         name, arm, seed = record.get("instrument"), str(record.get("arm")), record.get("seed")
         drawn = [str(i) for i in record.get("items") or []]
         n = record.get("n") if isinstance(record.get("n"), int) else len(drawn)
-        pools = [set(now.get(name, {}).get(arm, {}))]
+
+        def drawn_from(pool):
+            return len(drawn) == n and seeded_draw(pool, seed, arm, n) == drawn
+        if drawn_from(now.get(name, {}).get(arm, {})):
+            continue
         rev = _added_rev(base, rel) if git else None
-        if rev:
-            pools.append(_items_at(base, rev).get(name, {}).get(arm, set()))
-        if not any(len(drawn) == n and seeded_draw(pool, seed, arm, n) == drawn
-                   for pool in pools):
+        if not (rev and drawn_from(_items_at(base, rev).get(name, {}).get(arm, set()))):
             problems.append("%s differs from the seeded draw of seed %s over %s arm %s"
                             % (rel, seed, name, arm))
     return problems
