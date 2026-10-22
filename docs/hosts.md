@@ -104,9 +104,9 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `tui.json` and `compaction.prune` are not written there: opencode 2 ignores
   `tui.json` after its first start and does not support `compaction.prune`, a legacy setting.
   The install report drops those two rows on opencode 2.
-  The status line on opencode 2 is `hosts/opencode/tui/cli/tui.tsx`, linked as the
-  directory `tui-plugins/tezgah-cli` and listed in `cli.json` `plugins`: opencode 2
-  skips a plugin entry that names a file and loads the `tui` module of a directory.
+  On opencode 2 the status line is `hosts/opencode/tui/cli/tui.tsx`. The installer
+  links it as the directory `tui-plugins/tezgah-cli` and lists it in `cli.json`
+  `plugins`. opencode 2 skips an entry that names a file. It loads a directory's `tui` module.
 - **dsh** - `install_dsh` (`bin/tezgah-setup::install_dsh`): `~/.dsh/skills/*` symlinks,
   a managed block in `~/.dsh/cordis.patch.yml` (`dsh_patch_block`, `bin/tezgah-setup::dsh_patch_block`) that
   mounts the Claude-code hook bridge on `hosts/dsh/hooks.json`, the MCP client
