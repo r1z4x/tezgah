@@ -822,11 +822,23 @@ the `orx` lookup.
 
 ### The question class: `init --class`
 
-`init <slug> --ask "<the user's words>" --class R1..R12` writes `state.json`
-`question_class`. `--class R0` exits 1 with `R0 gets no line` before any other
-argument counts (`bin/tezgah-research::cmd_init`). An R0 question is factual or
-reference, and the reply answers it. With a class, `init` prints three more
-things:
+A complete command for a measured R6 line:
+
+```
+tezgah-research init cache-latency --ask "does the cache cut p95?" \
+  --question "Does the read cache cut p95 latency of the read path?" \
+  --method measured --class R6 --in "p95 of the read path" --out "write path"
+```
+
+Leave out `--question` and `check` refuses the line with
+`state.json records no question`. `--class` writes `state.json` `question_class`.
+`--class R0` exits 1 with `R0 gets no line` before any other argument counts
+(`bin/tezgah-research::cmd_init`). An R0 question is factual or reference, and the
+reply answers it. A new line owes more before `check` passes clean. It owes the
+success criteria of "The ask contract" and the protocol labels of "Protocol
+sections (rules 4)". It owes the scope of "Scope lock (rules 5)" and, on a
+measured line, the committed evaluation lock under "What `check` refuses". With a class, `init`
+prints three more things:
 
 - `obligations: <step>, <step>, ...` lists every certainty step the class can
   trigger (`hooks/tezgah_research.py::obligations`).
@@ -872,11 +884,15 @@ project tracks the workspace.
 
 **`tezgah-research cite <slug>`** queries `arxiv`, `crossref`, `openalex` and
 `semanticscholar` (`hooks/tezgah_research_capture.py::PROVIDERS`) for every formal
-INDEX row whose `id` is an arXiv id or a DOI. Each answer becomes a row of
+INDEX row whose `id` is an arXiv id or a DOI. An `openalex:W<n>` or `s2:<paperId>`
+id resolves through its own registry alone, so it takes the step `one-provider`
+(`hooks/tezgah_research_capture.py::receipt_urls`). Each answer becomes a row of
 `literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
-`literature/.receipts/<sha256>.raw`. `cite` names and skips any other id. It exits 0
-even when nothing resolves, because judging the receipts is `check`'s job
-(`hooks/tezgah_research_capture.py::cmd_cite`). The INDEX may write an id as a bare DOI
+`literature/.receipts/<sha256>.raw`. `cite` skips any other id and prints
+`is not an arXiv, DOI, OpenAlex or Semantic Scholar id`. With nothing to cite it
+prints `no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id to cite`.
+It exits 0 even when nothing resolves, because judging the receipts is `check`'s
+job (`hooks/tezgah_research_capture.py::cmd_cite`). The INDEX may write an id as a bare DOI
 such as `10.1145/abc.1` (`hooks/tezgah_research_capture.py::norm_id`). `check`
 reads the receipts offline and judges only those for an id the INDEX holds now
 (`hooks/tezgah_research_capture.py::_check_receipts`):
@@ -994,7 +1010,13 @@ rule. It has to enter the history before the first search row, or the line takes
 - `{"rule": "pragmatic", "risk": "<text>"}` always holds and names the risk taken.
 
 **`tezgah-research source <slug> <h> --run <id> [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...`**
-writes its results row itself (`hooks/tezgah_research.py::source_run`). The row
+writes its results row itself (`hooks/tezgah_research.py::source_run`). On a
+rules-8 line it first asks git for a commit that holds the evaluation lock. It
+refuses before writing anything when it finds none:
+`the evaluation lock is not committed: no committed state.json holding the metric and the baseline precedes this capture`.
+The message names the way out, `tezgah-research commit <slug> "<message>"`. An
+exploratory line and a line with no `evaluation` are exempt, as in `check`
+(`hooks/tezgah_research.py::_orders_lock`). The row
 names `run`, the arm, the item and each value as a number. `--instrument <name>`
 writes `instrument`, `arm` and `item`, so `gold` and `label` work on the runs
 `source` records. When the line names an orx project the row also holds the
@@ -1177,6 +1199,9 @@ The protocol's other lines bind the analysis
 
 - Each metric of the comma-separated `metric:` list appears in `report.md`, or in a
   `not_reported: <metric>: <reason>` line. Else: `neither reported nor marked not_reported`.
+  A registered metric that refines the locked one counts as reported when the
+  report names the locked metric. It refines it when it equals the locked metric
+  or starts with the locked name and a space.
 - A `metric:` list must hold the locked metric. Else:
   `metric other than the locked one`.
 - `evaluator: <path> [sha256:<hex>]` pins the scoring file to its bytes at the
