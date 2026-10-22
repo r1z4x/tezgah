@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import textwrap
@@ -45,6 +46,20 @@ def hit(needles, errors):
     """True when some error carries the needle."""
     return any(n in e for e in errors for n in ([needles] if
                                                 isinstance(needles, str) else needles))
+
+
+def bounded(fn, *args, seconds=20):
+    """fn(*args), or an AssertionError once it runs past `seconds`: a hang is the
+    defect such a test pins, so it must fail rather than stall the suite."""
+    def stop(signum, frame):
+        raise AssertionError("did not finish within %ds" % seconds)
+    old = signal.signal(signal.SIGALRM, stop)
+    signal.alarm(seconds)
+    try:
+        return fn(*args)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def named(errors, needle):
@@ -6425,6 +6440,121 @@ class Rules8Core(Workspace):
         line, over = tr.budget("q", base, {"tier": "quick"})
         self.assertEqual(line, "budget q: sources 0/10 searches 0/10 runs 2/10")
         self.assertEqual(over, [])
+
+
+class Rules8Numbers(Workspace):
+    """Rules 8 protocol numbers and arithmetic (plan 127, review round one G1): one
+    reader for `alpha:` `power:` `sesoi:` `mde:` (`.05`, `5%`, `1e-1`), an out-of-range
+    value is one refusal rather than a hang or a traceback, `derived_from` recomputes
+    in decimal, boolean outcomes count as 1/0, and every comparator spec 2.2 lists
+    is evaluated in the structured falsifier."""
+
+    rules8_line = Rules8Core.rules8_line
+    PLAN = "power: 0.8\nmde: 10\nn: 2\n"
+
+    def test_protocol_numbers_read_leading_dot_percent_and_exponent(self):
+        for text, want in ((".05", 0.05), ("5%", 0.05), ("80 %", 0.8), ("1e-1", 0.1),
+                           ("0.05 two-sided", 0.05), ("2", 2.0), ("none", None)):
+            self.assertEqual(tr._number(text), want, text)
+        self.assertEqual(tr.protocol_number("power", "80%"), (0.8, None))
+        self.assertEqual(tr.protocol_number("alpha", ""), (None, None))
+        for key, text, needle in (("alpha", "5", "alpha: 5 is not a number in (0, 1)"),
+                                  ("power", "80", "power: 80 is not a number in (0, 1)"),
+                                  ("alpha", "high", "alpha: high is not a number in (0, 1)"),
+                                  ("sesoi", "0", "sesoi: 0 is not a number above 0"),
+                                  ("mde", "-1", "mde: -1 is not a number above 0")):
+            value, problem = tr.protocol_number(key, text)
+            self.assertIsNone(value)
+            self.assertIn(needle, problem)
+
+    def test_out_of_range_alpha_or_power_is_one_refusal_not_a_hang(self):
+        rows = [("base", 120), ("base", 121), ("cache", 90), ("cache", 91)]
+        for extra, needle in (("alpha: 5\n" + self.PLAN, "alpha: 5 is not a number"),
+                              ("alpha: 0.05\npower: 80\nmde: 10\nn: 2\n",
+                               "power: 80 is not a number")):
+            repo = self.repo()
+            self.rules8_line(repo, rows, extra)
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+            self.assertEqual(len(named(errors, needle)), 1, errors)
+            self.assertFalse(hit("Traceback", errors))
+
+    def test_leading_dot_alpha_is_the_fraction(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)], "alpha: .05\n" + self.PLAN)
+        exp = bounded(tr.experiment_record, base, "h1")
+        self.assertEqual(exp["alpha"], 0.05)
+        self.assertIsNotNone(exp["effect"]["ci"])
+
+    def test_leading_dot_sesoi_does_not_escape_tost(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 120),
+                                       ("cache", 121)], "alpha: 0.05\nsesoi: .5\n" + self.PLAN)
+        claim = dict(CLAIM, effect="no-difference")
+        steps = tr._experiment_steps(claim, [tr.experiment_record(base, "h1")], "R6", True,
+                                     set())
+        self.assertIn("tost-not-passed", steps)
+
+    def test_instrument_mde_uses_the_same_reader(self):
+        import tezgah_research_evidence as ev
+        self.assertEqual(ev._mde("mde: .05\n"), 0.05)
+        self.assertEqual(ev._mde("mde: 10%\n"), 0.1)
+        self.assertIsNone(ev._mde("mde: 0\n"))
+
+    def test_boolean_outcomes_count_as_one_and_zero(self):
+        import tezgah_research_evidence as ev
+        self.assertEqual((ev._outcome({"outcome": True}), ev._outcome({"outcome": False})),
+                         (1, 0))
+        repo = self.repo()
+        base = self.rules8_line(repo, [("a", 1), ("a", 2)])
+        exp = tr.experiment_record(base, "h1")
+        for row, outcome in zip(exp["groups"]["a"], (True, False)):
+            row["outcome"] = outcome
+        lines = []
+        tr._check_experiment8(repo, "q", base, {}, exp, None, [], [], False, False, lines)
+        self.assertTrue(hit("stats q: h1 a n=2 k=1 ", lines), lines)
+
+    def test_ppi_line_with_one_gold_or_one_other_item_prints_ci_none(self):
+        import tezgah_research_evidence as ev
+        items = {i: {"outcome": o} for i, o in (("i1", 1), ("i2", 0), ("i3", 1))}
+        labels = {("j", "a", i): {"truth": 1, "output": items[i]["outcome"]}
+                  for i in items}
+        self.assertEqual(ev._ppi_line("q", "j", "a", {"items": ["i1"]}, labels, items),
+                         ["ppi q: j arm a lambda=0.0000 estimate=1.0000 ci=none"])
+        line = ev._ppi_line("q", "j", "a", {"items": ["i1", "i2"]}, labels, items)
+        self.assertTrue(line[0].endswith(" ci=none"), line)
+
+    def test_derived_mean_rounds_in_decimal_half_up_or_half_even(self):
+        cases = ((2.67, 2.68, {"2.68": True, "2.67": False}),
+                 (10.1, 10.2, {"10.2": True, "10.1": False}),
+                 (2, 3, {"3": True, "2": True, "2.4": False}))
+        for a, b, verdicts in cases:
+            repo = self.repo()
+            base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", a),
+                                           ("cache", b)])
+            for written, ok in verdicts.items():
+                claim = dict(CLAIM, derived_from={
+                    written: {"op": "mean", "of": ["h1/r3:p95", "h1/r4:p95"]}})
+                problems = tr.derived_problems("C1", claim, base)
+                self.assertEqual(problems == [], ok, (a, b, written, problems))
+
+    def test_falsifier_forms_the_comparator_list_names_are_evaluated(self):
+        rows = [{"arm": "cache", "p95": 90}, {"arm": "cache", "p95": 91}]
+
+        def fired(text):
+            return tr.falsifier_fired({"fields": {"falsifier": [text]},
+                                       "groups": {"cache": rows}, "rows": rows})
+        for text in ("p95 >= 90 on cache", "p95 ≥ 90 on cache", "p95 ≤ 91 on cache",
+                     "p95 at least 90 on cache", "p95 AT MOST 91 on cache",
+                     "p95 exceeds 90 on cache", "p95 exceed 90", "p95 over 90",
+                     "p95 above 90", "p95 more than 90", "p95 greater than 90",
+                     "p95 below 91", "p95 under 91", "p95 less than 91",
+                     "p95 fewer than 91"):
+            self.assertEqual(fired(text), (text, 90.5), text)
+        self.assertIsNone(fired("p95 ≥ 91 on cache"))
+        for text in ("p95 >= 90ms on cache", "p95 is at least 90 on cache",
+                     "p95 >= 90 on cache.", "p95 latency >= 90 on cache"):
+            self.assertIsNone(fired(text), text)
 
 
 if __name__ == "__main__":

@@ -117,9 +117,9 @@ def _experiments_of(base):
 
 
 def _mde(text):
-    value = _label(text, "mde")
-    found = re.search(r"-?\d+(?:\.\d+)?", value or "")
-    return float(found.group(0)) if found else None
+    """The protocol's `mde:`, read as `check` reads it (`tr.protocol_number`); None when
+    absent or invalid, and `check` refuses the invalid one."""
+    return tr.protocol_number("mde", _label(text, "mde"))[0]
 
 
 def seeded_draw(items, seed, arm, n):
@@ -216,8 +216,11 @@ def instrument_report(base, slug):
 
 
 def _outcome(row):
+    """A row's numeric `outcome`; a JSON boolean counts as 1/0."""
     value = row.get("outcome") if isinstance(row, dict) else None
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    if isinstance(value, bool):
+        return int(value)
+    return value if isinstance(value, (int, float)) else None
 
 
 def _ppi_line(slug, name, arm, record, labels, arm_items):
@@ -228,8 +231,8 @@ def _ppi_line(slug, name, arm, record, labels, arm_items):
     if not rest or None in rest or any(not isinstance(v, (int, float)) for v in y + f):
         return []
     lam, est, lo, hi = st.ppi_mean(y, f, rest)
-    return ["ppi %s: %s arm %s lambda=%.4f estimate=%.4f ci=[%.4f, %.4f]"
-            % (slug, name, arm, lam, est, lo, hi)]
+    return ["ppi %s: %s arm %s lambda=%.4f estimate=%.4f ci=%s"
+            % (slug, name, arm, lam, est, "none" if lo is None else tr._format_ci(lo, hi))]
 
 
 def _items_at(base, rev):
