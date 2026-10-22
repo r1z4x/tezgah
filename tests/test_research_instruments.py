@@ -406,6 +406,36 @@ class Instruments(Line):
                          ["label output differs from its results row: j arm a item %s output 1, "
                           "results row 0" % drawn[0]])
 
+    def test_a_label_whose_item_was_refiled_after_it_is_stale(self):
+        # plan 128 K7: a refile is the documented correction; the label copied the
+        # replaced row's outcome, so it is stale - it does not count and the item reads
+        # unlabelled (a cap) until it is labelled again, never `label output differs`
+        self.run_cmd("instrument", ["add", "q", "j", "--kind", "measure", "--rung", "R4",
+                                    "--construct", "slow"])
+        self.put("experiments/h2/protocol.md", "change: x\ndesign: experiment\nmde: 0.10\n")
+        filed = [{"run": "r%03d" % n, "item": "i%03d" % n, "arm": "a", "instrument": "j",
+                  "outcome": n % 2} for n in range(1, 81)]
+        self.put("experiments/h2/results.jsonl", rows(*filed))
+        drawn = self.gold_and_label("j", "a", 72, 5)
+        self.put("claims.jsonl", rows({"id": "C3", "proof": ["experiments/h2/results.jsonl"]}))
+        _, _, steps = self.check()
+        self.assertNotIn("instrument-unvalidated", steps.get("C3", []))
+        old = next(r for r in filed if r["item"] == drawn[0])
+        with open(os.path.join(self.base, "experiments/h2/results.jsonl"), "a") as fh:
+            fh.write(json.dumps(dict(old, outcome=1 - old["outcome"])) + "\n")
+        errors, warnings, steps = self.check()
+        self.assertFalse([e for e in errors if "label output" in e], errors)
+        self.assertIn("instrument-unvalidated", steps["C3"])
+        self.assertNotIn(("j", "a", drawn[0]), ev.first_labels(self.base)[0])
+        code, out = self.run_cmd("label", ["q", "j", "--arm", "a", "--human", "r", "--ack",
+                                           "the user relabelled it"],
+                                 rows({"item": drawn[0], "truth": 1 - old["outcome"]}))
+        self.assertEqual(code, 0, out)
+        errors, warnings, steps = self.check()
+        self.assertFalse([e for e in errors if "label output" in e], errors)
+        self.assertFalse([w for w in warnings if "label repeated" in w], warnings)
+        self.assertNotIn("instrument-unvalidated", steps.get("C3", []))
+
     def test_measure_mde_above_one_leaves_the_instrument_unvalidated(self):
         # D4-7: the threshold reads a difference of proportions; mde 50 is no threshold
         self.run_cmd("instrument", ["add", "q", "j", "--kind", "measure", "--rung", "R4",

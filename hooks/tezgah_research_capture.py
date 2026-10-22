@@ -70,11 +70,14 @@ LEDGER = re.compile(r"^(?:literature/\.receipts/RECEIPTS|literature/\.sources/SO
 # A number as `source --value` takes it: `12`, `-0.5`, `1.2e-3`.
 VALUE_NUMBER = r"-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?"
 # A number as a run log writes it: VALUE_NUMBER, or one grouped by thousands (`12,345`),
-# which is read whole, so its tail is never a number of its own (K6 rater Y2).
+# which is read whole, so its tail is never a number of its own (K6 rater Y2). A unit
+# glued on after it - letters or `%` up to a word end (`22.3ms`, `512MB`, `3.2x`, `45%`)
+# - leaves it that number (plan 128 K6); letters in front (`r1`, `h2`) or digits after
+# the letters (a sha such as `2fb1370`) leave it no number.
 # ponytail: a CSV row of integers whose later fields have three digits (`5,300`) reads
 # as one grouped number; a log that means two fields there is the ceiling.
 LOG_NUMBER = re.compile(r"(?<![\w.])-?(?:[1-9]\d{0,2}(?:,\d{3})+|\d+)(?:\.\d+)?"
-                        r"(?:[eE][-+]?\d+)?(?![\w]|\.\d)")
+                        r"(?:[eE][-+]?\d+)?(?=(?:[^\W\d_]+|%)?(?![\w]|\.\d))")
 
 NO_REGISTRY = "resolves in no registry"
 NOT_IN_SOURCE = "quote not in the captured source text"

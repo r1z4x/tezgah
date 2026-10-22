@@ -393,6 +393,12 @@ def commit_path(repo, paths, message):
     try:
         rels = present(paths, ws, lambda *r: tp.ws_git(repo, "ls-files", "--", *r).stdout)
         done = tp.ws_git(repo, "add", "-A", "--", *rels)
+        if not done.returncode and not tp.ws_git(repo, "diff", "--cached", "--quiet",
+                                                 "--", *rels).returncode:
+            # a writer that commits its own capture (`source`, `cite`) leaves nothing
+            # for the session's commit, which is not a failure (plan 128 K10)
+            print("nothing to commit: %s is already committed in %s" % (" ".join(rels), ws))
+            return 0
         if not done.returncode:
             done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", *rels)
     except OSError as exc:
@@ -439,6 +445,11 @@ def commit_project(repo, paths, message):
             git + ["ls-files", "--"] + list(r), capture_output=True, text=True).stdout)
         done = subprocess.run(git + ["add", "-A", "--"] + rels, capture_output=True,
                               text=True)
+        if not done.returncode and not subprocess.run(
+                git + ["diff", "--cached", "--quiet", "--"] + rels).returncode:
+            print("nothing to commit: %s is already committed in the project repository %s"
+                  % (" ".join(rels), repo))
+            return 0
         if not done.returncode:
             done = subprocess.run(git + ["commit", "-q", "-m", message, "--"] + rels,
                                   capture_output=True, text=True)
