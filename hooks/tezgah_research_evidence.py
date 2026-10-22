@@ -355,8 +355,8 @@ def start_level(claim, base, classes):
         if not design:
             design = "experiment" if _label(text, "change") is not None else "observational"
         levels.append(3 if design.startswith("experiment") else 1)
-    for token in tr._cited(claim.get("proof")):
-        token = token.rstrip(".,;:)")
+    import tezgah_research_capture as cap
+    for token in cap.cited_tokens(claim.get("proof")):
         if token.startswith("literature/") and not token.startswith("literature/."):
             levels.append(SOURCE_START.get(classes.get(token[len("literature/"):]), 0))
     return max(levels) if levels else 0
