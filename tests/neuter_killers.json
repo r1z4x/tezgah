@@ -117,6 +117,7 @@
  "secret-runner-inline": "test_gate.Gate.test_an_env_prefix_to_a_program_that_prints_it_still_denies",
  "secret-runner-named": "test_gate.Gate.test_an_env_prefix_to_a_program_that_prints_it_still_denies",
  "secret-runner-script": "test_gate.Gate.test_an_env_prefix_to_a_program_that_prints_it_still_denies",
+ "set-options": "test_integrity.BookkeepingCommand.test_a_set_of_shell_options_is_bookkeeping",
  "skip-edit": "test_integrity.ShortcutEdit.test_a_patch_is_read_file_by_file",
  "skip-env": "test_integrity.ShortcutCommand.test_skip_env_denied",
  "spec-fresh-unread": "test_integrity.StopHook.test_a_fresh_check_does_not_license_an_external_claim",
