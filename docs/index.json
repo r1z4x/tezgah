@@ -274,7 +274,8 @@
         "how do I record a citation receipt, a source capture or a search (cite, fetch, search)",
         "what is a question class and what does init --class print",
         "what does release-check do and what does calibration print",
-        "how does the instrument ledger validate an LLM judge (instrument, gold, label, switch)"
+        "how does the instrument ledger validate an LLM judge (instrument, gold, label, switch)",
+        "what formats does a new line write by hand (INDEX note path, provenance values, review dimensions, deliverable)"
       ],
       "answers_tr": [
         "bir araştırma hattı nerede yaşar ve ne tutar",
@@ -289,7 +290,8 @@
         "bir atıf makbuzu, kaynak yakalaması ya da arama nasıl kaydedilir (cite, fetch, search)",
         "soru sınıfı nedir ve init --class ne yazdırır",
         "release-check ne yapar ve calibration ne yazdırır",
-        "araç defteri bir LLM yargıcını nasıl doğrular (instrument, gold, label, switch)"
+        "araç defteri bir LLM yargıcını nasıl doğrular (instrument, gold, label, switch)",
+        "yeni bir hat elle hangi biçimleri yazar (INDEX note yolu, provenance değerleri, review boyutları, deliverable)"
       ],
       "sources": [
         "hooks/tezgah_research.py",

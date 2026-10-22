@@ -290,7 +290,7 @@ through its seal.
 | Command | What it does | Exit |
 |---|---|---|
 | `tezgah-research init <slug> [--question "..."] [--class R1..R12] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). `--class` writes `state.question_class` and prints `obligations: <step>, ...` (`obligations`), the tier's `budget <slug>: sources a/b searches c/d runs e/f` (`budget`) and `overlap: <line>/<claim> <status> <similarity>` for each done claim close to the question (`overlaps`); `--class R0` exits 1 (`R0 gets no line`) before any other argument is read. Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
-| `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`) | 0, 1 not a work tree or git failed, 2 misuse |
+| `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`). With nothing left to commit it prints `nothing to commit: <paths> is already committed in <workspace>` and exits 0 | 0 (also with nothing to commit), 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--online] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal alone (`done_seal`, `hooks/tezgah_research.py::done_seal`), naming it only when the seal fails or its `state.json` or seal cannot be read, then prints `research: <n> done line(s): <s> checked by their seal, <u> unsealed (not checked); ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal read fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`) and, on a rules-8 line, the run census; `--online` re-fetches a rules-8 line's citation receipts; a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug`. A rules-8 line (`_check_rules8`) also prints report lines that are never counted - `certainty`, `stats`, `effect`, `instrument`, `ppi`, `stopping`, `online`, `budget` - and `--json` adds its per-claim `certainty` | 0 clean, 1 a line failed a rule or names no line |
 | `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
@@ -884,8 +884,32 @@ Leave out `--question` and `check` refuses the line with
 reply answers it. A new line owes more before `check` passes clean. It owes the
 success criteria of "The ask contract" and the protocol labels of "Protocol
 sections (rules 4)". It owes the scope of "Scope lock (rules 5)" and, on a
-measured line, the committed evaluation lock under "What `check` refuses". With a class, `init`
-prints three more things:
+measured line, the committed evaluation lock under "What `check` refuses". It
+writes four formats by hand, and `check` reads each one:
+
+- An INDEX row's `note` is a path relative to `literature/`: `smith2020.md` names
+  `literature/smith2020.md`. A path with `..`, or one `literature/` does not hold,
+  fails with `which literature/ does not hold` (`hooks/tezgah_research.py::_read_index`).
+- A claim's `provenance` and the `tag` of each `state.json` session entry take
+  one of four values (`hooks/tezgah_research.py::PROVENANCE`). `user`: the user
+  stated or confirmed it. `ai-suggested`: the session inferred it and nobody
+  confirmed it. `ai-executed`: the session ran or wrote it. `user-revised`: the
+  session suggested it and the user corrected it.
+- `to_human/review.json` scores six `dimensions`: `evidence_relevance`,
+  `falsifiability`, `scope_calibration`, `argument_coherence`,
+  `exploration_integrity` and `methodological_rigour`
+  (`hooks/tezgah_research.py::REVIEW_DIMENSIONS`). Each score is an integer from 1
+  to 5. A missing score or one outside that range fails
+  (`hooks/tezgah_research.py::_check_review`).
+- `state.json` `deliverable` is an object. Its `kind` is one of
+  `DELIVERABLE_KINDS`, and "Variants of the deliverable" covers its variant count.
+  `path` names the deliverable's file, read relative to the line first and then
+  to the repository (`hooks/tezgah_research.py::_deliverable_file`). `ask`, when
+  present, is a list of the ask's items, each a non-empty string. Anything else
+  fails with `state.json deliverable ask is not a list of the ask's items`
+  (`hooks/tezgah_research.py::deliverable_problems`).
+
+With a class, `init` prints three more things:
 
 - `obligations: <step>, <step>, ...` lists every certainty step the class can
   trigger (`hooks/tezgah_research.py::obligations`).
@@ -933,9 +957,13 @@ project tracks the workspace.
 `semanticscholar` (`hooks/tezgah_research_capture.py::PROVIDERS`) for every formal
 INDEX row whose `id` is an arXiv id or a DOI. An `openalex:W<n>` or `s2:<paperId>`
 id resolves through its own registry alone, so it takes the step `one-provider`
-(`hooks/tezgah_research_capture.py::receipt_urls`). Each answer becomes a row of
-`literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
-`literature/.receipts/<sha256>.raw`. `cite` skips any other id and prints
+(`hooks/tezgah_research_capture.py::receipt_urls`). Each answer of status 200
+becomes a row of `literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
+`literature/.receipts/<sha256>.raw`. Any other status, such as a 404 or a 429,
+prints `receipt <id> <provider>: status <n>, not recorded` and writes nothing. A
+later `check --online` would read such an answer as drift. With no 200 at all,
+`cite` prints `no registry answered 200, so nothing was written`
+(`hooks/tezgah_research_capture.py::cmd_cite`). `cite` skips any other id and prints
 `is not an arXiv, DOI, OpenAlex or Semantic Scholar id`. With nothing to cite it
 prints `no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id to cite`.
 It exits 0 even when nothing resolves, because judging the receipts is `check`'s
@@ -949,11 +977,14 @@ reads the receipts offline and judges only those for an id the INDEX holds now
 
 - `check` refuses a receipt row that a re-parse of its raw bytes contradicts:
   `not derived from its capture`.
-- A resolved receipt has to name the INDEX id in its raw bytes
-  (`hooks/tezgah_research_capture.py::receipt_ids`). Else `check` refuses it with
-  `is not derived from its capture: its raw bytes name <ids>, not that id - correct the INDEX id`,
-  and the message ends by naming `cite` as the command to run again.
-  Its `url` has to be the provider's receipt URL for that id. Else the refusal
+- A resolved receipt counts for the INDEX id only when its raw bytes name that id
+  (`hooks/tezgah_research_capture.py::receipt_ids`). A receipt whose raw bytes name
+  another id for the same work does not count for it, and `check` does not refuse
+  it. It warns once:
+  `the <provider> receipt for <id> names <ids>, not that id, so it does not count for it`.
+  The INDEX row then resolves through the other providers, or fails with
+  `resolves in no registry`.
+  A receipt's `url` has to be the provider's receipt URL for that id. Else the refusal
   reads `<url> is not the <provider> receipt URL for that id (<expected>)`. A
   refused receipt resolves nothing.
 - It refuses a formal row that no receipt resolves: `resolves in no registry`. A
@@ -966,8 +997,9 @@ reads the receipts offline and judges only those for an id the INDEX holds now
   receipt takes `header-mismatch`. Titles agree at a word overlap of 0.5 or more
   (`hooks/tezgah_research_capture.py::title_agrees`). Years agree within one, for
   a preprint against its venue year.
-- `check --online` fetches up to ten receipts again from the provider's receipt
-  URL. A changed id, title, author or year prints
+- `check --online` fetches up to ten receipts recorded from a 200 again from the
+  provider's receipt URL. It never compares a row of another status
+  (`hooks/tezgah_research_capture.py::_check_receipts`). A changed id, title, author or year prints
   `online <slug>: <id> <provider> <field> drifted`, for instance
   `online <slug>: <id> <provider> id drifted`, and takes `online-drift`.
 
@@ -980,10 +1012,19 @@ always comes from a receipt. The first step that yields text decides the capture
 |---|---|---|
 | 1 | `--file <path>` (needs `--ack "<the user's words>"`, else exit 2), or `--orx` | `user`, or `full` |
 | 2 | an arXiv id: `https://arxiv.org/html/<id>` answering 200 | `full` |
-| 3 | a DOI: the OpenAlex receipt's `open_access.oa_url` answering 200 with no PDF body | `full` |
+| 3 | a DOI: the OpenAlex receipt's `open_access.oa_url` answering 200 with no PDF body and holding a work's body (below) | `full` |
 | 4 | `orx paper --full <id>`, when orx is installed and prints text | `full` |
 | 5 | the abstract of a resolved receipt | `abstract` |
 | 6 | nothing yielded text: the record names the reason, exit 0 | `none` |
+
+An `oa_url` page holds a work's body when its text has `BODY_SENTENCES` (100)
+distinct sentences of `BODY_WORDS` (10) or more words
+(`hooks/tezgah_research_capture.py::body_sentences`). A repository landing page
+holds the metadata and the abstract, and falls short. When step 4 yields no text
+either, `fetch` keeps that page as access `abstract`, with the `oa_url` as its
+url. Its reason reads `the open-access page holds <n> distinct sentences of 10+
+words, under the 100 of a work's body: a landing page`. A quote that page lacks
+costs the step `abstract-only`, never a refusal.
 
 The quotes come from three places. One is a citing claim's `quote` field. Another
 is each double-quoted span of three or more words in its `statement`. The last is
@@ -994,7 +1035,10 @@ it as `text_file` with `text_sha256`. `check` looks for each quote in that text,
 in the stored passages and in the abstracts of the receipts for the note's id
 (`hooks/tezgah_research_capture.py::_found`). Normalisation drops citation
 markers, also one split by tags or spaces such as `[ 12 ]`. A hyphen between two
-letters reads as a space (`hooks/tezgah_research_capture.py::normalise`). `check`
+letters reads as a space. Inner quotation marks are optional: curly or straight,
+single or double, in the quote and in the text. A TeX command beside rendered
+math (`∼ \sim`) drops, `∼` reads as `~`, and a space beside a math symbol drops
+(`hooks/tezgah_research_capture.py::normalise`). `check`
 refuses a record whose text file is gone with `has no capture`, and one whose
 text file hashes otherwise with `hash mismatch`
 (`hooks/tezgah_research_capture.py::_source_text`). The record lands in
@@ -1008,14 +1052,25 @@ note path with `.`, `,`, `;`, `:` or `)`, and the note still counts as cited
 decides what `check` does
 (`hooks/tezgah_research_capture.py::_check_sources`):
 
-- `full` or `user`: `check` refuses a quote found nowhere with
-  `quote not in the captured source text`. The message names the two exits.
-  Rephrase a non-quote without quotation marks, or `fetch --file` the version
-  quoted.
+- `full` or `user`: `check` looks for each quote of the note's own blockquotes in
+  its capture. It looks for a claim's quote in the captures of every note the
+  claim cites. It refuses that quote only when every cited note holds full text
+  and none of them holds the quote. A cited note without full text already
+  narrows the claim by its step. The refusal names the notes it searched:
+  `claim <id>: "<quote>": quote not in the captured source text (searched literature/<a>, literature/<b>; ...)`
+  (`hooks/tezgah_research_capture.py::_quote_missing`). The message names the two
+  exits. Rephrase a non-quote without quotation marks, or `fetch --file` the
+  version quoted. `check` skips the quotes of a claim that another row
+  supersedes (`hooks/tezgah_research.py::_superseded`).
 - `abstract`: claims citing the note take `abstract-only`.
 - `none`, or no capture: they take `source-not-captured`, a ceiling.
-- A concluded line with formal rows owes `closed-access: <k> of <n>` in its report.
-  It also owes `user-supplied: <k> of <n> sources` when a latest record is `user`.
+- A concluded line with formal rows owes the share of its sources without full
+  text in its report. The share counts a source with no capture, an `abstract`
+  capture or a `none` capture alike. Any of `closed-access: <k> of <n>`,
+  `not full text: <k> of <n>` or `abstract-only: <k> of <n>` states it. A missing
+  share warns `report states no closed-access share: <k> of <n> sources have no full text`
+  and names the three forms (`hooks/tezgah_research_capture.py::_check_sources`).
+  The line also owes `user-supplied: <k> of <n> sources` when a latest record is `user`.
   Both rules are soft.
 
 **`tezgah-research search <slug> --tag primary|snowball|counter|known [--item "<scope.in item>"] -- <connector> <args...>`**
@@ -1064,13 +1119,19 @@ writes its results row itself (`hooks/tezgah_research.py::source_run`). On a
 rules-8 line it first asks git for a commit that holds the evaluation lock. It
 refuses before writing anything when it finds none:
 `the evaluation lock is not committed: no committed state.json holding the metric and the baseline precedes this capture`.
-The message names the way out, `tezgah-research commit <slug> "<message>"`. An
-exploratory line and a line with no `evaluation` are exempt, as in `check`
-(`hooks/tezgah_research.py::_orders_lock`). On a rules-8 line it also refuses
-before writing when the experiment's `protocol.md` is not committed
+The message names the way out, `tezgah-research commit <slug> "<message>"`. A
+line with no `evaluation` is exempt, as in `check`
+(`hooks/tezgah_research.py::_orders_lock`). An exploratory line's lock is its
+arena. `source` refuses there when no committed `state.json` holding the arena
+precedes the capture: `the arena is not committed`. On a rules-8 line it also
+refuses before writing when the experiment's `protocol.md` is not committed
 (`experiments/<h>/protocol.md is not committed`), or carries an invalid record
-(`experiments/<h>/protocol.md carries an invalid record`). Both messages name
-`tezgah-research commit` as the way out and end `nothing was written`.
+(`experiments/<h>/protocol.md carries an invalid record`). It refuses a protocol
+whose `metric:` list holds no locked metric, by the rule `check` applies below:
+`experiments/<h>/protocol.md registers a metric other than the locked one`
+(`hooks/tezgah_research.py::metric_problem`). The capture commits its results at
+once, and the protocol cannot change after that. Each of these messages names
+`tezgah-research commit` as the way out and ends `nothing was written`.
 
 `orx logs` may print a summary in place of the log: the path to the full log
 file and its size. `source` then reads that file and checks its size against the
@@ -1091,7 +1152,10 @@ writes `item`, each without the others. A row with `instrument` and `item` is on
 the row also holds the engine's `status`. `source` matches `--value` against the
 whole log, by one number reader (`hooks/tezgah_research_capture.py::log_numbers`). It
 reads thousands separators, so `12,345` is 12345, and exponents such as
-`1.2e-3`, which `--value k=1.2e-3` also accepts. A value matches a logged number
+`1.2e-3`, which `--value k=1.2e-3` also accepts. It reads a number with a unit
+glued on as that number: `22.3ms`, `1.2s`, `512MB`, `3.2x` and `45%`
+(`hooks/tezgah_research_capture.py::LOG_NUMBER`). A number glued to letters in
+front, such as `r1` or `h2`, stays no number. A value matches a logged number
 by numeric equality, so `1.5` matches `1.50`. A value with no equal number in the
 stored log exits 1 with
 `value not in the run log (orx logs <run> holds no number equal to <v>)`. A
@@ -1116,8 +1180,17 @@ ledgers only grow. `check` refuses what changed anyway
 
 - a capture file that differs from the blob its first commit added
   (`changed after its first commit`)
-- a ledger row that a later commit changed or dropped
+- a ledger row that a later version dropped or changed:
+  `a row changed or went missing after its first commit; a ledger is append-only`.
+  Every row of each earlier version has to stay in the latest one, compared as a
+  multiset with the order aside. Two branches that appended and merged pass.
 - a ledger row whose file does not hash to its `sha256`: `hash mismatch`.
+
+Each RECEIPTS and SEARCHES row records `parser`, the version of the parser that
+derived it (`hooks/tezgah_research_capture.py::PARSER`). A row without the field
+reads as version 0. `check` re-derives a row only under its own version. It holds
+an older row to its hash alone and warns once per ledger:
+`rows of parser <v> are held to their hash alone; this check re-derives parser 1 rows only`.
 
 The append-only ledgers are read across every ref, as the results file is. The
 stopping-rule order and the capture files read the current branch's lineage only
@@ -1281,18 +1354,38 @@ both `2` and `3` (`hooks/tezgah_research.py::_rounds_to`). It refuses a mismatch
 The protocol's other lines bind the analysis
 (`hooks/tezgah_research.py::_check_experiment8`):
 
-- Each metric of the comma-separated `metric:` list appears in `report.md`, or in a
-  `not_reported: <metric>: <reason>` line. Else: `neither reported nor marked not_reported`.
-  A registered metric that refines the locked one counts as reported when the
-  report names the locked metric. It refines it when it equals the locked metric
-  or starts with the locked name and a space. The match collapses whitespace in
-  the report, so a name wrapped across lines still counts.
+- Each metric of the `metric:` list appears in `report.md`, or in a
+  `not_reported: <metric>: <reason>` line. The list splits at the commas between
+  names, never inside parentheses or between digit groups. So `10,000-piece` and
+  `(median of 5 runs)` stay whole (`hooks/tezgah_research.py::METRIC_COMMA`). The
+  locked metric is one name, and a comma in it never splits it
+  (`hooks/tezgah_research.py::_registered`). A metric neither reported nor excused
+  fails with `registered metric <m> is neither reported nor marked not_reported - <exit>`.
+  Before the run the exit reads
+  ``name it in to_human/report.md, or before the run mark it `not_reported: <metric>: <reason>` in protocol.md``.
+  A filed run freezes `protocol.md`, so after it the exit reads
+  `the run is filed, so protocol.md is frozen: name it in to_human/report.md`.
+  A registered metric that matches the locked one counts as reported when the
+  report names the locked metric. The match collapses whitespace in the report, so
+  a name wrapped across lines still counts.
 - A `metric:` list must hold the locked metric. Else:
-  `metric other than the locked one`.
+  `metric other than the locked one`. A protocol metric matches the lock when
+  either is the other or a word-boundary prefix of it, both ways
+  (`hooks/tezgah_research.py::_same_metric`). So `p95 latency` matches
+  `p95 latency of the read path`, and the reverse.
 - `evaluator: <path> [sha256:<hex>]` pins the scoring file to its bytes at the
-  protocol's first commit. `check` compares an evaluator in the project
-  repository with its last version before that commit
+  protocol's first commit. `check` looks the path up in the line, the repository
+  and the checkout it runs in, in that order
+  (`hooks/tezgah_research.py::evaluator_file`). A path none of them holds fails
+  with `evaluator <path> is not a file in the line, the repository or the checkout`.
+  `check` compares the evaluator with its last version before that commit
   (`hooks/tezgah_research.py::_check_evaluator`). Else: `evaluator file changed after lock`.
+  A concluded line compares the evaluator as it stood at the conclusion. The
+  order seal `conclude` writes holds the evaluator's sha256 per experiment
+  (`hooks/tezgah_research.py::_seal_rows`). A seal older than that field reads
+  the evaluator at the first committed `state.json` holding the seal
+  (`hooks/tezgah_research.py::_sealed_evaluator`). A later project edit therefore
+  does not refuse a concluded line under `--all-lines`.
 - `select: min|max <field>` picks the group with the lowest or highest mean, and
   `analysis.md` names it as `selected: <group>`. `check` refuses a different pick
   with `select rule picks`. A missing `selected:` line warns
@@ -1311,8 +1404,9 @@ commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
   gold sample. It sorts the arm's items by `sha256("<S>:<a>:<item>")` and keeps
   the first N (`hooks/tezgah_research_evidence.py::seeded_draw`). The first draw
   per instrument and arm is the one every rule reads. A draw once the arm has
-  labels exits 1 with `gold draw after labels`. A draw over results rows that are
-  not committed exits 1 with `has results rows that are not committed`, names
+  labels exits 1 with `gold draw after labels`. A draw over results or verdict
+  rows that are not committed exits 1 with
+  `has results or verdict rows that are not committed`, names
   `tezgah-research commit` and writes nothing
   (`hooks/tezgah_research_evidence.py::cmd_gold`). `check` refuses a gold file that
   is not its seed's draw: `differs from the seeded draw`. It also refuses a GOLD
@@ -1335,8 +1429,11 @@ differs from it. A row without both `truth` and `output` labels nothing
 (`hooks/tezgah_research_evidence.py::_is_label`). `check` refuses a label whose
 output is not the results row's outcome:
 `label output differs from its results row: <i> arm <a> item <x> output <o>, results row <r|none>`
-(`hooks/tezgah_research_evidence.py::label_problems`). The first label per item
-counts, and a later one warns. An arm
+(`hooks/tezgah_research_evidence.py::label_problems`). A label that holds the
+outcome of a row a later refile replaced is stale
+(`hooks/tezgah_research_evidence.py::_stale`). `check` neither counts nor refuses
+it, and its item reads unlabelled until a new label arrives. The first label per
+item counts, and a later one warns. An arm
 counts as labelled when every item of its first draw has a label. Its error bound is the
 two-sided 95% Clopper-Pearson upper bound of errors over n
 (`hooks/tezgah_research_evidence.py::instrument_report`). The status follows
