@@ -767,6 +767,7 @@ tests/test_replay_context.py
 tests/test_reply_lang.py
 tests/test_research.py
 tests/test_research_import.py
+tests/test_research_rules8_acceptance.py
 tests/test_research_seal.py
 tests/test_review_quote.py
 tests/test_setup.py
