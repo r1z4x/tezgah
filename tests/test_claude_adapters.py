@@ -1,4 +1,5 @@
 """hooks/projects-auto-init.py and hooks/projects-pretooluse.py (Claude envelope)."""
+import json
 import os
 import unittest
 
@@ -143,6 +144,36 @@ class AutoInitCoreInFile(TempHome):
             fh.write("<!-- tezgah:start -->\nblock\n<!-- tezgah:end -->\n")
         self.assertEqual(self.core(self.declared(), "SubagentStart"),
                          self.core(None, "SubagentStart"))
+
+
+class PromptHintHost(TempHome):
+    """Claude's prompt row declares its host (`TEZGAH_HOST=claude`), the way
+    its SessionStart row declares the core file: the payload carries no host,
+    and dsh runs this same script. Declared, the skill hint names the Skill
+    tool's `tezgah:<name>`; undeclared (dsh), it keeps the address form."""
+
+    PROMPT = "ponytail intensity levels lite full ultra"
+
+    def context(self, extra=None):
+        out, proc = run_json([support.AUTO_INIT],
+                             {"hook_event_name": "UserPromptSubmit",
+                              "cwd": self.make_repo("proj"), "session_id": "s",
+                              "prompt": self.PROMPT}, env=self.env(extra=extra))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out["hookSpecificOutput"]["additionalContext"]
+
+    def test_the_manifest_row_declares_the_host(self):
+        with open(os.path.join(support.REPO, "hooks", "hooks.json")) as fh:
+            row = json.load(fh)["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+        self.assertTrue(row["command"].startswith("TEZGAH_HOST=claude "), row)
+
+    def test_declared_claude_gets_the_skill_tool_form(self):
+        text = self.context({"TEZGAH_HOST": "claude"})
+        self.assertRegex(text, r"Skill tool `tezgah:[\w-]+`")
+        self.assertNotIn("skill://", text)
+
+    def test_undeclared_keeps_the_address(self):
+        self.assertIn("skill://", self.context())
 
 
 class PreToolUse(TempHome):

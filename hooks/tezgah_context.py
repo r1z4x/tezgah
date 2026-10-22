@@ -181,6 +181,16 @@ CORE_RULES = (
     ("fanout", "**Parallel by default: fan out independent items.**"),
 )
 
+# The shipped skill an armed rule leads with: the skill hint when the section
+# search gave no line (`tezgah_skill_pick.rule_hint`, which still asks the
+# skill to carry 3 of the prompt's words). S4Remeasure p08: the Research
+# paragraph names orx's manual, Claude's roster lists `tezgah:research` by name
+# only, and the skill holding the line's protocol was never opened. Product
+# and design are not here: their paragraphs already name a skill per ask, and
+# a lead skill hinted for them was wrong on 3 of 3 S2/S3 prompts it reached
+# (no-ai-slop, feature-audit and analyze-app asks) and right on none.
+RULE_SKILL = {"research": "research"}
+
 # The per-turn reminder's clause for each switchable rule, matched against
 # PROMPT_REMINDER with its whitespace collapsed. A kill switch drops its clause
 # here as it drops its paragraph from CORE; a test pins every clause to the
@@ -1340,11 +1350,15 @@ def session_of(payload):
 # 5800 B. Moved again on 2026-10-22 (plan 126): every CLI the core names is
 # rendered as its installed path (BIN_TOOLS), since no host but Claude has the
 # tezgah bin dir on PATH, and the worktree fixture's session start then gave up
-# its worktrees line (509 B), so the session budgets move to 16000 B. A
+# its worktrees line (509 B), so the session budgets move to 16000 B. Moved
+# again on 2026-10-22 (plan 126, second pass): a research ask arms the Research
+# and Product paragraphs (6239 B on Claude, S4Remeasure p08) and the skill hint
+# that names the research skill (about 330 B with its path) was the block given
+# up, so the prompt budget moves to 7000 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
 CONTEXT_BUDGET = {"session_start": 16000, "post_compact": 16000,
-                  "subagent_start": 5800, "user_prompt": 6500}
+                  "subagent_start": 5800, "user_prompt": 7000}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table lives in the
@@ -2157,10 +2171,19 @@ def context_for(event, cwd, payload=None, with_core=True):
         # line at most, each section once per session (`section_hint`).
         if prompt and tezgah_skill_pick:
             hint = tezgah_skill_pick.suggest(prompt, session_id)
+            # the host: omp's bridge and opencode's plugin send it, Claude's
+            # manifest row declares it (`TEZGAH_HOST`, hooks/hooks.json)
+            host = (payload or {}).get("host") if isinstance(payload, dict) else None
+            host = host or os.environ.get("TEZGAH_HOST")
             if not hint:
-                host = (payload or {}).get("host") if isinstance(payload, dict) else None
                 hint = tezgah_skill_pick.section_hint(prompt, session_id, host=host,
                                                       cwd=cwd)
+            for k in CONDITIONAL_KEYS:
+                if hint:
+                    break
+                if k in RULE_SKILL and k in conditional and k in matched:
+                    hint = tezgah_skill_pick.rule_hint(RULE_SKILL[k], prompt,
+                                                       session_id, host=host)
             if hint:
                 parts.append(("skill", hint))
         # C1 and C3 ride this turn because it is the only channel a live state
