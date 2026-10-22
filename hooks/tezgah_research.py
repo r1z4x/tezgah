@@ -4090,7 +4090,11 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
                    for v in fields.get("not_reported", []) if ":" in v}
         text = report.casefold()
         for metric, key in zip(metrics, norm):
-            if key not in text and key not in excused:
+            # a registered metric that refines the locked one (the rule above's
+            # equivalence) is reported where the report names the locked metric
+            refines = locked and (key == locked or key.startswith(locked + " "))
+            if (key not in text and not (refines and locked in text)
+                    and key not in excused):
                 errors.append("%s: registered metric %r is neither reported nor marked "
                               "not_reported in protocol.md" % (label, metric))
     evaluator = _first(fields, "evaluator")
@@ -5617,6 +5621,19 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     if not os.path.isfile(os.path.join(experiment, "protocol.md")):
         return None, ["experiments/%s holds no protocol.md: write and commit the "
                       "plan before filing the run it predicts" % hypothesis]
+    if _evidence(state) and not _exploratory(state):
+        # the capture is committed at once, after HEAD of the history carrying the
+        # line, so an uncommitted lock would follow its results for good: the order
+        # `_check_evaluation_order` reads, asked of that HEAD before anything is written
+        lock_path = os.path.join(base, "state.json")
+        top = _histories(repo, lock_path)[-1][0]
+        if _answers(repo, _evaluation_commit(repo, lock_path), {top: "HEAD"}).get(top) \
+                is not True:
+            return None, ["the evaluation lock is not committed: no committed state.json "
+                          "holding the metric and the baseline precedes this capture, so "
+                          "its results would come before the lock for good - commit the "
+                          "line first (`tezgah-research commit %s \"<message>\"`); nothing "
+                          "was written" % slug]
     log, err = _run([orx, "logs", run], cwd=repo)
     if err:
         return None, ["orx logs %s failed: %s" % (run, err)]

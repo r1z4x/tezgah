@@ -3090,6 +3090,57 @@ class SourceRun(Workspace):
             self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
             self.assertIn(message, proc.stderr, args)
 
+    def test_a_rules8_capture_before_the_lock_is_committed_is_refused(self):
+        """A rules-8 `source` commits its capture at once, so one filed while the
+        evaluation lock is uncommitted would put the results before the lock for good
+        (`the evaluation was not locked before the first results row`, with no repair).
+        It is refused with nothing written; after `commit` it lands and the order holds."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.protocol(repo)
+        env = self.with_orx(repo)
+        args = ("source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real")
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn('commit the line first (`tezgah-research commit q "<message>"`)',
+                      proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo)
+        self.assertFalse(hit("was not locked before", errors), errors)
+
+
+class RegisteredMetric(Workspace):
+    """Rules 8 (2.3): every registered metric is reported or marked `not_reported:`."""
+
+    def test_a_metric_refining_the_locked_one_is_reported_by_the_locked_name(self):
+        """The protocol registers `p95 latency`, the line locked `p95` (the locked-metric
+        rule's equivalence), and the report says `p95`: reported. A registered metric
+        that is not the locked one still has to be named."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        d = self.protocol(repo)
+        needle = "registered metric 'p95 latency' is neither reported"
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit(needle, errors), errors)
+        report = os.path.join(base, "to_human", "report.md")
+        self.write(report, REPORT.replace("p95", "tail latency"))
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit(needle, errors), errors)
+        self.write(report, REPORT)
+        path = os.path.join(d, "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n",
+                                            "metric: p95 latency, error rate\n"))
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit("registered metric 'error rate' is neither reported", errors),
+                        errors)
+        self.assertFalse(hit(needle, errors), errors)
+
 
 class LiteratureIndex(Workspace):
     """I5: what the line read, indexed, and labelled by channel."""

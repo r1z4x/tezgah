@@ -367,6 +367,10 @@ def receipt_urls(rid):
         return [("crossref", "https://api.crossref.org/works/" + d),
                 ("openalex", "https://api.openalex.org/works/doi:" + d),
                 ("semanticscholar", S2_PAPER % ("DOI:" + d))]
+    if rid and rid.startswith("openalex:"):
+        return [("openalex", "https://api.openalex.org/works/" + rid[9:])]
+    if rid and rid.startswith("s2:"):
+        return [("semanticscholar", S2_PAPER % rid[3:])]
     return []
 
 
@@ -382,7 +386,7 @@ def _url_id(value):
 
 def receipt_ids(provider, data):
     """The normalised ids a provider's answer names: arXiv entry ids, Crossref
-    `message.DOI`, OpenAlex `doi`/`ids` and location URLs (a merged work keeps an
+    `message.DOI`, OpenAlex `id`/`doi`/`ids` and location URLs (a merged work keeps an
     arXiv preprint there), S2 `paperId`/`externalIds`."""
     if provider == "arxiv":
         values = [e["id"] for e in _atom_entries(data or b"")]
@@ -396,7 +400,7 @@ def receipt_ids(provider, data):
             ids = doc.get("ids") if isinstance(doc.get("ids"), dict) else {}
             places = [doc.get("primary_location"), doc.get("best_oa_location")]
             places += doc.get("locations") if isinstance(doc.get("locations"), list) else []
-            values = [doc.get("doi")] + list(ids.values()) + [
+            values = [doc.get("id"), doc.get("doi")] + list(ids.values()) + [
                 p.get(k) for p in places if isinstance(p, dict)
                 for k in ("landing_page_url", "pdf_url")]
         elif provider == "semanticscholar":
@@ -520,7 +524,8 @@ def cmd_cite(repo, args):
         rid = norm_id(row.get("id"))
         urls = receipt_urls(rid)
         if not urls:
-            print("skipped %s: id %r is neither arXiv nor DOI" % (row.get("note"), row.get("id")))
+            print("skipped %s: id %r is not an arXiv, DOI, OpenAlex or Semantic Scholar id"
+                  % (row.get("note"), row.get("id")))
             continue
         for provider, url in urls:
             status, data = fetch_url(url)
@@ -537,7 +542,8 @@ def cmd_cite(repo, args):
             print("receipt %s %s: status %d, %s" % (rid, provider, status, "resolved"
                                                     if parsed["resolved"] else "unresolved"))
     if not receipts:
-        print("cite %s: no formal arXiv or DOI row to cite" % slug)
+        print("cite %s: no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id "
+              "to cite" % slug)
         return 0
     return _store(repo, base, slug, "cite", files, RECEIPTS, receipts)
 
