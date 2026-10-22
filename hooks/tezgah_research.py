@@ -2942,19 +2942,22 @@ def _evaluation_commit(repo, path):
     return {top: _first_lock(top, rel) for top, rel in _histories(repo, path)}
 
 
+def _orders_lock(state):
+    """True when a line's results are ordered against its evaluation lock: the
+    arena is an exploratory line's lock, and `_check_arena_order` orders every
+    results.jsonl against it instead; a state with no evaluation has none."""
+    return not _exploratory(state) and isinstance(state.get("evaluation"), dict)
+
+
 def _check_evaluation_order(repo, base, state, errors, warnings, strict):
     """The evaluation is locked before the first result, and `locked_at` names a
     commit the history holds. `_check_evaluation` reads that the fields are filled;
     this reads when: a metric and a baseline committed after the results are the
     criterion the results were measured against after the fact."""
-    if _exploratory(state):
-        # the arena is an exploratory line's lock, and `_check_arena_order` orders
-        # every results.jsonl against it the way this orders them against a metric
+    if not _orders_lock(state):
         return
     hard = strict or _rules(state) >= STANDARDS_RULES
-    evaluation = state.get("evaluation")
-    if not isinstance(evaluation, dict):
-        return
+    evaluation = state["evaluation"]
     for token in SHA_TOKEN.findall(str(evaluation.get("locked_at", ""))):
         if is_ancestor(repo, token, "HEAD") is not True:
             _soft(errors, warnings, hard,
@@ -5621,7 +5624,7 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     if not os.path.isfile(os.path.join(experiment, "protocol.md")):
         return None, ["experiments/%s holds no protocol.md: write and commit the "
                       "plan before filing the run it predicts" % hypothesis]
-    if _evidence(state) and not _exploratory(state):
+    if _evidence(state) and _orders_lock(state):
         # the capture is committed at once, after HEAD of the history carrying the
         # line, so an uncommitted lock would follow its results for good: the order
         # `_check_evaluation_order` reads, asked of that HEAD before anything is written

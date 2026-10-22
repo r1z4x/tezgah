@@ -400,6 +400,14 @@ class Captures(unittest.TestCase):
         self.assertTrue(any(cap.NOT_IN_SOURCE in e for e in errors), errors)
 
     def test_source_values_refile_status_and_census(self):
+        # a rules-8 `source` is refused until a committed state.json locks the
+        # evaluation (its capture is committed at once, so a later lock could never
+        # precede it), and this line's fixture locks none: commit one first
+        st = tr._state(self.base)
+        st["evaluation"] = {"metric": "p95", "baseline": "120 uncached",
+                            "locked_at": "2026-01-01"}
+        self.write(self.at("state.json"), json.dumps(st))
+        self.cli("commit", "q", "evaluation lock")
         self.cli("source", "q", "h1", "--run", "r1", "--arm", "base", "--value", "p95=120")
         out = self.cli("source", "q", "h1", "--run", "r1", "--value", "p95=77", code=1)
         self.assertIn("value not in the run log", out)
