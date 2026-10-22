@@ -955,17 +955,20 @@ project tracks the workspace.
 
 **`tezgah-research cite <slug>`** queries `arxiv`, `crossref`, `openalex` and
 `semanticscholar` (`hooks/tezgah_research_capture.py::PROVIDERS`) for every formal
-INDEX row whose `id` is an arXiv id or a DOI. An `openalex:W<n>` or `s2:<paperId>`
-id resolves through its own registry alone, so it takes the step `one-provider`
+INDEX row whose `id` is an arXiv id or a DOI. A `pubmed:<pmid>` row goes to
+`pubmed`. An `openalex:W<n>`, `s2:<paperId>` or `pubmed:<pmid>` id resolves through its
+own registry alone, so it takes the step `one-provider`
 (`hooks/tezgah_research_capture.py::receipt_urls`). Each answer of status 200
 becomes a row of `literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
 `literature/.receipts/<sha256>.raw`. Any other status, such as a 404 or a 429,
 prints `receipt <id> <provider>: status <n>, not recorded` and writes nothing. A
-later `check --online` would read such an answer as drift. With no 200 at all,
+later `check --online` would read such an answer as drift, which is why it is not
+recorded. A row filed by an older `cite` at another status is never compared. With no 200 at all,
 `cite` prints `no registry answered 200, so nothing was written`
 (`hooks/tezgah_research_capture.py::cmd_cite`). `cite` skips any other id and prints
-`is not an arXiv, DOI, OpenAlex or Semantic Scholar id`. With nothing to cite it
-prints `no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id to cite`.
+`is not an arXiv, DOI, OpenAlex, Semantic Scholar or PubMed id`. With nothing to
+cite it prints `no formal row with an arXiv, DOI, OpenAlex, Semantic Scholar or
+PubMed id to cite`.
 It exits 0 even when nothing resolves, because judging the receipts is `check`'s
 job (`hooks/tezgah_research_capture.py::cmd_cite`). The INDEX may write an id as a bare DOI
 such as `10.1145/abc.1`. It may also write a bare arXiv id in new or old style
@@ -1036,7 +1039,9 @@ in the stored passages and in the abstracts of the receipts for the note's id
 (`hooks/tezgah_research_capture.py::_found`). Normalisation drops citation
 markers, also one split by tags or spaces such as `[ 12 ]`. A hyphen between two
 letters reads as a space. Inner quotation marks are optional: curly or straight,
-single or double, in the quote and in the text. A TeX command beside rendered
+single or double, in the quote and in the text. Where an extraction dropped a
+space (`human-inthe-loop` for `human-in-the-loop`), a quote still matches with its
+spaces optional, its letters in order (`hooks/tezgah_research_capture.py::_locate`). A TeX command beside rendered
 math (`∼ \sim`) drops, `∼` reads as `~`, and a space beside a math symbol drops
 (`hooks/tezgah_research_capture.py::normalise`). `check`
 refuses a record whose text file is gone with `has no capture`, and one whose
@@ -1077,8 +1082,12 @@ decides what `check` does
 stores a connector's raw output in `searches/raw/<sha256>.raw` and one row of
 `searches/SEARCHES.jsonl`. Its `hits` and `ids` come from the raw bytes
 (`hooks/tezgah_research_capture.py::cmd_search`). The allowlist is the four
-registries, `orx discover` and `orx paper`. Any other connector exits 1 with
-`connector not on the allowlist`. `--tag counter` without an `--item` equal to a
+registries, PubMed, Scopus, ACM DL, `orx discover` and `orx paper`. Any other
+connector exits 1 with `connector not on the allowlist`. PubMed is E-utilities
+`esearch` and yields `pubmed:<pmid>` ids. Scopus is the Elsevier search API. It
+needs an API key in `TEZGAH_SCOPUS_KEY`, and without it `search` exits 2 naming the
+variable. Its entries yield their DOIs. `dl.acm.org` answers a browser check with
+403, so ACM DL reads through Crossref's ACM member (320) and yields its DOIs. `--tag counter` without an `--item` equal to a
 `scope.in` entry exits 2. A search that does not answer 200 exits 1 and writes
 nothing. An answer that does not parse as that connector's response exits 1 with
 `does not parse as a <connector> response; nothing was written`. An answer
@@ -1114,7 +1123,7 @@ rule. It has to enter the history before the first search row, or the line takes
   record.
 - `{"rule": "pragmatic", "risk": "<text>"}` always holds and names the risk taken.
 
-**`tezgah-research source <slug> <h> --run <id> [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...`**
+**`tezgah-research source <slug> <h> --run <id> [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]... [--ack "<the user's words>"]`**
 writes its results row itself (`hooks/tezgah_research.py::source_run`). On a
 rules-8 line it first asks git for a commit that holds the evaluation lock. It
 refuses before writing anything when it finds none:
@@ -1136,16 +1145,20 @@ once, and the protocol cannot change after that. Each of these messages names
 `orx logs` may print a summary in place of the log: the path to the full log
 file and its size. `source` then reads that file and checks its size against the
 count orx printed (`hooks/tezgah_research.py::_full_log`). It stores the whole
-log, printed or read from that file, up to 16 MiB
-(`hooks/tezgah_research.py::RUN_LOG_BOUND`). Four messages refuse a log it
-cannot hold:
+log, printed or read from that file. A log above 16 MiB meets
+`RUN_LOG_BOUND` and exits 1
+(`hooks/tezgah_research.py::RUN_LOG_BOUND`), unless `--ack "<the user's words>"`
+says to keep it. The log then lands whole and the row records the `ack`. Four
+messages refuse a log it cannot hold:
 
 - `printed the log's path without its size`
-- `bytes, above the <bound>-byte bound a receipt is committed under`
+- `bytes, above the <bound>-byte bound a receipt is committed under`, which names
+  `--ack`
 - `cannot read the log orx logs <run> names`
 - `the run is still writing it or it changed since`
 
-The row names `run`, the arm, the item and each value as a number.
+`--ack` files a log above the bound and the row records the words. The row names
+`run`, the arm, the item and each value as a number.
 `--instrument <name>` writes `instrument`, `--arm` writes `arm` and `--item`
 writes `item`, each without the others. A row with `instrument` and `item` is one
 `gold` and `label` read. When the line names an orx project
@@ -1160,14 +1173,18 @@ by numeric equality, so `1.5` matches `1.50`. A value with no equal number in th
 stored log exits 1 with
 `value not in the run log (orx logs <run> holds no number equal to <v>)`. A
 reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
-`fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
+`fixture`, `status`, `command`, `ack`) as `--value` exits 2. A second filing of one run
 writes `raw/<run>.<n>.log` and a second row. A refile is a correction. The latest
 row filed for the same `run`, arm, item and instrument stands for it
 (`hooks/tezgah_research.py::_live`). So a run filed once per arm or item keeps
 every row, and every count and statistic counts each such row once. A row with
 no `run` counts on its own.
-`check --orx` warns `orx run <id> has no results row` for an engine run that no
-row names. A row with status `aborted` or `failed` stays a row and counts in no
+`check --orx` reads `orx runs` for the census. It takes a JSON answer, or the
+table orx 0.2.20 prints instead, which is all it has (no `--json`). The table's
+`ID` and `STATUS` columns are the run and its status
+(`hooks/tezgah_research_capture.py::_runs_table`). An answer that is neither warns
+`printed neither JSON nor a run table`. It warns `orx run <id> has no results
+row` for an engine run that no row names. A row with status `aborted` or `failed` stays a row and counts in no
 group.
 
 **Write once.** The capture files live under `literature/.receipts/`,
@@ -1374,9 +1391,11 @@ The protocol's other lines bind the analysis
   a name wrapped across lines still counts.
 - A `metric:` list must hold the locked metric. Else:
   `metric other than the locked one`. A protocol metric matches the lock when
-  either is the other or a word-boundary prefix of it, both ways
-  (`hooks/tezgah_research.py::_same_metric`). So `p95 latency` matches
-  `p95 latency of the read path`, and the reverse.
+  either is the other, a word-boundary prefix of it either way, or a rewording.
+  A rewording holds every word of the lock in the registered name, in any order,
+  with the joining words (`of`, `the`, `per`, ...) ignored
+  (`hooks/tezgah_research.py::_same_metric`). So `p95 latency`, `p95 latency of
+  the read path` and `read-path p95 latency` all match one another.
 - `evaluator: <path> [sha256:<hex>]` pins the scoring file to its bytes at the
   protocol's first commit. `check` looks the path up in the line, the repository
   and the checkout it runs in, in that order
