@@ -357,7 +357,8 @@ def cmd_init(args):
 def cmd_commit(args):
     """Commit one line in the private `.tezgah` repository, or in the project's
     when `.tezgah` is folded - the commit the order rule reads. Only the line's
-    own path is staged and committed."""
+    own paths are staged and committed: every layout location of the slug, so
+    the move `conclude` makes from `open/` to `done/` lands whole."""
     if len(args) != 2 or not args[1].strip():
         return misuse('commit <slug> "<message>"')
     slug, message = args
@@ -365,25 +366,35 @@ def cmd_commit(args):
     known = tr.slugs(repo)
     if slug not in known:
         return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
-    return commit_path(repo, tr.line_dir(repo, slug), message)
+    return commit_path(repo, [os.path.join(f, slug) for f in tr.layout_roots(repo)],
+                       message)
 
 
-def commit_path(repo, path, message):
-    """Stage and commit `path` alone in the private repository of `repo`, or in
+def present(paths, base, ls_files):
+    """The paths relative to `base` that exist on disk or that git still
+    tracks: a pathspec matching nothing would make `git add` fail."""
+    rels = [os.path.relpath(p, base) for p in paths]
+    tracked = ls_files(*rels).splitlines() if rels else []
+    return [r for r, p in zip(rels, paths) if os.path.lexists(p) or any(
+        t == r or t.startswith(r + "/") for t in tracked)]
+
+
+def commit_path(repo, paths, message):
+    """Stage and commit `paths` alone in the private repository of `repo`, or in
     the project's own when `.tezgah` is folded - tracked by the project, with no
     repository of its own (`tr.folded`)."""
     ws = tp.ensure_workspace(repo)
     if ws is None and tr.folded(repo):
-        return commit_project(repo, path, message)
+        return commit_project(repo, paths, message)
     if ws is None:
         print("commit refused: %s is not a git work tree (or .tezgah could not be "
               "set up), so there is no private repository to commit into" % repo)
         return 1
-    rel = os.path.relpath(path, ws)
     try:
-        done = tp.ws_git(repo, "add", "-A", "--", rel)
+        rels = present(paths, ws, lambda *r: tp.ws_git(repo, "ls-files", "--", *r).stdout)
+        done = tp.ws_git(repo, "add", "-A", "--", *rels)
         if not done.returncode:
-            done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", rel)
+            done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", *rels)
     except OSError as exc:
         print("commit failed: %s" % exc)
         return 1
@@ -391,7 +402,7 @@ def commit_path(repo, path, message):
         print("commit failed: %s" % (done.stderr or done.stdout).strip())
         return 1
     sha = tp.ws_git(repo, "rev-parse", "HEAD").stdout.strip()
-    print("committed %s in %s at %s" % (rel, ws, sha))
+    print("committed %s in %s at %s" % (" ".join(rels), ws, sha))
     return 0
 
 
@@ -412,23 +423,24 @@ def message_refusal(message):
     return gate.ATTRIB_DENY if gate.ATTRIB.search(message) else None
 
 
-def commit_project(repo, path, message):
-    """Stage and commit `path` alone in the project's repository: the history a
+def commit_project(repo, paths, message):
+    """Stage and commit `paths` alone in the project's repository: the history a
     folded `.tezgah` lives in. Anything else the owner staged stays staged and
-    out of this commit (`commit -- <path>`); the project's identity, signing and
+    out of this commit (`commit -- <paths>`); the project's identity, signing and
     hooks apply, since this is the project's own history. A message the gate
     would refuse is refused first, exit 2, and nothing is staged."""
     refused = message_refusal(message)
     if refused:
         print("commit refused: %s" % refused, file=sys.stderr)
         return 2
-    rel = os.path.relpath(path, repo)
     git = ["git", "-C", repo]
     try:
-        done = subprocess.run(git + ["add", "-A", "--", rel], capture_output=True,
+        rels = present(paths, repo, lambda *r: subprocess.run(
+            git + ["ls-files", "--"] + list(r), capture_output=True, text=True).stdout)
+        done = subprocess.run(git + ["add", "-A", "--"] + rels, capture_output=True,
                               text=True)
         if not done.returncode:
-            done = subprocess.run(git + ["commit", "-q", "-m", message, "--", rel],
+            done = subprocess.run(git + ["commit", "-q", "-m", message, "--"] + rels,
                                   capture_output=True, text=True)
     except OSError as exc:
         print("commit failed: %s" % exc)
@@ -439,7 +451,8 @@ def commit_project(repo, path, message):
     sha = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True,
                          text=True).stdout.strip()
     print("committed %s in the project repository %s at %s (.tezgah is tracked by "
-          "the project, so the project's history carries the line)" % (rel, repo, sha))
+          "the project, so the project's history carries the line)"
+          % (" ".join(rels), repo, sha))
     return 0
 
 

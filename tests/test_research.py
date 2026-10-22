@@ -2013,6 +2013,21 @@ class Tracking(Workspace):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
 
+    def test_commit_after_conclude_carries_the_move(self):
+        """Plan 127 F11: `conclude` moves the line from `open/` to `done/`; the
+        commit that follows records the deletions under `open/` too, so the
+        private repository is left with no change for the slug."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.assertEqual(self.cli(repo, "commit", "q", "protocol h1").returncode, 0)
+        self.assertIsNone(tr.move_line(repo, "q", tr.DONE)[1])
+        done = self.cli(repo, "commit", "q", "conclude q")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        ws = os.path.join(repo, ".tezgah")
+        self.assertEqual(self.git(ws, "status", "--porcelain", "--", "research").strip(), "")
+        self.assertEqual(self.git(ws, "ls-files", "--", "research/open/q").strip(), "")
+
 
 class Folded(Workspace):
     """Plan 124: a folded workspace - a `.tezgah` the project tracks, with no
@@ -2064,6 +2079,17 @@ class Folded(Workspace):
         done = self.cli(repo, "commit", "q", "protocol h1")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotEqual(self.git(repo, "rev-parse", "HEAD").strip(), head)
+
+    def test_folded_commit_after_conclude_carries_the_move(self):
+        repo = self.folded_repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.assertEqual(self.cli(repo, "commit", "q", "protocol h1").returncode, 0)
+        self.assertIsNone(tr.move_line(repo, "q", tr.DONE)[1])
+        done = self.cli(repo, "commit", "q", "conclude q")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.git(repo, "status", "--porcelain", "--", ".tezgah").strip(), "")
+        self.assertEqual(self.git(repo, "ls-files", "--", ".tezgah/research/open/q").strip(), "")
 
     def test_folded_gate_names_the_project_commit_form(self):
         def reason(repo):
