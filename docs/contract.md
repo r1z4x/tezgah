@@ -534,7 +534,7 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 ## When the injected text grows too large
 
 Each event has a byte budget: `session_start` and `post_compact` 16000,
-`user_prompt` 6500, `subagent_start` 5800, anything else 13000
+`user_prompt` 7000, `subagent_start` 5800, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
 builds 9842 B before the ponytail and ADHD rules went inline and 10884 B after
@@ -549,6 +549,9 @@ active-task line. The session budgets moved to 14500 B, the prompt budget to 650
 The Ask policy (plan 086, S3) added 913 B to the core. At 14500 B the healthy
 fixture then gave up a lessons, plans or knowledge block. The session budgets moved to 15500 B.
 The subagent brief stays the same size.
+A research ask arms the Research and Product paragraphs: 6239 B on Claude
+(S4Remeasure p08). At 6500 B the skill hint naming the research skill was the
+block given up. The prompt budget moved to 7000 B (2026-10-22).
 `SkillRulesInForceAtSessionStart` (`tests/test_context.py`) pins the rules
 themselves, not the size. A
 `user_prompt` that arms all seven conditional rules

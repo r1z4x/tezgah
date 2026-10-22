@@ -67,6 +67,35 @@ class ContextFor(TempHome):
         self.assertGreater(int(m.group(1)), 0)          # a stamp, not a placeholder
         self.assertEqual(int(m.group(2)), len(prompt))
 
+    def test_an_armed_research_rule_names_its_skill_in_claudes_form(self):
+        # S4Remeasure p08: the section search gave no line (the ask's subject
+        # words sit in no skill), the Research paragraph names orx's manual and
+        # Claude's roster lists `tezgah:research` by name only - so the skill
+        # that holds the line's protocol was never opened. The rule's own skill
+        # is the hint, in the Skill-tool form the Claude manifest declares.
+        repo = self.make_repo()
+        prompt = ("Do a literature review: which onboarding interventions "
+                  "actually improve week-4 retention in B2B SaaS? Cite primary "
+                  "sources.")
+        env = dict(self.env(), TEZGAH_HOST="claude")
+        out, proc = self.call({"fn": "context_for", "event": "user_prompt",
+                               "cwd": repo, "payload": {"prompt": prompt}}, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("**Research: route it to OpenResearch.**", out)
+        self.assertIn("Skill tool `tezgah:research`", out)
+        # the S4 product-flow ask arms the research rule too, but the research
+        # skill carries none of its words: no hint that would pull it off
+        # product-flow
+        out, proc = self.call({"fn": "context_for", "event": "user_prompt",
+                               "cwd": repo, "payload": {"prompt": (
+                                   "Retention düşüşüne karşı 'ikinci veri kaynağı "
+                                   "bağla' özelliğini çıkarmak istiyorum; kanıttan "
+                                   "ölçülen sonuca kadar adım adım götür.")}},
+                              env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("**Research: route it to OpenResearch.**", out)
+        self.assertNotIn("tezgah:research", out)
+
     def line(self, repo, slug, phase, report=True, review=None, protocol=None,
              results=None, analysis=False):
         """One research line on disk: the phase, the to_human pair and one

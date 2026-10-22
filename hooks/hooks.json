@@ -10,7 +10,7 @@
       { "hooks": [ { "type": "command", "command": "TEZGAH_CORE_IN_FILE=1 \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
+      { "hooks": [ { "type": "command", "command": "TEZGAH_HOST=claude \"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-auto-init.py\"", "timeout": 10 } ] }
     ],
     "PreToolUse": [
       { "matcher": "Agent|agent|Task|task|Grep|grep|Bash|bash|PowerShell|pwsh|Shell|shell|subagent|Edit|Write|MultiEdit|NotebookEdit|AskUserQuestion", "hooks": [ { "type": "command", "command": "\"${TEZGAH_PYTHON:-python3}\" \"${CLAUDE_PLUGIN_ROOT}/hooks/projects-pretooluse.py\"", "timeout": 5 } ] },

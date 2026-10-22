@@ -91,8 +91,13 @@ class DshManifest(unittest.TestCase):
         ours = self.command("PostToolUse")
         self.assertIn("TEZGAH_CALL_OUTCOME=none ", ours)
         self.assertNotIn("TEZGAH_CALL_OUTCOME", self.claude_command("PostToolUse"))
-        for event in ("UserPromptSubmit", "PreToolUse"):
-            self.assertEqual(self.command(event), self.claude_command(event), event)
+        # Claude's prompt row declares its host (`TEZGAH_HOST=claude`, the
+        # payload carries none): the skill hint names its Skill tool there.
+        # dsh's row declares nothing, and is otherwise the same command.
+        self.assertNotIn("TEZGAH_HOST", self.command("UserPromptSubmit"))
+        self.assertEqual(self.command("UserPromptSubmit"), self.claude_command(
+            "UserPromptSubmit").replace("TEZGAH_HOST=claude ", "", 1))
+        self.assertEqual(self.command("PreToolUse"), self.claude_command("PreToolUse"))
 
     def test_the_core_carrying_events_declare_the_file_channel_on_claude_only(self):
         # install_claude writes the always-on core into ~/.claude/CLAUDE.md,
