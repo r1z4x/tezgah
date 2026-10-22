@@ -1097,7 +1097,7 @@ stored log exits 1 with
 `value not in the run log (orx logs <run> holds no number equal to <v>)`. A
 reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
 `fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
-writes `raw/<run>.<n>.log` and a second row. A refile is a correction: the latest
+writes `raw/<run>.<n>.log` and a second row. A refile is a correction. The latest
 row filed for a `run` stands for that run, and every count and statistic counts
 the run once (`hooks/tezgah_research.py::_live`). A row with no `run` counts on
 its own.
