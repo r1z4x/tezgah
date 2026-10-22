@@ -101,6 +101,9 @@ class SkillStandards(unittest.TestCase):
         self.assertIn("**Kill switches:**", self.policy.CORE)
         block = self.policy.CORE[
             self.policy.CORE.index("**Kill switches:**"):].split("\n\n")[0]
+        # a CLI placeholder reaches the skill as the installed path it renders to
+        for slot, tool in self.policy.BIN_TOOLS.items():
+            block = block.replace(slot, "~/.config/tezgah/bin/" + tool)
         switches = [s for s in re.findall(r"`([^`]+)`", block)
                     if s != "~/.config/tezgah/"]
         self.assertTrue(switches, "no kill switch names found in policy.CORE")
@@ -114,15 +117,16 @@ class SkillStandards(unittest.TestCase):
                          "tezgah-contract documents %d of %d kill switches"
                          % (len(switches) - len(missing), len(switches)))
         # The count the READMEs print is the CORE switch count, pinned here at
-        # 16 (ADR 007): `bin/tezgah-docs --citations` holds CORE against the
-        # `off()` calls the code makes, and this holds every README to CORE.
+        # 17 (ADR 007, plus `design-off` from plan 126): `bin/tezgah-docs --citations`
+        # holds CORE against the `off()` calls the code makes, and this holds
+        # every README to CORE.
         core = [s for s in switches if s.endswith(("-off", ".off"))]
-        self.assertEqual(len(core), 16, core)
-        for readme, phrase in (("README.md", "Sixteen kill switches"),
-                               ("README.de.md", "Sechzehn Kill-Switches"),
-                               ("README.es.md", "Dieciséis interruptores"),
-                               ("README.fr.md", "Seize interrupteurs"),
-                               ("README.tr.md", "On altı kapatma anahtarı")):
+        self.assertEqual(len(core), 17, core)
+        for readme, phrase in (("README.md", "Seventeen kill switches"),
+                               ("README.de.md", "Siebzehn Kill-Switches"),
+                               ("README.es.md", "Diecisiete interruptores"),
+                               ("README.fr.md", "Dix-sept interrupteurs"),
+                               ("README.tr.md", "On yedi kapatma anahtarı")):
             with open(os.path.join(support.REPO, readme), encoding="utf-8") as fh:
                 self.assertIn(phrase, fh.read(), readme)
 

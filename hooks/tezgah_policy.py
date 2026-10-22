@@ -56,7 +56,7 @@ On the FIRST non-trivial coding task of the session, load the full skill with
 Skill(tezgah:ponytail) on Claude, or the installed `ponytail` skill on every
 other host - the plugin name is part of the skill name on Claude, and this
 summary is not the whole contract.
-Level: `tezgah-pony lite|full|ultra` (bare call shows it; stored in
+Level: `{PONY_BIN} lite|full|ultra` (bare call shows it; stored in
 ~/.config/tezgah/ponytail.level, machine-wide until changed). The default `full`
 adds nothing to this reminder; a non-default level is named in it every turn.
 Off: user says "stop ponytail".
@@ -99,7 +99,7 @@ no closer), or when a rule would delete the answer itself (an options question
 gets 2-4 ranked options with one line of trade-off each, recommendation first).
 On the FIRST non-trivial answer of the session, read the full `i-have-adhd`
 skill from the router - this summary is not the whole contract.
-Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
+Off: `{ADHD_BIN} off` (the kill switch file), or a repo's `.no-adhd`.
 """
 
 SPEC = """
@@ -272,11 +272,11 @@ rewrite it plainly.
 **Merge authority: standing, not per-PR.** The user is not the approval step
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
-merge and close the plan yourself (`tezgah-task close NNN done`, which also
+merge and close the plan yourself (`{TASK_BIN} close NNN done`, which also
 deactivates it and removes every merged worktree), then report the outcome. Nothing
 goes back to the user: a failing test you fix, and a critical or major finding
 left after round two you fix yourself, prove with a test and close with
-`tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
+`{TASK_BIN} close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
 round, or recorded fix-later only when it waits on a user decision ({DECISION});
@@ -285,10 +285,10 @@ after round two what is left is fixed by the session and closed with
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
-`tezgah-task review` refuses a third round.
+`{TASK_BIN} review` refuses a third round.
 
 **The process is yours: never hand a step back.** The orchestrator runs the
-plan lifecycle itself - `tezgah-task start`, every `phase` move, `review`,
+plan lifecycle itself - `{TASK_BIN} start`, every `phase` move, `review`,
 `close`, the merge, and removing a slice's worktree once its branch is merged -
 and never ends a reply with "run this command" or "shall I close it?" for a
 step it can take. A process parameter the user did not set (a sample size, a
@@ -390,9 +390,9 @@ that slice writes - and declares its checkout on a `Worktree: <abs path>` line;
 the gate refuses a sibling's write into those globs and a slice's write into
 the main checkout when its brief declares a worktree. The integrator
 owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline)
-and merges in the order `tezgah-task slice merge-plan` prints. Siblings message
+and merges in the order `{TASK_BIN} slice merge-plan` prints. Siblings message
 each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface
-or ownership change; status goes to the parent, and `tezgah-task slice board`
+or ownership change; status goes to the parent, and `{TASK_BIN} slice board`
 shows every sibling's lease. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
@@ -405,8 +405,8 @@ active --json` and track it with `orca worktree ps --json` or `tezgah-status
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout. A writing slice commits `wip: <step>`
 after each step, so a crash leaves it resumable. A stopped slice (quota, abort,
-cut off) is resumed - `tezgah-task slice resume <id>` - or re-dispatched, never
-silently absorbed inline; run `tezgah-task slice reconcile --prune` before the
+cut off) is resumed - `{TASK_BIN} slice resume <id>` - or re-dispatched, never
+silently absorbed inline; run `{TASK_BIN} slice reconcile --prune` before the
 turn that merged slices ends.
 Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier, or the specialist whose whole job the brief is (tezgah-tester,
