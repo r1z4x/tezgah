@@ -9,8 +9,12 @@ upstream clone being present.
   bin/tezgah-import-ai-research --source <path-to-AI-research-SKILLs-clone> --rev 773a529
   bin/tezgah-import-ai-research --check
 
-A vendored path is its provenance, so the upstream layout is kept verbatim:
-`<category>/<skill>/SKILL.md` beside its `references/`. What is dropped, and why,
+A vendored path is its provenance, so the upstream layout is kept verbatim, with
+one rename: upstream's `<category>/<skill>/SKILL.md` is written as
+`<category>/<skill>/ENTRY.md` beside its `references/`, bytes unchanged. codex
+and Cursor list every SKILL.md below a skills directory, nested ones included,
+so 98 vendored entries named SKILL.md would each be listed as a host skill and
+push tezgah's own out of the host's skill budget. What is dropped, and why,
 is DROP_FILES and DROP_DIRS; everything that is not markdown is dropped by the
 `*.md` filter, so no PDF, LaTeX class, image or `.gitkeep` reaches the repo. A
 vendored file with no YAML frontmatter gets one attribution comment; upstream's
@@ -41,7 +45,7 @@ LICENCE = "MIT"
 EXPECTED_CATEGORIES, EXPECTED_SKILLS = 23, 98
 
 # Three machine-scraped reference dumps. They are concatenated official docs with
-# `URL:` headers, not guides, and the entry's own SKILL.md already distils them.
+# `URL:` headers, not guides, and the entry's own ENTRY.md already distils them.
 DROP_FILES = (
     "03-fine-tuning/unsloth/references/llms-full.md",
     "03-fine-tuning/unsloth/references/llms-txt.md",
@@ -86,6 +90,8 @@ GENERATED_MARKS = ("automatically generated from official documentation",
 ATTRIBUTION = "<!-- vendored from orchestra-research/%s@%s %s; %s (c) Orchestra Research -->"
 
 CATEGORY_RE = re.compile(r"^(0-|[0-9]{2}-)")
+# Upstream names an entry SKILL.md; the vendored copy is ENTRY.md (module docstring).
+UPSTREAM_ENTRY, ENTRY = "SKILL.md", "ENTRY.md"
 
 
 def sha256(path):
@@ -153,6 +159,12 @@ def discover(source):
 
 def rel_of(category, skill):
     return category if skill == category else "%s/%s" % (category, skill)
+
+
+def vendored(relfile):
+    """The path an upstream file is written to: an entry SKILL.md becomes ENTRY.md."""
+    head, name = os.path.split(relfile)
+    return os.path.join(head, ENTRY) if name == UPSTREAM_ENTRY else relfile
 
 
 def kept_files(source, rel):
@@ -235,8 +247,8 @@ def build(source, rev):
             "upstream_path": rel,
         }
         for relfile, body in sorted(body_texts.items()):
-            files[relfile] = body
-            entry["files"].append({"path": relfile, "bytes": len(body.encode()),
+            files[vendored(relfile)] = body
+            entry["files"].append({"path": vendored(relfile), "bytes": len(body.encode()),
                                    "sha256": hashlib.sha256(body.encode()).hexdigest()})
         entry["bytes"] = sum(f["bytes"] for f in entry["files"])
         rows.append(entry)
@@ -270,8 +282,8 @@ def build(source, rev):
                 flags.append("stale-api")
             if entry["dangling_links"]:
                 flags.append("dead-links: %d" % len(entry["dangling_links"]))
-            lines.append("| `%s` | `%s/SKILL.md` | %s | %s |"
-                         % (entry["dir"], entry["upstream_path"], entry["purpose"],
+            lines.append("| `%s` | `%s/%s` | %s | %s |"
+                         % (entry["dir"], entry["upstream_path"], ENTRY, entry["purpose"],
                             ", ".join(flags)))
         generated["index/%s.md" % stage] = "\n".join(lines) + "\n"
 
@@ -314,10 +326,12 @@ def source_text(manifest, rev):
         "## What is vendored\n\n"
         "Every skill's `SKILL.md` and every markdown file beside it, in the upstream\n"
         "layout, because a vendored path is its provenance. %d skills across %d\n"
-        "categories, %d files, %d bytes.\n\n"
+        "categories, %d files, %d bytes. One rename: each entry's `SKILL.md` sits at\n"
+        "the upstream path as `ENTRY.md`, bytes unchanged, so a host that lists every\n"
+        "`SKILL.md` below its skills directory (codex, Cursor) does not list it.\n\n"
         "## What is not, and why\n\n"
         "Files: %s - machine-scraped reference dumps, which the entry's own\n"
-        "`SKILL.md` already distils.\n\n"
+        "`ENTRY.md` already distils.\n\n"
         "Directories: %s - LaTeX class/bst/bib trees and example PDFs,\n"
         "re-downloadable from each venue.\n\n"
         "Everything else that is not markdown (PDFs, images, `.gitkeep`, scripts)\n"
@@ -325,9 +339,9 @@ def source_text(manifest, rev):
         "`packages/`, `video-promo/` are upstream's repo furniture, not content.\n\n"
         "## The only modification\n\n"
         "A markdown file that carries no YAML frontmatter gets one attribution\n"
-        "comment on its first line. `SKILL.md` files are byte-for-byte upstream,\n"
-        "frontmatter included. `skills/ai-research/SKILL.md` is tezgah's own and is\n"
-        "not part of the manifest.\n\n"
+        "comment on its first line. `ENTRY.md` files are byte-for-byte upstream\n"
+        "`SKILL.md`, frontmatter included. `skills/ai-research/SKILL.md` is\n"
+        "tezgah's own and is not part of the manifest.\n\n"
         "## Re-vendoring\n\n"
         "`bin/tezgah-import-ai-research --source <clone> --rev <sha>`, then commit\n"
         "the diff. `--check` verifies the committed tree against `library.json`\n"

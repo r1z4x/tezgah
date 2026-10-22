@@ -289,6 +289,34 @@ class Install(SetupBase):
         self.assertIs(oc["compaction"]["prune"], False)
         self.assertIn(".git/**", oc["watcher"]["ignore"])
 
+    def test_opencode_2_status_line_goes_to_cli_json_and_no_prune(self):
+        """opencode 2 migrates tui.json into cli.json once and ignores it after,
+        and drops compaction.prune as an unsupported legacy key (measured on
+        v2.0.32): the v2 CLI plugin is linked and listed in cli.json `plugins`
+        beside every entry already there, and an uninstall takes back only it."""
+        cli = self.path(".config", "opencode", "cli.json")
+        orca = "file:///elsewhere/orca-opencode-status-tui/tui.js"
+        self.write_json(cli, {"$schema": "https://opencode.ai/v2/cli.json", "plugins": [orca]})
+        proc = self.setup("--install", "--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("compaction", oc)
+        self.assertIn(self.path(".config", "tezgah", "opencode-skills.md"), oc["instructions"])
+        self.assertFalse(os.path.exists(self.path(".config", "opencode", "tui.json")))
+        linked = self.path(".config", "opencode", "tui-plugins", "tezgah-cli")
+        self.assertEqual(os.path.realpath(linked),
+                         os.path.join(REPO, "hosts", "opencode", "tui", "cli"))
+        self.assertEqual(self.read_json(cli)["plugins"], [orca, "file://" + linked])
+        self.setup("--install", "--hosts", "opencode")
+        self.assertEqual(self.read_json(cli)["plugins"], [orca, "file://" + linked])
+        report = self.setup("--report", "--hosts", "opencode").stdout
+        self.assertNotIn("compaction.prune", report)
+        self.assertIn("  ok   status line plugin in cli.json + linked", report)
+        self.assertNotIn("tui.json", report)
+        self.setup("--uninstall", "--hosts", "opencode")
+        self.assertEqual(self.read_json(cli)["plugins"], [orca])
+        self.assertFalse(os.path.lexists(linked))
+
     def test_apps_mcp_wired_optional_devtools_and_removable(self):
         self.setup("--install", "--hosts", ALL)
         self.assertTrue(os.path.isdir(self.path(".cache", "tezgah", "apps")))
@@ -1042,7 +1070,7 @@ class SkillRouterTriggers(SetupBase):
         pony = self.line(body, "ponytail")
         self.assertIn("Use when", contract)
         self.assertIn("code graph", contract)
-        self.assertIn("Use on ANY coding task", pony)
+        self.assertIn("Use when coding", pony)
         self.assertIn("refactoring", pony)
         # the router line is the only skill list opencode has, and it is cut at
         # 140 characters: a product trigger that lands past the cut names a skill
@@ -1090,7 +1118,8 @@ class Collisions(SetupBase):
     # The pairs a session could pick either way from today, and one that it could
     # not: the threshold is only trustworthy if both ends of it are pinned.
     KNOWN = (("plan-add", "plan-status"), ("plan-add", "plan-sync"),
-             ("plan-status", "plan-sync"), ("product-analysis", "feature-audit"))
+             ("plan-status", "plan-sync"), ("product-analysis", "feature-audit"),
+             ("design-contract", "design-library"))
     NOT_A_PAIR = ("ponytail", "i-have-adhd")
 
     def routers(self):
@@ -1113,8 +1142,12 @@ class Collisions(SetupBase):
 
     def test_every_pair_names_two_shipped_skills_that_share_the_words_it_lists(self):
         _, full = self.routers()
-        lines = router_lines(full)
-        shipped = set(setup_module().SKILLS)
+        module = setup_module()
+        shipped = set(module.SKILLS)
+        # the words come from each body's `## When to use` trigger line, not the
+        # short router line: that is the text the table compares
+        lines = {name: module.skill_when_line(
+            os.path.join(REPO, "skills", name, "SKILL.md")) for name in shipped}
         pairs = self.pairs(full)
         self.assertTrue(pairs, "the collision table names no pair")
         self.assertEqual(len(pairs), len({pair[:2] for pair in pairs}),
@@ -1522,6 +1555,15 @@ class CodexHome(SetupBase):
         self.assertIn("(omp) match the hosts wired (codex)", row)
         self.assertEqual(self.read_json(path)["hosts"], ["omp"])
 
+    def test_arming_one_host_keeps_the_others_on_record(self):
+        # `--install --hosts opencode` on a machine armed for codex used to
+        # write hosts=["opencode"]: --upgrade and a full uninstall then skipped
+        # codex, though its wiring was still on disk.
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        self.assertEqual(self.setup("--install", "--hosts", "opencode").returncode, 0)
+        path = self.path(".config", "tezgah", "config.json")
+        self.assertEqual(self.read_json(path)["hosts"], ["codex", "opencode"])
+
     def test_the_codex_roles_land_in_the_relocated_home(self):
         proc = self.setup("--install", "--hosts", "codex")
         self.assertEqual(proc.returncode, 0, proc.stderr)
@@ -1783,6 +1825,22 @@ class Uninstall(SetupBase):
         self.assertIn("still armed: omp", proc.stdout)
         self.assertTrue(os.path.exists(self.path(".config", "tezgah",
                                                  "config.json")))
+
+    def test_partial_uninstall_takes_the_host_off_the_record(self):
+        """The record only ever grows on install (merged, never replaced), so a
+        partial uninstall that left its host recorded kept it there for good: a
+        later uninstall of the rest stayed partial and `tezgah update`, which
+        passes the recorded hosts, re-armed the host the user removed."""
+        config = self.path(".config", "tezgah", "config.json")
+        self.setup("--install", "--hosts", "codex")
+        self.setup("--install", "--hosts", "opencode")
+        proc = self.setup("--uninstall", "--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(["codex"], self.read_json(config)["hosts"])
+        proc = self.setup("--uninstall", "--hosts", "codex")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("(full run)", proc.stdout)
+        self.assertFalse(os.path.exists(config), proc.stdout)
 
     def test_omp_mcp_json_is_removed_when_only_tezgah_keys_remain(self):
         """install_omp writes `$schema` and `mcpServers` into a file it may have
@@ -2850,7 +2908,10 @@ class ContextBudget(SetupBase):
     # recorded here rather than absorbed by the 2000-byte headroom. Raised to 11765
     # when plan 076 shipped the description plan 075 measured as arm V1 (67
     # characters longer than 074's), kept verbatim because it is the measured text.
-    BAND_BEFORE = 11765
+    # Lowered to 2927 on 2026-10-22 (plan 126, bafeb51): every description became
+    # a `Use when` line of English and Turkish triggers within 160 characters,
+    # the long text moving to each body's `## When to use`.
+    BAND_BEFORE = 2927
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
@@ -2866,7 +2927,7 @@ class ContextBudget(SetupBase):
         own = (len("design-library")
                + len(module._frontmatter_description(entry)) + 8)
         self.assertIn("design-library", module.SKILLS)
-        self.assertEqual(own, 341, "the library's always-on cost moved")
+        self.assertEqual(own, 174, "the library's always-on cost moved")
         self.assertLessEqual(band - own, self.BAND_BEFORE,
                              "the band without the library grew")
         self.assertLessEqual(band, self.BAND_BEFORE + 2000,
@@ -3208,8 +3269,9 @@ class VersionPrefixIsNotContract(SetupBase):
 
     def test_the_always_on_band_is_unchanged(self):
         module = setup_module()
-        band = dict(module.context_budget()[0])[
-            "core contract (always-on, per session)"]
+        # the unrendered core: rendering turns each BIN_TOOLS name into its
+        # installed absolute path, so the rendered length follows HOME, not text
+        band = len(module.tezgah_context.always_on_core())
         # Re-pinned 2026-09-21 with the graph-engine cutover: the code-discovery
         # paragraph names codegraph and its real surface now, which is 8 bytes
         # shorter than the codebase-memory-mcp wording it replaced. Re-pinned
@@ -3259,8 +3321,32 @@ class VersionPrefixIsNotContract(SetupBase):
         # says a research, analysis, review or plan ask ends at the written plan
         # and building it is an approval-batch question (+132 B); review round
         # 1: building it waits for the answer, in the Ask policy too (+56 B).
-        self.assertEqual(13180, band, "the always-on band moved")
+        # Re-pinned 2026-10-22 (plan 126): measured unrendered, so the absolute
+        # CLI paths the render now writes do not tie the pin to one HOME.
+        self.assertEqual(13160, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
+
+    def test_the_rendered_always_on_band_is_unchanged(self):
+        """What a session is actually sent: the core rendered, with each CLI
+        named by its installed absolute path under a fixed HOME (so the path
+        lengths are inside the number) and the default language. The unrendered
+        pin above misses a change that only shows once rendered."""
+        body = ("import importlib.machinery, importlib.util, os, sys\n"
+                "loader = importlib.machinery.SourceFileLoader('s', sys.argv[1])\n"
+                "m = importlib.util.module_from_spec("
+                "importlib.util.spec_from_loader('s', loader))\n"
+                "sys.modules['s'] = m\n"
+                "loader.exec_module(m)\n"
+                "c = m.tezgah_context\n"
+                "c.tool = lambda name: os.path.join(m.tp.BIN_DIR, name)\n"
+                "print(len(c.render(c.always_on_core())))\n")
+        env = {"PATH": self.env["PATH"], "HOME": "/tezgah-band-pin"}
+        proc = subprocess.run([sys.executable, "-c", body, SETUP],
+                              capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Pinned 2026-10-22 (plan 126 review round 1): rendered under
+        # HOME=/tezgah-band-pin, language `tr`.
+        self.assertEqual(13409, int(proc.stdout), "the rendered band moved")
 
 
 if __name__ == "__main__":

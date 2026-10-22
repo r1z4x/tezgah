@@ -454,7 +454,7 @@ def block(root, day=None):
     return (("Taste (learned from this user's own corrections; follow a rule, treat a "
              "hint as the default; the narrower scope wins - path, then language, then "
              "repository, then user - and AGENTS.md/CLAUDE.md beat every learning; "
-             "`tezgah-taste reject <id>` drops one):\n"
+             "`~/.config/tezgah/bin/tezgah-taste reject <id>` drops one):\n"
              + "\n".join(_line(mode, learning) for mode, learning in picked)),
             [m[1]["id"] for m in picked])
 

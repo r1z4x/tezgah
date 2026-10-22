@@ -5199,12 +5199,12 @@ def _evidence_text(cls, rows, external, where="this turn"):
                     % (where, shown or "a UI file"))
         return ("no ui_ok",
                 "Design contract: %s changed a component (%s) and no "
-                "`tezgah-design check` ran over a measurement, so nothing "
+                "`~/.config/tezgah/bin/tezgah-design check` ran over a measurement, so nothing "
                 "says the component is on the repository's floor - a read of "
                 "the screen says what it looks like, not whether it is on "
-                "that floor. Run `tezgah-design check --contract "
+                "that floor. Run `~/.config/tezgah/bin/tezgah-design check --contract "
                 ".tezgah/design-contract.md --measured <measurement.json>` "
-                "(`tezgah-design derive` writes the contract when the repo "
+                "(`~/.config/tezgah/bin/tezgah-design derive` writes the contract when the repo "
                 "has none; the measurement is the per-component styles and "
                 "states the analyze-app loop produces) and report every "
                 "violation it prints; if the check cannot run here, write "
@@ -5616,9 +5616,9 @@ RESIDUAL_WORK = (
 # twice more.
 STOPPED_SLICE = (
     "{SLICE_LEAD}Slice %s, spawned by this session, stopped (%s) and "
-    "its work is not resumed. Resume it with `tezgah-task slice resume %s` - "
+    "its work is not resumed. Resume it with `~/.config/tezgah/bin/tezgah-task slice resume %s` - "
     "the native path first, else the re-dispatch brief it prints - or, if the "
-    "work was finished another way, record that with `tezgah-task slice done "
+    "work was finished another way, record that with `~/.config/tezgah/bin/tezgah-task slice done "
     "%s`.")
 
 # The `ready steps` class (plan 086, S1): the newest todo list (`note_todo`)

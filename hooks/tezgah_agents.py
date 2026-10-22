@@ -89,9 +89,11 @@ EMPTY_IS_NOT_PROOF = (
 # The task class each generated specialist is for, in the order the steering
 # line names them. The orchestrator is not here: it is a primary agent, not one
 # the main thread delegates to.
-STEER = (("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
+STEER = (("mechanical edit (tier from `~/.config/tezgah/bin/tezgah-route`)", "tezgah-cheap"),
          ("bounded code or tests", "tezgah-standard"),
-         ("design, invariants, unknown-cause debugging", "tezgah-frontier"),
+         ("software design, invariants, unknown-cause debugging", "tezgah-frontier"),
+         ("UI/screen/component build or redesign (brief loads design-contract)",
+          "tezgah-standard"),
          ("review of a diff", "tezgah-reviewer"),
          ("running the impacted checks", "tezgah-tester"),
          ("docs and path:line citations", "tezgah-docs"),
@@ -231,8 +233,9 @@ def _reviewer_body(host):
         "security, tests and performance) or per file group: when your brief\n"
         "names a dimension or files, review only those - a sibling owns the rest.\n"
         "Round two reads only the delta since the sha round one recorded\n"
-        "(`tezgah-task review` prints it), plus the round-one hunks and direct\n"
-        "callers of the symbols that delta touches, and marks every round-one\n"
+        "(`~/.config/tezgah/bin/tezgah-task review` prints it), plus the\n"
+        "round-one hunks and direct callers of the symbols that delta touches,\n"
+        "and marks every round-one\n"
         "finding closed or open: re-reading the whole diff re-reports what was\n"
         "already triaged. Test results are input, not a task - read the author's\n"
         "output file; do not run the suite, and run at most one `-k` test when a\n"
@@ -263,6 +266,9 @@ def _worker_body(tier):
                 "progress, but never redefine the work. Never widen or narrow the brief's\n"
                 "scope, budget or question. If the brief cannot be met as written, say\n"
                 "so and stop rather than answering a different question.\n%s\n"
+                "A brief that builds or changes UI: read the `design-contract` skill\n"
+                "(and `design-library` for critique) and derive/check with\n"
+                "`~/.config/tezgah/bin/tezgah-design` before editing.\n"
                 "Never spawn subagents.\n%s" % (tier, tier, scope, WORKER_OUTPUT))
     return body
 
@@ -334,19 +340,22 @@ SPECIALISTS = {
         "shell and browser/device tools; no source edits",
         "Read the running app, never only its source: a UI claim inferred from\n"
         "code is not evidence. Measure against `.tezgah/design-contract.md` when\n"
-        "it exists (`tezgah-design check`). Every finding names the screen,\n"
-        "breakpoint and state it came from and a 0-4 severity. Report findings;\n"
-        "do not edit source files."),
+        "it exists (`~/.config/tezgah/bin/tezgah-design check`). Every finding\n"
+        "names the screen, breakpoint and state it came from and a 0-4 severity.\n"
+        "Report findings; do not edit source files."),
     "tezgah-researcher": (
         "Runs one research line through OpenResearch: hypotheses, experiments, "
         "literature, a report - the protocol frozen before the run.",
         ("research", "ai-research"),
-        "shell for `orx` and `tezgah-research`; writes only under .tezgah/research",
+        "shell for `orx` and `~/.config/tezgah/bin/tezgah-research`; writes only "
+        "under .tezgah/research",
         "Load the OpenResearch manual first (`orx skill`) and follow its\n"
         "experiment-tree rules. Work inside the one line the brief names; never\n"
-        "open a second line while one is open (`tezgah-research status`). Freeze\n"
+        "open a second line while one is open\n"
+        "(`~/.config/tezgah/bin/tezgah-research status`). Freeze\n"
         "the protocol and the criteria before any run; a correction after a run\n"
-        "goes in `amendments.md`. Run `tezgah-research check` before reporting.\n"
+        "goes in `amendments.md`. Run `~/.config/tezgah/bin/tezgah-research check`\n"
+        "before reporting.\n"
         "If `orx` is not installed, say so and stop."),
 }
 
@@ -355,7 +364,7 @@ def _specialist_desc(name):
     what, skills, tools, _role = SPECIALISTS[name]
     named = ", ".join(s + (" (host-installed)" if s in HOST_SKILLS else "")
                       for s in skills)
-    return "%s Skills: %s. Tier: %s (tezgah-route). Tools: %s." % (
+    return "%s Skills: %s. Tier: %s (~/.config/tezgah/bin/tezgah-route). Tools: %s." % (
         what, named or "none", tm.AGENT_SLOT[name], tools)
 
 
@@ -390,12 +399,13 @@ ROLES = (
     ("tezgah-cheap",
      "Mechanical, fully specified edits on the cheapest model tier: renames, "
      "fixtures, formatting, version bumps, commit messages, a listed migration. "
-     "Chosen by `tezgah-route`; answers ESCALATE when the work needs judgement.",
+     "Chosen by `~/.config/tezgah/bin/tezgah-route`; answers ESCALATE when the "
+     "work needs judgement.",
      lambda infra: True, _worker_body("cheap"), False),
     ("tezgah-standard",
      "Bounded code, tests, search-and-summarise or a small review on the standard "
-     "model tier. Chosen by `tezgah-route`; answers ESCALATE when the work needs "
-     "judgement above it.",
+     "model tier. Chosen by `~/.config/tezgah/bin/tezgah-route`; answers ESCALATE "
+     "when the work needs judgement above it.",
      lambda infra: True, _worker_body("standard"), False),
     ("tezgah-frontier",
      "Design, stored-data or ordering invariants, security-sensitive code, "
@@ -451,23 +461,25 @@ def _orch_body(names):
         "on its slice id. Never `wait` while a ready step exists. Once every\n"
         "open item is blocked on a running slice, `wait` or end the turn - the\n"
         "host wakes you on the result. You integrate the branches in the order\n"
-        "`tezgah-task slice merge-plan` prints, and own CHANGELOG.md, MANIFEST\n"
-        "and the citation baseline. The per-turn\n"
+        "`~/.config/tezgah/bin/tezgah-task slice merge-plan` prints, and own\n"
+        "CHANGELOG.md, MANIFEST and the citation baseline. The per-turn\n"
         "checks of what changed still run in the turn, in the background; only\n"
         "the heavy tier (full suite, neuter, e2e) is joined at merge.\n"
         "A slice commits `wip: <step>` after each step. A stopped slice is\n"
-        "resumed (`tezgah-task slice resume <id>`) or re-dispatched, never\n"
-        "silently absorbed inline; run `tezgah-task slice reconcile --prune`\n"
+        "resumed (`~/.config/tezgah/bin/tezgah-task slice resume <id>`) or\n"
+        "re-dispatched, never silently absorbed inline; run\n"
+        "`~/.config/tezgah/bin/tezgah-task slice reconcile --prune`\n"
         "before the turn that merged slices ends.\n\n"
         "Route reviews to tezgah-reviewer, with the changed files and symbols in\n"
         "the brief: where it has no shell it cannot run `git diff` itself. Checks\n"
         "go to tezgah-tester, docs and citations to tezgah-docs, a security review\n"
         "to tezgah-security, a running app to tezgah-ui, a research line to\n"
         "tezgah-researcher. Brief a code-discovery task to a tier worker with the\n"
-        "codegraph tools; a second opinion (`consult`) stays with the main\n"
-        "thread. Other work goes to the tier worker\n"
-        "`tezgah-route \"<brief>\"` names (tezgah-cheap, tezgah-standard,\n"
-        "tezgah-frontier). A report missing an `Output to orchestrator` field,\n"
+        "codegraph tools; a second opinion (`~/.config/tezgah/bin/consult`) stays\n"
+        "with the main thread. Other work goes to the tier worker\n"
+        "`~/.config/tezgah/bin/tezgah-route \"<brief>\"` names (tezgah-cheap,\n"
+        "tezgah-standard, tezgah-frontier). A report missing an\n"
+        "`Output to orchestrator` field,\n"
         "or an ESCALATE, gets one narrower re-brief of the same role naming the\n"
         "missing field or the escalated judgement; only a second miss is\n"
         "restarted on tezgah-frontier with the original brief, never continued.\n"

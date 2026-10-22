@@ -27,7 +27,7 @@ nothing about a host's event names or output envelope.
 | Module | Owns | Point at |
 |---|---|---|
 | `tezgah_context.py` | the one builder of injected text; event normalisation to `session_start`/`user_prompt`/`subagent_start`/`post_compact`; the status segments and the used marks | `hooks/tezgah_context.py:2-7`, `hooks/tezgah_context.py::context_for` |
-| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and the long-form blocks the on-demand skill mirrors | `hooks/tezgah_policy.py:2-16`, `hooks/tezgah_policy.py::CORE`, `hooks/tezgah_policy.py::CONDITIONAL_KEYS` |
+| `tezgah_policy.py` | the contract itself, as strings: `CORE`, the conditional paragraphs, the pointer line, the per-turn reminder, and the long-form blocks the on-demand skill mirrors | `hooks/tezgah_policy.py:2-18`, `hooks/tezgah_policy.py::CORE`, `hooks/tezgah_policy.py::CONDITIONAL_KEYS` |
 | `tezgah_gate.py` | the tool gate: explorer refusal, the one-time grep nudge, attribution and test-disable denies, loop/retry ceilings | `hooks/tezgah_gate.py:2-91`, `hooks/tezgah_gate.py::decision` |
 | `tezgah_integrity.py` | the evidence ledger, redaction, the anti-shortcut parser and the Stop rule | `hooks/tezgah_integrity.py:2-24`, `hooks/tezgah_integrity.py::note_tool`, `hooks/tezgah_integrity.py::stop_reason` |
 | `tezgah_guard.py` | the one catch around an entry point's call into the core, so a crash costs an envelope rather than a session, and the `crash` ledger row that keeps it countable | `hooks/tezgah_guard.py:2-26`, `hooks/tezgah_guard.py::safe` |
@@ -54,7 +54,7 @@ passes Codex's tool names through a translation table before calling the gate
 the same split in another language: the TypeScript extension is "only the
 bridge" and substitutes the absolute path of
 the Python half (`hosts/omp/tezgah-hook.ts.in:5-7`), whose `handle()` dispatches
-every event (`hosts/omp/hook.py::handle`). Cursor (`hosts/cursor/hook.py:2-40`) and
+every event (`hosts/omp/hook.py::handle`). Cursor (`hosts/cursor/hook.py:2-43`) and
 opencode (`hosts/opencode/plugins/tezgah.js:1-57`) follow the same rule; opencode
 is the one host whose plugin cannot call the core in process, so it shells out
 through `bin/tezgah-context` and `bin/tezgah-capture` instead of copying it

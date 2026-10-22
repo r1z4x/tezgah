@@ -1,16 +1,22 @@
 ---
 name: plan-status
 description: >
-  Reads every open plan under <git root>/.tezgah/plans/open/, enriches rows with live PR
-  state from `gh`, rewrites the README status table, commits it as
-  `plan: update status` in the private .tezgah repository, and ends with a single recommendation for which plan to
-  work on next. Use when the user says "/tezgah:plan-status", "what plans are open",
-  "plan status", "where are we on the plans", or at the start of a session to pick
-  work. Read-only except the README table and filling an empty `pr:` field. Not
-  for closing finished plans - use `plan-sync`.
+  Use when asking what plans are open, plan status, what to work on next; açık
+  planlar, sıradaki iş, devam. Not for closing plans - use `plan-sync`.
 ---
 
 # plan-status
+
+## When to use
+
+Reads every open plan under <git root>/.tezgah/plans/open/, enriches rows with
+live PR state from `gh`, rewrites the README status table, commits it as `plan:
+update status` in the private .tezgah repository, and ends with a single
+recommendation for which plan to work on next. Use when the user says
+"/tezgah:plan-status", "what plans are open", "plan status", "where are we on
+the plans", or at the start of a session to pick work. Read-only except the
+README table and filling an empty `pr:` field. Not for closing finished plans -
+use `plan-sync`.
 
 1. Resolve the root: `ROOT=$(git rev-parse --show-toplevel)`. If it fails, stop and
    say plans need a git repo. If `$ROOT/.tezgah/plans/open` is missing, say so and stop.

@@ -1,17 +1,23 @@
 ---
 name: plan-sync
 description: >
-  Closes out finished plans: fetches origin, checks each open plan's branch for a
-  merged or closed PR (or a branch merged into main), marks it done or discarded,
-  moves it to .tezgah/plans/done/ (a done plan only with an approving review),
-  rewrites the README status table, and commits one `plan: done NNN slug` (or
-  `plan: discard`) per moved plan in the private .tezgah repository. Use when the user says
-  "/tezgah:plan-sync", "sync plans", "close finished plans", or after PRs were merged.
-  Removes branches only via tezgah-task close; edits only .tezgah/plans. Not for
-  a status read of the open plans - use `plan-status`.
+  Use when PRs merged and it is time to sync plans and close finished plans;
+  biten planları kapat, planları eşitle. Not for a status read - use
+  `plan-status`.
 ---
 
 # plan-sync
+
+## When to use
+
+Closes out finished plans: fetches origin, checks each open plan's branch for a
+merged or closed PR (or a branch merged into main), marks it done or discarded,
+moves it to .tezgah/plans/done/ (a done plan only with an approving review),
+rewrites the README status table, and commits one `plan: done NNN slug` (or
+`plan: discard`) per moved plan in the private .tezgah repository. Use when the
+user says "/tezgah:plan-sync", "sync plans", "close finished plans", or after
+PRs were merged. Removes branches only via `~/.config/tezgah/bin/tezgah-task close`; edits only
+.tezgah/plans. Not for a status read of the open plans - use `plan-status`.
 
 1. Resolve the root: `ROOT=$(git rev-parse --show-toplevel)`. If it fails, stop and
    say plans need a git repo. If `$ROOT/.tezgah/plans/open` is missing, say so and stop.
@@ -40,7 +46,7 @@ description: >
    refuses `done` unless the
    plan records `review: <reviewer> approve` - fresh reviewers (the host's
    `tezgah-reviewer` subagent, one per dimension in one message for a large diff)
-   read `git diff <base>..HEAD` and `tezgah-task review NNN <reviewer> approve`
+   read `git diff <base>..HEAD` and `~/.config/tezgah/bin/tezgah-task review NNN <reviewer> approve`
    wrote the verdict. A refused plan stays open:
    report it with the refusal, never move it by hand, and never start a review
    round from here. One review per plan, over its whole diff in the verification
@@ -50,7 +56,7 @@ description: >
    tr: KARAR); after round two what is left is fixed by the session and closed
    with `--resolved`, or recorded fix-later only with DECISION (tr: KARAR),
    never a third round. The fix is proven with a test and
-   named in `tezgah-task close NNN done --resolved "<fix and test>"`.
+   named in `~/.config/tezgah/bin/tezgah-task close NNN done --resolved "<fix and test>"`.
 7. Rewrite the README status table: `~/.config/tezgah/bin/tezgah-render-table` (installed by `bin/tezgah-setup --install`; if it is missing, run that script)
    (one row per open plan, sorted by id; it prints the rows). No `--pr-info` here:
    the row's `pr` cell comes from the plan files, and review/check enrichment
@@ -69,9 +75,9 @@ description: >
    GPT/Codex/Gemini/Cursor/Copilot credit.
 9. Report four lists: moved plans (with done/discarded and the evidence line),
    plans `close` refused (with its reason), still-open plans - each with what
-   `tezgah-task status` says it waits on, so a plan whose `after:` names one just
+   `~/.config/tezgah/bin/tezgah-task status` says it waits on, so a plan whose `after:` names one just
    discarded (`waits on NNN (discarded)`) is named for the user to re-plan - and
-   gh failures. Never delete a branch or a worktree by hand (`tezgah-task close`
+   gh failures. Never delete a branch or a worktree by hand (`~/.config/tezgah/bin/tezgah-task close`
    removes the landed ones), never edit code outside `.tezgah/plans/`.
 
 ## Format

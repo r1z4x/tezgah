@@ -3,8 +3,10 @@
 
 Placeholders are filled by tezgah_context.render():
   {ROOT}        - the configured tezgah root the session is in
-  {CONSULT_BIN} - the stable path to bin/consult
-  {CODEGEN_BIN} - the stable path to bin/codegen; {ROUTE_BIN} to bin/tezgah-route
+  {CONSULT_BIN}, {CODEGEN_BIN}, {RESEARCH_BIN}, {ROUTE_BIN}, {SKILL_BIN}... -
+                  the stable path to the tezgah CLI BIN_TOOLS names: no host but
+                  Claude puts ~/.config/tezgah/bin on PATH, so a bare name in
+                  the text is a `command not found`
   {ORX_BIN}     - the stable path to the OpenResearch `orx` CLI, else bare `orx`
   {OPEN_LINES}  - the research lines already open, filled by
                   tezgah_context.context_for: that fact is about the repo the
@@ -24,6 +26,16 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import tezgah_research as tr  # noqa: E402  (the layer's own line resolver)
 from tezgah_paths import say  # noqa: E402  (the language packs' contract words)
+
+# The tezgah CLIs the injected text names, by placeholder. `render` fills each
+# with `tezgah_paths.tool(<name>)`; the hookless copies (REPLY_LANG_HOOKLESS)
+# with the installed path spelled from `~`.
+BIN_TOOLS = {"{CONSULT_BIN}": "consult", "{CODEGEN_BIN}": "codegen",
+             "{RESEARCH_BIN}": "tezgah-research", "{ROUTE_BIN}": "tezgah-route",
+             "{SKILL_BIN}": "tezgah-skill", "{DESIGN_BIN}": "tezgah-design",
+             "{TASK_BIN}": "tezgah-task", "{PONY_BIN}": "tezgah-pony",
+             "{ADHD_BIN}": "tezgah-adhd", "{LESSONS_BIN}": "tezgah-lessons",
+             "{STATUS_BIN}": "tezgah-status"}
 
 PONYTAIL = """
 ## Code style: ponytail (auto-armed, tezgah roots only)
@@ -45,7 +57,7 @@ On the FIRST non-trivial coding task of the session, load the full skill with
 Skill(tezgah:ponytail) on Claude, or the installed `ponytail` skill on every
 other host - the plugin name is part of the skill name on Claude, and this
 summary is not the whole contract.
-Level: `tezgah-pony lite|full|ultra` (bare call shows it; stored in
+Level: `{PONY_BIN} lite|full|ultra` (bare call shows it; stored in
 ~/.config/tezgah/ponytail.level, machine-wide until changed). The default `full`
 adds nothing to this reminder; a non-default level is named in it every turn.
 Off: user says "stop ponytail".
@@ -88,7 +100,7 @@ no closer), or when a rule would delete the answer itself (an options question
 gets 2-4 ranked options with one line of trade-off each, recommendation first).
 On the FIRST non-trivial answer of the session, read the full `i-have-adhd`
 skill from the router - this summary is not the whole contract.
-Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
+Off: `{ADHD_BIN} off` (the kill switch file), or a repo's `.no-adhd`.
 """
 
 SPEC = """
@@ -179,7 +191,8 @@ REPLY_LANG_HOOKLESS = dict(
        "{GRANT_EXAMPLES}": "%s, %s" % (_EN["grant_examples"], _TR["grant_examples"]),
        "{OPENER_SHORT}": _TR["opener_short"]},
     **{"{%s_GLOSS}" % k.upper(): "tr: %s; " % _TR[k]
-       for k in ("decision", "access", "irreversible", "env")})
+       for k in ("decision", "access", "irreversible", "env")},
+    **{ph: "~/.config/tezgah/bin/" + name for ph, name in BIN_TOOLS.items()})
 
 EXEC = """
 ## Reporting contract: executive mode (auto-armed, tezgah roots only)
@@ -260,11 +273,11 @@ rewrite it plainly.
 **Merge authority: standing, not per-PR.** The user is not the approval step
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
-merge and close the plan yourself (`tezgah-task close NNN done`, which also
+merge and close the plan yourself (`{TASK_BIN} close NNN done`, which also
 deactivates it and removes every merged worktree), then report the outcome. Nothing
 goes back to the user: a failing test you fix, and a critical or major finding
 left after round two you fix yourself, prove with a test and close with
-`tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
+`{TASK_BIN} close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
 round, or recorded fix-later only when it waits on a user decision ({DECISION});
@@ -273,10 +286,10 @@ after round two what is left is fixed by the session and closed with
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
-`tezgah-task review` refuses a third round.
+`{TASK_BIN} review` refuses a third round.
 
 **The process is yours: never hand a step back.** The orchestrator runs the
-plan lifecycle itself - `tezgah-task start`, every `phase` move, `review`,
+plan lifecycle itself - `{TASK_BIN} start`, every `phase` move, `review`,
 `close`, the merge, and removing a slice's worktree once its branch is merged -
 and never ends a reply with "run this command" or "shall I close it?" for a
 step it can take. A process parameter the user did not set (a sample size, a
@@ -378,9 +391,9 @@ that slice writes - and declares its checkout on a `Worktree: <abs path>` line;
 the gate refuses a sibling's write into those globs and a slice's write into
 the main checkout when its brief declares a worktree. The integrator
 owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline)
-and merges in the order `tezgah-task slice merge-plan` prints. Siblings message
+and merges in the order `{TASK_BIN} slice merge-plan` prints. Siblings message
 each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface
-or ownership change; status goes to the parent, and `tezgah-task slice board`
+or ownership change; status goes to the parent, and `{TASK_BIN} slice board`
 shows every sibling's lease. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
@@ -388,13 +401,13 @@ each item is, and that holds at every phase: a plan's tasks, its acceptance
 commands and the sources of a survey fan out the same way.
 A slice that needs its own checkout: inside Orca (the session-start `Orca:`
 line) create it with `orca worktree create --name <slug> --parent-worktree
-active --json` and track it with `orca worktree ps --json` or `tezgah-status
+active --json` and track it with `orca worktree ps --json` or `{STATUS_BIN}
 --orca` - a raw `git worktree add` gets no card, terminal tracking or agent
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout. A writing slice commits `wip: <step>`
 after each step, so a crash leaves it resumable. A stopped slice (quota, abort,
-cut off) is resumed - `tezgah-task slice resume <id>` - or re-dispatched, never
-silently absorbed inline; run `tezgah-task slice reconcile --prune` before the
+cut off) is resumed - `{TASK_BIN} slice resume <id>` - or re-dispatched, never
+silently absorbed inline; run `{TASK_BIN} slice reconcile --prune` before the
 turn that merged slices ends.
 Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier, or the specialist whose whole job the brief is (tezgah-tester,
@@ -809,7 +822,7 @@ one small test); a one-liner needs none. A complex ask ships the lazy version
 and names the fuller one in the same reply instead of stalling. Reply: code
 first; write what was cut only when you consciously cut something the user asked
 for, in at most three lines. In force from the first turn; levels
-lite|full|ultra are set with `tezgah-pony` and ride the per-turn reminder when
+lite|full|ultra are set with `{PONY_BIN}` and ride the per-turn reminder when
 not `full`; read the full `ponytail` skill from the router for the level table
 and examples. Off: "stop ponytail".
 
@@ -835,7 +848,7 @@ assumption and ask one diagnostic question. Before sending, delete an opening
 sentence that announces, a closing one that recaps or asks "anything else?", any
 by-the-way sidebar and any hedge that carries no real uncertainty. In force from
 the first answer; read the full `i-have-adhd` skill from the router for the
-examples. Off: `tezgah-adhd off`, or the repo's `.no-adhd`.
+examples. Off: `{ADHD_BIN} off`, or the repo's `.no-adhd`.
 
 **Deliver the whole ask; never the shortcut.** The request defines the
 deliverable: every named item is in scope until the user says otherwise, and the
@@ -988,7 +1001,10 @@ If the CLI is not installed, say the research tooling is unavailable and fall
 back to a host subagent briefed with the question verbatim, its in/out scope and
 its method. Off: `research-off`.
 
-**Product analysis: five axes, one evidence class per finding.** A product
+**Product analysis: five axes, one evidence class per finding.** Read the
+`product-analysis` skill for this ask (artifact shape, scorecard), `pm-frameworks`
+for an intended-vs-implemented gap or an Opportunity Solution Tree, and
+`feature-audit` when the ask is one feature. A product
 question - "analyse this product", "why is retention falling", "which feature
 next" - is analysis, not advice, and it covers every axis the product has, not
 only the code. Value: HEART's Goals -> Signals -> Metrics (a metric with no goal
@@ -1017,11 +1033,18 @@ would decide it. Establish first whether the behaviour is observable at all - "w
 cannot see this yet" is the first finding, not a footnote. Every finding names one
 evidence class - `user-verbatim`, `behaviour`, `ui-observed`, `code`, `external` -
 and a finding without one is a question, not a finding. Run it as a research line
-(`{RESEARCH_BIN}`), say what it did not look at, and read the `product-analysis`
-skill for the artifact shape and the scorecard, and `feature-audit` for the
-layer-coherence matrices when the ask is one feature. A new capability built from
+(`{RESEARCH_BIN}`) and say what it did not look at. A new capability built from
 data or an ask runs the `product-flow` skill: `{RESEARCH_BIN} next --topic <t>` is
 the step source, and its first missing or due step is the next one. Off: `research-off`.
+
+**Design: UI work reads the design skills.** A UI ask - build, restyle, critique
+or audit a screen, form, dashboard or design system - reads the `design-contract`
+skill first: `{DESIGN_BIN} derive` writes `.tezgah/design-contract.md` from the
+repo's own tokens and `{DESIGN_BIN} check` measures the change against it.
+`design-library` holds the critique methods (cognitive load, visual hierarchy,
+accessibility); `analyze-app` reads the running UI, the only evidence for a UI
+claim; `feature-audit` covers a form, CRUD or admin flow across its layers. UI
+build work goes to a worker whose brief loads `design-contract`. Off: `design-off`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:
@@ -1047,7 +1070,7 @@ issue for one of its tools mid-session. Name a missing capability in one line,
 use the documented fallback (grep/find, or the second opinion skipped), and carry
 on with the task in hand. Tezgah maintenance is in scope when the user asks for
 it, or when the repo IS the tezgah checkout. Before working a topic an
-installed skill covers, run `tezgah-skill <words>` and read only the range it
+installed skill covers, run `{SKILL_BIN} <words>` and read only the range it
 returns.
 
 **Workspace: `.tezgah/` only.** Every per-project tezgah artifact - plans,
@@ -1076,7 +1099,7 @@ not grow. Every writing brief names its `Owns:` globs and declares its
 checkout on a `Worktree: <abs path>` line, and siblings message
 each other only on an interface or ownership change. Read-only slices need no
 worktree. Once a slice's branch is merged,
-its worktree goes in the same turn - `tezgah-task close` removes every merged
+its worktree goes in the same turn - `{TASK_BIN} close` removes every merged
 one, and outside a plan `orca worktree rm --worktree path:<p>` (else `git
 worktree remove <p>`) does it; never leave one for the user to find. Pick each agent by task class from
 the specialists line; `{ROUTE_BIN}` names the tier for code work. Serialize
@@ -1089,7 +1112,7 @@ never fans out again. Off: `orchestrate-off`.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
-`consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`,
+`consult-off`, `research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `design-off`,
 `reminder-off`, `verify-off` (the integrity rule: its prompt text, the shortcut
 denials and the Stop gate), `task-off` (the task rule), `judge-off` (the
 judgement seam: the triage, the docs fallback and the skill hint), `triage-off`,
@@ -1097,32 +1120,49 @@ judgement seam: the triage, the docs fallback and the skill hint), `triage-off`,
 rule), `workspace-off` (the root plans/research/analysis refusal),
 `pretooluse-off` (the whole gate);
 per-repo `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`.
-The ponytail intensity level is not a switch: `tezgah-pony lite|full|ultra`.
+The ponytail intensity level is not a switch: `{PONY_BIN} lite|full|ultra`.
 """
 
 # Rules that are NOT paid every session. They are armed by task class at prompt
 # time (hooks/tezgah_context.classify_prompt), because a session that never asks
 # a structural or research question should not carry their text. Keys match the
 # CORE_RULES labels in hooks/tezgah_context.py.
-CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "graph", "fanout")
+CONDITIONAL_KEYS = ("spec", "consult", "research", "product", "design", "graph",
+                    "fanout")
 
-# The fan-out rule's action, which the one-line repeat of an armed paragraph
-# (hooks/tezgah_context.armed_again) carries: a bare "Armed again" named a rule
-# the session had to recall, and the second list of a session was worked one
-# item at a time. It is the paragraph's own clause, cut to one sentence.
-FANOUT_ACTION = ("count the independent items, spawn one subagent per item in "
-                 "ONE message, each the agent `tezgah-route` names - a specialist "
-                 "by name, never the generic task agent - (each writing slice in "
-                 "its own worktree, absolute paths), and keep the main thread for "
-                 "integrating and verifying; the todo list is the step queue, so "
-                 "dispatch every ready step before any `wait`; a subagent does "
-                 "its own slice and never fans out again.")
+# The action the one-line repeat of an armed paragraph
+# (hooks/tezgah_context.armed_again) carries instead of a bare "Armed again":
+# that named a rule the session had to recall, so the second list of a session
+# was worked one item at a time, and the product skills were named on 3 turns of
+# a 40-turn session against 20 in fresh ones (plan 126). Each is the paragraph's
+# own clause, cut to one sentence; the product and design lines keep the
+# paragraph's condition, because the hint that armed them is a word match and a
+# misfire must not become an order to read a skill the ask has no use for.
+ARMED_ACTIONS = {
+    "fanout": "count the independent items, spawn one subagent per item in "
+              "ONE message, each the agent `{ROUTE_BIN}` names - a specialist "
+              "by name, never the generic task agent - (each writing slice in "
+              "its own worktree, absolute paths), and keep the main thread for "
+              "integrating and verifying; the todo list is the step queue, so "
+              "dispatch every ready step before any `wait`; a subagent does "
+              "its own slice and never fans out again. The full rule is in the "
+              "`tezgah-contract` skill.",
+    "product": "if this ask is a product question, read the "
+               "`product-analysis` skill now - `pm-frameworks` for an "
+               "intended-vs-implemented gap or an Opportunity Solution Tree, "
+               "`feature-audit` for one feature, `analyze-app` for the running "
+               "app, `product-flow` for a new capability.",
+    "design": "if this ask is UI work, read the `design-contract` skill now - "
+              "`design-library` for critique methods, `analyze-app` for the "
+              "running UI, `feature-audit` for a form or admin flow; UI build "
+              "work goes to a worker whose brief loads `design-contract`.",
+}
 
 # The always-on replacement for the conditional paragraphs: one line each so a
 # host without a per-turn hook still knows the rule exists and where the full
 # text lives.
 POINTERS = """
-**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding. The code graph for "who calls X" and "what breaks if Z changes". Two or more independent items fan out to parallel subagents in one message, one git worktree per writing slice. The design floor a UI turn is judged against is `.tezgah/design-contract.md`: `tezgah-design derive` writes it from the repository's own tokens, `tezgah-design check` measures a change against it, and the `design-contract` skill owns its shape.
+**On-demand rules (armed when the task class matches; full text in the `tezgah-contract` skill).** Spec-first for an underspecified or quality-only ask. A second opinion before a call that is hard to reverse or that one model would answer with unearned confidence. OpenResearch routing for research. Product analysis is a five-axis evidence task - value, usability (the running app, not the source), feasibility (a cited `path:line`), competition, and keep/fix/cut/bet triage - with one named evidence class per finding (`product-analysis`, `pm-frameworks`). The code graph for "who calls X" and "what breaks if Z changes". Two or more independent items fan out to parallel subagents in one message, one git worktree per writing slice. A UI turn reads the `design-contract` skill (`design-library`, `analyze-app`) and is judged against `.tezgah/design-contract.md`: `{DESIGN_BIN} derive` writes it from the repository's own tokens and its `check` measures a change against it.
 """
 
 # The compact per-turn form, inside the <harness-reminder> envelope the hosts

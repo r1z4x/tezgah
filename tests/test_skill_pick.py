@@ -91,7 +91,11 @@ class SkillPick(unittest.TestCase):
                       # the real cache dir would keep this case's answers between runs
                       mock.patch.object(tp, "CACHE",
                                         os.path.join(self.home, ".cache", "tezgah")),
-                      mock.patch.object(tp, "OFF_DIRS", (self.config_dir,))):
+                      mock.patch.object(tp, "OFF_DIRS", (self.config_dir,)),
+                      # bound at import from the real HOME: this machine's
+                      # `jev`/`fallback` keys emptied the judge's provider list
+                      mock.patch.object(tp, "CONFIG",
+                                        os.path.join(self.config_dir, "config.json"))):
             patch.start()
             self.addCleanup(patch.stop)
         os.environ.pop("TYPESAFE_API_KEY", None)
@@ -345,16 +349,18 @@ class ContextLine(SkillPick):
     def test_the_line_is_appended_and_the_rest_is_byte_identical(self):
         repo = os.path.join(self.home, "Projects", "repo")
         os.makedirs(repo)
-        baseline = self.baseline(repo)
-        # without a judgement the model-free section search answers this
-        # prompt (`section_hint`); the judgement's line takes its place, so a
-        # turn carries one skill line, never two
+        # a prompt the model-free section search answers on its own
+        # (`section_hint`): the judgement's line takes its place, so a turn
+        # carries one skill line, never two
+        text = "add a retry to the upload function, keep it minimal, no new dependency"
+        baseline = self.prompt(repo, env=self.child_env(), session="baseline",
+                               text=text)
         local = re.search(r"\n\n<skill_relevance>\nA local skill search.*"
                           r"</skill_relevance>$", baseline, re.S)
         self.assertTrue(local, baseline)
         baseline = baseline[:local.start()]
         self.key_file()
-        with_hint = self.prompt(repo, env=self.child_env(endpoint=True))
+        with_hint = self.prompt(repo, env=self.child_env(endpoint=True), text=text)
         self.assertEqual(with_hint[:len(baseline)], baseline)
         rest = with_hint[len(baseline):]
         self.assertTrue(rest.startswith("\n\n<skill_relevance>\nRelevant to the "

@@ -8,13 +8,14 @@ are byte-for-byte upstream, frontmatter included. Checkout for a re-vendor:
 ## What is vendored
 
 Two skills, one `SKILL.md` each, at the upstream path so a vendored file is
-findable again. The manifest is this table, and `tests/test_skills.py` holds it
-to the bytes.
+findable again, renamed `ENTRY.md` (bytes unchanged) so a host that lists every
+`SKILL.md` below its skills directory (codex, Cursor) does not list it. The
+manifest is this table, and `tests/test_skills.py` holds it to the bytes.
 
 | file | upstream path | sha256 | lines |
 |---|---|---|---|
-| `intended-vs-implemented/SKILL.md` | `pm-ai-shipping/skills/intended-vs-implemented/SKILL.md` | `6d917f0e59f78ea6b5d847f57b1c816baa2948cac56529939589cd73d2e4c9eb` | 42 |
-| `opportunity-solution-tree/SKILL.md` | `pm-product-discovery/skills/opportunity-solution-tree/SKILL.md` | `6b23e44a5ace86aa20d64cc130322265ace6a53a29831cc403b974098a379bcc` | 64 |
+| `intended-vs-implemented/ENTRY.md` | `pm-ai-shipping/skills/intended-vs-implemented/SKILL.md` | `6d917f0e59f78ea6b5d847f57b1c816baa2948cac56529939589cd73d2e4c9eb` | 42 |
+| `opportunity-solution-tree/ENTRY.md` | `pm-product-discovery/skills/opportunity-solution-tree/SKILL.md` | `6b23e44a5ace86aa20d64cc130322265ace6a53a29831cc403b974098a379bcc` | 64 |
 
 ## What is not, and why
 
@@ -26,7 +27,8 @@ else is one URL away and stays that way.
 
 ## The only modification
 
-None. Both files keep their upstream bytes, frontmatter and description included.
+None. Both files keep their upstream bytes, frontmatter and description included;
+only the file name changed, `SKILL.md` to `ENTRY.md`.
 `skills/pm-frameworks/SKILL.md` is tezgah's own entry point and is not part of the
 manifest, the same way `skills/ai-research/SKILL.md` is not.
 

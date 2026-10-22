@@ -1,4 +1,4 @@
-Run `tezgah-adhd $ARGUMENTS` and report the one line it prints.
+Run `~/.config/tezgah/bin/tezgah-adhd $ARGUMENTS` and report the one line it prints.
 
 The installed CLI owns the state: it writes or removes
 `~/.config/tezgah/adhd-off`, the kill switch that drops the act-on-it rule from
@@ -6,7 +6,7 @@ the text every host injects. Never create or delete that file by hand, and never
 edit any other rule's switch from here.
 
 ```sh
-adhd=$(command -v tezgah-adhd || echo "$HOME/.config/tezgah/bin/tezgah-adhd")
+adhd="$HOME/.config/tezgah/bin/tezgah-adhd"
 "$adhd" $ARGUMENTS
 ```
 

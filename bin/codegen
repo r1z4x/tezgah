@@ -49,7 +49,7 @@ import urllib.request
 import json
 
 HOOKS = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "hooks")
 sys.path.insert(0, HOOKS)
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
@@ -220,7 +220,10 @@ def ask(task, files, model, provider, timeout, max_tokens):
 
 def main():
     args = sys.argv[1:]
-    if not args or args[0] in ("-h", "--help"):
+    if args and args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    if not args:
         sys.exit(__doc__.strip())
     task, files, model, provider, timeout, out_dir, max_tokens = \
         args[0], [], None, "openrouter", 300, None, 0

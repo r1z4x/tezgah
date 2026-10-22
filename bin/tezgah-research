@@ -164,9 +164,22 @@ def misuse(message):
     return 2
 
 
+INIT_USAGE = ('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
+              ' [--method qualitative|measured|exploratory] [--in "<covered>"]...'
+              ' [--out "<left alone>"]... [--question "..."]'
+              ' [--allow-open "<reason>"] [--supersedes <slug>]'
+              ' [--arena "<problem>" --budget "<budget>"'
+              ' [--evaluator <path> --metric "<metric>"]]')
+INIT_EXAMPLE = ('tezgah-research init cache-latency --ask "does the cache cut p95?" '
+                '--method measured --in "p95 of the read path" --out "write path"')
+
+
 def cmd_init(args):
     if not args:
         return misuse("init needs a slug")
+    if args[0] in ("-h", "--help"):
+        print("usage: tezgah-research %s\nexample: %s" % (INIT_USAGE, INIT_EXAMPLE))
+        return 0
     slug = args[0].strip().lower().replace(" ", "-")
     if not tr.valid_slug(slug):
         # A slug is the directory name the other commands list, so anything that
@@ -200,12 +213,7 @@ def cmd_init(args):
                 and flag not in arena:
             arena[flag] = rest.pop(0)
         else:
-            return misuse('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
-                          ' [--method qualitative|measured|exploratory] [--in "<covered>"]...'
-                          ' [--out "<left alone>"]... [--question "..."]'
-                          ' [--allow-open "<reason>"] [--supersedes <slug>]'
-                          ' [--arena "<problem>" --budget "<budget>"'
-                          ' [--evaluator <path> --metric "<metric>"]]')
+            return misuse(INIT_USAGE)
     if method == "exploratory":
         # The arena is the lock an exploratory line commits before its first idea,
         # so a line without one is a call that cannot work, not a line to repair.
@@ -228,6 +236,9 @@ def cmd_init(args):
     if problems:
         for problem in problems:
             print("FAIL init: %s" % problem)
+        if not ask.strip():
+            print("usage: tezgah-research %s\nexample: %s" % (INIT_USAGE, INIT_EXAMPLE),
+                  file=sys.stderr)
         return 1
     if allow is not None and not allow.strip():
         return misuse("--allow-open needs the reason the new line is worth opening "
@@ -285,11 +296,11 @@ def cmd_init(args):
     for problem in tr.scope_problems(tr.line_state(repo, slug)):
         print("  owed: %s" % problem)
     if method == "exploratory":
-        print("\nnext: commit the arena now, before any idea - `tezgah-research commit "
+        print("\nnext: commit the arena now, before any idea - `~/.config/tezgah/bin/tezgah-research commit "
               "%s \"arena\"`; an idea committed with it or before it is refused. Then "
-              "record ideas (`tezgah-research idea %s`, one JSON row on stdin, each "
+              "record ideas (`~/.config/tezgah/bin/tezgah-research idea %s`, one JSON row on stdin, each "
               "naming its operator, generator and kill result), commit them, and "
-              "follow `tezgah-research board %s`: dedup, prior art, matches, pilots, a "
+              "follow `~/.config/tezgah/bin/tezgah-research board %s`: dedup, prior art, matches, pilots, a "
               "full run, a confirmation on unseen data." % (slug, slug, slug))
     elif method == "qualitative":
         print("\nnext: read the primary sources for each state.json scope.in item "
@@ -299,7 +310,7 @@ def cmd_init(args):
     else:
         print("\nnext: write experiments/<hypothesis>/protocol.md - what the change "
               "is, what it predicts, what result would falsify it, why - and COMMIT "
-              "it before the run: `tezgah-research commit %s \"protocol "
+              "it before the run: `~/.config/tezgah/bin/tezgah-research commit %s \"protocol "
               "<hypothesis>\"`. Then record the run in results.jsonl and commit it "
               "the same way, in a later commit. The commits land in `.tezgah`'s own "
               "git repository (the project ignores `.tezgah/`). Then analyse it in "

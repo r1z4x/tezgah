@@ -1,19 +1,24 @@
 ---
 name: tezgah-contract
 description: >
-  The full tezgah working contract. Load on demand when a tezgah session needs
-  the deep detail behind the always-on core: instruction fidelity (deliver the
-  whole ask, never a shortcut, no sycophantic openers), the code-graph-first
-  rule and its deferred tool loading, the dynamic graph harnesses, the two-tier
-  orchestration model with the cheap codegen bridge and its automatic
-  fallback, external-model consult, OpenResearch routing for research tasks,
-  and the exact kill switches. Use when the
-  compact core points here, or when a task needs the code graph, a subagent
-  fan-out, codegen, or a second opinion in full detail. Not for picking and
-  running a multi-agent harness - use `harness`.
+  Use when a session needs the code graph, a subagent fan-out, codegen, a second
+  opinion; alt ajan, kod grafiği, ikinci görüş. Not for harnesses - use
+  `harness`.
 ---
 
 # tezgah-contract
+
+## When to use
+
+The full tezgah working contract. Load on demand when a tezgah session needs the
+deep detail behind the always-on core: instruction fidelity (deliver the whole
+ask, never a shortcut, no sycophantic openers), the code-graph-first rule and
+its deferred tool loading, the dynamic graph harnesses, the two-tier
+orchestration model with the cheap codegen bridge and its automatic fallback,
+external-model consult, OpenResearch routing for research tasks, and the exact
+kill switches. Use when the compact core points here, or when a task needs the
+code graph, a subagent fan-out, codegen, or a second opinion in full detail. Not
+for picking and running a multi-agent harness - use `harness`.
 
 The always-on core is injected into every tezgah session; this skill is the
 deep detail, loaded on demand. `~/.config/tezgah/bin/consult` and
@@ -41,11 +46,11 @@ graph rule falls back to grep/find, the consult rule to a skipped second
 opinion - and carry on. Report the gap to the user once; do not chase it.
 
 Tezgah maintenance is in scope when the user asks for it, when the repo IS the
-tezgah checkout, or when tezgah's own check (`tezgah-setup --status`) is the
+tezgah checkout, or when tezgah's own check (`~/.config/tezgah/bin/tezgah-setup --status`) is the
 requested task.
 
 Using the skills is the user's work, not maintenance: before working a topic
-an installed skill covers, run `tezgah-skill <words>` (BM25 over every
+an installed skill covers, run `~/.config/tezgah/bin/tezgah-skill <words>` (BM25 over every
 installed skill's sections) and read only the `skill://<name>:<start>-<end>`
 range it returns - or the absolute path beside it on a host that does not
 resolve `skill://` - instead of loading the whole skill.
@@ -58,7 +63,7 @@ lives under `<repo>/.tezgah/`. Session start creates it, appends `/.tezgah/` and
 and gives it a private git repository: evidence that needs history - a research
 protocol before its results, a plan moved to `done/` - is committed with
 `git -C .tezgah ...`, or plain `git add`/`git commit` when the project tracks
-it; `tezgah-research commit` picks the right one. Never create `plans/`,
+it; `~/.config/tezgah/bin/tezgah-research commit` picks the right one. Never create `plans/`,
 `research/` or `analysis/` at the project root and never `git add -f` a path
 under `.tezgah/`: the gate refuses a write whose first path segment is one of
 those three unless the project already tracks files there. Off: `workspace-off`.
@@ -67,7 +72,7 @@ those three unless the project already tracks files there. Off: `workspace-off`.
 
 Each one removes its own rule from the injected text, not just a status mark. In
 `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`, `consult-off`,
-`research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `reminder-off`,
+`research-off`, `ponytail-auto.off`, `adhd-off`, `spec-off`, `design-off`, `reminder-off`,
 `verify-off`
 (the integrity rule: its prompt text, the shortcut denials and the Stop gate),
 `task-off` (all four refusals of the task rule: the phase, the allowlist, the
@@ -78,7 +83,7 @@ fallback alone), `lang-off` (the English-identifier rule in the gate),
 `workspace-off` (the gate's refusal of a root `plans/`, `research/` or
 `analysis/` write), `pretooluse-off` (the whole gate); per repo:
 `.no-ponytail`, `.no-adhd`, `.no-graph`, `.no-lessons`. The ponytail intensity
-level is not a switch: `tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on
+level is not a switch: `~/.config/tezgah/bin/tezgah-pony lite|full|ultra` (or `/tezgah:ponytail` on
 Claude) sets it and a bare call shows it.
 
 ## Task record: the active plan's phase and its path allowlist (auto-armed, tezgah roots only)
@@ -98,8 +103,8 @@ consulted (a shell line's targets are not read); and a write whose target is the
 record itself, refused whatever the phase and the globs say. The lifecycle is the
 session's, never a command handed to the user: it runs
 `~/.config/tezgah/bin/tezgah-task start|phase|allow|stop|status|review|close`
-itself, and the refusals name the move (`tezgah-task phase implementation`,
-`tezgah-task allow <glob> ... --why "<reason>"`). That move is vetted by the CLI,
+itself, and the refusals name the move (`~/.config/tezgah/bin/tezgah-task phase implementation`,
+`~/.config/tezgah/bin/tezgah-task allow <glob> ... --why "<reason>"`). That move is vetted by the CLI,
 not by who runs it: a writing phase needs every Acceptance item to name its
 command, `implementation` an answered spike and a clean tree to record
 `checkpoint:`, `allow` a `--why` it records as `allowed_why:`, `close NNN done`
@@ -239,20 +244,20 @@ blocked on a running slice, `wait` and ending the turn are both fine: the host
 wakes it on the result. The per-turn checks of what changed still run in the
 turn, in the background when they share no state. Only the heavy tier - the
 full suite, neuter, the e2e scripts - is joined at merge. A turn ends only
-when no item is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. Every writing brief names its `Owns:` globs - the files only that slice writes - and declares its checkout on a `Worktree: <abs path>` line; the gate refuses a sibling's write into those globs and a slice's write into the main checkout when its brief declares a worktree. The integrator owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline) and merges in the order `tezgah-task slice merge-plan` prints. Siblings message each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface or ownership change; status goes to the parent, and `tezgah-task slice board` shows every sibling's lease. Only a single item - one file, one
+when no item is ready, never on a question about a step it can take. Fan out only when the subtasks share no mutable file and no interface: if two of them would edit the same file, or one's answer decides the other's, keep them in one context or sequence them. Every writing brief names its `Owns:` globs - the files only that slice writes - and declares its checkout on a `Worktree: <abs path>` line; the gate refuses a sibling's write into those globs and a slice's write into the main checkout when its brief declares a worktree. The integrator owns the shared append points (CHANGELOG.md, MANIFEST, the citation baseline) and merges in the order `~/.config/tezgah/bin/tezgah-task slice merge-plan` prints. Siblings message each other (omp `write agent://<id>`, Claude `SendMessage`) only on an interface or ownership change; status goes to the parent, and `~/.config/tezgah/bin/tezgah-task slice board` shows every sibling's lease. Only a single item - one file, one
 bounded change, a strictly serial chain - is done directly; a list of
 independent items is never worked one by one on the main thread, however small
 each item is, and that holds at every phase: a plan's tasks, its acceptance
 commands and the sources of a survey fan out the same way.
 A slice that needs its own checkout: inside Orca (the session-start `Orca:`
 line) create it with `orca worktree create --name <slug> --parent-worktree
-active --json` and track it with `orca worktree ps --json` or `tezgah-status
+active --json` and track it with `orca worktree ps --json` or `~/.config/tezgah/bin/tezgah-status
 --orca` - a raw `git worktree add` gets no card, terminal tracking or agent
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout. A writing slice commits `wip: <step>`
 after each step, so a crash leaves it resumable. A stopped slice (quota, abort,
-cut off) is resumed - `tezgah-task slice resume <id>` - or re-dispatched, never
-silently absorbed inline; run `tezgah-task slice reconcile --prune` before the
+cut off) is resumed - `~/.config/tezgah/bin/tezgah-task slice resume <id>` - or re-dispatched, never
+silently absorbed inline; run `~/.config/tezgah/bin/tezgah-task slice reconcile --prune` before the
 turn that merged slices ends.
 Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah-cheap, -standard or
 -frontier, or the specialist whose whole job the brief is (tezgah-tester,
@@ -266,7 +271,7 @@ code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
 the graph, grep only for literal text"; never a grep-only explorer (observed).
 Subagents never orchestrate: no nested harnesses, no sub-subagents.
 
-### The verification batch: `tezgah-optimize`
+### The verification batch: `~/.config/tezgah/bin/tezgah-optimize`
 `~/.config/tezgah/bin/tezgah-optimize next [--files PATH ...]` answers, per command
 the active plan's Acceptance names, one of `run now`, `defer` or `already green` -
 the first from no measurement or a median below the in-turn bar, the second from a
@@ -365,7 +370,7 @@ test); a complex ask ships the lazy version and names the fuller one in the
 same reply. These rules are in force from the first turn; the full skill
 (Skill(tezgah:ponytail) on Claude, the installed `ponytail` skill elsewhere)
 holds the level table and the examples.
-Level: `tezgah-pony lite|full|ultra` (bare call shows it; stored in
+Level: `~/.config/tezgah/bin/tezgah-pony lite|full|ultra` (bare call shows it; stored in
 ~/.config/tezgah/ponytail.level, machine-wide until changed). The default `full`
 adds nothing to this reminder; a non-default level is named in it every turn.
 Off: user says "stop ponytail".
@@ -410,7 +415,7 @@ After three "still broken" turns, name the suspect assumption and ask one
 diagnostic question. Before sending, delete an opening sentence that announces,
 a closing one that recaps, any by-the-way sidebar and any empty hedge. In force
 from the first answer; the full `i-have-adhd` skill holds the examples.
-Off: `tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
+Off: `~/.config/tezgah/bin/tezgah-adhd off` (the kill switch file), or a repo's `.no-adhd`.
 
 
 
@@ -595,11 +600,11 @@ rewrite it plainly.
 **Merge authority: standing, not per-PR.** The user is not the approval step
 on a merge. Review first with a FRESH reviewer (never my own read of my own
 code), run the full suite, and if the review is clean and every test passes,
-merge and close the plan yourself (`tezgah-task close NNN done`, which also
+merge and close the plan yourself (`~/.config/tezgah/bin/tezgah-task close NNN done`, which also
 deactivates it and removes every merged worktree), then report the outcome. Nothing
 goes back to the user: a failing test you fix, and a critical or major finding
 left after round two you fix yourself, prove with a test and close with
-`tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
+`~/.config/tezgah/bin/tezgah-task close NNN done --resolved "<fix and test>"`. One review per plan, over its whole diff in the verification
 phase; at most two rounds - only a confirmed critical or major finding opens
 round two; a minor or suggestion one is fixed in the session without a new
 round, or recorded fix-later only when it waits on a user decision (DECISION,
@@ -609,10 +614,10 @@ a third round.
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
-`tezgah-task review` refuses a third round.
+`~/.config/tezgah/bin/tezgah-task review` refuses a third round.
 
 **The process is yours: never hand a step back.** The orchestrator runs the
-plan lifecycle itself - `tezgah-task start`, every `phase` move, `review`,
+plan lifecycle itself - `~/.config/tezgah/bin/tezgah-task start`, every `phase` move, `review`,
 `close`, the merge, and removing a slice's worktree once its branch is merged -
 and never ends a reply with "run this command" or "shall I close it?" for a
 step it can take. A process parameter the user did not set (a sample size, a
@@ -783,7 +788,7 @@ stays on the codegraph index.
 **Lock the line to the question asked.** Restate the user's question verbatim as
 the line's scope (`--ask`) and name what is in it and what is out (`--in`,
 `--out`: state.json `scope`). Every finding answers an in-scope item - a claim's
-`trace` names its `S<n>`, and `tezgah-research check` refuses one that names none -
+`trace` names its `S<n>`, and `~/.config/tezgah/bin/tezgah-research check` refuses one that names none -
 and a finding that answers nothing asked is dropped, not reported as a bonus. Do
 not widen the question, add sub-questions or chase an adjacent topic; a tangent
 worth having is one line under Open questions for the user to pick. The question
@@ -798,12 +803,12 @@ stating its confidence (high, medium or low, and why); a summary of summaries is
 not an answer.
 
 **New ideas are an exploratory line.** When the user asks for new ideas, methods
-or approaches rather than an answer, open `tezgah-research init --method
+or approaches rather than an answer, open `~/.config/tezgah/bin/tezgah-research init --method
 exploratory` with `--ask` and its arena - `--arena` (the problem, verbatim), `--in`,
 `--out`, `--budget`, and `--evaluator` with `--metric` when a number can judge a candidate -
 committed before the first idea; every other line keeps the question lock above.
 Ideas, stage moves and judged matches are rows (`idea`, `stage`, `match`), a
-ranking is a prior and never a verdict, and `tezgah-research board <slug>` names
+ranking is a prior and never a verdict, and `~/.config/tezgah/bin/tezgah-research board <slug>` names
 each idea's next step.
 
 When the task is research and the OpenResearch CLI is installed, drive it
@@ -844,7 +849,7 @@ in the report, a decision or a claim `trace`, or written `A<n> not delivered:
 <reason>`. A design or plan the user will choose between is produced as >= 3
 variants in
 `decisions/<id>/` - `criteria.json` committed before any cell, `variants.jsonl` (V0
-the status quo), cells appended by `tezgah-research compare`, `decision.md` naming
+the status quo), cells appended by `~/.config/tezgah/bin/tezgah-research compare`, `decision.md` naming
 the chosen id, each rejected id with the criterion that ruled it out, and a `flip:`
 condition (an analysis answers its question once); a new version of a line is
 opened `init --supersedes <old>` and carries
@@ -852,7 +857,7 @@ the old one as a variant. Code or config variants are sibling orx nodes under on
 head node. Literature is found with `orx discover` and read with `orx paper`; an
 agent's summary is indexed as `agent-report` and never alone carries a literature
 claim. At most one line is open at a time; `init --allow-open "<reason>"` is refused
-beside a line `check` fails, and `tezgah-research close <slug> --limit "<reason>"`
+beside a line `check` fails, and `~/.config/tezgah/bin/tezgah-research close <slug> --limit "<reason>"`
 concludes a line as a deliberate limit, writing what was left.
 Load the `research` skill for the two-loop rhythm, the ideation step, the
 six-dimension review a claim passes before it is reported, and the provenance tags
@@ -956,7 +961,7 @@ best, cited. Read the `product-analysis` skill for the artifact shape and the
 scorecard - the same 1-5 anchors as the `research` skill, so two sessions'
 analyses stay comparable - and `feature-audit` for the layer-coherence matrices
 when the ask is one feature. A new capability built from data or an ask runs the
-`product-flow` skill: `tezgah-research next --topic <t>` is the step source, and
+`product-flow` skill: `~/.config/tezgah/bin/tezgah-research next --topic <t>` is the step source, and
 its first missing or due step is the next one. Kill switch: `research-off`.
 
 

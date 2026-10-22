@@ -50,7 +50,7 @@ PLAIN = "add a docstring to parse_quantity"
 # is asserted to arm every conditional rule before it is used as a fixture.
 TRIGGERS = ("Run a literature review and form a hypothesis. "
             "who calls calc_total? which feature should we build next. "
-            "Which approach for the schema change? "
+            "Which approach for the schema change? Set up a design system. "
             "Bu ekranı daha kullanıcı dostu yap, alt ajanlarla paralel")
 
 

@@ -49,7 +49,7 @@ auf dieselbe Weise.
 - **Forschung kommt mit eigener Bibliothek.** Forschungsaufgaben laufen über
   OpenResearch, mit einer integrierten Bibliothek aus 98 Upstream-Skills, die
   Eintrag für Eintrag geladen wird, damit der Kontext klein bleibt.
-- **Jede Regel hat einen Ausschalter.** Sechzehn Kill-Switches — dazu
+- **Jede Regel hat einen Ausschalter.** Siebzehn Kill-Switches — dazu
   Repo-Markierungen — entfernen den Regeltext aus der Sitzung; die Regel
   stoppt damit wirklich, statt nur als aus zu erscheinen.
 - **Eine feste Antwortform.** Antworten sind türkisch, sofern Sie keine andere Sprache wählen, und

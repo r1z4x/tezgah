@@ -1,20 +1,26 @@
 ---
 name: design-library
 description: >
-  The vendored MC Dean design/UX library - cognitive accessibility, adaptive
-  interfaces, visual-critique vocabulary and behavioural analytics - read one
-  entry at a time from its own index. Use when a UI or product turn needs a
-  cognitive-load, inclusive-interaction or visual-critique method tezgah has no
-  counterpart for.
+  Use when a UI needs a cognitive-load or visual-critique method; bilişsel yük,
+  görsel hiyerarşi, erişilebilirlik. Not for tokens - use `design-contract`.
 ---
 
 # design-library
 
-Thirty-nine `SKILL.md` from two Owl-Listener repositories, vendored into this
-repository at pinned revisions (both MIT, `9a6930c` and `6e0740f`) and kept at
-the upstream path, so a path here is the path there. `SOURCE` records the
-revisions, the per-file sha256 and the two bodies this copy adapted; `NOTICE`
-records the licence.
+## When to use
+
+The vendored MC Dean design/UX library - cognitive accessibility, adaptive
+interfaces, visual-critique vocabulary and behavioural analytics - read one
+entry at a time from its own index. Use when a UI or product turn needs a
+cognitive-load, inclusive-interaction or visual-critique method tezgah has no
+counterpart for.
+
+Thirty-nine upstream `SKILL.md` from two Owl-Listener repositories, vendored into
+this repository at pinned revisions (both MIT, `9a6930c` and `6e0740f`) and kept
+at the upstream path as `ENTRY.md`, so a host that lists every `SKILL.md` below
+its skills directory does not list them; otherwise a path here is the path
+there. `SOURCE` records the revisions, the per-file sha256 and the two bodies
+this copy adapted; `NOTICE` records the licence.
 
 Tezgah owns the design floor: `design-contract` is the artifact shape a
 repository's tokens and states are read into, and `bin/tezgah-design` is the
@@ -26,9 +32,9 @@ comprehension, and how to critique a rendered screen dimension by dimension.
 
 1. **`INDEX.md`** - one line per entry: `name - what it makes - path`. Read the
    line that matches the work in hand.
-2. **the entry's `SKILL.md`** - the file the line names, e.g.
-   `inclusive-interaction/skills/touch-target-design/SKILL.md`. That is the
-   upstream body.
+2. **the entry's `ENTRY.md`** - the file the line names, e.g.
+   `inclusive-interaction/skills/touch-target-design/ENTRY.md`. That is the
+   upstream body, upstream's `SKILL.md` renamed.
 
 `EVALS.md` holds the three trap cases this library is scored against.
 

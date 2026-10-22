@@ -116,7 +116,7 @@ def context_line(env=None):
             "`git worktree add`, which Orca does not list. A long job runs in "
             "`orca terminal create --worktree <selector> --command <cmd> --json`, "
             "not a background shell. Track with `orca worktree ps --json` and "
-            "`tezgah-status --orca`; mark checkpoints with `orca worktree set "
+            "`~/.config/tezgah/bin/tezgah-status --orca`; mark checkpoints with `orca worktree set "
             "--worktree active --comment <text>`. Full guide: `orca skills get "
             "orca-cli`." % where)
 

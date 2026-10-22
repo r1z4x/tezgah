@@ -101,6 +101,9 @@ class SkillStandards(unittest.TestCase):
         self.assertIn("**Kill switches:**", self.policy.CORE)
         block = self.policy.CORE[
             self.policy.CORE.index("**Kill switches:**"):].split("\n\n")[0]
+        # a CLI placeholder reaches the skill as the installed path it renders to
+        for slot, tool in self.policy.BIN_TOOLS.items():
+            block = block.replace(slot, "~/.config/tezgah/bin/" + tool)
         switches = [s for s in re.findall(r"`([^`]+)`", block)
                     if s != "~/.config/tezgah/"]
         self.assertTrue(switches, "no kill switch names found in policy.CORE")
@@ -114,15 +117,16 @@ class SkillStandards(unittest.TestCase):
                          "tezgah-contract documents %d of %d kill switches"
                          % (len(switches) - len(missing), len(switches)))
         # The count the READMEs print is the CORE switch count, pinned here at
-        # 16 (ADR 007): `bin/tezgah-docs --citations` holds CORE against the
-        # `off()` calls the code makes, and this holds every README to CORE.
+        # 17 (ADR 007, plus `design-off` from plan 126): `bin/tezgah-docs --citations`
+        # holds CORE against the `off()` calls the code makes, and this holds
+        # every README to CORE.
         core = [s for s in switches if s.endswith(("-off", ".off"))]
-        self.assertEqual(len(core), 16, core)
-        for readme, phrase in (("README.md", "Sixteen kill switches"),
-                               ("README.de.md", "Sechzehn Kill-Switches"),
-                               ("README.es.md", "Dieciséis interruptores"),
-                               ("README.fr.md", "Seize interrupteurs"),
-                               ("README.tr.md", "On altı kapatma anahtarı")):
+        self.assertEqual(len(core), 17, core)
+        for readme, phrase in (("README.md", "Seventeen kill switches"),
+                               ("README.de.md", "Siebzehn Kill-Switches"),
+                               ("README.es.md", "Diecisiete interruptores"),
+                               ("README.fr.md", "Dix-sept interrupteurs"),
+                               ("README.tr.md", "On yedi kapatma anahtarı")):
             with open(os.path.join(support.REPO, readme), encoding="utf-8") as fh:
                 self.assertIn(phrase, fh.read(), readme)
 
@@ -181,7 +185,7 @@ class SkillStandards(unittest.TestCase):
         root = os.path.join(SKILLS, "pm-frameworks")
         source = read(os.path.join(root, "SOURCE"))
         rows = dict(re.findall(
-            r"`([\w-]+/SKILL\.md)`\s*\|\s*`[^`]*`\s*\|\s*`([0-9a-f]{64})`",
+            r"`([\w-]+/ENTRY\.md)`\s*\|\s*`[^`]*`\s*\|\s*`([0-9a-f]{64})`",
             source))
         self.assertTrue(rows, "SOURCE records no file/hash pair")
         for rel, want in rows.items():
@@ -375,12 +379,16 @@ class PlanSkillsStayInTheWorkspace(unittest.TestCase):
 LIBRARY = os.path.join(SKILLS, "design-library")
 LIBRARY_SOURCE = os.path.join(LIBRARY, "SOURCE")
 LIBRARY_ROW = re.compile(
-    r"^\|\s*`([A-Za-z0-9/_.-]+/SKILL\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
+    r"^\|\s*`([A-Za-z0-9/_.-]+/ENTRY\.md)`\s*\|\s*`[\w-]+`\s*\|\s*"
     r"`([0-9a-f]{64})`\s*\|", re.M)
-# The most a shipped entry point's description may carry: the always-on band is
-# the sum of these and the router shows one sentence of each, so a description
-# past this is prose nobody reads. The longest today is 961 (`feature-audit`).
-DESCRIPTION_CAP = 1200
+# The most a shipped entry point's description may carry. Hosts cut it: omp keeps
+# about twelve words, codex and Claude drop descriptions once the skill list
+# passes their budget. Anything longer lives in the body's `When to use`.
+DESCRIPTION_CAP = 160
+# The part of a description every host keeps: the trigger has to lead, and the
+# routing word tests/routing-fixtures.md pins for the skill has to sit in it.
+DESCRIPTION_KEPT = 100
+FIXTURE_ROW = re.compile(r"^\| (.+?) \| `([\w-]+)` \| (.+?) \|$", re.M)
 TRIGGER = re.compile(r"(?:^|[.!?]\s+)(?:Also )?[Uu]se\b")
 KEBAB = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -416,13 +424,13 @@ def library_manifest():
 
 
 def vendored_skill_files():
-    """Every SKILL.md whose frontmatter is upstream's bytes, not tezgah's: the
-    bodies under a `skills/<name>/` that ships a SOURCE manifest. Their integrity
-    is that library's own hash test, and their frontmatter is not tezgah's to
-    rewrite without breaking it."""
+    """Every entry body whose frontmatter is upstream's bytes, not tezgah's: the
+    ENTRY.md files under a `skills/<name>/` that ships a SOURCE manifest. Their
+    integrity is that library's own hash test, and their frontmatter is not
+    tezgah's to rewrite without breaking it."""
     out = set()
     for source in glob.glob(os.path.join(SKILLS, "*", "SOURCE")):
-        out |= set(glob.glob(os.path.join(os.path.dirname(source), "**", "SKILL.md"),
+        out |= set(glob.glob(os.path.join(os.path.dirname(source), "**", "ENTRY.md"),
                              recursive=True))
     return out
 
@@ -457,7 +465,7 @@ class DesignLibrary(unittest.TestCase):
         # The library's own entry point sits at the root and is not vendored, so
         # the tree's adopted bodies are the ones under a plugin directory.
         cls.bodies = sorted(p[len(LIBRARY) + 1:] for p in
-                            glob.glob(os.path.join(LIBRARY, "**", "SKILL.md"),
+                            glob.glob(os.path.join(LIBRARY, "**", "ENTRY.md"),
                                       recursive=True)
                             if os.sep in p[len(LIBRARY) + 1:])
 
@@ -467,7 +475,7 @@ class DesignLibrary(unittest.TestCase):
                          "SOURCE and the tree disagree about which bodies exist")
         for rel in self.rows:
             self.assertEqual(len(rel.split("/")), 4,
-                             "%s is not at <plugin>/skills/<name>/SKILL.md" % rel)
+                             "%s is not at <plugin>/skills/<name>/ENTRY.md" % rel)
 
     def test_every_listed_body_is_present_and_matches_its_hash(self):
         for rel, want in sorted(self.rows.items()):
@@ -570,7 +578,7 @@ class TapTarget(unittest.TestCase):
 
     def test_the_adopted_copy_states_24_as_the_aa_floor_and_44_as_aaa(self):
         body = frontmatter(read(os.path.join(
-            LIBRARY, "inclusive-interaction/skills/touch-target-design/SKILL.md")))[2]
+            LIBRARY, "inclusive-interaction/skills/touch-target-design/ENTRY.md")))[2]
         self.assertIn("Minimum: 24\u00d724 CSS pixels (WCAG 2.2 SC 2.5.8, Level AA)",
                       body)
         self.assertIn("Enhanced: 44\u00d744 CSS pixels (WCAG 2.2 SC 2.5.5, Level AAA",
@@ -614,7 +622,7 @@ class DesignLibraryIndex(unittest.TestCase):
     entry, `name - what it makes - path`, inside the router's own budget."""
 
     LINE = re.compile(r"^([a-z0-9]+(?:-[a-z0-9]+)*) - (.+) - "
-                      r"([A-Za-z0-9/_.-]+/SKILL\.md)$")
+                      r"([A-Za-z0-9/_.-]+/ENTRY\.md)$")
 
     @classmethod
     def setUpClass(cls):
@@ -667,10 +675,10 @@ class Frontmatter(unittest.TestCase):
                          ["ai-research", "design-library", "pm-frameworks", "rl-env"],
                          "the vendored set changed: name it here, or lint it")
         for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
-            covered = (path in self.paths or
-                       any(path.startswith(root + os.sep) for root in self.roots))
-            self.assertTrue(covered,
-                            "%s is neither an entry point nor vendored" % path)
+            self.assertIn(path, self.paths,
+                          "%s is a nested SKILL.md: codex and Cursor list every "
+                          "SKILL.md below a skills directory as its own skill, so "
+                          "a vendored entry is named ENTRY.md" % path)
 
     def test_every_entry_point_declares_a_name_matching_its_directory(self):
         for path in self.paths:
@@ -695,6 +703,20 @@ class Frontmatter(unittest.TestCase):
             desc = frontmatter(read(path))[1]
             self.assertLessEqual(len(desc), DESCRIPTION_CAP,
                                  "%s: %d chars" % (path, len(desc)))
+
+    def test_every_description_leads_with_its_trigger_and_routing_words(self):
+        rows = FIXTURE_ROW.findall(
+            read(os.path.join(support.REPO, "tests", "routing-fixtures.md")))
+        for path in self.paths:
+            name, desc, _ = frontmatter(read(path))
+            self.assertTrue(desc.startswith("Use when"),
+                            "%s: the description does not lead with `Use when`" % path)
+            words = [must for _, skill, must in rows if skill == name]
+            self.assertTrue(words, "%s has no routing fixture" % path)
+            for must in words:
+                self.assertIn(must, desc[:DESCRIPTION_KEPT],
+                              "%s: %r is past the first %d characters"
+                              % (path, must, DESCRIPTION_KEPT))
 
     def test_every_backticked_cross_reference_resolves(self):
         for path in self.paths:

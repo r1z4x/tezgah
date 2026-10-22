@@ -1,16 +1,21 @@
 ---
 name: ai-research
 description: >
-  The vendored AI-research-SKILLs library - 98 upstream skills in 23 categories,
-  MIT - that now ships with tezgah. Use when a research line needs AI or ML
-  machinery: training or fine-tuning a model, serving or quantizing one,
-  evaluating a benchmark, reading model internals, building a retrieval or agent
-  pipeline, tracking runs, or writing the result up. Read the one entry the work
-  needs, never the tree. Do NOT use for code discovery ("where is X", "who calls
-  Y") - that is the code graph.
+  Use when a research line needs AI/ML machinery: training, fine-tuning,
+  serving, evals; ince ayar, dil modeli. Not for RL environments - use `rl-env`.
 ---
 
 # ai-research
+
+## When to use
+
+The vendored AI-research-SKILLs library - 98 upstream skills in 23 categories,
+MIT - that now ships with tezgah. Use when a research line needs AI or ML
+machinery: training or fine-tuning a model, serving or quantizing one,
+evaluating a benchmark, reading model internals, building a retrieval or agent
+pipeline, tracking runs, or writing the result up. Read the one entry the work
+needs, never the tree. Do NOT use for code discovery ("where is X", "who calls
+Y") - that is the code graph.
 
 Ninety-eight skills from Orchestra Research's `AI-research-SKILLs`, vendored into
 this repository at revision `773a529` (2026-06-15, MIT) and kept in the upstream
@@ -27,8 +32,10 @@ before.
 
 1. **`index/<stage>.md`** - six files, one per stage of a research line. Read the
    one that matches the work in hand; it lists every entry with its purpose.
-2. **the entry's `SKILL.md`** - the file the index line names, e.g.
-   `11-evaluation/lm-evaluation-harness/SKILL.md`. That is the upstream body.
+2. **the entry's `ENTRY.md`** - the file the index line names, e.g.
+   `11-evaluation/lm-evaluation-harness/ENTRY.md`. That is the upstream body:
+   upstream's `SKILL.md`, renamed so a host that lists every `SKILL.md` below its
+   skills directory does not list it. A body that says `SKILL.md` means this file.
 3. **its `references/`** - the detail the body points at, when the body is not
    enough.
 
@@ -57,7 +64,7 @@ Each index line can carry a flag, and they are not decoration:
   live links in the same entry still work.
 
 An entry with no body vendored would be a line without a file - there is none:
-every one of the 98 ships its `SKILL.md`.
+every one of the 98 ships its `ENTRY.md`.
 
 ## Where tezgah's own rules still win
 
@@ -75,14 +82,14 @@ account, a paid service or the user's data still needs the user's yes first.
   this contract's protocol-before-run rule.
 - `20-ml-paper-writing/ml-paper-writing/references/citation-workflow.md` - how to
   verify a reference instead of writing one from memory.
-- `20-ml-paper-writing/academic-plotting/SKILL.md` - chart-type rules, a
+- `20-ml-paper-writing/academic-plotting/ENTRY.md` - chart-type rules, a
   colourblind-safe palette and venue column widths; every line ends in a figure.
-- `22-agent-native-research-artifact/rigor-reviewer/SKILL.md` - the 1-5 scoring
+- `22-agent-native-research-artifact/rigor-reviewer/ENTRY.md` - the 1-5 scoring
   anchors and severity inventory behind this contract's six-dimension review.
-- `22-agent-native-research-artifact/compiler/SKILL.md` - evidence fidelity: exact
+- `22-agent-native-research-artifact/compiler/ENTRY.md` - evidence fidelity: exact
   numbers, a derived subset never named `Table N`, every evidence file carrying
   its source.
-- `11-evaluation/lm-evaluation-harness/SKILL.md` - the runnable benchmark recipe a
+- `11-evaluation/lm-evaluation-harness/ENTRY.md` - the runnable benchmark recipe a
   research line usually quotes.
 
 ## Provenance

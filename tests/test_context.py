@@ -372,7 +372,7 @@ class InflectedTurkishArming(unittest.TestCase):
             # the thing to fix arms the feature-audit half of the product rule
             # alongside the UI adjective's `spec`
             "bu ekran düzgün çalışsın": {"product", "spec"},
-            "arayüz güzel görünsün": {"product", "spec"},
+            "arayüz güzel görünsün": {"product", "spec", "design"},
             "metin biraz daha iyi olsun": {"spec"},
             "kök nedenini bulalım": {"consult"},
             "mimarisini yeniden kuralım": {"consult"},
@@ -461,6 +461,96 @@ class UiWorkArming(unittest.TestCase):
         self.assertEqual(self.armed("bu ekran düzgün çalışsın"),
                          {"product", "spec"})
 
+
+class DesignAndPmRoute(TempHome):
+    """A design or PM ask reached no skill that covers it: no conditional rule
+    named `design-contract`, `design-library` or `pm-frameworks` (plan 126, S2:
+    0/24, 0/8, 2/16 on a labelled prompt set), and the Turkish asks the owner
+    types armed nothing or only the spec rule. The rule is judged by the text a
+    turn actually receives."""
+
+    DESIGN_SKILLS = ("design-contract", "design-library", "analyze-app",
+                     "feature-audit")
+
+    def turn(self, repo, text, session):
+        out, proc = run_json([support.PROBE_CONTEXT],
+                             {"fn": "context_for", "event": "user_prompt",
+                              "cwd": repo,
+                              "payload": {"prompt": text, "session_id": session}},
+                             env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return out
+
+    def test_a_design_ask_names_the_design_skills(self):
+        repo = self.make_repo()
+        for i, prompt in enumerate(("bu ekranı iyileştir, tasarım tutarsız",
+                                    "dashboard tasarla, satis verileri icin",
+                                    "admin paneldeki form cok karisik, duzelt",
+                                    "set up a design system",
+                                    "is the checkout accessible? check wcag")):
+            out = self.turn(repo, prompt, "d%d" % i)
+            for skill in self.DESIGN_SKILLS:
+                self.assertIn("`%s`" % skill, out, prompt)
+
+    def test_a_pm_ask_names_pm_frameworks(self):
+        repo = self.make_repo()
+        for i, prompt in enumerate(("PM gözüyle değerlendir bu uygulamayı",
+                                    "hangi ozellik once yapilmali",
+                                    "urun analizi yap",
+                                    "evaluate this like a PM")):
+            out = self.turn(repo, prompt, "p%d" % i)
+            self.assertIn("`pm-frameworks`", out, prompt)
+            self.assertIn("`product-analysis`", out, prompt)
+
+    def test_a_plain_form_or_code_ask_arms_no_design_rule(self):
+        sys.path.insert(0, support.HOOKS)
+        import tezgah_context as tc  # noqa: E402
+        for prompt in ("formu doldur",
+                       "Facebook Login for Business adım adım yönlendir.",
+                       "dashboard.py raises KeyError",
+                       "design the metrics exporter interface",
+                       "kullanıcı deneyimi raporu"):
+            self.assertNotIn("design", tc.classify_prompt(prompt), prompt)
+
+    def test_design_off_drops_the_design_rule(self):
+        repo = self.make_repo()
+        self.assertIn("`design-contract`", self.turn(repo, "set up a design system", "o1"))
+        self.touch(os.path.join(self.home, ".config", "tezgah", "design-off"))
+        out = self.turn(repo, "set up a design system", "o2")
+        self.assertNotIn("`design-library`", out)
+        self.assertIn("design-off", out)
+
+
+class InjectedCommandsAreAbsolute(TempHome):
+    """`tezgah-skill`, `tezgah-design`, `tezgah-task` and kin were named bare,
+    and `~/.config/tezgah/bin` is on no host's PATH but Claude's: 47 `command not
+    found` in 34 omp transcripts (plan 126). Every tezgah CLI the injected text
+    names is a path the shell can run."""
+
+    BARE = re.compile(r"(?<![/\w.-])tezgah-(?:skill|design|task|pony|adhd|status|"
+                      r"lessons|route|research|setup|taste)\b")
+
+    def test_no_injected_text_names_a_bare_tezgah_cli(self):
+        repo = self.make_repo()
+        body = (
+            "import json, sys\nsys.path.insert(0, %r)\nimport tezgah_context as tc\n"
+            "texts = {'core': tc.render(tc.always_on_core()),\n"
+            " 'brief': tc.render(tc.subagent_core()),\n"
+            " 'turn': tc.context_for('user_prompt', %r, {'session_id': 'b1', 'prompt':"
+            " 'urun analizi ve tasarim sistemi, literature review, 1. a\\n2. b'}),\n"
+            " 'again': tc.context_for('user_prompt', %r, {'session_id': 'b1', 'prompt':"
+            " 'urun analizi ve tasarim sistemi, literature review, 1. a\\n2. b'}),\n"
+            " 'task': tc.task_line({'id': '001', 'phase': 'plan'}),\n"
+            " 'slices': tc.render(tc.SLICES_HEAD),\n"
+            " 'orchestrate': tc.render(__import__('tezgah_policy').ORCHESTRATE),\n"
+            " 'gate': tc.GATE_INACTIVE}\n"
+            "print(json.dumps(texts))\n" % (support.HOOKS, repo, repo))
+        proc = subprocess.run([sys.executable, "-c", body], capture_output=True,
+                              text=True, env=self.env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for name, text in json.loads(proc.stdout).items():
+            self.assertTrue(text, name)
+            self.assertEqual([], self.BARE.findall(text), name)
 
 class GitSpawnBudget(TempHome):
     """One git spawn per question per process. A session start asks the same two
@@ -3163,10 +3253,11 @@ class SubagentBriefHeader(unittest.TestCase):
         self.assertTrue(names, "the kill-switch paragraph names no switch")
         for name in names:
             self.assertIn(name, self.brief)
-        # The always-on text names the 16 CORE switches and none of the five the
-        # owner has not classified (`UNCLASSIFIED_SWITCHES`, bin/tezgah-docs).
+        # The always-on text names the 17 CORE switches (design-off since plan
+        # 126) and none of the five the owner has not classified
+        # (`UNCLASSIFIED_SWITCHES`, bin/tezgah-docs).
         switches = [n for n in names if n.endswith(("-off", ".off"))]
-        self.assertEqual(len(switches), 16, switches)
+        self.assertEqual(len(switches), 17, switches)
         for name in ("agents-off", "update-check-off", "slices-off", "taste-on",
                      "skill-suggest-on"):
             self.assertNotIn("`%s`" % name, paragraphs[0])

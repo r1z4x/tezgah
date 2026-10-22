@@ -24,7 +24,10 @@ so this adapter translates them onto the shared tezgah core:
                          ({"decision": "block", "reason": ...}, which Cursor
                          documents as an automatic follow-up - the native
                          spelling is {"followup_message": ...})
-  beforeSubmitPrompt  -> {"continue": true}
+  beforeSubmitPrompt  -> {"continue": true, "additional_context": <per-turn>}
+                         (the docs list only continue/user_message, but
+                         cursor-agent 2026.10.01-2026.10.19 forwards
+                         additional_context for this event; see CONTEXT_MAX)
 Everything else answers "{}" and never blocks.
 
 Cursor names its own tools, so `hooks.json` has to name them too: the matcher on
@@ -105,6 +108,30 @@ REINFORCE = ("tezgah contract active: keep using the code graph "
 RECOVERY = ("tezgah: tool call failed. Read the error, fix the cause, then "
             "re-run; prefer codegraph_explore/codegraph_callers over guessing "
             "at code.")
+# cursor-agent (2026.10.01-2026.10.19, bundled `HookAdditionalContextTooLargeError`)
+# trims the additional_context of beforeSubmitPrompt, preToolUse, postToolUse and
+# postToolUseFailure and drops it WHOLE when its JavaScript length - UTF-16 code
+# units, so an emoji counts two - is over 10000; a busy turn (every conditional
+# armed) measured 10288. Cutting the tail keeps the reminder and the first rules
+# instead of nothing. sessionStart is not capped: its text goes to the request
+# context (`hooksAdditionalContextPromise`) without that check, and stored Cursor
+# chats carry 15000-character session contexts whole, so the core is not cut.
+# Known limit: with a custom mode on, cursor-agent appends "\n\n" and that mode's
+# text to beforeSubmitPrompt's context before the length check; the hook cannot
+# see it, so a turn cut to exactly the limit is then dropped whole.
+CONTEXT_MAX = 10000
+CONTEXT_CUT = "\n[... cut to Cursor's %d-character hook limit]" % CONTEXT_MAX
+
+
+def fit(text):
+    """The text as Cursor will carry it: at most CONTEXT_MAX UTF-16 code units."""
+    text = text.strip()
+    data = text.encode("utf-16-le", "surrogatepass")
+    if len(data) <= 2 * CONTEXT_MAX:
+        return text
+    keep = 2 * (CONTEXT_MAX - len(CONTEXT_CUT))  # the marker is ASCII: one unit a char
+    # "ignore" drops the high half of a pair the cut split, never adding a unit
+    return data[:keep].decode("utf-16-le", "ignore") + CONTEXT_CUT
 
 
 def cwd_of(payload):
@@ -451,7 +478,7 @@ def dispatch(payload):
         text = context_for("user_prompt", cwd, payload)
         out = {"continue": True}
         if text:
-            out["additional_context"] = text
+            out["additional_context"] = fit(text)
     else:
         out = {}
     return out

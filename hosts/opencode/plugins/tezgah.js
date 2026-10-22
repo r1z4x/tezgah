@@ -2509,7 +2509,7 @@ async function rootFor(dir) {
 // Mirrors hooks/tezgah_paths.SWITCHES, the one list of switch and marker names
 // (tests/test_paths.py holds the two equal): a name outside it answers false,
 // so a switch this host invents cannot drift from the one the core reads.
-const SWITCHES = new Set(["adhd-off", "consult-off", "docs-judge-off",
+const SWITCHES = new Set(["adhd-off", "consult-off", "design-off", "docs-judge-off",
   "exec-mode.off", "judge-off", "lang-off", "orchestrate-off",
   "ponytail-auto.off", "pretooluse-off", "reminder-off", "research-off",
   "spec-off", "task-off", "triage-off", "verify-off", "workspace-off",

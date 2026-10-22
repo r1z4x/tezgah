@@ -1363,8 +1363,8 @@ def ended_child(writer, session_id, path, cwd):
 LEASE_DENY = (
     "Lease: %s is owned by sibling slice %s (owns %s), still open under your "
     "parent. Leave the file to it: %s, or ask your parent to move the lease; "
-    "once the owner has finished, `tezgah-task slice done %s` frees it. Every "
-    "lease is on `tezgah-task slice board`.")
+    "once the owner has finished, `~/.config/tezgah/bin/tezgah-task slice done %s` "
+    "frees it. Every lease is on `~/.config/tezgah/bin/tezgah-task slice board`.")
 MAIN_CHECKOUT_DENY = (
     "Lease: %s is in the main checkout %s, but your slice %s works in worktree "
     "%s. Write the same path under that worktree: an absolute path, or a shell "
@@ -1546,7 +1546,8 @@ def cross_project_note(session_id, tool, inp, cwd):
 TASK_PHASE_DENY = (
     "Task gate: the active task %s is in phase `%s`, and this call writes. "
     "Writes belong to %s. Finish the reading this phase is for, then move the "
-    "phase yourself with `tezgah-task phase implementation` - it refuses until "
+    "phase yourself with `~/.config/tezgah/bin/tezgah-task phase implementation` - "
+    "it refuses until "
     "the plan's Acceptance, spike and checkpoint are in order.")
 TASK_SCOPE_DENY = (
     "Task gate: %s is outside the paths the active task %s allows (%s). If the "
@@ -1557,13 +1558,18 @@ TASK_SCOPE_DENY = (
 TASK_SCOPE_OUTSIDE = (
     "Task gate: %s is outside the paths the active task %s allows (%s). It lies "
     "outside this repository, and an allow glob is relative to it, so no "
-    "`tezgah-task allow` line reaches it; leave the file alone, or do the work "
+    "`~/.config/tezgah/bin/tezgah-task allow` line reaches it; leave the file alone, "
+    "or do the work "
     "under that repository's own task.")
 TASK_RECORD_DENY = (
-    "Task gate: %s is the active task's own record; only `tezgah-task` writes it, checking the plan's "
-    "Acceptance, spike and review on the way. The phase and allowlist: `tezgah-task phase|allow`; an "
-    "Acceptance box: `tezgah-task tick NNN <n>`; an item the owner accepted unmet: "
-    "`tezgah-task unmet NNN <n> \"<reason>\"`; State/Next: `tezgah-task note NNN state|next \"...\"`.")
+    "Task gate: %s is the active task's own record; only "
+    "`~/.config/tezgah/bin/tezgah-task` writes it, checking the plan's "
+    "Acceptance, spike and review on the way. The phase and allowlist: "
+    "`~/.config/tezgah/bin/tezgah-task phase|allow`; an "
+    "Acceptance box: `~/.config/tezgah/bin/tezgah-task tick NNN <n>`; an item the "
+    "owner accepted unmet: `~/.config/tezgah/bin/tezgah-task unmet NNN <n> "
+    "\"<reason>\"`; State/Next: `~/.config/tezgah/bin/tezgah-task note NNN "
+    "state|next \"...\"`.")
 # The shapes that make a shell command a write, for the phase rule below. The
 # tools are not the only way to change a file, and E7b measured the other one:
 # with `edit` and `write` refused twelve and six times, the armed arm wrote the
@@ -1592,7 +1598,7 @@ TASK_SHELL_DENY = (
     "Task gate: the active task %s is in phase `%s`, and this command writes a "
     "file. The shell is a write route like any other, so the phase covers it. "
     "Finish the reading this phase is for, then move the phase yourself with "
-    "`tezgah-task phase implementation`.")
+    "`~/.config/tezgah/bin/tezgah-task phase implementation`.")
 
 
 # The marker a caller passes when it has NOT read the record, so a rule reads it
@@ -1858,8 +1864,8 @@ def task_reason(inp, cwd, base, task=_UNRESOLVED):
             # the call's own spelling: the agent has to recognize its argument
             if rel is None:
                 return TASK_SCOPE_OUTSIDE % (spelled, own["id"], ", ".join(patterns))
-            ready = " ".join(["tezgah-task allow"] + [shlex.quote(p) for p in
-                                                      list(patterns) + [rel]])
+            ready = " ".join(["~/.config/tezgah/bin/tezgah-task allow"]
+                             + [shlex.quote(p) for p in list(patterns) + [rel]])
             return TASK_SCOPE_DENY % (spelled, own["id"], ", ".join(patterns), ready)
     return None
 
@@ -2490,7 +2496,8 @@ PLAN_DENY = (
 # The second way out: off a trunk, bind the branch in hand; on a trunk that bind
 # would be ignored (`_unplanned` reads every PLAN_TRUNKS name as unplanned), so
 # the text names only another branch.
-PLAN_BIND = ("or bind this branch to the open plan with `tezgah-task start NNN "
+PLAN_BIND = ("or bind this branch to the open plan with "
+             "`~/.config/tezgah/bin/tezgah-task start NNN "
              "--phase P --branch %s` (it writes the plan's `branch:`)")
 PLAN_BIND_TRUNK = ("or work on a non-trunk branch an open plan declares in its "
                    "`branch:`; a trunk (%s) never binds a plan")

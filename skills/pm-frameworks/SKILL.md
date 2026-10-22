@@ -1,17 +1,23 @@
 ---
 name: pm-frameworks
 description: >
-  Two product-management methods vendored offline behind the `product-analysis`
-  skill: the intended-vs-implemented gap audit (a gap is a finding only when the
-  documented intent and the code that enforces it are both cited) and the
-  Opportunity Solution Tree (one outcome, opportunities as needs, solutions
-  compared, the cheapest experiment per assumption). Use when a product question
-  needs the method, not just the framework name: intended-vs-implemented audits,
-  opportunity solution trees, discovery mapping and assumption tests. Read the
-  one entry the task needs, never both by default.
+  Use when a product question needs a method: opportunity solution trees, fırsat
+  çözüm ağacı, intended-vs-implemented. Not for a survey - use
+  `product-analysis`.
 ---
 
 # pm-frameworks
+
+## When to use
+
+Two product-management methods vendored offline behind the `product-analysis`
+skill: the intended-vs-implemented gap audit (a gap is a finding only when the
+documented intent and the code that enforces it are both cited) and the
+Opportunity Solution Tree (one outcome, opportunities as needs, solutions
+compared, the cheapest experiment per assumption). Use when a product question
+needs the method, not just the framework name: intended-vs-implemented audits,
+opportunity solution trees, discovery mapping and assumption tests. Read the one
+entry the task needs, never both by default.
 
 Two methods, kept byte-for-byte from `https://github.com/phuryn/pm-skills` (MIT)
 at the revision recorded in `SOURCE`. They are here so an offline session can
@@ -19,8 +25,11 @@ read the method rather than cite its name.
 
 | Read | When |
 |---|---|
-| `intended-vs-implemented/SKILL.md` | auditing what a system says it does against what the code does - permissions, trust boundaries, an "internal only" comment that nothing enforces. The PE axis of `product-analysis`. |
-| `opportunity-solution-tree/SKILL.md` | structuring discovery: one outcome, opportunities as customer needs, three or more solutions compared before a choice, the cheapest experiment per risky assumption. The PM axis of `product-analysis`. |
+| `intended-vs-implemented/ENTRY.md` | auditing what a system says it does against what the code does - permissions, trust boundaries, an "internal only" comment that nothing enforces. The PE axis of `product-analysis`. |
+| `opportunity-solution-tree/ENTRY.md` | structuring discovery: one outcome, opportunities as customer needs, three or more solutions compared before a choice, the cheapest experiment per risky assumption. The PM axis of `product-analysis`. |
+
+Each is upstream's `SKILL.md` renamed `ENTRY.md`, bytes unchanged, so a host that
+lists every `SKILL.md` below its skills directory does not list it.
 
 `product-analysis` is the tezgah skill that consumes both; this one is the text.
 Neither file is a rule: the contract's evidence classes, the `research`

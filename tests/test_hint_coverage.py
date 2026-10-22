@@ -31,7 +31,7 @@ CORPUS = {
     # spec
     "normal user behavior yeterli bu kadar": {"spec"},
     "make the settings page nicer": {"spec"},
-    "clean ui please": {"spec"},
+    "clean ui please": {"spec", "design"},
     "more intuitive please": {"spec"},
     "the copy feels unprofessional": {"spec"},
     "düzgün çalışsın artık": {"spec"},
@@ -41,11 +41,11 @@ CORPUS = {
     "bu sayfanın css'ini tailwind'e taşı": {"product", "spec"},
     "admin componentlerini refactor et": {"spec"},
     "hover ve focus durumları eksik": {"spec"},
-    "tasarımı responsive yap": {"spec"},
-    "dark mode ekle": {"spec"},
-    "bu componentin erişilebilirliğini düzelt": {"spec"},
-    "the layout is broken on mobile": {"spec"},
-    "add a wireframe for the checkout flow": {"spec"},
+    "tasarımı responsive yap": {"spec", "design"},
+    "dark mode ekle": {"spec", "design"},
+    "bu componentin erişilebilirliğini düzelt": {"spec", "design"},
+    "the layout is broken on mobile": {"spec", "design"},
+    "add a wireframe for the checkout flow": {"spec", "design"},
     "spacing looks off in the header": {"spec"},
     "make it look better": {"spec"},
     # the qualified craft words, said the way a UI ask says them: every one of
@@ -53,7 +53,7 @@ CORPUS = {
     "center the login form": {"spec"},
     "the margins are off in the header": {"spec"},
     "the form's margins are too tight": {"spec"},
-    "the page is cluttered": {"spec"},
+    "the page is cluttered": {"spec", "design"},
     "the badges look wrong": {"spec"},
     "skeleton loaders on the card": {"spec"},
     "theme tokens in the app": {"spec"},
@@ -161,8 +161,8 @@ CORPUS = {
     "kullanıcı görüşmeleri yapalım": {"research"},
     "how is this wired": {"graph"},
     "run codegraph affected on parse_quantity": set(),
-    "check the usability of this flow": set(),
-    "does it meet WCAG 2.2": {"spec"},
+    "check the usability of this flow": {"design"},
+    "does it meet WCAG 2.2": {"spec", "design"},
     "üretim hattı yavaşladı": set(),
     "temel sorun nedir": set(),
     "the reproduction steps are unclear": set(),
@@ -248,10 +248,10 @@ CORPUS = {
     # a data ask said by its output arms the product rule (the user's own
     # sentence armed nothing before plan 072); a metric or dashboard in its
     # code sense - an endpoint, a counter, a config file - stays code
-    "Bu veriye uygun bir metric dashboard tasarla": {"product"},
-    "I have this data, design a metric dashboard for it": {"product"},
-    "KPI dashboardu tasarlar mısın": {"product"},
-    "gösterge paneli tasarla": {"product"},
+    "Bu veriye uygun bir metric dashboard tasarla": {"product", "design"},
+    "I have this data, design a metric dashboard for it": {"product", "design"},
+    "KPI dashboardu tasarlar mısın": {"product", "design"},
+    "gösterge paneli tasarla": {"product", "design"},
     "hangi metrikleri takip etmeliyiz": {"product"},
     "choose metrics for the retention review": {"product"},
     "expose a prometheus metrics endpoint": set(),
@@ -261,7 +261,7 @@ CORPUS = {
     "update the dashboard config file": set(),
     "pick a north star metric for onboarding": {"product"},
     "metric tasarla": {"product"},
-    "bu veri için bir pano tasarla": {"product"},
+    "bu veri için bir pano tasarla": {"product", "design"},
     "hangi göstergeleri izlemeliyiz": {"product"},
     "what metrics should we track": {"product"},
     "success metrics for the launch": {"product"},
@@ -334,7 +334,58 @@ CORPUS = {
     "help me pick kpis for the support team": {"product"},
     "our churn data needs a dashboard for the exec team": {"product"},
     "what should we put on the onboarding dashboard": {"product"},
-    "haftalık satış raporu için dashboard tasarla": {"product"},
+    "haftalık satış raporu için dashboard tasarla": {"product", "design"},
+    # design (plan 126): a UI ask - build, restyle, critique or audit a screen -
+    # reads the design skills; the S2 set's Turkish asks armed nothing or only
+    # spec. A dashboard said as a thing to design is a UI ask beside the data
+    # ask above; a metric, an API or a schema to design is not.
+    "bu ekrani iyilestir": {"product", "design"},
+    "admin paneldeki form cok karisik, duzelt": {"design"},
+    "tasarim tutarsiz, renkleri ve boslugu duzenle": {"spec", "design"},
+    "kullanilabilirlik sorunlarini bul": {"design"},
+    "design system kur": {"spec", "design"},
+    "UX audit yap": {"spec", "design"},
+    "improve this screen": {"design"},
+    "the form in the admin panel is confusing, fix it": {"product", "design"},
+    "spacing and colors are inconsistent across pages": {"spec", "design"},
+    "open the app and click through the screens, list problems": {"design"},
+    # a site's or an app's design is a UI ask too (round 2 of plan 126's
+    # review): the three armed only spec once the bare `tasarım` was narrowed
+    "sitenin tasarımını yenile": {"spec", "design"},
+    "mobil uygulamanın tasarımını yenile": {"spec", "design"},
+    "uygulamanın tasarımı kötü": {"spec", "design"},
+    "web sitesinin tasarımı eski": {"spec", "design"},
+    "API tasarla": set(),
+    "inconsistent results from the parser": set(),
+    # the generic craft words name a UI only beside a UI object (round 1 of
+    # plan 126's review): a schema, a thread, a struct, an endpoint, a parser
+    # or a test keeps the spec rule it had and arms no design rule
+    "redesign the database schema": {"spec"},
+    "REST API tasarımı yap": {"spec"},
+    "veritabanı şeması tasarımı": {"consult", "spec"},
+    "the ui thread blocks on io": {"spec"},
+    "fix the memory layout of this struct": {"spec"},
+    "bu endpoint erişilebilir mi": {"spec"},
+    "the server is not accessible from outside": {"spec"},
+    "is this button accessible": {"spec", "design"},
+    "add a components field to the JSON schema": {"spec"},
+    "write unit tests for the parser components": {"spec"},
+    "test bileşenlerini ayır": {"spec"},
+    # ... and the product stems: an identifier, a test order, building a
+    # feature and filling a form in are code work
+    "urun_id kolonunu ekle": set(),
+    "ürün_id ekle": set(),
+    "öncelik sırasına göre testleri çalıştır": set(),
+    "bu özelliği implement et": set(),
+    "formu doldur": set(),
+    # product (plan 126): the PM asks, ASCII-typed Turkish and the mutated stem
+    "PM gözüyle değerlendir bu uygulamayı": {"product"},
+    "PM gozuyle degerlendir bu uygulamayi": {"product"},
+    "evaluate this like a PM": {"product"},
+    "urun analizi yap": {"product"},
+    "hangi ozellik once yapilmali": {"product"},
+    "randevu özelliğini baştan sona denetle": {"product"},
+    "bu PR'ı değerlendir": set(),
 }
 
 
@@ -348,13 +399,15 @@ class HintCoverage(unittest.TestCase):
 
     def test_every_request_arms_the_rules_it_is_reviewed_to_arm(self):
         for prompt, want in CORPUS.items():
-            self.assertEqual(tc.classify_prompt(prompt), want, prompt)
+            with self.subTest(prompt=prompt):
+                self.assertEqual(tc.classify_prompt(prompt), want, prompt)
 
     def test_the_corpus_is_not_thin(self):
         # a corpus that quietly shrank would keep passing; 100 is far under the
         # reviewed 137 and far over anything a partial revert would leave
         self.assertGreaterEqual(len(CORPUS), 100)
-        for key in ("spec", "consult", "research", "product", "graph", "fanout"):
+        for key in ("spec", "consult", "research", "product", "design", "graph",
+                    "fanout"):
             self.assertTrue(any(key in want for want in CORPUS.values()), key)
 
     def test_a_long_paste_classifies_in_bounded_time(self):

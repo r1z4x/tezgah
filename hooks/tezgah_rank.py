@@ -44,12 +44,14 @@ STOPWORDS = frozenset(w for p in packs().values() for w in p["rank_stopwords"])
 MIN_CAP_TEXTS = 10
 
 
-def scores(query, texts, max_df=None):
+def scores(query, texts, max_df=None, tokens=None):
     """Every text's BM25 score for `query`, in input order; 0.0 for a text that
     shares no term with it. `rank` orders these; the research dedup reads them as
-    numbers (`tezgah_research.similarity_matrix`)."""
-    docs = [Counter(words(t)) for t in texts]
-    terms = set(words(query))
+    numbers (`tezgah_research.similarity_matrix`). `tokens` replaces `words` on
+    both sides (the skill search folds and stems its terms)."""
+    tokens = tokens or words
+    docs = [Counter(tokens(t)) for t in texts]
+    terms = set(tokens(query))
     if not docs or not terms:
         return [0.0] * len(docs)
     avg = sum(sum(d.values()) for d in docs) / len(docs) or 1.0
@@ -68,12 +70,13 @@ def scores(query, texts, max_df=None):
     return out
 
 
-def rank(query, texts, k, max_df=None):
+def rank(query, texts, k, max_df=None, tokens=None):
     """Indices of the `k` texts that score highest for `query`, best first.
 
     Only a text sharing at least one term with the query is returned (score > 0),
     so an unrelated query gets [] rather than an arbitrary order. `max_df` (a
     fraction) drops STOPWORDS and, on MIN_CAP_TEXTS or more texts, every query
     term found in more than that share of them."""
-    scored = [(-s, i) for i, s in enumerate(scores(query, texts, max_df)) if s > 0]
+    scored = [(-s, i) for i, s in enumerate(scores(query, texts, max_df, tokens))
+              if s > 0]
     return [i for _s, i in sorted(scored)[:k]]

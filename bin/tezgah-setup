@@ -209,6 +209,19 @@ RESEARCH_SKILLS = frozenset(("ai-research", "rl-env"))
 # explicit value wins.
 OPENCODE_IGNORE = [".git/**", "node_modules/**", "dist/**", "build/**",
                    ".venv/**", "__pycache__/**", ".ruff_cache/**"]
+
+
+def opencode_v2():
+    """opencode 2 keeps its terminal settings in cli.json (it migrates tui.json
+    into it once, on first start) and ignores tui.json afterwards."""
+    return os.path.isfile(os.path.join(OPENCODE, "cli.json"))
+
+
+# The opencode 2 status line: a link to the plugin directory hosts/opencode/tui/cli,
+# listed in cli.json `plugins` as file://<this path>.
+OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
+
+
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
@@ -231,7 +244,8 @@ MATERIALISED = os.path.join(tp.CONFIG_DIR, "materialised")
 # copies die with ~/.config/tezgah; the pre-multi-host setup wrote them to
 # ~/.claude, which OFF_DIRS still honors, so a full uninstall sweeps those by
 # name too - a switch left behind is a rule that stays silent with no file saying why.
-OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "docs-judge-off", "exec-mode.off",
+OFF_SWITCH_NAMES = ("adhd-off", "agents-off", "consult-off", "design-off", "docs-judge-off",
+                    "exec-mode.off",
                     "judge-off", "lang-off", "orchestrate-off", "ponytail-auto.off",
                     "pretooluse-off", "reminder-off", "research-off", "slices-off",
                     "spec-off", "task-off", "triage-off", "update-check-off", "verify-off",
@@ -1039,7 +1053,10 @@ def install_common(new_roots, hosts):
         (tp.roots() or [tp.DEFAULT_ROOT])
     if tp.codegraph_bin():
         cfg["codegraph_bin"] = tp.codegraph_bin()
-    cfg["hosts"] = hosts
+    # merged with the record, never replaced: arming one host must not drop
+    # the others, whose wiring stays on disk and which --upgrade reads from here
+    recorded = cfg.get("hosts") if isinstance(cfg.get("hosts"), list) else []
+    cfg["hosts"] = recorded + [h for h in hosts if h not in recorded]
     # The resolved selection, written beside roots/hosts: the next run reads one
     # persisted answer instead of the flags some earlier run happened to carry,
     # which is what lets --disable mean anything. A key absent here (and in the
@@ -1649,11 +1666,32 @@ def skill_description(path):
     else:
         inline = re.search(r"description:\s*(.+)", block.group(1))
         desc = inline.group(1).strip().strip("\"'") if inline else ""
+    return _trigger_line(desc)
+
+
+def _trigger_line(desc):
+    """The sentence of `desc` carrying its `Use when ...` trigger, cut at 140."""
     desc = re.sub(r"\s+", " ", desc).strip()
     sentences = re.split(r"(?<=[.!?])\s+", desc)
     line = next((s for s in sentences if re.match(r"(?:Also )?[Uu]se\b", s)),
                 sentences[0] if sentences else "")
     return line[:137].rstrip() + "..." if len(line) > 140 else line
+
+
+def skill_when_line(path):
+    """The trigger line of a SKILL.md body's `## When to use` first paragraph.
+
+    The frontmatter description is a short bilingual trigger list now, too short
+    for two near-neighbours to share subject words; the long text it replaced
+    opens the body's `## When to use`, and that is what still tells them apart.
+    Best effort like skill_description: anything unreadable yields ""."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return ""
+    para = re.search(r"^## When to use\n\s*\n(.*?)(?:\n\s*\n|\Z)", text, re.M | re.S)
+    return _trigger_line(para.group(1)) if para else ""
 
 
 def skill_category(name, path=""):
@@ -1736,12 +1774,12 @@ under out up down off again more most other some such only own same too very can
 will just don should now read reads reading use used uses using also one two
 three every each any all both new old
 """.split())
-# Two skills a session could pick either way from: their router lines share this
-# many subject words, so the description alone cannot settle the choice. Three is
-# where the shipped set stops pairing near-neighbours - `plan-add` / `plan-status`
-# / `plan-sync` share four terms and `product-analysis` / `feature-audit` three,
-# while at two `harness` / `no-ai-slop` pair over "asks, user" and the section
-# reads as noise.
+# Two skills a session could pick either way from: the trigger lines of their
+# `## When to use` share this many subject words, so the description alone
+# cannot settle the choice. Three is where the shipped set pairs near-neighbours -
+# `plan-add` / `plan-status` / `plan-sync` share four or five terms,
+# `product-analysis` / `feature-audit` and `design-contract` / `design-library`
+# three - while `ponytail` / `i-have-adhd` stay apart.
 COLLISION_SHARED = 3
 
 
@@ -1760,7 +1798,7 @@ def skill_collisions(groups):
     router is what a session picks from when the descriptions tie. It reads the
     shipped names only: a vendored library's internal collisions are its own
     index's business, and a pair tezgah cannot rename is not a tezgah decision."""
-    lines = {name: skill_description(path)
+    lines = {name: skill_when_line(path)
              for cat in ROUTER_ORDER for name, path in groups[cat]
              if name in SKILLS}
     names = sorted(lines)
@@ -1780,7 +1818,8 @@ def _collision_section(pairs):
     out = [
         "## Collisions",
         "",
-        "Pairs a description alone cannot settle: both router lines carry the"
+        "Pairs a description alone cannot settle: both entries' `## When to use`"
+        " lines carry the"
         " words below, so a session could pick either way from them. Read both"
         " entries before choosing.",
         "",
@@ -1858,20 +1897,38 @@ def install_opencode():
     write_artifact(SKILL_ROUTER_FULL, full, write_if_changed)
     print("%s %s (always-on, %d chars)" % (OK, SKILL_ROUTER, len(always)))
     print("%s %s (on demand, %d chars)" % (OK, SKILL_ROUTER_FULL, len(full)))
-    # TUI status line: opencode has no command statusLine, only a TUI plugin
-    # declared in tui.json. Local path spec resolves relative to tui.json.
-    print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
-               os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
-    tpath = os.path.join(OPENCODE, "tui.json")
-    tui = read_config(tpath, {"$schema": "https://opencode.ai/tui.json"})
-    if tui is not None:
-        plugins = tui.get("plugin") or []
-        spec = "./tui-plugins/tezgah-tui.tsx"
-        if spec not in [p if isinstance(p, str) else p[0] for p in plugins]:
-            plugins.append(spec)
-        tui["plugin"] = plugins
-        write_json(tpath, tui)
-        print("%s tui.json (status line plugin)" % OK)
+    # TUI status line: opencode has no command statusLine, only a TUI plugin.
+    # opencode 1 declares it in tui.json (a local spec resolves relative to it);
+    # opencode 2 ignores tui.json and lists CLI plugins in cli.json `plugins`. A
+    # local v2 entry must name a DIRECTORY whose `tui` module default-exports
+    # Plugin.define({id, setup}) - a spec naming a file is skipped (measured on
+    # v2.0.32) - so the directory hosts/opencode/tui/cli is what gets linked.
+    v2 = opencode_v2()
+    if v2:
+        dst = OPENCODE_CLI_PLUGIN
+        print(link(os.path.join(HERE, "hosts", "opencode", "tui", "cli"), dst))
+        cpath = os.path.join(OPENCODE, "cli.json")
+        cli = read_config(cpath, {})
+        if cli is not None:
+            plugins = cli.get("plugins") or []
+            if "file://" + dst not in plugins:
+                plugins.append("file://" + dst)
+            cli["plugins"] = plugins
+            write_json(cpath, cli)
+            print("%s cli.json (status line plugin)" % OK)
+    else:
+        print(link(os.path.join(HERE, "hosts", "opencode", "tui", "tezgah-tui.tsx"),
+                   os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")))
+        tpath = os.path.join(OPENCODE, "tui.json")
+        tui = read_config(tpath, {"$schema": "https://opencode.ai/tui.json"})
+        if tui is not None:
+            plugins = tui.get("plugin") or []
+            spec = "./tui-plugins/tezgah-tui.tsx"
+            if spec not in [p if isinstance(p, str) else p[0] for p in plugins]:
+                plugins.append(spec)
+            tui["plugin"] = plugins
+            write_json(tpath, tui)
+            print("%s tui.json (status line plugin)" % OK)
     cfg = read_config(os.path.join(OPENCODE, "opencode.json"),
                       {"$schema": "https://opencode.ai/config.json"})
     if cfg is None:
@@ -1923,7 +1980,8 @@ def install_opencode():
     # Context hygiene: prune replaces old tool results in the prompt with
     # "[Old tool result content cleared]" so a long session stops re-sending
     # every output on every step. setdefault keeps a user's explicit choice.
-    cfg.setdefault("compaction", {}).setdefault("prune", True)
+    if not v2:  # opencode 2 omits it as an unsupported legacy setting
+        cfg.setdefault("compaction", {}).setdefault("prune", True)
     wat = cfg.setdefault("watcher", {})
     ign = wat.setdefault("ignore", [])
     for pat in OPENCODE_IGNORE:
@@ -1931,7 +1989,8 @@ def install_opencode():
             ign.append(pat)
     changed = write_json(os.path.join(OPENCODE, "opencode.json"), cfg)
     print("%s opencode.json (instructions + skill router + mcp + skill deny)" % OK)
-    print("%s opencode.json (compaction.prune + watcher.ignore)" % OK)
+    print("%s opencode.json (%swatcher.ignore)"
+          % (OK, "" if v2 else "compaction.prune + "))
     if changed or dropped:
         restart_hint("opencode", os.path.join(OPENCODE, "opencode.json"))
 
@@ -3379,9 +3438,12 @@ def verify_uninstall(hosts, full):
     if "opencode" in hosts:
         claim("opencode plugin unlinked",
               [os.path.join(OPENCODE, d, "tezgah.js") for d in ("plugins", "plugin")]
-              + [os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx")])
+              + [os.path.join(OPENCODE, "tui-plugins", n)
+                 for n in ("tezgah-tui.tsx", "tezgah-cli")])
         clean("opencode opencode.json unwired",
               [os.path.join(OPENCODE, "opencode.json")])
+        clean("opencode cli.json unwired", [os.path.join(OPENCODE, "cli.json")],
+              needle=OPENCODE_CLI_PLUGIN)
         claim("opencode generated routers gone", [SKILL_ROUTER, SKILL_ROUTER_FULL])
     if "cursor" in hosts:
         clean("cursor hooks.json unwired", [os.path.join(CURSOR, "hooks.json")])
@@ -3515,6 +3577,14 @@ def unwire_opencode_config():
                 tj.pop("plugin", None)
             write_json(t, tj)
             print("%s removed tezgah TUI plugin from %s" % (OK, t))
+    cp = os.path.join(OPENCODE, "cli.json")
+    cj = read_json(cp, None)
+    if cj and isinstance(cj.get("plugins"), list):
+        kept = [x for x in cj["plugins"] if x != "file://" + OPENCODE_CLI_PLUGIN]
+        if kept != cj["plugins"]:
+            cj["plugins"] = kept
+            write_json(cp, cj)
+            print("%s removed tezgah CLI plugin from %s" % (OK, cp))
 
 
 def uninstall_claude():
@@ -3576,7 +3646,8 @@ def uninstall_opencode():
         unlink_tezgah(os.path.join(OPENCODE, "skills", s))
     for d in ("plugins", "plugin"):
         unlink_tezgah(os.path.join(OPENCODE, d, "tezgah.js"))
-    unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))
+    for name in ("tezgah-tui.tsx", "tezgah-cli"):
+        unlink_tezgah(os.path.join(OPENCODE, "tui-plugins", name))
     unwire_opencode_config()
     for path in (SKILL_ROUTER, SKILL_ROUTER_FULL):
         try:
@@ -3730,6 +3801,13 @@ def uninstall(hosts, dry_run=False):
         remove_install_tree()
     elif armed:
         rest = sorted(set(armed) - set(hosts))
+        # install_common only ever merges into the record, so this is the one
+        # place a host leaves it; kept, it made every later uninstall partial
+        # and `tezgah update` re-armed it from the record
+        cfg = read_config(tp.CONFIG, {})
+        if cfg is not None:
+            cfg["hosts"] = [h for h in armed if h in rest]
+            write_json(tp.CONFIG, cfg)
         print("\n%s still armed: %s keeps its config and the install tree"
               % (NO, ", ".join(rest)))
     remaining = verify_uninstall(hosts, full)
@@ -4712,6 +4790,7 @@ def host_checks_codex():
 def host_checks_opencode():
     cfg = read_json(os.path.join(OPENCODE, "opencode.json"), {})
     tui = read_json(os.path.join(OPENCODE, "tui.json"), {})
+    cli = read_json(os.path.join(OPENCODE, "cli.json"), {})
     instr = cfg.get("instructions") or []
     specs = [p if isinstance(p, str) else p[0] for p in (tui.get("plugin") or [])]
     return [
@@ -4729,14 +4808,20 @@ def host_checks_opencode():
     ] + mcp_rows(set(cfg.get("mcp") or {}), "opencode.json") + [
         mcp_row(TEZGAH_MCP_NAME, (cfg.get("mcp") or {}).get(TEZGAH_MCP_NAME),
                 "opencode.json", tezgah_mcp_command()),
+    ] + ([
+        ("status line plugin in cli.json + linked",
+         "file://" + OPENCODE_CLI_PLUGIN in (cli.get("plugins") or [])
+         and os.path.exists(OPENCODE_CLI_PLUGIN)),
+    ] if opencode_v2() else [
         ("context pruning armed (compaction.prune)",
          (cfg.get("compaction") or {}).get("prune") is True),
-        ("watcher ignores noisy trees",
-         bool(set(OPENCODE_IGNORE)
-              & set(((cfg.get("watcher") or {}).get("ignore") or [])))),
         ("status line plugin in tui.json + linked",
          any("tezgah-tui" in s for s in specs)
          and os.path.exists(os.path.join(OPENCODE, "tui-plugins", "tezgah-tui.tsx"))),
+    ]) + [
+        ("watcher ignores noisy trees",
+         bool(set(OPENCODE_IGNORE)
+              & set(((cfg.get("watcher") or {}).get("ignore") or [])))),
         # opencode's own registry declares INCEPTION_API_KEY for the inception
         # provider, so nothing needs adding to opencode.json - but the route is
         # only usable once a key resolves, and that is what this reports.
@@ -5941,7 +6026,7 @@ def hosts_row():
     host's first HOST_CHECKS row), as one report row. Reported, never changed:
     `--upgrade`, `--enable`/`--disable` and a full uninstall act on the recorded
     list, so a host wired but not recorded is one they skip, and which list is
-    right is the user's call (`--install --hosts ...` records it)."""
+    right is the user's call (`--install --hosts ...` adds to it)."""
     recorded = sorted(tp.config().get("hosts") or [])
     wired = sorted(h for h in ALL_HOSTS if HOST_CHECKS[h]()[0][1])
     return ("config.json hosts (%s) match the hosts wired (%s)"

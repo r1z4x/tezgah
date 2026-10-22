@@ -18,7 +18,7 @@
     "semicolons": 9
   },
   "docs/contract.md": {
-    "long_sentences": 42,
+    "long_sentences": 41,
     "passive": 25,
     "replace_words": 0,
     "semicolons": 29
@@ -90,7 +90,7 @@
     "semicolons": 77
   },
   "docs/skills.md": {
-    "long_sentences": 36,
+    "long_sentences": 35,
     "passive": 18,
     "replace_words": 0,
     "semicolons": 16

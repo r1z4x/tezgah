@@ -299,6 +299,8 @@ Every other surface reads the store.
   segment from the active theme and rebuilding the separator from `seg.group`
   (56-88,hosts/opencode/tui/tezgah-tui.tsx:108-111). Its `tezgah: status legend` command opens a dialog running
   `--legend` (141-147).
+  On opencode 2 the same line comes from hosts/opencode/tui/cli/tui.tsx, a
+  `Plugin.define` CLI plugin listed in `cli.json`. It reuses the v1 file's `run`.
 - **dsh** — hosts/dsh/statusline/lib/index.js serves `GET /api/tezgah.status`
   behind the Web UI's own authenticated fetch fence, so the browser fetches it
   same-origin with no extra token handling (14,34-38); it always passes

@@ -1,16 +1,23 @@
 ---
 name: harness
 description: >
-  Pick and run the right multi-agent harness for a task in this tree, backed by the
-  codegraph index. Routes to the graph-map, graph-review, or graph-impact dynamic
-  workflows, or to a single general-purpose subagent briefed with the codegraph tools when a full harness is overkill.
-  Use when the user asks for depth, coverage, an audit, a full review, "every call
-  site", "what breaks if", "how does this work end to end", says ultracode, or when
-  a task is too wide for one context window. Not for a task whose deliverable is
-  evidence rather than code - use `research`.
+  Use when the ask needs depth: an audit, every call site, what breaks if, end
+  to end; detaylı incele, tüm çağrı noktaları. Not for evidence - use
+  `research`.
 ---
 
 # harness
+
+## When to use
+
+Pick and run the right multi-agent harness for a task in this tree, backed by
+the codegraph index. Routes to the graph-map, graph-review, or graph-impact
+dynamic workflows, or to a single general-purpose subagent briefed with the
+codegraph tools when a full harness is overkill. Use when the user asks for
+depth, coverage, an audit, a full review, "every call site", "what breaks if",
+"how does this work end to end", says ultracode, or when a task is too wide for
+one context window. Not for a task whose deliverable is evidence rather than
+code - use `research`.
 
 This skill is the **multi-agent** sense of the word "harness": it picks and runs a
 multi-agent harness over the code graph for a task too wide for one context window.
@@ -61,7 +68,7 @@ is reported as such, and an empty list beside it is not evidence of absence.
 and `unverified` (hit the cap, or every refuter failed - label them as such). Never promote a refuted or unverified finding.
 
 `graph-review` is one review round, not a loop: inside a plan it is round one or round two of the
-plan's single review (two rounds at most, `tezgah-task review` refuses a third), never one run per
+plan's single review (two rounds at most, `~/.config/tezgah/bin/tezgah-task review` refuses a third), never one run per
 task, and never re-run on a diff it already read.
 
 `graph-impact`'s `graph_blind_spots` are call sites the graph could not see - string dispatch, config,
