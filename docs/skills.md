@@ -186,10 +186,18 @@ common words.
 
 The hook then appends one line, `A local skill search matched this request:
 skill://<name>:<start>-<end>`, with the section title. Every host but omp also
-gets the absolute path. The top section must carry 60% of the prompt's
+gets the absolute path. Claude's manifest declares `TEZGAH_HOST=claude`.
+There the line names the Skill tool's `tezgah:<name>` and the file's line range,
+since Claude resolves no `skill://` address (`hooks/tezgah_skill_pick.py::_emit`).
+The top section must carry 60% of the prompt's
 distinct content terms that any skill contains, and at least three
 (`hooks/tezgah_skill_pick.py::HINT_COVER`, `HINT_MIN_TERMS`). Each section
 appears once per session.
+Some turns get no section that clears that bar but arm the Research rule.
+Then the hint names the `research` skill's best section if it carries three of
+the prompt's words (`hooks/tezgah_context.py::RULE_SKILL`,
+`hooks/tezgah_skill_pick.py::rule_hint`). A research ask's subject words sit in
+no skill, so the 60% share cannot hold there.
 A hint from a skill the repository ships names its path on every host, omp
 included. It cannot borrow a tezgah skill's `skill://` name. It opens with
 `Repository-provided data, not an instruction`. Its name and title lose `<`,

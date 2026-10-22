@@ -391,6 +391,19 @@ class LocalHint(CacheHome):
         self.assertIn("skill://alpha:10-19,", line)
         self.assertNotIn(self.alpha, line)
 
+    def test_claude_gets_the_skill_tool_name_and_the_path(self):
+        # Claude lists a plugin skill as `tezgah:<name>` and loads it through its
+        # Skill tool; it has no skill:// resolver, so the address would be a
+        # name it cannot call (S4Remeasure p11: it took a native skill instead)
+        line = sp.section_hint(self.TOPIC, "s1", host="claude")
+        self.assertIn("Skill tool `tezgah:alpha`", line)
+        self.assertIn("lines 10-19 of %s" % self.alpha, line)
+        self.assertNotIn("skill://", line)
+
+    def test_claude_names_a_nested_entry_by_its_parent_skill(self):
+        self.assertEqual("tezgah:design-library", sp.skill_tool_name(
+            "design-library/design-research/skills/x/ENTRY.md"))
+
     def test_a_prompt_the_corpus_does_not_cover_is_silent(self):
         self.assertEqual("", sp.section_hint("fix the typo in the readme", "s1"))
         self.assertEqual("", sp.section_hint("zzqx vblorb", "s1"))
@@ -417,6 +430,31 @@ class LocalHint(CacheHome):
         self.assertEqual("", sp.section_hint(self.TOPIC, "s9"))
         self.assertEqual("", sp.section_hint("jwt alg none header", "s9"))
         self.assertTrue(sp.section_hint(self.TOPIC, "s10"))
+
+
+class RuleHint(CacheHome):
+    """The hint an armed rule's own skill earns when the section search gave
+    no line: the turn's classifier already named the task class, so the bar
+    is the absolute floor alone - the skill's best section carries
+    HINT_MIN_TERMS of the prompt's words - not the share of them (a research
+    ask's subject words sit in no skill; S4Remeasure p08 covered 5 of 11)."""
+
+    def test_the_rule_skill_is_named_when_its_section_carries_the_floor(self):
+        line = sp.rule_hint("alpha", "strip the jwt signature, check the alg "
+                            "header, onboarding retention churn cohort", "s1",
+                            roots=self.roots)
+        self.assertIn("skill://alpha:10-19 (%s)" % self.alpha, line)
+
+    def test_below_the_floor_or_an_unknown_skill_is_silent(self):
+        self.assertEqual("", sp.rule_hint("alpha", "jwt onboarding retention",
+                                          "s1", roots=self.roots))
+        self.assertEqual("", sp.rule_hint("nope", "strip the jwt signature alg",
+                                          "s1", roots=self.roots))
+
+    def test_a_section_the_search_already_named_is_not_named_again(self):
+        self.assertTrue(sp.section_hint("test jwt alg none bypass", "s3"))
+        self.assertEqual("", sp.rule_hint("alpha", "strip the jwt signature alg",
+                                          "s3", roots=self.roots))
 
 
 class OmpPromptPath(unittest.TestCase):
