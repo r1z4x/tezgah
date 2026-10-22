@@ -167,8 +167,11 @@ class Workspace(TempHome):
         the warning that says it is not locked yet or owes no variants. Its
         direction is one the artifacts a test adds cannot contradict - `conclude`
         on a concluded line, `deepen` otherwise - unless `direction` names one.
-        `rules` overrides the rule set `init` wrote, for a case about an older
-        line."""
+
+        Pinned to rules 7 (`EXPLORE_RULES`) unless `rules` names another: `init`
+        writes rules 8 since plan 127, and these cases are about the rules-7
+        reading every sealed line up to rules 7 is still checked by - a rules-8
+        case opts in with `rules=tr.EVIDENCE_RULES`."""
         tr.init(repo, slug, question=question, created="2026-01-01")
         base = tr.line_dir(repo, slug)
         state = json.loads(read(os.path.join(base, "state.json")))
@@ -180,8 +183,7 @@ class Workspace(TempHome):
         state["deliverable"] = {"kind": "finding"}
         state["method"] = "measured"
         state["scope"] = {"in": ["the change's effect"], "out": ["other changes"]}
-        if rules is not None:
-            state["rules"] = rules
+        state["rules"] = tr.EXPLORE_RULES if rules is None else rules
         self.write(os.path.join(base, "state.json"), json.dumps(state))
         return base
 
@@ -1165,7 +1167,8 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        # plan 127's last wave moved `RULES` to the evidence rules: `init` writes 8
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
@@ -5844,7 +5847,11 @@ class Exploratory(Workspace):
     the stage an idea is in is read from its newest row, and the board, the
     dedup and the yield reports are reports, never gates."""
 
-    def campaign(self, repo, evaluator=True, commit=True):
+    def campaign(self, repo, evaluator=True, commit=True, rules=tr.EXPLORE_RULES):
+        """An exploratory line, pinned to rules 7 like `line`: these cases are the
+        rules-7 campaign reading, and its formal INDEX rows hold no receipt, which
+        rules 8 refuses (`resolves in no registry`). `rules=None` keeps what `init`
+        wrote."""
         self.write(os.path.join(repo, "eval", "score.py"), "print(1)\n")
         arena = tr.arena_record(repo, "pick integers whose sum scores best",
                                 "8 ideas, 2 pilots, 1 full run",
@@ -5854,6 +5861,9 @@ class Exploratory(Workspace):
                 ask="new ways to hit 100", method="exploratory",
                 scope_in=["integer lists"], scope_out=["floats"], arena=arena)
         base = tr.line_dir(repo, "camp")
+        if rules is not None:
+            path = os.path.join(base, "state.json")
+            self.write(path, json.dumps(dict(json.loads(read(path)), rules=rules)))
         for name, cls in (("n1.md", "formal"), ("n2.md", "formal"),
                           ("n3.md", "grey"), ("a1.md", "agent-report"),
                           ("a2.md", "agent-report"), ("a3.md", "agent-report")):
@@ -5906,12 +5916,13 @@ class Exploratory(Workspace):
                                "fixture": "toy"}) + "\n")
         self.write(os.path.join(d, "analysis.md"), "# a\n")
 
-    def test_init_locks_the_arena_on_rules_7_only(self):
+    def test_init_locks_the_arena_from_rules_7_on(self):
         repo = self.repo()
-        base = self.campaign(repo)
+        base = self.campaign(repo, rules=None)
         state = tr.line_state(repo, "camp")
         self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        # plan 127's flip: `init` writes rules 8, and the arena stays locked on it
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
         self.assertEqual(state["arena"]["evaluator_sha256"],
                          tr._digest(os.path.join(repo, "eval", "score.py")))
         self.assertEqual(tr.scope_problems(state), [])
@@ -6295,15 +6306,17 @@ class OrxModuleNames(unittest.TestCase):
 
 
 class EvidenceRulesBound(unittest.TestCase):
-    """Rules 8 (plan 127) is read before `init` writes it: a line declaring it is
-    not refused as a later tezgah's, while rules 9 still is; `RULES` stays 7."""
+    """Rules 8 (plan 127) is the rules `init` writes: a line declaring it is read
+    as current, rules 9 is still refused, and a rules-7 line (every sealed line
+    up to the flip) is not held to the evidence rules."""
 
     def test_rules_8_is_read_and_rules_9_is_refused(self):
         self.assertEqual(tr.EVIDENCE_RULES, 8)
-        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        # the flip: `RULES` was `EXPLORE_RULES` (7) until plan 127's last wave
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
         self.assertIsNone(tr.newer_rules({"rules": tr.EVIDENCE_RULES}))
         self.assertTrue(tr._evidence({"rules": tr.EVIDENCE_RULES}))
-        self.assertFalse(tr._evidence({"rules": tr.RULES}))
+        self.assertFalse(tr._evidence({"rules": tr.EXPLORE_RULES}))
         refusal = tr.newer_rules({"rules": 9})
         self.assertIn("rules 9 is newer than the rules this tezgah implements (8)",
                       refusal)
