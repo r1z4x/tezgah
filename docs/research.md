@@ -876,23 +876,26 @@ INDEX row whose `id` is an arXiv id or a DOI. Each answer becomes a row of
 `literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
 `literature/.receipts/<sha256>.raw`. `cite` names and skips any other id. It exits 0
 even when nothing resolves, because judging the receipts is `check`'s job
-(`hooks/tezgah_research_capture.py::cmd_cite`). `check` reads them offline
+(`hooks/tezgah_research_capture.py::cmd_cite`). The INDEX may write an id as a bare DOI
+such as `10.1145/abc.1` (`hooks/tezgah_research_capture.py::norm_id`). `check`
+reads the receipts offline and judges only those for an id the INDEX holds now
 (`hooks/tezgah_research_capture.py::_check_receipts`):
 
 - `check` refuses a receipt row that a re-parse of its raw bytes contradicts:
   `not derived from its capture`.
 - A resolved receipt has to name the INDEX id in its raw bytes
   (`hooks/tezgah_research_capture.py::receipt_ids`). Else `check` refuses it with
-  `is not derived from its capture: its raw bytes name <ids>, not that id`. Its
-  `url` has to be the provider's receipt URL for that id. Else the refusal reads
-  `<url> is not the <provider> receipt URL for that id (<expected>)`. A refused
-  receipt resolves nothing.
+  `is not derived from its capture: its raw bytes name <ids>, not that id - correct the INDEX id`,
+  and the message ends by naming `cite` as the command to run again.
+  Its `url` has to be the provider's receipt URL for that id. Else the refusal
+  reads `<url> is not the <provider> receipt URL for that id (<expected>)`. A
+  refused receipt resolves nothing.
 - It refuses a formal row that no receipt resolves: `resolves in no registry`. A
   formal row with an empty `id` gets the same refusal. A row with
   `unindexed_reason` takes the step `unindexed-source` instead.
-- It refuses a row that one provider alone resolves:
-  `receipts from fewer than 2 providers`. An alphaXiv or `orx paper` record
-  counts as `arxiv`.
+- A row that one provider alone resolves, with an agreeing header, takes the step
+  `one-provider` (`hooks/tezgah_research_capture.py::citation_verdict`). An
+  alphaXiv or `orx paper` record counts as `arxiv`.
 - An INDEX `title`, `year` or `first_author` that agrees with no resolved
   receipt takes `header-mismatch`. Titles agree at a word overlap of 0.5 or more
   (`hooks/tezgah_research_capture.py::title_agrees`). Years agree within one, for
@@ -919,11 +922,16 @@ always comes from a receipt. The first step that yields text decides the capture
 The quotes come from three places. One is a citing claim's `quote` field. Another
 is each double-quoted span of three or more words in its `statement`. The last is
 each `> "..."` blockquote of the note. A quote splits on `...`, `…` and `[...]`.
-Each fragment of three or more words has to appear in order. They all sit in one
-stored passage, or the k-th fragment sits in the k-th passage stored for that
-quote (`hooks/tezgah_research_capture.py::_found`). Normalisation drops citation
-markers, also one split by tags or spaces such as `[ 12 ]`
-(`hooks/tezgah_research_capture.py::normalise`). The record lands in
+Each fragment of three or more words has to appear in order. `fetch` keeps the
+whole extracted text in `literature/.sources/<sha256>.txt`, and its record names
+it as `text_file` with `text_sha256`. `check` looks for each quote in that text,
+in the stored passages and in the abstracts of the receipts for the note's id
+(`hooks/tezgah_research_capture.py::_found`). Normalisation drops citation
+markers, also one split by tags or spaces such as `[ 12 ]`. A hyphen between two
+letters reads as a space (`hooks/tezgah_research_capture.py::normalise`). `check`
+refuses a record whose text file is gone with `has no capture`, and one whose
+text file hashes otherwise with `hash mismatch`
+(`hooks/tezgah_research_capture.py::_source_text`). The record lands in
 `literature/.sources/<sha256>.json` with the 300 characters either side of each
 match, and `literature/.sources/SOURCES.jsonl` gets its row. A SOURCES row sets
 access only through its own `literature/.sources/*.json` record for that note,
@@ -934,9 +942,10 @@ note path with `.`, `,`, `;`, `:` or `)`, and the note still counts as cited
 decides what `check` does
 (`hooks/tezgah_research_capture.py::_check_sources`):
 
-- `full` or `user`: `check` refuses a quote missing from the stored passages with
-  `quote not in the captured source text`. Run `fetch` again when the claim came
-  after the capture.
+- `full` or `user`: `check` refuses a quote found nowhere with
+  `quote not in the captured source text`. The message names the two exits.
+  Rephrase a non-quote without quotation marks, or `fetch --file` the version
+  quoted.
 - `abstract`: claims citing the note take `abstract-only`.
 - `none`, or no capture: they take `source-not-captured`, a ceiling.
 - A concluded line with formal rows owes `closed-access: <k> of <n>` in its report.
@@ -950,15 +959,23 @@ stores a connector's raw output in `searches/raw/<sha256>.raw` and one row of
 registries, `orx discover` and `orx paper`. Any other connector exits 1 with
 `connector not on the allowlist`. `--tag counter` without an `--item` equal to a
 `scope.in` entry exits 2. A search that does not answer 200 exits 1 and writes
-nothing. The session screens by hand, one row per decision in
+nothing. An answer that does not parse as that connector's response exits 1 with
+`does not parse as a <connector> response; nothing was written`. An answer
+byte-identical to an earlier search's capture writes no row, and `search` says so
+and exits 0. The session screens by hand, one row per decision in
 `searches/screening.jsonl`: `{"search", "id", "decision": "kept"|"dropped", "reason", "screener"}`.
 `check` refuses a SEARCHES or SOURCES row with no `file`:
 `<SEARCHES|SOURCES> row <n> names no file, so it has no capture`
-(`hooks/tezgah_research_capture.py::_check_ledger_files`). A SEARCHES row counts
-toward a connector or a counter search only with a readable `searches/raw/`
-capture. `check` also refuses a row whose `hits` or `ids` a re-parse contradicts
-(`not derived from its capture`). It refuses a screening row whose id no captured
-search returned: `screens an id no captured search returned`.
+(`hooks/tezgah_research_capture.py::_check_ledger_files`). It also refuses a
+SEARCHES row whose file lies outside `searches/raw/`, or whose capture another
+row already names. Both messages end `so it has no capture`
+(`hooks/tezgah_research_capture.py::_check_searches`). `check` refuses a capture
+that does not parse under its row's connector with `not derived from its capture:
+<file> does not parse as a <connector> response`
+(`hooks/tezgah_research_capture.py::schema_ok`). It refuses a row whose `hits` or
+`ids` a re-parse contradicts the same way. Only a row that passes these counts toward a
+connector, a counter search or saturation. A screening row for an id that no
+captured search returned takes the step `screened-outside-search`.
 
 On a search line, claims that cite literature take these steps
 (`hooks/tezgah_research_capture.py::_check_searches`). `one-connector` means fewer
@@ -976,13 +993,17 @@ rule. It has to enter the history before the first search row, or the line takes
   record.
 - `{"rule": "pragmatic", "risk": "<text>"}` always holds and names the risk taken.
 
-**`tezgah-research source <slug> <h> --run <id> [--arm <a>] [--item <i>] [--value <field>=<number>]...`**
+**`tezgah-research source <slug> <h> --run <id> [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...`**
 writes its results row itself (`hooks/tezgah_research.py::source_run`). The row
-names `run`, the arm, the item and each value as a number. When the line names an
-orx project it also holds the engine's `status`. A value whose number is no token
-of the stored log exits 1 with `value not in the run log`. A reserved key
-(`source`, `log`, `run`, `arm`, `item`, `scope`, `fixture`, `status`, `command`)
-as `--value` exits 2. A second filing of one run writes `raw/<run>.<n>.log`.
+names `run`, the arm, the item and each value as a number. `--instrument <name>`
+writes `instrument`, `arm` and `item`, so `gold` and `label` work on the runs
+`source` records. When the line names an orx project the row also holds the
+engine's `status`. A value matches a logged number by numeric equality, so `1.5`
+matches `1.50`. A value with no equal number in the stored log exits 1 with
+`value not in the run log (orx logs <run> holds no number equal to <v>)`. A
+reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
+`fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
+writes `raw/<run>.<n>.log`.
 `check --orx` warns `orx run <id> has no results row` for an engine run that no
 row names. A row with status `aborted` or `failed` stays a row and counts in no
 group.
@@ -1000,9 +1021,10 @@ ledgers only grow. `check` refuses what changed anyway
 - a ledger row that a later commit changed or dropped
 - a ledger row whose file does not hash to its `sha256`: `hash mismatch`.
 
-The stopping-rule order and these write-once rules read the current branch's
-history only, never every ref (`hooks/tezgah_research.py::file_versions`). A
-backdated side branch neither satisfies the order nor breaks the line. These
+The append-only ledgers are read across every ref, as the results file is. The
+stopping-rule order and the capture files read the current branch's lineage only
+(`hooks/tezgah_research.py::file_versions`). A backdated side branch therefore
+cannot satisfy the stopping-rule order. These
 rules cannot see a capture that was false at its first write. `check --online` is
 the check for that case.
 
@@ -1055,6 +1077,9 @@ The steps, by name as `check` prints them:
 | `no-stopping-rule` | -1 | search line: `state.stopping` missing, invalid or committed after the first search |
 | `stopping-not-met` | -1 | the recomputed stopping rule does not hold |
 | `known-item-missed` | -1 | a `state.known_items` id is in no captured search |
+| `screened-outside-search` | -1 | a screening row names an id that no captured search returned |
+| `one-provider` | -1 | one provider alone resolves the formal id, and its header agrees |
+| `falsifier-not-evaluable` | -1 | a measured protocol's falsifier has neither a comparator with a number nor a named test with its alpha |
 | `fewer-than-two-rivals` | -1 | R5 or R6: fewer than two `rival:` lines |
 | `no-replication` | -1 | a group of a cited experiment holds fewer than two rows |
 | `no-power-plan` | -1 | a measured protocol lacks one of `alpha:`, `power:`, `mde:`, `n:` |
@@ -1087,6 +1112,11 @@ other value, including one with no number:
 
 - `experiment <h>: protocol.md <alpha|power>: <value> is not a number in (0, 1)`
 - `experiment <h>: protocol.md <sesoi|mde>: <value> is not a number above 0`
+- `protocol.md alpha: <value> leaves a quantile at 0 or 1`
+
+A statistic that still fails to compute gives one refusal per experiment, never a
+traceback: `experiment <h>: statistics could not be computed: <error>`
+(`hooks/tezgah_research.py::_check_rules8`).
 
 - A group whose rows all carry an `outcome` of 0 or 1 prints
   `stats <slug>: <h> <group> n=<n> k=<k> wilson=[<lo>, <hi>] cp=[<lo>, <hi>]`, the
@@ -1109,9 +1139,9 @@ other value, including one with no number:
 ### Hypotheses and falsifiers
 
 On a measured line, a falsifier needs a comparator and a number, or a named test
-with its alpha. `check` refuses anything else with
-`falsifier holds no comparator and number`
-(`hooks/tezgah_research.py::falsifier_testable`). The structured form
+with its alpha (`hooks/tezgah_research.py::falsifier_testable`). Claims citing an
+experiment whose falsifier has neither take the step `falsifier-not-evaluable`.
+The structured form
 `falsifier: <field> <op> <number> [on <group>]` is the one `check` evaluates. Its
 `<op>` is `<`, `<=`, `>`, `>=`, `=`, `≤`, `≥`, `at most`, `at least`, `above`,
 `below`, `less than`, `more than`, `fewer than`, `greater than`, `exceed`,
