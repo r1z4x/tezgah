@@ -4736,6 +4736,7 @@ SUBCOMMAND_READS = {"gh": (("pr", "view"), ("pr", "list"), ("issue", "view"),
 # all (review F6), as a pattern read at an argument's start: git's `--output`
 # and external diff/textconv drivers, ripgrep's `--pre`, find's actions, a
 # short-option cluster holding sort's `-o`, sed's `-i`/`-f`, awk's `-i`/`-f`,
+# printf's `-v` (it assigns a variable, PATH included: plan 126),
 # and curl's writes to a file and non-GET requests. `tree` and `file` left the
 # list instead of growing one here: tree writes through clustered short options
 # (`-fo out`) and `-R -H`, file through `-C` (review N4).
@@ -4744,6 +4745,7 @@ WRITING_OPTIONS = {
     "rg": re.compile(r"--pre"),
     "find": re.compile(r"-(?:delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$"),
     "sort": re.compile(r"-[^-]*o|--output"),
+    "printf": re.compile(r"-v"),
     "sed": re.compile(r"-[^-]*[if]|--(?:in-place|file)"),
     "awk": re.compile(r"-[^-]*[if]|--(?:include|file|load)"),
     "gawk": re.compile(r"-[^-]*[if]|--(?:include|file|load|inplace)"),

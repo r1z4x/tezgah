@@ -556,7 +556,8 @@ whole session instead of the turn:
   after the work, where the turn fold saw nothing to judge (audit M-2, INT-01).
 - **A turn of reads.** The rule treats a turn of known reads as a turn with no work (plan 086,
   S4). Each command in it is a known read: a program in `READ_ONLY_PROGRAMS` or a git read in
-  `GIT_READS`, with no option in `WRITING_OPTIONS`. `sed`, `awk`, `uniq`, `gh` and `codegraph`
+  `GIT_READS`, with no option in `WRITING_OPTIONS` (`printf -v` assigns a variable, so it is
+  one). `sed`, `awk`, `uniq`, `gh` and `codegraph`
   count with no writing script, one operand or a read verb. A `sqlite3` read-only open counts,
   from the option or the database URI, and so does an `ssh` whose remote command is
   such a read (`hooks/tezgah_integrity.py::_bookkeeping_command`). Any other command, a commit included,

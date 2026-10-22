@@ -352,8 +352,12 @@ class BookkeepingCommand(unittest.TestCase):
                   "rg --pre ./x.sh pat",
                   "GIT_EXTERNAL_DIFF=./x.sh git diff",
                   "env GIT_EXTERNAL_DIFF=./x.sh git diff",
-                  "git -c diff.external=./x.sh diff", "git diff --ext-diff"):
+                  "git -c diff.external=./x.sh diff", "git diff --ext-diff",
+                  # `printf -v` assigns a variable: PATH then picks the next
+                  # `cat` (plan 126)
+                  "printf -v PATH /tmp/x; cat a", "printf -vPATH /tmp/x; cat a"):
             self.assertFalse(ti._bookkeeping_command(c), c)
+        self.assertTrue(ti._bookkeeping_command("printf '%s\\n' a b"))
 
     def test_a_quote_lost_in_a_comment_or_body_fails_closed(self):
         # review N1: an apostrophe in a `#` comment, a heredoc body or an
