@@ -128,29 +128,65 @@ def seeded_draw(items, seed, arm, n):
         ("%s:%s:%s" % (seed, arm, item)).encode("utf-8")).hexdigest())[:n]
 
 
+def gold_record(base, row):
+    """(record, mismatch) of a GOLD row: the gold file it names read as a dict, else None, and
+    the `differs from the seeded draw` refusal when the row and the file disagree on
+    instrument, arm, seed or n, else None."""
+    rel = row.get("file")
+    record, exc = tr._read_json(os.path.join(base, rel)) if isinstance(rel, str) \
+        else (None, "no file")
+    if exc or not isinstance(record, dict):
+        return None, None
+    said, held = ([r.get("instrument"), str(r.get("arm")), r.get("seed"), r.get("n")]
+                  for r in (row, record))
+    if said == held:
+        return record, None
+    return record, ("%s differs from the seeded draw: its GOLD row names %s arm %s seed %s n %s, "
+                    "the file %s arm %s seed %s n %s" % tuple([rel] + said + held))
+
+
 def first_draws(base):
-    """{(instrument, arm): gold record} of the first GOLD row per pair whose file reads."""
+    """{(instrument, arm): gold record} of the first GOLD row per pair whose file reads and
+    agrees with it, keyed on the file's own instrument and arm."""
     out = {}
     for row in _rows(base, GOLD):
-        key = (row.get("instrument"), str(row.get("arm")))
-        if key in out or not isinstance(row.get("file"), str):
-            continue
-        record, exc = tr._read_json(os.path.join(base, row["file"]))
-        if not exc and isinstance(record, dict) and isinstance(record.get("items"), list):
-            out[key] = record
+        record, mismatch = gold_record(base, row)
+        if record is not None and not mismatch and isinstance(record.get("items"), list):
+            out.setdefault((record.get("instrument"), str(record.get("arm"))), record)
     return out
+
+
+def _is_label(row):
+    """A label row carries both `truth` and `output`; any other row labels nothing."""
+    return row.get("truth") is not None and row.get("output") is not None
 
 
 def first_labels(base):
     """({(instrument, arm, item): label row}, [repeated items]) - the first label counts."""
     out, repeated = {}, []
-    for row in _rows(base, LABELS):
+    for row in filter(_is_label, _rows(base, LABELS)):
         key = (row.get("instrument"), str(row.get("arm")), str(row.get("item")))
         if key in out:
             repeated.append(key)
         else:
             out[key] = row
     return out, repeated
+
+
+def label_problems(base):
+    """The `label output differs from its results row` refusals: `label` copies a label's
+    output from the results row's outcome, so a label holding anything else was not."""
+    items = instrument_items(base)
+    problems = []
+    for row in filter(_is_label, _rows(base, LABELS)):
+        name, arm, item = row.get("instrument"), str(row.get("arm")), str(row.get("item"))
+        held = _outcome(items.get(name, {}).get(arm, {}).get(item)) \
+            if isinstance(name, str) else None
+        if row["output"] != held:
+            problems.append("label output differs from its results row: %s arm %s item %s "
+                            "output %s, results row %s"
+                            % (name, arm, item, row["output"], "none" if held is None else held))
+    return problems
 
 
 def arm_score(record, labels, name, arm):
@@ -162,16 +198,25 @@ def arm_score(record, labels, name, arm):
     return len(items), sum(1 for g in got if g.get("truth") != g.get("output"))
 
 
+def proportion_threshold(threshold):
+    """True when a measure threshold reads as a difference of proportions (at most 1)."""
+    return threshold is not None and threshold <= 1
+
+
 def judge_status(kind, uppers, threshold):
     """(status or None, aggregate) from the labelled arms' uppers ({arm: upper}), per 3.1:
     rejected when the threshold fails over the labelled arms alone. A measure instrument
-    with no `mde:` has no threshold, so it is never rejected and never validated."""
+    with no `mde:`, or one above 1 (the threshold reads a difference of proportions), has no
+    threshold, so it is never rejected and stays unvalidated; None leaves the choice between
+    validated and unvalidated to the caller."""
     if kind == "verdict":
         agg = max(uppers.values()) if uppers else 0.0
         failed = any(u > VERDICT_BOUND for u in uppers.values())
     else:
         agg = sum(uppers.values())
-        failed = bool(uppers) and threshold is not None and agg >= threshold
+        if not proportion_threshold(threshold):
+            return "unvalidated", agg
+        failed = bool(uppers) and agg >= threshold
     return ("rejected" if failed else None), agg
 
 
@@ -206,12 +251,13 @@ def instrument_report(base, slug):
                 lines.extend(_ppi_line(slug, name, arm, record, labels, items[name][arm]))
         status, agg = judge_status(kind, uppers, threshold)
         if status is None:
-            status = "validated" if spec and uppers and complete and threshold is not None \
-                else "unvalidated"
+            status = "validated" if spec and uppers and complete else "unvalidated"
         statuses[name] = status
-        lines.append("instrument %s: %s %s %s=%.4f threshold=%s"
+        lines.append("instrument %s: %s %s %s=%.4f threshold=%s%s"
                      % (slug, name, status, "max" if kind == "verdict" else "sum", agg,
-                        "none" if threshold is None else "%.4f" % threshold))
+                        "none" if threshold is None else "%.4f" % threshold,
+                        "" if threshold is None or proportion_threshold(threshold) else
+                        " (mde above 1: the threshold reads a difference of proportions)"))
     return statuses, lines
 
 
@@ -264,16 +310,19 @@ def _added_rev(base, rel):
 
 
 def gold_problems(base, git):
-    """The `differs from the seeded draw` refusals: a gold file must be its seed's draw over
-    the arm's items now, or over the items committed when the file was added."""
+    """The `differs from the seeded draw` refusals: a GOLD row and its gold file must agree,
+    and the file must be its seed's draw over the arm's items now, or over the items committed
+    when the file was added."""
     problems = []
     now = instrument_items(base)
     for row in _rows(base, GOLD):
-        rel = row.get("file")
-        record, exc = tr._read_json(os.path.join(base, rel)) if isinstance(rel, str) \
-            else (None, "no file")
-        if exc or not isinstance(record, dict):
+        record, mismatch = gold_record(base, row)
+        if record is None:
             continue
+        if mismatch:
+            problems.append(mismatch)
+            continue
+        rel = row["file"]
         name, arm, seed = record.get("instrument"), str(record.get("arm")), record.get("seed")
         drawn = [str(i) for i in record.get("items") or []]
         n = record.get("n") if isinstance(record.get("n"), int) else len(drawn)
@@ -340,6 +389,7 @@ def check(repo, slug, base, state, errors, warnings, strict, git, steps):
     statuses, lines = instrument_report(base, slug)
     report.extend(lines)
     errors.extend(gold_problems(base, git))
+    errors.extend(label_problems(base))
     _, repeated = first_labels(base)
     for _name, _arm, item in repeated:
         warnings.append("label repeated for %s; the first counts" % item)
@@ -628,7 +678,7 @@ def case_flagged(case, root):
         upper = st.clopper_pearson(case["errors"], case["n"])[1]
         arms = {"all": upper} if ikind == "verdict" else {"a": upper, "b": upper}
         status, _ = judge_status(ikind, arms, mde)
-        return status == "rejected" or mde is None
+        return status in ("rejected", "unvalidated")
     raise ValueError("unknown case kind %r" % kind)
 
 

@@ -307,6 +307,78 @@ class Instruments(Line):
         self.assertTrue(any(r.startswith("ppi q: j arm a lambda=") for r in steps["#report"]),
                         steps["#report"])
 
+    def test_gold_row_naming_another_arms_file_is_refused_and_draws_nothing(self):
+        # D4-3: a GOLD row for j/a naming the file `gold` drew for k/b
+        self.put("experiments/h2/protocol.md", "change: x\ndesign: experiment\nmde: 0.10\n")
+        self.put("experiments/h2/results.jsonl", rows(*(
+            {"item": "i%03d" % n, "arm": arm, "instrument": name, "outcome": n % 2}
+            for name, arm in (("j", "a"), ("k", "b")) for n in range(1, 21))))
+        code, out = self.run_cmd("gold", ["q", "k", "--arm", "b", "--n", "10", "--seed", "5"])
+        self.assertEqual(code, 0, out)
+        with open(os.path.join(self.base, ev.GOLD), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"instrument": "j", "arm": "a", "seed": 5, "n": 10,
+                                 "file": "instruments/gold/k-b-5.json"}) + "\n")
+        errors, _, _ = self.check()
+        self.assertIn("instruments/gold/k-b-5.json differs from the seeded draw: its GOLD row "
+                      "names j arm a seed 5 n 10, the file k arm b seed 5 n 10", errors)
+        self.assertNotIn(("j", "a"), ev.first_draws(self.base))
+        self.assertIn(("k", "b"), ev.first_draws(self.base))
+        code, out = self.run_cmd("label", ["q", "j", "--arm", "a", "--human", "r", "--ack",
+                                           "ok"], rows({"item": "i001", "truth": 1}))
+        self.assertEqual(code, 1, out)
+        self.assertIn("has no gold draw", out)
+
+    def test_label_row_without_truth_and_output_leaves_the_item_unlabelled(self):
+        # D1-7: no refusal, the arm stays unlabelled
+        self.run_cmd("instrument", ["add", "q", "j", "--kind", "measure", "--rung", "R4",
+                                    "--construct", "slow"])
+        self.items("j", {"a": [k % 2 for k in range(80)], "b": [k % 2 for k in range(80)]})
+        hand = []
+        for arm in ("a", "b"):
+            self.run_cmd("gold", ["q", "j", "--arm", arm, "--n", "72", "--seed", "5"])
+            drawn = ev.first_draws(self.base)[("j", arm)]["items"]
+            hand += [{"instrument": "j", "arm": arm, "item": i} for i in drawn[:70]]
+            hand += [{"instrument": "j", "arm": arm, "item": drawn[70], "truth": 0},
+                     {"instrument": "j", "arm": arm, "item": drawn[71], "truth": None,
+                      "output": None}]
+        self.put(ev.LABELS, rows(*hand))
+        self.put("claims.jsonl", rows({"id": "C3", "proof": ["experiments/h2/results.jsonl"]}))
+        errors, warnings, steps = self.check()
+        self.assertEqual(errors, [])
+        self.assertFalse(any("label repeated" in w for w in warnings), warnings)
+        self.assertIn("instrument q: j unvalidated sum=0.0000 threshold=0.1000", steps["#report"])
+        self.assertIn("instrument-unvalidated", steps["C3"])
+        self.assertEqual(ev.first_labels(self.base), ({}, []))
+
+    def test_label_output_unlike_its_results_row_is_refused(self):
+        # D4-6b: a hand-written label whose output is forged equal to the truth
+        self.items("j", {"a": [0] * 10})
+        code, out = self.run_cmd("gold", ["q", "j", "--arm", "a", "--n", "5", "--seed", "1"])
+        self.assertEqual(code, 0, out)
+        drawn = ev.first_draws(self.base)[("j", "a")]["items"]
+        self.put(ev.LABELS, rows(*({"instrument": "j", "arm": "a", "item": i, "truth": 1,
+                                    "output": 1 if k == 0 else 0}
+                                   for k, i in enumerate(drawn))))
+        errors, _, _ = self.check()
+        self.assertEqual([e for e in errors if "label output" in e],
+                         ["label output differs from its results row: j arm a item %s output 1, "
+                          "results row 0" % drawn[0]])
+
+    def test_measure_mde_above_one_leaves_the_instrument_unvalidated(self):
+        # D4-7: the threshold reads a difference of proportions; mde 50 is no threshold
+        self.run_cmd("instrument", ["add", "q", "j", "--kind", "measure", "--rung", "R4",
+                                    "--construct", "slow"])
+        self.items("j", {"a": [k % 2 for k in range(80)], "b": [k % 2 for k in range(80)]},
+                   mde="50")
+        self.gold_and_label("j", "a", 72, 5, wrong=72)
+        self.gold_and_label("j", "b", 72, 5, wrong=72)
+        self.put("claims.jsonl", rows({"id": "C3", "proof": ["experiments/h2/results.jsonl"]}))
+        _, _, steps = self.check()
+        self.assertIn("instrument q: j unvalidated sum=2.0000 threshold=50.0000 (mde above 1: "
+                      "the threshold reads a difference of proportions)", steps["#report"])
+        self.assertIn("instrument-unvalidated", steps["C3"])
+        self.assertEqual(ev.conclude_problems(self.repo, "q", self.base, {}), [])
+
 
 class Commands(Line):
     def test_calibration_brier_over_resolved_hypotheses(self):
