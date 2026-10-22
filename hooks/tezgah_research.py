@@ -142,7 +142,7 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # that owes no variants), 6 the selection warnings (`_check_selection`: the
 # held-out set, repeats per arm, the noise band), 7 the exploratory method (an
 # arena locked before the first idea, the idea/stage/tournament rows and their
-# rules, `_check_exploratory`). A `rules` above `RULES` is
+# rules, `_check_exploratory`). A `rules` above `EVIDENCE_RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
@@ -151,6 +151,10 @@ SCOPE_RULES = 5
 HOLDOUT_RULES = 6
 EXPLORE_RULES = 7
 RULES = EXPLORE_RULES
+# Rules 8 (plan 127): evidence captured by the tool and claims narrowed rather
+# than lines refused. `check` reads a line that declares it; `init` still writes
+# `RULES` until the plan's last wave moves `RULES` here.
+EVIDENCE_RULES = 8
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
@@ -2782,6 +2786,11 @@ def _rules(state):
     return value if isinstance(value, int) and not isinstance(value, bool) else 1
 
 
+def _evidence(state):
+    """True for a line opened under the evidence rules (`EVIDENCE_RULES`)."""
+    return _rules(state) >= EVIDENCE_RULES
+
+
 def _state(base):
     """state.json as an object, or {} when it is missing or unreadable."""
     state, exc = _read_json(os.path.join(base, "state.json"))
@@ -2791,16 +2800,16 @@ def _state(base):
 def newer_rules(state):
     """The refusal for a line a later tezgah wrote, or None.
 
-    A `rules` above `RULES` names rules this code does not implement. Reading the
-    line by the rules it does know would pass what the later set refuses, and a
-    writer would append rows judged by the older set. So the line is refused by
-    name, before any rule reads it."""
+    A `rules` above `EVIDENCE_RULES` names rules this code does not implement.
+    Reading the line by the rules it does know would pass what the later set
+    refuses, and a writer would append rows judged by the older set. So the line
+    is refused by name, before any rule reads it."""
     found = _rules(state)
-    if found <= RULES:
+    if found <= EVIDENCE_RULES:
         return None
     return ("state.json rules %d is newer than the rules this tezgah implements (%d): "
             "a later tezgah wrote this line, so it is refused rather than read as if "
-            "current - upgrade tezgah to read or write it" % (found, RULES))
+            "current - upgrade tezgah to read or write it" % (found, EVIDENCE_RULES))
 
 
 def _concluding(base, state):

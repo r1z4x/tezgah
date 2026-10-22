@@ -1169,9 +1169,9 @@ class RulesVersion(Workspace):
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
-        base = self.line(repo, rules=tr.RULES + 1)
+        base = self.line(repo, rules=tr.EVIDENCE_RULES + 1)
         needle = "rules %d is newer than the rules this tezgah implements" % (
-            tr.RULES + 1)
+            tr.EVIDENCE_RULES + 1)
         errors = self.errors(repo)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn(needle, errors[0])
@@ -6259,6 +6259,53 @@ class Exploratory(Workspace):
                   self.match("I1", "I2", "ba", judge=JUDGE_D))
         self.assertFalse(hit(("generator", "one order", "judges"),
                              self.warnings(repo, slug="camp", git=False)))
+
+
+class OrxModuleNames(unittest.TestCase):
+    """Every `orx skill <name>` the research skill and the policy text name is a
+    module orx 0.2.20 ships; a bare name resolves to its `orx-` prefixed module.
+    When orx is installed, each name also loads (`orx skill <name>` exits 0)."""
+
+    MODULES = ("orx-create", "orx-experiment-tree", "orx-git",
+               "orx-agent-delegation", "orx-compute", "orx-instances", "orx-logs",
+               "orx-results", "orx-reports", "orx-figures", "orx-paper",
+               "orx-customize", "orx-lit-review", "orx-feedback")
+    SOURCES = ("skills/research/SKILL.md", "hooks/tezgah_policy.py")
+    NAME = re.compile(r"(?:orx|\{ORX_BIN\})[ \t]+skill[ \t]+([a-z][a-z0-9-]*)")
+
+    def names(self):
+        found = set()
+        for rel in self.SOURCES:
+            found.update(self.NAME.findall(read(os.path.join(REPO, rel))))
+        return sorted(found)
+
+    def test_every_named_module_exists_in_orx(self):
+        names = self.names()
+        self.assertTrue(names)
+        unknown = [n for n in names if n not in self.MODULES
+                   and "orx-" + n not in self.MODULES]
+        self.assertEqual(unknown, [])
+        orx = shutil.which("orx") or os.path.expanduser("~/.cargo/bin/orx")
+        if not os.path.exists(orx):
+            return
+        failed = [n for n in names if subprocess.run(
+            [orx, "skill", n], capture_output=True).returncode != 0]
+        self.assertEqual(failed, [])
+
+
+class EvidenceRulesBound(unittest.TestCase):
+    """Rules 8 (plan 127) is read before `init` writes it: a line declaring it is
+    not refused as a later tezgah's, while rules 9 still is; `RULES` stays 7."""
+
+    def test_rules_8_is_read_and_rules_9_is_refused(self):
+        self.assertEqual(tr.EVIDENCE_RULES, 8)
+        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        self.assertIsNone(tr.newer_rules({"rules": tr.EVIDENCE_RULES}))
+        self.assertTrue(tr._evidence({"rules": tr.EVIDENCE_RULES}))
+        self.assertFalse(tr._evidence({"rules": tr.RULES}))
+        refusal = tr.newer_rules({"rules": 9})
+        self.assertIn("rules 9 is newer than the rules this tezgah implements (8)",
+                      refusal)
 
 
 if __name__ == "__main__":

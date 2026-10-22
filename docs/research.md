@@ -68,8 +68,10 @@ are the standards rules. Rules 3 add the ask contract. Rules 4 add the protocol
 sections below. Rules 5 add the scope lock. Rules 6 add the selection warnings
 ("Held-out set, repeats and noise band" below). Rules 7 add the `exploratory`
 method ("Rules 7: exploratory lines" below). A bump never weakens an older set.
+Rules 8 (`EVIDENCE_RULES`) is the evidence rule set of plan 127: `check` reads a
+line that declares it, and `init` does not write it yet.
 
-A `rules` above `RULES` means a later tezgah wrote the line. `check` then reports
+A `rules` above `EVIDENCE_RULES` means a later tezgah wrote the line. `check` then reports
 one error that names both numbers and reads nothing else. The writers refuse the
 line too: `claim`, `predict`, `compare`, `source --run`, `verdict`, `conclude`,
 `close` and `migrate` (`newer_rules`). Upgrade tezgah to work on such a line.

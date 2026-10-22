@@ -73,8 +73,8 @@ breaking one silently invalidates the run:
 - grow the experiment tree downward, not sideways.
 
 Load its manual before driving it: `orx skill`, then the module for the step
-(`orx skill lit-review` for sources; `orx skill experiment-tree` and
-`orx skill evidence` for a measured line).
+(`orx skill lit-review` for sources; `orx skill experiment-tree`,
+`orx skill orx-results` and `orx skill orx-logs` for a measured line).
 Local runs need no login; managed compute does - run locally at a scale that fits,
 and ask for `orx login` only when the question cannot be answered without it.
 If `orx` is absent, say the research tooling is unavailable and do not improvise
