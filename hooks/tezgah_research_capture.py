@@ -1088,9 +1088,9 @@ def _notes_by_id(base):
 def _held(warnings, rel, versions):
     """One warning per ledger naming the parser versions its rows were held under."""
     if versions:
-        warnings.append("%s: rows of parser %s are held to their hash alone; this check "
-                        "re-derives parser %d rows only" % (rel, ", ".join(sorted(versions)),
-                                                            PARSER))
+        warnings.append("%s: rows of parser version %s are held to their hash alone; this "
+                        "check re-derives parser version %d rows only"
+                        % (rel, ", ".join(sorted(versions)), PARSER))
 
 
 def _check_receipts(slug, base, claims, errors, warnings, steps, report, online):

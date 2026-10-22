@@ -1190,7 +1190,7 @@ Each RECEIPTS and SEARCHES row records `parser`, the version of the parser that
 derived it (`hooks/tezgah_research_capture.py::PARSER`). A row without the field
 reads as version 0. `check` re-derives a row only under its own version. It holds
 an older row to its hash alone and warns once per ledger:
-`rows of parser <v> are held to their hash alone; this check re-derives parser 1 rows only`.
+`rows of parser version <v> are held to their hash alone; this check re-derives parser version 1 rows only`.
 
 The append-only ledgers are read across every ref, as the results file is. The
 stopping-rule order and the capture files read the current branch's lineage only
