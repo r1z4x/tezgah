@@ -1891,11 +1891,24 @@ class RoundOne(Rules8):
 
 class RoundTwo(Rules8):
     def test_degenerate_alpha_is_refused_without_a_traceback(self):
+        # R2-1: alpha 1e-20 is refused by key and value, never by a traceback.
         spec = mixed_spec()
         spec["protocol"]["h1"] = protocol().replace("alpha: 0.05", "alpha: 1e-20")
-        fx, out = self.build_check(spec)
+        fx = self.build(spec)
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
         self.assertNotIn("Traceback", out)
-        self.assertRegex(out, r"(?m)^FAIL q: .*statistics could not be computed")
+        self.assertRegex(out, r"(?m)^FAIL q: .*\balpha\b.*1e-20")
+
+    def test_statistics_error_no_key_check_foresees_is_one_refusal(self):
+        # R2-1 catch-all: variances past the float range overflow inside the statistics.
+        spec = mixed_spec()
+        spec["runs"]["h1"] = runs(base=(10 ** 200, 3 * 10 ** 200), cache=(90, 91))
+        fx = self.build(spec)
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"(?m)^FAIL q: experiment h1: statistics could not be computed: ")
 
     def test_long_s_comparator_is_no_operator(self):
         spec = mixed_spec()
