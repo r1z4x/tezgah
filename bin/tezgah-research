@@ -20,6 +20,7 @@
   tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
                            [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
+                           [--ack "<the user's words>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
   tezgah-research verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"
                                                    record one success criterion's verdict
@@ -696,14 +697,15 @@ def cmd_source(args):
     import re
     import tezgah_research_capture as cap
     reserved = ("source", "log", "run", "arm", "item", "instrument", "scope", "fixture",
-                "status", "command")
+                "status", "command", "ack")
     usage = ('source <slug> <hypothesis> --run <orxRunId> [--instrument <name>] [--arm <a>] '
              '[--item <i>] [--value <field>=<number>]... [--command "<cmd>"] '
-             '[--scope real|fixture|derived] [--fixture "<what was generated>"]')
+             '[--scope real|fixture|derived] [--fixture "<what was generated>"] '
+             '[--ack "<the user\'s words>"]')
     if len(args) < 2:
         return misuse(usage)
     slug, hypothesis = args[0], args[1]
-    run = command = scope = arm = item = ""
+    run = command = scope = arm = item = ack = ""
     instrument = None
     fixture = None
     values = []
@@ -724,6 +726,8 @@ def cmd_source(args):
             arm = rest.pop(0)
         elif flag == "--item" and rest:
             item = rest.pop(0)
+        elif flag == "--ack" and rest:
+            ack = rest.pop(0)
         elif flag == "--value" and rest:
             field, _eq, number = rest.pop(0).partition("=")
             if field in reserved:
@@ -745,6 +749,8 @@ def cmd_source(args):
         return misuse("--fixture needs the text naming what was generated")
     if instrument is not None and not instrument.strip():
         return misuse("--instrument needs the instrument's name")
+    if ack and not ack.strip():
+        return misuse('--ack needs "<the user\'s words>" for a log above the bound')
     repo = repo_root(os.getcwd())
     known = tr.slugs(repo)
     if slug not in known:
@@ -754,7 +760,7 @@ def cmd_source(args):
         return misuse("orx is not installed, so no run log can be read; nothing "
                       "was written (TEZGAH_ORX_BIN overrides the lookup)")
     path, problems = tr.source_run(repo, slug, hypothesis, run, orx, command, scope,
-                                   fixture or "", arm, item, values, instrument or "")
+                                   fixture or "", arm, item, values, instrument or "", ack)
     if problems:
         for problem in problems:
             print("FAIL %s: %s" % (slug, problem))

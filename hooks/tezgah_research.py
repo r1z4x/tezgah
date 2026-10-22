@@ -4099,6 +4099,11 @@ def falsifier_testable(text):
 # (`(ms, median of 5 runs)`), never between digit groups (`10,000-piece`), and never
 # inside the locked name, which is one name (plan 128 K1, K3).
 METRIC_COMMA = re.compile(r",(?![^()]*\))(?!(?<=\d,)\d)")
+# A word of a metric name, for the reworded comparison: hyphen and underscore split,
+# digits kept (`p95`), and the joining words a reworded name may drop or add
+# (`of`, `the`, `per`) ignored.
+METRIC_WORD = re.compile(r"[0-9a-z]+")
+METRIC_JOIN = {"a", "an", "the", "of", "for", "in", "on", "to", "per", "by", "with"}
 
 
 def _metric_key(name):
@@ -4107,10 +4112,19 @@ def _metric_key(name):
     return " ".join(re.sub(r"\s*\([^)]*\)\s*$", "", str(name or "")).casefold().split())
 
 
+def _metric_words(key):
+    return {w for w in METRIC_WORD.findall(key) if w not in METRIC_JOIN}
+
+
 def _same_metric(a, b):
     """True when one metric key is the other or a word-boundary prefix of it, either
-    way: `p95 latency` and `p95 latency of the read path` (plan 128 K2)."""
-    return a == b or a.startswith(b + " ") or b.startswith(a + " ")
+    way (plan 128 K2), or a rewording of it: every word of `b` sits in `a`, in any
+    order and with the joining words ignored (`read-path p95 latency` is
+    `p95 latency of the read path`, K6 raters X6 and Y6)."""
+    if a == b or a.startswith(b + " ") or b.startswith(a + " "):
+        return True
+    words = _metric_words(b)
+    return bool(words) and words <= _metric_words(a)
 
 
 def _registered(state, fields):
@@ -5721,36 +5735,40 @@ def urlsplit_host(source):
     return host[4:] if host.startswith("www.") else host
 
 
-# ponytail: a run log above 16 MiB is refused rather than committed as a receipt; a run
-# that logs more is the ceiling, filed by hand with its log trimmed.
+# A run log above 16 MiB is refused rather than committed as a receipt unseen; the
+# refusal names `--ack`, which files it whole when the owner says so (K6 rater X6).
 RUN_LOG_BOUND = 16 * 1024 * 1024
 # What orx 0.2.20's `orx logs` prints instead of the log: the path, the size, a tail.
 ORX_LOG_SUMMARY = re.compile(r"\s*This is the path to the full log file: (.+?)[ \t]*\n"
                              r"\s*It is ([\d,]+) bytes\.")
 
 
-def _full_log(repo, run, out):
+def _bound_problem(verb, run, size, bound):
+    return ("orx logs %s %s %d bytes, above the %d-byte bound a receipt is committed "
+            "under - file it with --ack \"<the user's words>\" to keep it whole"
+            % (run, verb, size, bound))
+
+
+def _full_log(repo, run, out, bound=RUN_LOG_BOUND):
     """(bytes, problem): the run log `orx logs` printed - its output, or, when that is
     orx's summary, the file the summary names, held to the size it printed (K6 rater
-    Y2: the summary's 500-character tail is not the log). Either is held to
-    `RUN_LOG_BOUND`."""
+    Y2: the summary's 500-character tail is not the log). Either is held to `bound`
+    (`RUN_LOG_BOUND`; None when the owner acknowledged the size, which reads it whole)."""
     found = ORX_LOG_SUMMARY.match(out)
     if not found:
         if out.lstrip().startswith("This is the path to the full log file:"):
             return None, ("orx logs %s printed the log's path without its size, so the "
                           "file cannot be held to what orx saw" % run)
         data = out.encode("utf-8")
-        if len(data) > RUN_LOG_BOUND:
-            return None, ("orx logs %s printed %d bytes, above the %d-byte bound a receipt "
-                          "is committed under" % (run, len(data), RUN_LOG_BOUND))
+        if bound is not None and len(data) > bound:
+            return None, _bound_problem("printed", run, len(data), bound)
         return data, None
     path, size = os.path.join(repo, found.group(1)), int(found.group(2).replace(",", ""))
-    if size > RUN_LOG_BOUND:
-        return None, ("orx logs %s said %d bytes, above the %d-byte bound a receipt is "
-                      "committed under" % (run, size, RUN_LOG_BOUND))
+    if bound is not None and size > bound:
+        return None, _bound_problem("said", run, size, bound)
     try:
         with open(path, "rb") as fh:
-            data = fh.read(RUN_LOG_BOUND + 1)
+            data = fh.read(-1 if bound is None else bound + 1)
     except OSError as exc:
         return None, "cannot read the log orx logs %s names: %s" % (run, exc)
     if len(data) != size:
@@ -5761,7 +5779,7 @@ def _full_log(repo, run, out):
 
 
 def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="",
-               arm="", item="", values=(), instrument=""):
+               arm="", item="", values=(), instrument="", ack=""):
     """(path, problems): file one orx run as this experiment's receipt.
 
     `orx logs` is read here rather than by the session, so the log lands in the
@@ -5793,7 +5811,10 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     `raw/<run>.<n>.log` (a capture is written once). A rules-8 line's row also
     names its `run`, the engine's
     `status` when the line names an orx project, and the log and row are committed
-    as `capture: source <slug>` (plan 127, spec 1.4)."""
+    as `capture: source <slug>` (plan 127, spec 1.4).
+
+    `ack` is the owner's words for a log above `RUN_LOG_BOUND`: the log is stored
+    whole and the row records the words (K6 rater X6)."""
     if scope and scope not in SCOPES:
         return None, ["scope %r is not one of %s" % (scope, ", ".join(SCOPES))]
     if fixture and (not isinstance(fixture, str) or not fixture.strip()):
@@ -5851,7 +5872,7 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     out, err = _run([orx, "logs", run], cwd=repo)
     if err:
         return None, ["orx logs %s failed: %s" % (run, err)]
-    data, problem = _full_log(repo, run, out)
+    data, problem = _full_log(repo, run, out, None if ack else RUN_LOG_BOUND)
     if problem:
         return None, [problem]
     if not data.strip():
@@ -5885,6 +5906,8 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
         row[field] = int(written) if re.fullmatch(r"-?\d+", written) else float(written)
     if command:
         row["command"] = command
+    if ack:
+        row["ack"] = ack
     if scope:
         row["scope"] = scope
     if fixture:

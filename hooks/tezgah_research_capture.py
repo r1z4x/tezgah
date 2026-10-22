@@ -38,7 +38,8 @@ import tezgah_paths as tp
 import tezgah_research as tr
 import tezgah_research_stats as st
 
-PROVIDERS = ("arxiv", "crossref", "openalex", "semanticscholar")
+PROVIDERS = ("arxiv", "crossref", "openalex", "semanticscholar", "pubmed", "scopus",
+             "acm")
 ORX_CONNECTORS = ("discover", "paper")
 TAGS = ("primary", "snowball", "counter", "known")
 SEARCH_CLASSES = ("R1", "R2", "R7", "R8", "R9", "R10")
@@ -52,10 +53,18 @@ SEARCH_URLS = {
     "crossref": "https://api.crossref.org/works?query=%s&rows=50",
     "openalex": "https://api.openalex.org/works?search=%s&per-page=50",
     "semanticscholar": ("https://api.semanticscholar.org/graph/v1/paper/search?query=%s"
-                        "&limit=50&fields=title,externalIds,year")}
+                        "&limit=50&fields=title,externalIds,year"),
+    "pubmed": ("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed"
+               "&retmax=50&retmode=json&term=%s"),
+    "scopus": "https://api.elsevier.com/content/search/scopus?query=%s&count=50",
+    # del.acm.org answers a browser check (403), so ACM DL is read through Crossref's
+    # member 320 (ACM), which holds the same DOIs
+    "acm": "https://api.crossref.org/works?query=%s&rows=50&filter=member:320"}
+PUBMED_SUMMARY = ("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed"
+                  "&retmode=json&id=%s")
 ORX_ARXIV = re.compile(r"(?<![\d.])(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
 ORX_DOI = re.compile(r"10\.\d{4,9}/[^\s\"'<>]+")
-ID_ORDER = ("arXiv:", "doi:", "openalex:", "s2:")
+ID_ORDER = ("arXiv:", "doi:", "openalex:", "s2:", "pubmed:")
 
 INDEX = "literature/INDEX.jsonl"
 RECEIPTS = "literature/.receipts/RECEIPTS.jsonl"
@@ -160,9 +169,37 @@ def engine_runs(state):
     try:
         doc = json.loads(out.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
-        return None, "orx %s did not print JSON" % " ".join(argv)
+        # orx 0.2.20 has no `--json` and prints a table (K6 rater Y5)
+        runs = _runs_table(out.decode("utf-8", "replace"))
+        if runs is None:
+            return None, "orx %s printed neither JSON nor a run table" % " ".join(argv)
+        return runs, None
     runs = doc.get("runs") if isinstance(doc, dict) else doc
     return [r for r in runs if isinstance(r, dict)] if isinstance(runs, list) else [], None
+
+
+ORX_RUNS_HEAD = re.compile(r"^ID\s+STATUS\s+EXPERIMENT\b")
+ORX_RUNS_RULE = re.compile(r"^[\s\u2500-\u257f-]+$")
+
+
+def _runs_table(out):
+    """The rows of orx 0.2.20's `orx runs` table as objects (id, status, experiment,
+    commit, duration, updated), or None when the answer is not that table. Cells sit
+    two or more spaces apart, so an experiment name with single spaces stays whole."""
+    lines = out.splitlines()
+    if not any(ORX_RUNS_HEAD.match(line) for line in lines):
+        return None
+    runs = []
+    for line in lines:
+        if not line.strip() or ORX_RUNS_HEAD.match(line) or ORX_RUNS_RULE.match(line):
+            continue
+        cells = [c.strip() for c in re.split(r"\s{2,}", line.strip())]
+        if len(cells) < 2 or not cells[0]:
+            continue
+        cells += [""] * (6 - len(cells))
+        runs.append(dict(zip(("id", "status", "experiment", "commit", "duration",
+                              "updated"), cells[:6])))
+    return runs
 
 
 def run_id(run):
@@ -309,7 +346,8 @@ ARXIV_BARE = re.compile(r"((?:\d{2}(?:0[1-9]|1[0-2])\.\d{4,5})|(?:[a-z-]+(?:\.[A
 
 
 def norm_id(raw):
-    """The normalised id (`arXiv:`, `doi:`, `openalex:W`, `s2:`), or None. A bare arXiv
+    """The normalised id (`arXiv:`, `doi:`, `openalex:W`, `s2:`, `pubmed:`), or None. A
+    bare arXiv
     id is read from a string only: a JSON number is a number, never an id."""
     s = str(raw or "").strip()
     low = s.lower()
@@ -335,7 +373,7 @@ def norm_id(raw):
         if doi.startswith("10.48550/arxiv."):
             return "arXiv:" + re.sub(r"v\d+$", "", doi[len("10.48550/arxiv."):])
         return "doi:" + doi
-    for prefix in ("openalex:", "s2:"):
+    for prefix in ("openalex:", "s2:", "pubmed:"):
         if low.startswith(prefix) and s[len(prefix):].strip():
             return prefix + s[len(prefix):].strip()
     return None
@@ -430,6 +468,8 @@ def receipt_urls(rid):
         return [("openalex", "https://api.openalex.org/works/" + rid[9:])]
     if rid and rid.startswith("s2:"):
         return [("semanticscholar", S2_PAPER % rid[3:])]
+    if rid and rid.startswith("pubmed:"):
+        return [("pubmed", PUBMED_SUMMARY % rid[7:])]
     return []
 
 
@@ -466,6 +506,12 @@ def receipt_ids(provider, data):
             ext = doc.get("externalIds") if isinstance(doc.get("externalIds"), dict) else {}
             values = [("s2:", doc.get("paperId")), ("doi:", ext.get("DOI")),
                       ("arXiv:", ext.get("ArXiv"))]
+        elif provider == "pubmed":
+            result = doc.get("result") if isinstance(doc.get("result"), dict) else {}
+            values = [("pubmed:", k) for k in result if k != "uids"]
+            values += [("doi:", a.get("value")) for r in result.values()
+                       if isinstance(r, dict) for a in r.get("articleids") or ()
+                       if isinstance(a, dict) and a.get("idtype") == "doi"]
     values = [v[0] + v[1] if isinstance(v, tuple) and isinstance(v[1], str) else v
               for v in values]
     return {i for i in map(_url_id, values) if i}
@@ -516,6 +562,11 @@ def parse_receipt(provider, rid, status, data):
             out.update(title=_text(doc.get("title")),
                        first_author=_last_word(_dig(doc, "authors", 0, "name")),
                        year=_year(doc.get("year")), abstract=_text(doc.get("abstract")))
+        elif provider == "pubmed":
+            uid = str(rid or "")[7:]
+            out.update(title=_text(_dig(doc, "result", uid, "title")),
+                       first_author=_last_word(_dig(doc, "result", uid, "sortfirstauthor")),
+                       year=_year(_dig(doc, "result", uid, "pubdate")))
     out["resolved"] = bool(out["title"])
     return out
 
@@ -583,7 +634,8 @@ def cmd_cite(repo, args):
         rid = norm_id(row.get("id"))
         urls = receipt_urls(rid)
         if not urls:
-            print("skipped %s: id %r is not an arXiv, DOI, OpenAlex or Semantic Scholar id"
+            print("skipped %s: id %r is not an arXiv, DOI, OpenAlex, Semantic Scholar "
+                  "or PubMed id"
                   % (row.get("note"), row.get("id")))
             continue
         for provider, url in urls:
@@ -639,10 +691,18 @@ def quote_fragments(quote):
 
 
 def _locate(fragments, text):
-    """[(fragment, index or -1)], each searched after the previous match."""
+    """[(fragment, index or -1)], each searched after the previous match.
+
+    A fragment that is not there verbatim is read again with its spaces optional: an
+    extraction that dropped one (`human-inthe-loop` for `human-in-the-loop`) still
+    carries the fragment's letters in order (K6 rater Y6's probe)."""
     out, pos = [], 0
     for frag in fragments:
         i = text.find(frag, pos)
+        if i < 0 and not frag.isalnum():
+            found = re.compile(r"(?<!\w)" + r"\s*".join(map(re.escape, frag.split()))
+                               + r"(?!\w)").search(text, pos)
+            i = found.start() if found else -1
         out.append((frag, i))
         if i >= 0:
             pos = i + len(frag)
@@ -847,9 +907,10 @@ def _allowed(connector, argv):
 
 def schema_ok(connector, data):
     """True when a search's raw bytes parse under its connector's response schema: an
-    Atom feed (arXiv), a JSON object holding `message.items` (Crossref), `results`
-    (OpenAlex) or `data`/`total` (Semantic Scholar, which omits `data` at 0 hits),
-    UTF-8 text (orx). A capture filed under another connector is not derived from it."""
+    Atom feed (arXiv), a JSON object holding `message.items` (Crossref and ACM),
+    `results` (OpenAlex), `data`/`total` (Semantic Scholar, which omits `data` at 0
+    hits), `esearchresult.idlist` (PubMed) or `search-results.entry` (Scopus), UTF-8
+    text (orx). A capture filed under another connector is not derived from it."""
     if connector == "arxiv":
         try:
             return ET.fromstring(data).tag == ATOM + "feed"
@@ -864,8 +925,12 @@ def schema_ok(connector, data):
     doc = _json(data)
     if not isinstance(doc, dict):
         return False
-    if connector == "crossref":
+    if connector in ("crossref", "acm"):
         return isinstance(_dig(doc, "message", "items"), list)
+    if connector == "pubmed":
+        return isinstance(_dig(doc, "esearchresult", "idlist"), list)
+    if connector == "scopus":
+        return isinstance(_dig(doc, "search-results", "entry"), list)
     if connector == "openalex":
         return isinstance(doc.get("results"), list)
     return connector == "semanticscholar" and (isinstance(doc.get("data"), list)
@@ -887,7 +952,16 @@ def search_records(connector, data):
         records = [[i] for i in ids if i]
     else:
         doc = _json(data)
-        if connector == "crossref":
+        if connector == "pubmed":
+            ids = _dig(doc, "esearchresult", "idlist")
+            records = [["pubmed:%s" % i] for i in ids if isinstance(i, (str, int))] \
+                if isinstance(ids, list) else []
+        elif connector == "scopus":
+            entries = _dig(doc, "search-results", "entry")
+            records = [[norm_id("doi:%s" % e["prism:doi"])]
+                       for e in entries if isinstance(e, dict) and e.get("prism:doi")] \
+                if isinstance(entries, list) else []
+        elif connector in ("crossref", "acm"):
             items = _dig(doc, "message", "items")
             records = [[norm_id("doi:%s" % i.get("DOI"))] if i.get("DOI") else []
                        for i in items if isinstance(i, dict)] if isinstance(items, list) else []
@@ -942,8 +1016,12 @@ def cmd_search(repo, args):
     elif connector in PROVIDERS:
         if not " ".join(words).strip():
             return _misuse(usage)
+        if connector == "scopus" and not os.environ.get("TEZGAH_SCOPUS_KEY"):
+            return _misuse("the scopus connector needs TEZGAH_SCOPUS_KEY set to an "
+                           "Elsevier API key (https://dev.elsevier.com/apikey/manage)")
         url = SEARCH_URLS[connector] % urllib.parse.quote_plus(" ".join(words))
-        status, data = fetch_url(url)
+        status, data = fetch_url(url, headers={"X-ELS-APIKey": os.environ["TEZGAH_SCOPUS_KEY"]}
+                                 if connector == "scopus" else None)
     else:
         print("FAIL %s: %s: connector not on the allowlist (%s, orx discover, orx paper)"
               % (slug, connector, ", ".join(PROVIDERS)))

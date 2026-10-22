@@ -3195,6 +3195,28 @@ class SourceRun(Workspace):
         data, problem = tr._full_log(self.home, "r1", "x" * tr.RUN_LOG_BOUND)
         self.assertEqual((len(data), problem), (tr.RUN_LOG_BOUND, None))
 
+    def test_a_log_above_the_bound_files_with_an_ack(self):
+        """K6 rater X6, row 6: a run log above `RUN_LOG_BOUND` could never be filed
+        through `source`. The refusal names `--ack`, and the acknowledged log is stored
+        whole and records the words."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        body = ("first p95=118\n" + "measured\n" * (tr.RUN_LOG_BOUND // 9 + 1)).encode()
+        self.assertGreater(len(body), tr.RUN_LOG_BOUND)
+        env = self.summarising_orx(repo, body)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("above the %d-byte bound" % tr.RUN_LOG_BOUND, proc.stdout)
+        self.assertIn('--ack "<the user\'s words>"', proc.stdout)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--ack",
+                        "the training log is this verbose", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(os.path.join(self.exp_dir(repo), "raw", "r1.log"), "rb") as fh:
+            self.assertEqual(fh.read(), body)
+        rows = tr._row_objects(os.path.join(self.exp_dir(repo), "results.jsonl"))
+        self.assertEqual(rows[0]["ack"], "the training log is this verbose")
+
     def test_log_numbers_read_thousands_separators_and_exponents(self):
         """K6 rater Y2: `12,345` is 12345 and never 345, `1.2e-3` is 0.0012, and
         `--value k=1.2e-3` is a number; matching stays numeric equality."""
@@ -3448,6 +3470,25 @@ class RegisteredMetric(Workspace):
                 errors = self.errors(repo, git=False)
                 self.assertEqual(hit("metric other than the locked one", errors), refused,
                                  errors)
+
+    def test_a_reworded_metric_matches_the_lock_by_its_words(self):
+        """K6 raters X6 and Y6: `read-path p95 latency` was refused against the lock
+        `p95 latency of the read path` because neither is a prefix of the other. Every
+        word of the lock sits in the registered name, so it is the same measure."""
+        self.assertTrue(tr._same_metric("read-path p95 latency",
+                                        "p95 latency of the read path"))
+        self.assertTrue(tr._same_metric("p95 latency of the read path",
+                                        "read-path p95 latency"))
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nthe read-path p95 latency fell.\n")
+        self.lock(base, "p95 latency of the read path")
+        self.register(repo, "read-path p95 latency")
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit(["metric other than the locked one", "is neither reported"],
+                             errors), errors)
 
     def test_a_comma_in_the_locked_metric_never_splits_it(self):
         """Plan 128 K3: the lock is one name, so the `metric:` list keeps it whole and
