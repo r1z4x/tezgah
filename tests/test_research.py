@@ -1169,9 +1169,9 @@ class RulesVersion(Workspace):
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
-        base = self.line(repo, rules=tr.RULES + 1)
+        base = self.line(repo, rules=tr.EVIDENCE_RULES + 1)
         needle = "rules %d is newer than the rules this tezgah implements" % (
-            tr.RULES + 1)
+            tr.EVIDENCE_RULES + 1)
         errors = self.errors(repo)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn(needle, errors[0])
@@ -6291,6 +6291,21 @@ class OrxModuleNames(unittest.TestCase):
         failed = [n for n in names if subprocess.run(
             [orx, "skill", n], capture_output=True).returncode != 0]
         self.assertEqual(failed, [])
+
+
+class EvidenceRulesBound(unittest.TestCase):
+    """Rules 8 (plan 127) is read before `init` writes it: a line declaring it is
+    not refused as a later tezgah's, while rules 9 still is; `RULES` stays 7."""
+
+    def test_rules_8_is_read_and_rules_9_is_refused(self):
+        self.assertEqual(tr.EVIDENCE_RULES, 8)
+        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        self.assertIsNone(tr.newer_rules({"rules": tr.EVIDENCE_RULES}))
+        self.assertTrue(tr._evidence({"rules": tr.EVIDENCE_RULES}))
+        self.assertFalse(tr._evidence({"rules": tr.RULES}))
+        refusal = tr.newer_rules({"rules": 9})
+        self.assertIn("rules 9 is newer than the rules this tezgah implements (8)",
+                      refusal)
 
 
 if __name__ == "__main__":
