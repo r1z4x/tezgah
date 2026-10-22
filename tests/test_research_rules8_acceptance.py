@@ -2059,5 +2059,77 @@ class FalseRefusalsTurnedIntoSteps(Rules8):
         self.assertTrue(os.path.isfile(fx.path("instruments/gold/judge-s-a-1.json")))
 
 
+class RoundThree(Rules8):
+    """False refusals the measurement named (spec section 6, M-1..M-3)."""
+
+    def test_metric_refining_the_locked_one_is_reported_by_the_locked_name(self):
+        for registered, unreported in (("p95 latency of the lookups", None),
+                                       ("p95 latency of the lookups, p50 latency",
+                                        "p50 latency")):
+            with self.subTest(registered=registered):
+                spec = mixed_spec()
+                spec["protocol"]["h1"] = protocol().replace(
+                    "metric: p95 latency\n", "metric: %s\n" % registered)
+                fx, out = self.build_check(spec)
+                self.assertNotIn("'p95 latency of the lookups' is neither reported", out)
+                if unreported:
+                    self.assertRegex(out, r"(?m)^FAIL q: .*registered metric '%s' is neither "
+                                          r"reported" % re.escape(unreported))
+                else:
+                    self.assertNotIn("neither reported nor marked not_reported", out)
+
+    def test_source_before_a_committed_lock_refused_and_writes_nothing(self):
+        spec = empty_spec("measured", "R6")
+        evaluation = spec["state"].pop("evaluation")
+        spec["protocol"]["h1"] = protocol()
+        spec["orx_extra"] = {"r1": {"log": "run r1 arm cache\np95 90\n", "status": "completed"}}
+        fx = self.build(spec)
+        with open(fx.path("state.json"), encoding="utf-8") as fh:
+            st = json.load(fh)
+        _write(fx.path("state.json"), json.dumps(dict(st, evaluation=evaluation), indent=2)
+               + "\n")
+
+        def snapshot():
+            files = sorted(os.path.relpath(os.path.join(d, f), fx.base)
+                           for d, _, names in os.walk(fx.base) for f in names)
+            return (tz_git(fx, "rev-parse", "HEAD"), tz_git(fx, "status", "--porcelain"), files)
+        argv = ["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value", "p95=90",
+                "--scope", "real"]
+        before = snapshot()
+        rc, out = fx.run(argv)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("tezgah-research commit q", out)
+        self.assertEqual(snapshot(), before, "source wrote or committed before the lock")
+        fx.must(["commit", "q", "evaluation lock"])
+        fx.must(argv)
+        self.assertEqual(len(ledger_rows(fx, "experiments/h1/results.jsonl")), 1)
+
+    def test_openalex_and_s2_ids_resolve_at_their_one_provider(self):
+        wid, pid = "W4390000009", "649def34f8be52c8b66281af98ae884c09aef38b"
+        cases = (
+            ("openalex:" + wid, "https://openalex.org/" + wid,
+             "https://api.openalex.org/works/" + wid,
+             {"id": "https://openalex.org/" + wid, "doi": None, "title": TITLE,
+              "display_name": TITLE, "publication_year": 2024,
+              "authorships": [{"author": {"display_name": "Ann Smith"}}],
+              "open_access": {"oa_url": None},
+              "abstract_inverted_index": {"We": [0], "study": [1], "caching.": [2]}}),
+            ("s2:" + pid, "https://www.semanticscholar.org/paper/" + pid,
+             "https://api.semanticscholar.org/graph/v1/paper/%s"
+             "?fields=title,authors,year,externalIds,abstract" % pid,
+             {"paperId": pid, "title": TITLE, "year": 2024, "authors": [{"name": "Ann Smith"}],
+              "externalIds": {}, "abstract": "We study caching."}))
+        for rid, source, url, body in cases:
+            with self.subTest(id=rid):
+                spec = mixed_spec()
+                spec["index"][0].update({"id": rid, "source": source, "verified": [rid]})
+                spec["map"] = {url: json.dumps(body)}
+                fx, out = self.build_check(spec)
+                self.assertNotIn("Traceback", out)
+                self.assertNotIn("resolves in no registry", out)
+                self.assertNotIn("fewer than 2 providers", out)
+                self.assertIn("one-provider", certainty_line(self, out, "C2"))
+
+
 if __name__ == "__main__":
     unittest.main()
