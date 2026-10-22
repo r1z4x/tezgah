@@ -3971,8 +3971,8 @@ def falsifier_testable(text):
                 or (FALSIFIER_TEST.search(text) and FALSIFIER_ALPHA.search(text)))
 
 
-def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, git,
-                       lines):
+def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, strict,
+                       git, lines):
     """One experiment's rules-8 refusals (2.2, 2.4) and report lines (2.3)."""
     import tezgah_research_stats as stats
     h, fields = exp["h"], exp["fields"]
@@ -4015,8 +4015,9 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, g
             found = re.search(r"(?im)^\W*selected\W*:\s*`?([\w.-]+)",
                               _note_text(os.path.join(exp["dir"], "analysis.md")))
             if not found:
-                warnings.append("%s: analysis states no selected group, and `select:` "
-                                "picks %s" % (label, pick))
+                _soft(errors, warnings, strict,
+                      "%s: analysis states no selected group, and `select:` picks %s"
+                      % (label, pick))
             elif found.group(1) != pick:
                 errors.append("%s: select rule picks %s, and analysis.md selected: %s"
                               % (label, pick, found.group(1)))
@@ -4248,7 +4249,7 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
     lines = steps.setdefault("#report", [])
     for h in sorted(exps):
         _check_experiment8(repo, slug, base, state, exps[h], report, errors, warnings,
-                           git, lines)
+                           strict, git, lines)
     rejected = _multiplicity(base, exps)
     every = _routing_steps(base, state, exps, review)
     cls, measured = state.get("question_class"), state.get("method") == "measured"
