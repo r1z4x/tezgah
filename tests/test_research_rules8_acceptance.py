@@ -2309,5 +2309,493 @@ class RoundFour(Rules8):
         self.capped(spec, "falsifier-not-evaluable")
 
 
+# ----------------------------------------------------------------- plan 128
+NOT_IN = "quote not in the captured source text"
+DOI = "10.1145/3600006"
+S2_ARX = ("https://api.semanticscholar.org/graph/v1/paper/arXiv:%s"
+          "?fields=title,authors,year,externalIds,abstract" % ARX)
+LANDING = ("<html><head><title>%s - University Research Portal</title></head><body>"
+           "<nav>Home Profiles Research units Research output Projects</nav><h1>%s</h1>"
+           "<p>Ann Smith, Bo Jones</p><p>Research output: Contribution to journal &rsaquo; "
+           "Article &rsaquo; Scientific &rsaquo; peer-review</p><h2>Abstract</h2><p>We study "
+           "caching. Across three services, caching changes the tail of the latency "
+           "distribution.</p><p>Original language English. Pages 1-12. Journal Proceedings of "
+           "Systems. DOI https://doi.org/%s. Publication status Published - 2024.</p>"
+           "<p>Access to Document. Link to publication in Scopus.</p><p>Fingerprint: dive into "
+           "the research topics of the paper. Together they form a unique fingerprint.</p>"
+           "</body></html>\n" % (TITLE, TITLE, DOI))
+
+
+def article_page(sentence):
+    """A full-text article page: 130 distinct body sentences of 16 words, then `sentence`."""
+    body = "".join("<p>In run %d the warm table served request batch %d from the cache without "
+                   "one miss.</p>" % (k, 7 * k) for k in range(1, 131))
+    return ("<html><head><title>%s</title></head><body><h1>%s</h1><h2>1 Introduction</h2>%s"
+            "<h2>3 Results</h2><p>In our study, %s.</p><h2>References</h2>"
+            "<p>[1] A. Smith. Caches. 2020.</p></body></html>\n" % (TITLE, TITLE, body, sentence))
+
+
+def doi_spec(oa_url=None, page=None):
+    """C0 citing a bare DOI resolved by Crossref and OpenAlex; OpenAlex names `oa_url`."""
+    spec = mixed_spec()
+    spec["index"][0].update({"id": DOI, "source": "https://doi.org/" + DOI})
+    spec["map"] = {
+        "https://api.crossref.org/works/" + DOI: json.dumps(
+            {"status": "ok", "message": {"DOI": DOI, "title": [TITLE],
+                                         "author": [{"family": "Smith", "given": "Ann"}],
+                                         "issued": {"date-parts": [[2024]]}}}),
+        "https://api.openalex.org/works/doi:" + DOI: json.dumps(
+            {"id": "https://openalex.org/W4390000009", "doi": "https://doi.org/" + DOI,
+             "title": TITLE, "display_name": TITLE, "publication_year": 2024,
+             "authorships": [{"author": {"display_name": "Ann Smith"}}],
+             "open_access": {"oa_url": oa_url},
+             "abstract_inverted_index": {"We": [0], "study": [1], "caching.": [2]}})}
+    if oa_url:
+        spec["map"][oa_url] = page
+    return spec
+
+
+def fail_lines(out, *words):
+    return [ln for ln in out.splitlines()
+            if ln.startswith("FAIL q:") and all(w in ln for w in words)]
+
+
+class Plan128(Rules8):
+    """The false refusals the third and fourth K6 pairs named, one case per decision
+    (`.tezgah/analysis/rules8/plan128-decisions.md`, C1-C10 capture side, K1-K12 core)."""
+
+    # --- capture side ------------------------------------------------------------
+    def test_c1_quote_found_in_any_cited_note_passes(self):
+        spec = literature_spec()
+        spec["claims"][2]["quote"] = QUOTE  # C3 cites both notes and quotes the first
+        fx, out = self.build_check(spec)
+        self.assertNotIn(NOT_IN, out)
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+        spec = literature_spec()
+        spec["claims"][2]["quote"] = "retrieval eliminates hallucinated citations entirely"
+        fx, out = self.refused(spec, NOT_IN)
+        self.assertTrue(fail_lines(out, "retrieval eliminates", NOT_IN, NOTE, NOTE2),
+                        "no one refusal names both notes searched:\n" + out)
+
+    def test_c2_superseded_claims_quotes_are_not_checked(self):
+        spec = mixed_spec()
+        spec["claims"][1]["statement"] = ('Smith et al. state that "retrieval eliminates '
+                                          'hallucinated citations"')
+        spec["claims"].append(dict(literature_claim(
+            "C3", "Smith et al. report that caching lowers tail latency", [NOTE], QUOTE),
+            supersedes="C2"))
+        spec["report"] += "- C3: moderate, supersedes C2: C2 put a paraphrase in quotation marks\n"
+        fx, out = self.build_check(spec)
+        self.assertNotIn(NOT_IN, out)
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+
+    def test_c3_oa_landing_page_is_abstract_only_and_a_body_is_full(self):
+        landing = "https://research.example.edu/en/publications/caching"
+        fx, out = self.build_check(doi_spec(landing, LANDING))
+        self.assertNotIn(NOT_IN, out)
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+        self.assertIn("abstract-only", certainty_line(self, out, "C2"))
+        self.assertNotEqual(ledger_rows(fx, "literature/.sources/SOURCES.jsonl")[-1]["access"],
+                            "full")
+        article = "https://research.example.edu/files/caching.html"
+        fx, out = self.build_check(doi_spec(article, article_page(QUOTE)))
+        self.assertEqual(ledger_rows(fx, "literature/.sources/SOURCES.jsonl")[-1]["access"],
+                         "full")
+        self.assertNotIn(NOT_IN, out)
+        self.assertNotIn("abstract-only", certainty_line(self, out, "C2"))
+
+    def test_c4_inner_quotation_marks_are_optional(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = html_body(
+            TITLE, "caching lowers \u201ctail latency\u201d in every workload we measured; "
+                   "a warm cache halves the slowest requests; we used the same prompt "
+                   "\u201cLet\u2019s think step by step\u201d across tasks")
+        fx = self.build(spec)  # C2 and the note quote QUOTE: the inner marks left out
+        for n, quote in enumerate((
+                "caching lowers 'tail latency' in every workload we measured",
+                "caching lowers \u2018tail latency\u2019 in every workload we measured",
+                "a \u201cwarm cache\u201d halves the slowest requests",
+                "the same prompt 'Let's think step by step' across tasks",
+                "the same prompt Let's think step by step across tasks"), 3):
+            append_row(fx, "claims.jsonl", literature_claim(
+                "C%d" % n, "Smith et al. report that caching lowers tail latency", [NOTE],
+                quote))
+        fx.must(["commit", "q", "quotes with and without inner quotation marks"])
+        rc, out = fx.check()
+        self.assertNotIn(NOT_IN, out)
+        self.assertEqual(rc, 0, out)
+
+    def test_c5_arxiv_html_math_reads_as_rendered(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = html_body(
+            TITLE, QUOTE + ', in models of <math alttext="\\sim" display="inline"><semantics>'
+                           '<mo>\u223c</mo><annotation encoding="application/x-tex">\\sim'
+                           '</annotation></semantics></math>100B parameters')
+        fx = self.build(spec)
+        for cid, quote in (("C3", "in models of \u223c100B parameters"),
+                           ("C4", "in models of ~100B parameters")):
+            append_row(fx, "claims.jsonl", literature_claim(
+                cid, "Smith et al. report that caching lowers tail latency", [NOTE], quote))
+        fx.must(["commit", "q", "quotes over rendered math"])
+        rc, out = fx.check()
+        self.assertNotIn(NOT_IN, out)
+        self.assertEqual(rc, 0, out)
+
+    def test_c6_receipt_naming_another_id_of_the_work_is_warned_not_refused(self):
+        spec = mixed_spec()
+        body = json.loads(spec["map"][openalex_url(ARX)])
+        body["doi"] = "https://doi.org/" + DOI  # the venue DOI of the same work
+        spec["map"][openalex_url(ARX)] = json.dumps(body)
+        fx, out = self.build_check(spec)
+        self.assertNotIn("not derived from its capture", out)
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+        named = [ln for ln in out.splitlines() if ln.startswith("warn q:") and "doi:" + DOI in ln]
+        self.assertEqual(len(named), 1, out)
+        self.assertIn("one-provider", certainty_line(self, out, "C2"))
+
+    def test_c7_share_without_full_text_takes_its_three_wordings(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = {"status": 404}
+        spec["report"] = (spec["report"].replace("closed-access: 0 of 1", "closed-access: 1 of 1")
+                          .replace("- C2: moderate", "- C2: low, exploratory"))
+        fx = self.build(spec)
+        rc, out = fx.check("--strict")
+        self.assertEqual(rc, 0, out)
+        for old, new in (("closed-access: 1 of 1", "abstract-only: 1 of 1"),
+                         ("abstract-only: 1 of 1", "not full text: 1 of 1"),
+                         ("not full text: 1 of 1", "")):
+            with self.subTest(report=new or "no share"):
+                with open(fx.path("to_human/report.md"), encoding="utf-8") as fh:
+                    text = fh.read()
+                _write(fx.path("to_human/report.md"), text.replace(old, new))
+                fx.must(["commit", "q", "report states %s" % (new or "no share")])
+                rc, out = fx.check("--strict")
+                if new:
+                    self.assertEqual(rc, 0, out)
+                    self.assertNotIn("report states no closed-access share", out)
+                else:
+                    self.assertEqual(rc, 1, out)
+                    line = next((ln for ln in out.splitlines()
+                                 if "report states no closed-access share" in ln), "")
+                    for words in ("closed-access", "not full text", "abstract-only"):
+                        self.assertIn(words, line, out)
+
+    def test_c8_ledger_appended_on_two_merged_branches_passes(self):
+        fx = self.build(mixed_spec())
+        rel = "literature/.receipts/RECEIPTS.jsonl"
+        main = tz_git(fx, "rev-parse", "--abbrev-ref", "HEAD")
+        base = ledger_rows(fx, rel)
+
+        def alias(n):
+            return {"id": "arXiv:2499.0000%d" % n, "provider": "arxiv",
+                    "url": "https://example.org/%d" % n, "status": 200, "resolved": True,
+                    "file": None, "sha256": None, "fetched_at": "2026-01-01T00:00:00Z",
+                    "title": "an alias left behind", "first_author": None, "year": None,
+                    "abstract": None}
+        tz_git(fx, "checkout", "-q", "-b", "side")
+        append_row(fx, rel, alias(2))
+        fx.must(["commit", "q", "a receipt on the side branch"])
+        tz_git(fx, "checkout", "-q", main)
+        append_row(fx, rel, alias(1))
+        fx.must(["commit", "q", "a receipt on the main branch"])
+        merge = subprocess.run(["git", "-C", os.path.join(fx.project, ".tezgah"), "merge", "-q",
+                                "--no-edit", "side"], env=fx.env, capture_output=True,
+                               text=True, timeout=60)
+        if merge.returncode:  # both appended at the end: keep both rows
+            _write(fx.path(rel), "".join(json.dumps(r) + "\n"
+                                         for r in base + [alias(1), alias(2)]))
+            tz_git(fx, "add", "-A")
+            tz_git(fx, "commit", "-q", "--no-edit")
+        rc, out = fx.check()
+        self.assertNotIn("a ledger is append-only", out)
+        self.assertEqual(rc, 0, out)
+        rows = ledger_rows(fx, rel)
+        rows[-1]["title"] = "a changed alias"
+        _write(fx.path(rel), "".join(json.dumps(r) + "\n" for r in rows))
+        fx.must(["commit", "q", "a ledger row changed"])
+        rc, out = fx.check()
+        self.assertRegex(out, r"(?m)^FAIL q: .*a ledger is append-only")
+
+    def test_c9_rows_of_an_older_parser_are_held_to_their_hash_and_warned(self):
+        old_keys = ("id", "provider", "url", "status", "resolved", "file", "sha256",
+                    "fetched_at", "title", "first_author", "year", "abstract")
+        with self.subTest(ledger="receipts"):
+            fx = self.build(mixed_spec())
+            rel = "literature/.receipts/RECEIPTS.jsonl"
+            real = next(r for r in ledger_rows(fx, rel)
+                        if r.get("provider") == "arxiv" and r.get("resolved"))
+            old = {k: real[k] for k in old_keys if k in real}
+            old["first_author"] = "Ann Smith"  # an older parser kept the whole name
+            append_row(fx, rel, old)
+            fx.must(["commit", "q", "a receipt row of an older parser"])
+            rc, out = fx.check()
+            self.assertNotIn("not derived from its capture", out)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(len(re.findall(r"(?m)^warn q: .*\bversion\b", out)), 1, out)
+        with self.subTest(ledger="searches"):
+            fx = self.build(literature_spec())
+            data = json.dumps({"results": [
+                {"id": "https://openalex.org/W4390000003",
+                 "doi": "https://doi.org/10.48550/arxiv.2403.00003", "title": "A third paper"}]})
+            sha = hashlib.sha256(data.encode()).hexdigest()
+            _write(fx.path("searches/raw/%s.raw" % sha), data)
+            append_row(fx, "searches/SEARCHES.jsonl", {
+                "n": 3, "tag": "snowball", "item": ITEM_L, "connector": "openalex",
+                "query": "warm caches", "url": search_url("openalex", ["warm", "caches"]),
+                "file": "searches/raw/%s.raw" % sha, "sha256": sha, "hits": 1,
+                "ids": ["openalex:W4390000003"],  # an older parser read the OpenAlex id
+                "searched_at": "2026-01-01T00:00:00Z"})
+            fx.must(["commit", "q", "a search row of an older parser"])
+            rc, out = fx.check()
+            self.assertNotIn("not derived from its capture", out)
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(len(re.findall(r"(?m)^warn q: .*\bversion\b", out)), 1, out)
+
+    def test_c10_cite_keeps_no_receipt_of_a_non_200_answer_and_online_skips_it(self):
+        spec = mixed_spec()
+        spec["map"][S2_ARX] = {"status": 429, "body": "Too Many Requests\n"}
+        fx = self.build(spec)
+        fx.set_map(S2_ARX, json.dumps({"paperId": "649def34f8be52c8b66281af98ae884c09aef38b",
+                                       "title": TITLE, "year": 2024,
+                                       "authors": [{"name": "Ann Smith"}],
+                                       "externalIds": {"ArXiv": ARX}}))
+        rc, out = fx.check("--online")
+        self.assertNotRegex(out, r"(?m)^online q: .*semanticscholar .*drifted", out)
+        self.assertNotIn("online-drift", certainty_line(self, out, "C2"))
+        rows = ledger_rows(fx, "literature/.receipts/RECEIPTS.jsonl")
+        self.assertEqual([r for r in rows if r.get("status") != 200], [], rows)
+
+    # --- core side ---------------------------------------------------------------
+    def test_k1_metric_list_splits_only_between_names(self):
+        for lock, registered, extra in (
+                ("ms per build of a 10,000-piece string", "ms per build of a 10,000-piece string",
+                 "ms per build of a 10,000-piece string"),
+                ("p95 latency (ms)", "p95 latency (ms, median of 5 runs), p50 latency",
+                 "p50 latency")):
+            with self.subTest(metric=registered):
+                spec = mixed_spec()
+                spec["state"]["evaluation"]["metric"] = lock
+                spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
+                                                            "metric: %s\n" % registered)
+                spec["report"] += "\n%s is reported here.\n" % extra
+                fx, out = self.build_check(spec)
+                self.assertNotIn("metric other than the locked one", out)
+                self.assertNotIn("neither reported nor marked not_reported", out)
+                self.assertNotRegex(out, r"(?m)^FAIL", out)
+
+    def test_k2_metric_matches_a_word_boundary_prefix_both_ways(self):
+        for lock, registered in (("p95 latency of the read path", "p95 latency"),
+                                 ("p95 latency", "p95 latency of the read path")):
+            with self.subTest(lock=lock):
+                spec = mixed_spec()
+                spec["state"]["evaluation"]["metric"] = lock
+                spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
+                                                            "metric: %s\n" % registered)
+                fx, out = self.build_check(spec)
+                self.assertNotIn("metric other than the locked one", out)
+                self.assertNotRegex(out, r"(?m)^FAIL", out)
+        spec = mixed_spec()
+        spec["state"]["evaluation"]["metric"] = "p95 latency"
+        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
+                                                    "metric: p95 latencyx\n")
+        spec["report"] += "\np95 latencyx is reported here.\n"
+        self.refused(spec, "metric other than the locked one")
+
+    def test_k3_a_comma_in_the_lock_never_splits_it(self):
+        spec = mixed_spec()
+        spec["state"]["evaluation"]["metric"] = "p95 latency, warm cache"
+        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
+                                                    "metric: p95 latency, warm cache\n")
+        spec["report"] += "\np95 latency, warm cache is the registered metric.\n"
+        fx, out = self.build_check(spec)
+        self.assertNotIn("metric other than the locked one", out)
+        self.assertNotIn("neither reported nor marked not_reported", out)
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+
+    def test_k4_source_refuses_a_protocol_failing_the_locked_metric_rule(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
+                                                    "metric: p50 latency\n")
+        del spec["runs"]["h1"]
+        spec["orx_extra"] = {"r1": {"log": "run r1 arm cache\np95 90\n", "status": "completed"}}
+        fx = self.build(spec)
+        before = line_snapshot(fx)
+        rc, out = fx.run(["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value",
+                          "p95=90", "--scope", "real"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("metric other than the locked one", out)
+        self.assertEqual(line_snapshot(fx), before, "source wrote over a refused protocol")
+
+    def test_k5_not_reported_message_names_the_exit_still_open(self):
+        with self.subTest(results="after the run"):
+            fx, out = self.refused(self.p7(), "neither reported nor marked not_reported")
+            for line in fail_lines(out, "neither reported nor marked not_reported"):
+                self.assertIn("report.md", line)
+                self.assertNotIn("not_reported in protocol.md", line)
+                self.assertNotIn("not_reported:", line)
+        with self.subTest(results="before the run"):
+            spec = mixed_spec()
+            spec["protocol"]["h1"] = protocol().replace(
+                "metric: p95 latency\n", "metric: p95 latency, p50 latency\n")
+            del spec["runs"]["h1"]
+            fx, out = self.build_check(spec)
+            lines = fail_lines(out, "'p50 latency' is neither reported nor marked not_reported")
+            self.assertTrue(lines, out)
+            for line in lines:
+                self.assertIn("not_reported:", line)
+                self.assertIn("protocol.md", line)
+        with open(os.path.join(os.path.dirname(HERE), "skills", "research", "SKILL.md"),
+                  encoding="utf-8") as fh:
+            paragraph = next(p for p in fh.read().split("\n\n") if "`not_reported:" in p)
+        self.assertRegex(paragraph, r"\bbefore\b", paragraph)
+
+    def p7(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol().replace(
+            "metric: p95 latency\n", "metric: p95 latency, p50 latency\n")
+        for row, value in zip(spec["runs"]["h1"], (40, 41, 55, 56)):
+            row["values"]["p50"] = value
+        return spec
+
+    def test_k6_log_number_with_a_unit_glued_on_is_read(self):
+        fx = self.build(mixed_spec())
+        add_orx_run(fx, "r8", "run r8 arm cache\np95=22.3ms\ntook 1.2s\nmem 512MB\n"
+                              "speedup 3.2x\nhit 45%\nreplica r1 host h2\n")
+        for value, accepted in (("p95=22.3", True), ("took=1.2", True), ("mem=512", True),
+                                ("speedup=3.2", True), ("hit=45", True), ("replica=1", False),
+                                ("host=2", False)):
+            with self.subTest(value=value):
+                rc, out = fx.run(["source", "q", "h1", "--run", "r8", "--arm", "cache",
+                                  "--value", value, "--scope", "real"])
+                self.assertEqual(rc, 0 if accepted else 1, out)
+                if not accepted:
+                    self.assertIn("value not in the run log", out)
+
+    def test_k7_label_of_a_refiled_item_is_stale_not_refused(self):
+        spec = mixed_spec()
+        aux_experiment(spec, "h2", [])
+        del spec["typed_rows"]["h2"]
+        spec["runs"]["h2"] = [
+            {"run": "s%d" % k, "arm": "a", "item": "i%03d" % k, "instrument": "judge-s",
+             "values": {"outcome": k % 2}, "scope": "fixture", "fixture": "generated items"}
+            for k in range(1, 5)]
+        drawn = seeded_draw(["i%03d" % k for k in range(1, 5)], 1, "a", 2)
+        spec["ops"] += [
+            (["instrument", "add", "q", "judge-s", "--kind", "measure", "--rung", "R4",
+              "--construct", "slow item"], None),
+            (["gold", "q", "judge-s", "--arm", "a", "--n", "2", "--seed", "1"], None),
+            (["label", "q", "judge-s", "--arm", "a", "--human", "rater one", "--ack",
+              "the user labelled these items by hand"],
+             "".join(json.dumps({"item": i, "truth": int(i[1:]) % 2}) + "\n" for i in drawn))]
+        fx = self.build(spec)
+        k = int(drawn[0][1:])
+        add_orx_run(fx, "s%d" % k, "run s%d arm a\noutcome %d\n" % (k, 1 - k % 2))
+        fx.must(["source", "q", "h2", "--run", "s%d" % k, "--arm", "a", "--item", drawn[0],
+                 "--instrument", "judge-s", "--value", "outcome=%d" % (1 - k % 2),
+                 "--scope", "fixture", "--fixture", "generated items"])
+        rc, out = fx.check()
+        self.assertNotIn("label output differs", out)
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"(?m)^instrument q: judge-s unvalidated ")
+
+    def test_k8_concluded_line_keeps_its_evaluator_after_a_later_project_edit(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(extra="evaluator: tools/eval.py\n")
+        spec["project_commits"] = [({"tools/eval.py": "print('p95')\n"},
+                                    "2020-01-01T00:00:00 +0000", "evaluator")]
+        fx = self.build(spec)
+        fx.must(["conclude", "q"])
+        if tz_git(fx, "status", "--porcelain"):
+            fx.must(["commit", "q", "concluded"])
+        _write(os.path.join(fx.project, "tools", "eval.py"), "print('p95', 'ms')\n")
+        fx.git("add", "-A")
+        fx.git("commit", "-q", "-m", "the evaluator prints its unit")
+        rc, out = fx.run(["check", "--all-lines"])
+        self.assertNotIn("evaluator file changed after lock", out)
+
+    def test_k9_evaluator_found_in_the_checkout_check_runs_from(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(extra="evaluator: tools/eval.py\n")
+        fx = self.build(spec)
+        wt = os.path.join(fx.tmp, "wt")
+        fx.git("worktree", "add", "-q", "-b", "feature", wt)
+        _write(os.path.join(wt, "tools", "eval.py"), "print('p95')\n")
+        old = "2020-01-01T00:00:00 +0000"
+        for argv in (["add", "-A"], ["commit", "-q", "-m", "evaluator on the branch"]):
+            proc = subprocess.run(["git", "-C", wt] + argv, capture_output=True, text=True,
+                                  env=dict(fx.env, GIT_AUTHOR_DATE=old, GIT_COMMITTER_DATE=old),
+                                  timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = subprocess.run([sys.executable, CLI, "check", "q"], cwd=wt, env=fx.env,
+                              capture_output=True, text=True, timeout=180)
+        out = proc.stdout + proc.stderr
+        self.assertNotIn("is not a file in the line or the repository", out)
+        self.assertNotIn("evaluator file changed after lock", out)
+        self.assertEqual(proc.returncode, 0, out)
+
+    def test_k10_commit_with_nothing_to_commit_exits_zero(self):
+        fx = self.build(mixed_spec())
+        rc, out = fx.run(["commit", "q", "nothing changed"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("nothing to commit", out)
+
+    def test_k11_gold_refused_over_uncommitted_verdict_items(self):
+        spec = mixed_spec()
+        spec["ops"].append((["instrument", "add", "q", "cite-verifier", "--kind", "verdict",
+                             "--rung", "R4", "--construct", "the quote supports the claim"],
+                            None))
+        fx = self.build(spec)
+
+        def verdicts(lo, hi):
+            for k in range(lo, hi):
+                append_row(fx, "instruments/verdicts.jsonl",
+                           {"instrument": "cite-verifier", "item": "v%03d" % k,
+                            "outcome": k % 2})
+        few = ["v%03d" % k for k in range(1, 21)]
+        many = ["v%03d" % k for k in range(1, 41)]
+        seed = next(s for s in range(1, 500)
+                    if seeded_draw(few, s, "all", 5) != seeded_draw(many, s, "all", 5))
+        verdicts(1, 21)
+        argv = ["gold", "q", "cite-verifier", "--arm", "all", "--n", "5", "--seed", str(seed)]
+        before = line_snapshot(fx)
+        rc, out = fx.run(argv)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not committed", out)
+        self.assertEqual(line_snapshot(fx), before, "gold drew over uncommitted verdicts")
+        fx.must(["commit", "q", "verdicts"])
+        fx.must(argv)
+        verdicts(21, 41)
+        fx.must(["commit", "q", "more verdicts"])
+        rc, out = fx.check()
+        self.assertNotIn("differs from the seeded draw", out)
+
+    def test_k12_source_refused_before_the_arena_is_committed(self):
+        fx = bare_project(self)
+        _write(os.path.join(fx.tmp, "orx.json"), json.dumps({"runs": {}}))
+        fx.must(["init", "q", "--ask", Q, "--question", Q, "--method", "exploratory",
+                 "--in", ITEM, "--out", "other changes", "--arena",
+                 "which lookup cache lowers p95 latency", "--budget",
+                 "4 ideas, 2 pilots, 1 full run, 1 day"])
+        with open(fx.path("state.json"), encoding="utf-8") as fh:
+            st = json.load(fh)
+        arena = st.pop("arena")
+        _write(fx.path("state.json"), json.dumps(st, indent=2) + "\n")
+        _write(fx.path("experiments/h1/protocol.md"), protocol())
+        fx.must(["commit", "q", "protocol before the arena"])
+        _write(fx.path("state.json"), json.dumps(dict(st, arena=arena), indent=2) + "\n")
+        add_orx_run(fx, "r1", "run r1 arm cache\np95 90\n")
+        argv = ["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value", "p95=90",
+                "--scope", "real"]
+        before = line_snapshot(fx)
+        rc, out = fx.run(argv)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("tezgah-research commit q", out)
+        self.assertEqual(line_snapshot(fx), before, "source wrote before the arena lock")
+        fx.must(["commit", "q", "arena"])
+        fx.must(argv)
+        rc, out = fx.check()
+        self.assertNotIn("entered the history before the arena was locked", out)
+
+
 if __name__ == "__main__":
     unittest.main()
