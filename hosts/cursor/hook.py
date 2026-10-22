@@ -109,19 +109,26 @@ RECOVERY = ("tezgah: tool call failed. Read the error, fix the cause, then "
             "re-run; prefer codegraph_explore/codegraph_callers over guessing "
             "at code.")
 # cursor-agent (2026.10.01-2026.10.19, bundled `HookAdditionalContextTooLargeError`)
-# trims a beforeSubmitPrompt additional_context and drops it WHOLE when it is
-# over 10000 characters; a busy turn (every conditional armed) measured 10288.
-# Cutting the tail keeps the reminder and the first rules instead of nothing.
+# trims the additional_context of beforeSubmitPrompt, preToolUse, postToolUse and
+# postToolUseFailure and drops it WHOLE when its JavaScript length - UTF-16 code
+# units, so an emoji counts two - is over 10000; a busy turn (every conditional
+# armed) measured 10288. Cutting the tail keeps the reminder and the first rules
+# instead of nothing. sessionStart is not capped: its text goes to the request
+# context (`hooksAdditionalContextPromise`) without that check, and stored Cursor
+# chats carry 15000-character session contexts whole, so the core is not cut.
 CONTEXT_MAX = 10000
 CONTEXT_CUT = "\n[... cut to Cursor's %d-character hook limit]" % CONTEXT_MAX
 
 
 def fit(text):
-    """The text as Cursor will carry it: at most CONTEXT_MAX characters."""
+    """The text as Cursor will carry it: at most CONTEXT_MAX UTF-16 code units."""
     text = text.strip()
-    if len(text) <= CONTEXT_MAX:
+    data = text.encode("utf-16-le", "surrogatepass")
+    if len(data) <= 2 * CONTEXT_MAX:
         return text
-    return text[:CONTEXT_MAX - len(CONTEXT_CUT)] + CONTEXT_CUT
+    keep = 2 * (CONTEXT_MAX - len(CONTEXT_CUT))  # the marker is ASCII: one unit a char
+    # "ignore" drops the high half of a pair the cut split, never adding a unit
+    return data[:keep].decode("utf-16-le", "ignore") + CONTEXT_CUT
 
 
 def cwd_of(payload):
