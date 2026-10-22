@@ -556,11 +556,23 @@ whole session instead of the turn:
   after the work, where the turn fold saw nothing to judge (audit M-2, INT-01).
 - **A turn of reads.** The rule treats a turn of known reads as a turn with no work (plan 086,
   S4). Each command in it is a known read: a program in `READ_ONLY_PROGRAMS` or a git read in
-  `GIT_READS`, with no option in `WRITING_OPTIONS`. `sed`, `awk`, `uniq`, `gh` and `codegraph`
+  `GIT_READS`, with no option in `WRITING_OPTIONS`. `printf -v` assigns a variable, so `-v` is
+  such an option. `sed`, `awk`, `uniq`, `gh` and `codegraph`
   count with no writing script, one operand or a read verb. A `sqlite3` read-only open counts,
   from the option or the database URI, and so does an `ssh` whose remote command is
   such a read (`hooks/tezgah_integrity.py::_bookkeeping_command`). Any other command, a commit included,
-  keeps the turn worked and owes the check.
+  keeps the turn worked and owes the check. Plan 126 measured 4 of 6 live advice turns refused for
+  reads in a loop (`for f in $(find src -type f); do cat -n "$f"; done`). Now a reply that claims
+  nothing also ends such a turn. The reader counts a `for NAME in WORDS` loop, the `if`/`while`/`{`
+  words around reads and an unquoted `$( )` whose body reads (`loops=True`). A value they bind
+  reaches only a reader with no writing option (`OPTION_FREE`). The loop name is lowercase, so not
+  `PATH` or `IFS`. A done/tested claim over such a turn keeps the worked turn's fold. A build
+  (`npm run build > log`) is a check, never a read. It records as `verify`, or as `verify_ok` or
+  `verify_fail` when its status shows. A `set` of shell options (`set -o pipefail;`, `set -eu`)
+  counts as a read, because the contract asks a check line to open with it. A `set` with any other
+  word stays work (`SET_FLAGS`, `SET_NAMES`). `find ... | xargs sh -c '...'` stays work: the
+  reader does not follow a command string into `sh -c`. A command of `DETAIL_MAX` (200) characters
+  or more stays work too, because the ledger cut it and the rest is unread.
 - **A bookkeeping turn after a pass.** A turn whose only rows are read-only or VCS-bookkeeping
   commands ends without a fresh check, as long as nothing but bookkeeping ran after the session's
   newest pass, the session fold above allows it, and the reply makes no external-state claim

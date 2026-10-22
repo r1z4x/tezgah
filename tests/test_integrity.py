@@ -352,8 +352,12 @@ class BookkeepingCommand(unittest.TestCase):
                   "rg --pre ./x.sh pat",
                   "GIT_EXTERNAL_DIFF=./x.sh git diff",
                   "env GIT_EXTERNAL_DIFF=./x.sh git diff",
-                  "git -c diff.external=./x.sh diff", "git diff --ext-diff"):
+                  "git -c diff.external=./x.sh diff", "git diff --ext-diff",
+                  # `printf -v` assigns a variable: PATH then picks the next
+                  # `cat` (plan 126)
+                  "printf -v PATH /tmp/x; cat a", "printf -vPATH /tmp/x; cat a"):
             self.assertFalse(ti._bookkeeping_command(c), c)
+        self.assertTrue(ti._bookkeeping_command("printf '%s\\n' a b"))
 
     def test_a_quote_lost_in_a_comment_or_body_fails_closed(self):
         # review N1: an apostrophe in a `#` comment, a heredoc body or an
@@ -402,6 +406,45 @@ class BookkeepingCommand(unittest.TestCase):
                   "git add -A && git commit -m 'a > b'", "git log -n 3 2>&1",
                   "git diff --stat >/dev/null", "ls -la src", "git -C sub status"):
             self.assertTrue(ti._bookkeeping_command(c), c)
+
+    # R2 omp-1, verbatim: the contract's own `set -o pipefail;` prefix on a line
+    # of git reads
+    PIPEFAIL_READ = ("set -o pipefail; git status --porcelain; git diff --stat; "
+                     "ls tests/impacted.py node_modules 2>&1; git ls-files")
+
+    def test_a_set_of_shell_options_is_bookkeeping(self):
+        for c in (self.PIPEFAIL_READ, "set -euo pipefail; git log -1",
+                  "set -e; set +e -x; ls", "set -o; cat a", "set +o pipefail; wc -l a"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS), c)
+        # positional words, or an option that changes how the rest is read
+        for c in ("set", "set a b; cat a", "set -- -delete; find . $1",
+                  "set -e x; ls", "set -k; git diff GIT_EXTERNAL_DIFF=./x.sh",
+                  "set +o interactive-comments; ls # ; ./regen.sh",
+                  "set -o posix; ls", "set -o pipefail extra; ls",
+                  "set -o -e; ls", "set -B; ls"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS), c)
+
+    def test_a_read_loop_counts_only_where_loops_are_read(self):
+        # plan 126: a `for` loop and an unquoted `$( )` read when every command
+        # in them reads; the default reader (the claim and settled paths) keeps
+        # refusing them
+        reads = ('for f in README.md src/*; do echo "== $f"; cat -n "$f"; done',
+                 "for f in $(find src -type f); do cat -n \"$f\"; done",
+                 "for f in a b\ndo\n  head -3 $f\ndone",
+                 "if grep -q x a; then cat a; else ls; fi", "{ ls; cat a; } | wc -l")
+        for c in reads:
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS), c)
+        for c in ("for f in -delete; do find . $f; done",  # a value as an option
+                  "for f in w/tmp/x; do sed $f a; done",   # a value as a script
+                  "for f in $(echo x); do git diff $f; done",
+                  "find . $(cat opts)", "ssh host cat $(cat x)",
+                  "for PATH in /tmp/x; do cat a; done",    # a name the shell reads
+                  "for ((i=0; i<3; i++)); do cat a; done",
+                  "for f in a; do cat $f; done > out", "cat $(ls > out)",
+                  "for f in $(rm -rf x); do cat $f; done", "$(echo rm) x",
+                  'echo "$(rm x)"', "echo `rm x`", "for", "done x", "sudo"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
 
 class PipedCheck(unittest.TestCase):
@@ -4326,6 +4369,58 @@ class ResidualWork(unittest.TestCase):
                 self.assertEqual(self.verdict(
                     "Config okundu, sorgu 3 satır döndü.",
                     [{"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
+
+    # plan 126: the first turn of three live runs (r1-raw p14-2, p14-3,
+    # omp-p14-1), verbatim: an advice turn that edited nothing and ran reads
+    # only, refused as `no verify_ok` because a `for` loop and a `$( )` read as
+    # work. The forced second turn replaced the answer with a self-defence.
+    READ_TURNS = (
+        ("git ls-files | head -100 && cat .tezgah/lessons.md 2>/dev/null; "
+         "grep -ril dashboard . --exclude-dir=.git | head",
+         'for f in README.md package.json src/*; do echo "== $f"; cat -n $f; done'),
+        ("git ls-files | head -100 && cat .tezgah/lessons.md 2>/dev/null; "
+         "grep -ril dashboard . --exclude-dir=.git | head -20",
+         'for f in README.md package.json src/*; do echo "=== $f"; cat -n "$f"; done'),
+        ("git log --oneline -5 && git status --short && ls -la",
+         "cat README.md package.json; find src .tezgah -type f | sort; "
+         'for f in $(find src -type f); do echo "== $f"; cat -n "$f"; done; '
+         "cat .tezgah/lessons.md 2>/dev/null"))
+    ADVICE = ("Önce `src/Dashboard.jsx`'e yükleme durumu ekle. README'deki \"veri "
+              "yüklenirken boş dashboard\" şikâyetinin kaynağı orası: `metrics` `[]` "
+              "ile başlıyor ve fetch bitene kadar ekranda sadece başlık görünüyor.\n\n"
+              "Hiçbir şeyi çalıştırmadım. Repoda test yok, `node_modules` da kurulu "
+              "değil. Değişikliklerden sonra `npm install && npm run build` ile derle, "
+              "`/api/metrics`'i yavaşlatıp ya da 500 döndürüp üç durumu tarayıcıda "
+              "gör.\n\nİstersen bu dört adımı ben uygulayayım.")
+
+    def test_p126_an_advice_turn_of_read_loops_owes_no_check(self):
+        for cmds in self.READ_TURNS:
+            rows = [{"kind": "run", "exit": 0, "detail": c} for c in cmds]
+            with self.subTest(cmd=cmds[1]):
+                self.assertIsNone(self.verdict(self.ADVICE, rows))
+                # the same reads beside an edit, or under a done/tested claim,
+                # are refused as before
+                self.assertEqual(self.verdict(self.ADVICE, rows + [self.EDIT]),
+                                 "no verify_ok")
+                self.assertEqual(self.verdict(
+                    "Dashboard düzeltildi, testler geçti.", rows), "no verify_ok")
+
+    def test_p126_a_pipefail_prefix_keeps_a_read_turn_a_read(self):
+        rows = [{"kind": "run", "exit": 0,
+                 "detail": BookkeepingCommand.PIPEFAIL_READ}]
+        self.assertIsNone(self.verdict(self.ADVICE, rows))
+        self.assertEqual(self.verdict(self.ADVICE, rows + [self.EDIT]), "no verify_ok")
+
+    def test_p126_a_build_redirected_to_a_file_is_a_check_not_a_read(self):
+        # p14-3's second turn: a build is a check whose `; echo` owns the
+        # status, so it records as `verify` (ran, outcome unseen) and the turn
+        # still owes a pass
+        build = 'npm run build > /tmp/pb-build.log 2>&1; echo "exit=$?"'
+        self.assertEqual(ti.classify("Bash", {"command": build}, "/tmp"), "verify")
+        self.assertTrue(ti.status_hidden(build, "/tmp"))
+        rows = [{"kind": "run", "exit": 0, "detail": "git status --porcelain"},
+                {"kind": "verify", "exit": 0, "detail": build}]
+        self.assertEqual(self.verdict(self.ADVICE, rows), "no verify_ok")
 
     def test_s4_a_label_needs_its_residual_word_bounded(self):
         # review F4: "Beklenmedik" is no first-person negative, and a line with
