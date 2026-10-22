@@ -1,7 +1,11 @@
 """Unit tests of hooks/tezgah_research_evidence.py: the certainty engine, the instrument
 ledger and its commands, release-check and calibration (spec sections 1, 2, 3.1, 3.2, 3.4,
-4.3). The capture module (write_capture, commit_capture, fetch_url, citation_problem,
-quote_problem) is replaced by a stub so these run on this module alone."""
+4.3). The capture module's writers, its network call and its two verdicts
+(write_capture, commit_capture, fetch_url, append_rows, citation_problem,
+quote_problem) are replaced by stubs so these run on this module alone. The stub
+stands in `sys.modules` only while this module's tests run (setUpModule /
+tearDownModule): the evidence module imports capture lazily, so a stub left there
+would answer every other test module's checks in the same process."""
 import contextlib
 import hashlib
 import io
@@ -16,7 +20,11 @@ import unittest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "hooks"))
 
+import tezgah_research_capture as _real_capture  # noqa: E402
+
 CAP = types.ModuleType("tezgah_research_capture")
+CAP.__dict__.update({k: v for k, v in vars(_real_capture).items()
+                     if not k.startswith("__")})
 CAP.commits = []
 CAP.answers = {}
 
@@ -51,7 +59,15 @@ CAP.citation_problem = lambda row: None if row.get("title", "").startswith("Soun
     else "resolves in no registry"
 CAP.quote_problem = lambda quote, text: None if quote in text \
     else "quote not in the captured source text"
-sys.modules["tezgah_research_capture"] = CAP
+
+
+def setUpModule():
+    sys.modules["tezgah_research_capture"] = CAP
+
+
+def tearDownModule():
+    sys.modules["tezgah_research_capture"] = _real_capture
+
 
 import tezgah_research as tr  # noqa: E402
 import tezgah_research_evidence as ev  # noqa: E402
