@@ -26,7 +26,6 @@ import sys
 import tempfile
 import unittest
 import urllib.parse
-from fractions import Fraction
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLI = os.path.join(os.path.dirname(HERE), "bin", "tezgah-research")
@@ -40,6 +39,9 @@ NOTE, NOTE2 = "lit/2401.00001-smith.md", "lit/2402.00002-jones.md"
 TITLE, TITLE2 = "Caching for tail latency", "Warm caches and slow requests"
 QUOTE = "caching lowers tail latency in every workload we measured"
 QUOTE2 = "a warm cache halves the slowest requests"
+PRIMARY_Q = ["caching", "tail", "latency"]
+COUNTER_Q = ["caching", "no", "effect", "on", "tail", "latency"]
+OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 DIMENSIONS = {"evidence_relevance": 4, "falsifiability": 4, "scope_calibration": 4,
               "argument_coherence": 4, "exploration_integrity": 3,
               "methodological_rigour": 3}
@@ -184,6 +186,7 @@ def review(cls, findings, family="openai"):
 def state(method, cls, **extra):
     out = {"rules": 8, "phase": "concluded", "direction": "conclude", "method": method,
            "question_class": cls, "tier": "study", "orx_project": "proj-1",
+           "orx_experiment": "exp-q",
            "deliverable": {"kind": "finding"},
            "scope": {"in": [ITEM if method == "measured" else ITEM_L],
                      "out": ["other changes"]},
@@ -205,7 +208,7 @@ def empty_spec(method, cls):
             "pre_files": {}, "runs": {}, "orx_extra": {}, "typed_rows": {}, "analysis": {},
             "claims": [], "notes": {}, "index": [], "map": {}, "cite": False, "fetch": [],
             "searches": [], "ops": [], "findings": "", "log": "", "report": "",
-            "review": {}, "files": {}}
+            "review": {}, "files": {}, "env": {}, "orx_papers": {}, "tmp_files": {}}
 
 
 FINDINGS = ("# Findings\n\n## What we know\n\n- caching lowers p95 [C1]\n\n"
@@ -274,8 +277,7 @@ def literature_spec(cls="R1"):
                      index_row(NOTE2, ARX2, TITLE2, "Jones")]
     spec["map"] = paper_map(ARX, TITLE, "Ann Smith", QUOTE, "W4390000001")
     spec["map"].update(paper_map(ARX2, TITLE2, "Bo Jones", QUOTE2, "W4390000002"))
-    primary = ["caching", "tail", "latency"]
-    counter = ["caching", "no", "effect", "on", "tail", "latency"]
+    primary, counter = PRIMARY_Q, COUNTER_Q
     spec["map"][search_url("openalex", primary)] = json.dumps({"results": [
         {"id": "https://openalex.org/W4390000001",
          "doi": "https://doi.org/10.48550/arxiv.%s" % ARX, "title": TITLE},
@@ -344,9 +346,73 @@ def gold_ops(spec, instrument, arm, n, seed, outcomes, wrong=0):
         labels.append({"item": item, "truth": 1 - out if k < wrong else out})
     spec["ops"].append((["gold", "q", instrument, "--arm", arm, "--n", str(n),
                          "--seed", str(seed)], None))
-    spec["ops"].append((["label", "q", instrument, "--arm", arm, "--human", "rater one"],
+    spec["ops"].append((["label", "q", instrument, "--arm", arm, "--human", "rater one",
+                         "--ack", "the user labelled these items by hand"],
                         "".join(json.dumps(r) + "\n" for r in labels)))
     return drawn, labels
+
+
+def instrument_spec(per_arm, n, wrong, arms=("a", "b"), seed=5):
+    """C0 plus a binary experiment h2 measured by instrument judge-x on arms a and b, and for
+    each arm in `arms` a gold draw of n items with its labels (`wrong` of them flipped)."""
+    spec = mixed_spec()
+    outcomes = {arm: [k % 2 for k in range(per_arm)] for arm in ("a", "b")}
+    aux_experiment(spec, "h2", item_rows("judge-x", ("a", "b"), outcomes))
+    spec["ops"].append((["instrument", "add", "q", "judge-x", "--kind", "measure",
+                         "--rung", "R4", "--construct", "slow item"], None))
+    spec["gold"] = {}
+    for arm in arms:
+        spec["gold"][arm] = gold_ops(spec, "judge-x", arm, n, seed, outcomes, wrong=wrong)
+    return spec
+
+
+def hypergeometric_spec(dropped_after):
+    """The literature line with a hypergeometric stop: a 300-record haystack, 95 records kept,
+    5 dropped, then `dropped_after` more dropped - the counts buscarpy's oracle was run on."""
+    spec = literature_spec()
+    spec["state"]["stopping"] = {"rule": "hypergeometric", "recall": 0.95, "confidence": 0.95}
+    others = ["W5%09d" % k for k in range(1, 299)]
+    results = [{"id": "https://openalex.org/W4390000001",
+                "doi": "https://doi.org/10.48550/arxiv.%s" % ARX, "title": TITLE},
+               {"id": "https://openalex.org/W4390000002",
+                "doi": "https://doi.org/10.48550/arxiv.%s" % ARX2, "title": TITLE2}]
+    results += [{"id": "https://openalex.org/%s" % w, "title": "Record %s" % w} for w in others]
+    spec["map"][search_url("openalex", PRIMARY_Q)] = json.dumps({"results": results})
+    kept = ["arXiv:%s" % ARX, "arXiv:%s" % ARX2] + ["openalex:%s" % w for w in others[:93]]
+    dropped = ["openalex:%s" % w for w in others[93:98 + dropped_after]]
+    rows = [{"search": 1, "id": i, "decision": "kept", "reason": "on topic",
+             "screener": "rater one"} for i in kept]
+    rows += [{"search": 1, "id": i, "decision": "dropped", "reason": "off topic",
+              "screener": "rater one"} for i in dropped]
+    spec["files"]["searches/screening.jsonl"] = "".join(json.dumps(r) + "\n" for r in rows)
+    return spec
+
+
+def done_line(project):
+    """A done line `old` holding one refuted claim whose statement is this line's question."""
+    old = os.path.join(project, ".tezgah", "research", "done", "old")
+    _write(os.path.join(old, "state.json"), json.dumps(
+        {"question": "does a warm OS page cache change request latency?",
+         "phase": "concluded", "direction": "conclude", "rules": 7}) + "\n")
+    _write(os.path.join(old, "claims.jsonl"), json.dumps(
+        {"id": "C1", "statement": Q, "kind": "derivation", "status": "refuted",
+         "proof": ["findings.md"], "falsification": "n/a", "provenance": "ai-executed"}) + "\n")
+    _write(os.path.join(old, "to_human", "report.md"),
+           "# Report\n\nThe warm cache claim was refuted.\n")
+    _write(os.path.join(old, "to_human", "review.json"), json.dumps(
+        {"producer": "a", "reviewer": "b", "dimensions": DIMENSIONS,
+         "findings": [{"severity": "minor", "target": "to_human/report.md",
+                       "quote": "was refuted", "status": "accepted"}]}) + "\n")
+
+
+def provider_key(name, construct, item, text, model):
+    """The capture-map key of one `label --provider` POST, built as spec.md 3.1 fixes it."""
+    prompt = ("Instrument: %s\nConstruct: %s\nItem: %s\nText: %s\nAnswer 1 if the construct "
+              "holds for this item, else 0. Reply with the digit only."
+              % (name, construct, item, text))
+    body = json.dumps({"messages": [{"content": prompt, "role": "user"}], "model": model,
+                       "temperature": 0}, sort_keys=True, separators=(",", ":"))
+    return "POST %s %s" % (OPENROUTER, hashlib.sha256(body.encode("utf-8")).hexdigest())
 
 
 def cp_upper(k, n, alpha=0.05):
@@ -363,12 +429,6 @@ def cp_upper(k, n, alpha=0.05):
     return (lo + hi) / 2
 
 
-def hypergeometric_p(pool, sample, found, seen, recall):
-    target = math.floor(Fraction(seen) / Fraction(str(recall)) + 1) - (seen - found)
-    return sum(math.comb(target, i) * math.comb(pool - target, sample - i)
-               for i in range(found + 1)) / math.comb(pool, sample)
-
-
 # ----------------------------------------------------------------- the builder
 STUB_ORX = r'''#!@PYTHON@
 import json, sys
@@ -382,8 +442,17 @@ if args[:1] == ["logs"] and len(args) >= 2:
     sys.stdout.write(run["log"])
     sys.exit(0)
 if args[:1] == ["runs"]:
-    print(json.dumps([{"id": k, "status": v["status"]}
-                      for k, v in sorted(data["runs"].items())]))
+    exp = args[args.index("--experiment") + 1] if "--experiment" in args else None
+    print(json.dumps([{"id": k, "status": v["status"], "experiment": v["experiment"]}
+                      for k, v in sorted(data["runs"].items())
+                      if exp is None or v["experiment"] == exp]))
+    sys.exit(0)
+if args[:2] == ["paper", "--full"] and len(args) >= 3:
+    text = data.get("papers", {}).get(args[2])
+    if not text:
+        sys.stderr.write("no paper %s\n" % args[2])
+        sys.exit(1)
+    sys.stdout.write(text)
     sys.exit(0)
 if args[:1] == ["projects"]:
     print("[]")
@@ -501,13 +570,18 @@ class Rules8(unittest.TestCase):
         _write(os.path.join(fx.project, ".gitignore"), "/.tezgah/\n")
         fx.git("add", "-A")
         fx.git("commit", "-q", "-m", "fixture project")
-        orx = {"runs": {}}
+        fx.env.update(spec["env"])
+        orx = {"runs": {}, "papers": spec["orx_papers"]}
         for h, rows in spec["runs"].items():
             for r in rows:
-                orx["runs"][r["run"]] = {"log": run_log(r), "status": r.get("status",
-                                                                            "completed")}
-        orx["runs"].update(copy.deepcopy(spec["orx_extra"]))
+                orx["runs"][r["run"]] = {"log": run_log(r),
+                                         "status": r.get("status", "completed"),
+                                         "experiment": r.get("experiment", "exp-q")}
+        for run, extra in spec["orx_extra"].items():
+            orx["runs"][run] = dict({"experiment": "exp-q"}, **extra)
         _write(os.path.join(tmp, "orx.json"), json.dumps(orx))
+        for name, body in spec["tmp_files"].items():
+            _write(os.path.join(tmp, name), body)
         init = ["init", "q", "--ask", Q, "--question", Q, "--method", spec["method"],
                 "--in", spec["state"]["scope"]["in"][0], "--out", "other changes"]
         if spec["class"]:
@@ -553,8 +627,9 @@ class Rules8(unittest.TestCase):
             fx.set_map(url, body)
         if spec["cite"]:
             fx.must(["cite", "q"])
-        for note in spec["fetch"]:
-            fx.must(["fetch", "q", note])
+        for entry in spec["fetch"]:
+            note, extra = (entry, []) if isinstance(entry, str) else entry
+            fx.must(["fetch", "q", note] + [a.replace("@TMP@", tmp) for a in extra])
         for s in spec["searches"]:
             fx.must(["search", "q", "--tag", s["tag"]]
                     + (["--item", s["item"]] if s.get("item") else []) + ["--"] + s["argv"])
@@ -574,8 +649,7 @@ class Rules8(unittest.TestCase):
         fx = self.build(spec)
         rc, out = fx.check(*flags)
         self.assertEqual(rc, 1, out)
-        self.assertIn("FAIL q:", out)
-        self.assertIn(text, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*" + re.escape(text), out)
         return fx, out
 
     def capped(self, spec, *steps):
@@ -589,6 +663,10 @@ class Rules8(unittest.TestCase):
 
     def certainties(self, out):
         return dict(CERTAINTY.findall(out))
+
+    def build_check(self, spec, *flags):
+        fx = self.build(spec)
+        return fx, fx.check(*flags)[1]
 
 
 # ----------------------------------------------------------------- C0, C1, P1-P12
@@ -666,7 +744,7 @@ class Probes(Rules8):
         spec["state"]["evaluation"].update({"metric": "LLM judge score", "baseline": "5"})
         spec["report"] += "\nThe LLM judge score 1-10 is the registered metric.\n"
         spec["review"]["findings"].pop(1)
-        self.capped(spec, "instrument-unvalidated")
+        self.capped(spec, "instrument-unvalidated", "judged-row-incomplete")
 
     def test_p7_registered_metric_not_reported_refused(self):
         spec = mixed_spec()
@@ -852,28 +930,25 @@ class Captures(Rules8):
         self.assertEqual(rc, 1, out)
         self.assertIn("connector not on the allowlist", out)
 
-    def test_hypergeometric_stopping_recomputed_from_counts(self):
-        for sample, verdict in ((500, "met"), (200, "not met")):
-            spec = literature_spec()
-            spec["state"]["stopping"] = {"rule": "hypergeometric", "pool": 1000,
-                                         "sample": sample, "found_in_sample": 0,
-                                         "seen_relevant": 95, "recall": 0.95,
-                                         "confidence": 0.95}
-            fx = self.build(spec)
-            rc, out = fx.check()
-            p = hypergeometric_p(1000, sample, 0, 95, 0.95)
-            self.assertIn("stopping q: hypergeometric p=%.4f %s" % (p, verdict), out)
-            if verdict == "not met":
+    def test_hypergeometric_stopping_recomputed_from_captured_counts(self):
+        # Oracle: buscarpy 0.0.2 calculate_h0 (scipy), haystack 300, recall 0.95.
+        for dropped_after, oracle in ((150, "p=0.000166 met"), (20, "p=0.453536 not met")):
+            fx, out = self.build_check(hypergeometric_spec(dropped_after))
+            self.assertIn("stopping q: hypergeometric " + oracle, out)
+            if oracle.endswith("not met"):
                 self.assertRegex(out, r"(?m)^certainty q: .*\bstopping-not-met\b", out)
 
     def test_run_census_reports_an_engine_run_with_no_row(self):
         spec = mixed_spec()
         spec["orx_extra"] = {"r9": {"log": "run r9 arm cache\np95 92\n",
-                                    "status": "completed"}}
+                                    "status": "completed"},
+                             "r8": {"log": "run r8 arm cache\np95 93\n",
+                                    "status": "completed", "experiment": "exp-other"}}
         fx = self.build(spec)
         rc, out = fx.check("--orx")
         self.assertEqual(rc, 0, out)
         self.assertIn("orx run r9 has no results row", out)
+        self.assertNotIn("orx run r8", out)
 
     def test_aborted_run_is_a_row_and_does_not_refuse(self):
         spec = mixed_spec()
@@ -926,7 +1001,7 @@ class Certainty(Rules8):
         spec["runs"]["h1"] = runs(base=(120, 90), cache=(91, 119))
         spec["claims"][0]["statement"] = "p95 latency dropped from 120 ms to 91 ms after caching"
         spec["review"]["findings"][1]["quote"] = "p95 91"
-        self.capped(spec, "interval-includes-zero")
+        self.capped(spec, "interval-includes-zero", "below-achieved-mde")
 
     def test_binary_arm_prints_wilson_and_clopper_pearson_at_zero_of_twenty(self):
         spec = mixed_spec()
@@ -976,16 +1051,8 @@ class Certainty(Rules8):
 
 # ----------------------------------------------------------------- wave 3
 class Instruments(Rules8):
-    def instrument_line(self, per_arm, n, wrong, arms=("a", "b"), items=None):
-        spec = mixed_spec()
-        items = items or per_arm
-        outcomes = {arm: [k % 2 for k in range(items)] for arm in ("a", "b")}
-        aux_experiment(spec, "h2", item_rows("judge-x", ("a", "b"), outcomes))
-        spec["ops"].append((["instrument", "add", "q", "judge-x", "--kind", "measure",
-                             "--rung", "R4", "--construct", "slow item"], None))
-        for arm in arms:
-            gold_ops(spec, "judge-x", arm, n, 5, outcomes, wrong=wrong)
-        return spec
+    def instrument_line(self, per_arm, n, wrong, arms=("a", "b")):
+        return instrument_spec(per_arm, n, wrong, arms)
 
     def test_seventy_two_clean_gold_items_pass_twenty_do_not(self):
         fx = self.build(self.instrument_line(80, 72, 0))
@@ -1128,14 +1195,7 @@ class Review(Rules8):
 
     def test_overlap_with_a_refuted_done_claim_warns_until_related(self):
         fx = self.build(mixed_spec())
-        old = os.path.join(fx.project, ".tezgah", "research", "done", "old")
-        _write(os.path.join(old, "state.json"), json.dumps(
-            {"question": "does a warm OS page cache change request latency?",
-             "phase": "concluded", "direction": "conclude", "rules": 7}) + "\n")
-        _write(os.path.join(old, "claims.jsonl"), json.dumps(
-            {"id": "C1", "statement": Q, "kind": "derivation", "status": "refuted",
-             "proof": ["findings.md"], "falsification": "n/a",
-             "provenance": "ai-executed"}) + "\n")
+        done_line(fx.project)
         rc, out = fx.check()
         self.assertIn("overlaps refuted claim old/C1", out)
         _write(fx.path("related.jsonl"), json.dumps(
@@ -1219,7 +1279,8 @@ class Review(Rules8):
 
     def test_patterns_source_on_a_continuation_line_counts(self):
         spec = mixed_spec()
-        spec["findings"] = FINDINGS % "- caching lowers tail latency\n  in both arms [C1] [C2]"
+        spec["findings"] = FINDINGS % ("- caching lowers tail latency in both arms\n"
+                                       "  (literature/%s)" % NOTE)
         fx = self.build(spec)
         rc, out = fx.check("--strict")
         self.assertEqual(rc, 0, out)
@@ -1231,6 +1292,391 @@ class Review(Rules8):
         fx = self.build(spec)
         rc, out = fx.check()
         self.assertIn("Patterns bullets name no source", out)
+
+
+# ----------------------------------------------------------------- added after the spec review
+def certainty_line(case, out, cid):
+    found = re.search(r"(?m)^certainty q: %s .*$" % re.escape(cid), out)
+    case.assertIsNotNone(found, "no certainty line for %s:\n%s" % (cid, out))
+    return found.group(0)
+
+
+def bare_project(case):
+    """A sandboxed git project with no research line yet."""
+    tmp, env = sandbox(case)
+    fx = Fixture(tmp, env)
+    os.makedirs(fx.project)
+    fx.git("init", "-q")
+    _write(os.path.join(fx.project, ".gitignore"), "/.tezgah/\n")
+    fx.git("add", "-A")
+    fx.git("commit", "-q", "-m", "fixture project")
+    return fx
+
+
+class CaptureIntegrity(Rules8):
+    def test_f4_receipt_row_appended_over_a_real_capture_refused(self):
+        fx = self.build(mixed_spec())
+        path = fx.path("literature/.receipts/RECEIPTS.jsonl")
+        with open(path, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        real = next(r for r in rows if r.get("provider") == "arxiv" and r.get("resolved"))
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(dict(real, title="A title the registry never returned")) + "\n")
+        fx.must(["commit", "q", "a receipt row typed over a real capture"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*not derived from its capture")
+
+    def test_every_capture_kind_edited_in_a_later_commit_refused(self):
+        cases = (("source text", mixed_spec, "literature/.sources/SOURCES.jsonl"),
+                 ("search output", literature_spec, "searches/SEARCHES.jsonl"),
+                 ("run log", mixed_spec, "experiments/h1/raw/r1.log"),
+                 ("gold file", lambda: instrument_spec(80, 72, 0),
+                  "instruments/gold/judge-x-a-5.json"))
+        for kind, make, rel in cases:
+            with self.subTest(kind=kind):
+                fx = self.build(make())
+                if rel.endswith(".jsonl"):
+                    with open(fx.path(rel), encoding="utf-8") as fh:
+                        rel = json.loads(fh.readline())["file"]
+                with open(fx.path(rel), "ab") as fh:
+                    fh.write(b"\nedited after capture\n")
+                fx.must(["commit", "q", "edit a %s" % kind])
+                rc, out = fx.check()
+                self.assertEqual(rc, 1, out)
+                self.assertRegex(out, r"(?m)^FAIL q: .*changed after its first commit")
+
+    def test_refiled_run_gets_a_new_log_and_the_first_stays(self):
+        fx = self.build(mixed_spec())
+        with open(fx.path("experiments/h1/raw/r1.log"), "rb") as fh:
+            before = fh.read()
+        fx.must(["source", "q", "h1", "--run", "r1", "--arm", "base", "--value", "p95=120",
+                 "--scope", "real"])
+        self.assertTrue(os.path.isfile(fx.path("experiments/h1/raw/r1.1.log")))
+        with open(fx.path("experiments/h1/raw/r1.log"), "rb") as fh:
+            self.assertEqual(fh.read(), before)
+        rc, out = fx.check()
+        self.assertNotIn("changed after its first commit", out)
+
+    def test_gold_draw_over_grown_items_is_a_capture_that_exists(self):
+        few = ["i%03d" % k for k in range(1, 21)]
+        many = ["i%03d" % k for k in range(1, 41)]
+        seed = next(s for s in range(1, 500)
+                    if seeded_draw(few, s, "a", 5) != seeded_draw(many, s, "a", 5))
+        spec = mixed_spec()
+        aux_experiment(spec, "h2", item_rows("judge-x", ("a",), {"a": [k % 2 for k in range(20)]}))
+        spec["ops"] += [(["instrument", "add", "q", "judge-x", "--kind", "measure", "--rung",
+                          "R4", "--construct", "slow item"], None),
+                        (["gold", "q", "judge-x", "--arm", "a", "--n", "5", "--seed", str(seed)],
+                         None)]
+        fx = self.build(spec)
+        grown = item_rows("judge-x", ("a",), {"a": [k % 2 for k in range(40)]})[20:]
+        with open(fx.path("experiments/h2/results.jsonl"), "a", encoding="utf-8") as fh:
+            fh.write("".join(json.dumps(r) + "\n" for r in grown))
+        fx.must(["commit", "q", "more items"])
+        rc, out = fx.run(["gold", "q", "judge-x", "--arm", "a", "--n", "5", "--seed", str(seed)])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("capture exists", out)
+
+    def test_screening_row_naming_an_unreturned_id_refused(self):
+        spec = literature_spec()
+        spec["files"]["searches/screening.jsonl"] = json.dumps(
+            {"search": 1, "id": "openalex:W1", "decision": "kept", "reason": "on topic",
+             "screener": "rater one"}) + "\n"
+        self.refused(spec, "screens an id no captured search returned")
+
+    def test_search_obligations_each_cap_their_own_step(self):
+        def one_connector(s):
+            s["searches"] = [{"tag": "counter", "item": ITEM_L,
+                              "argv": ["openalex"] + PRIMARY_Q}]
+
+        def no_counter(s):
+            s["searches"][1]["tag"] = "primary"
+
+        def no_stopping(s):
+            del s["state"]["stopping"]
+
+        def missed(s):
+            s["state"]["known_items"] = ["arXiv:2499.00009"]
+        for step, change in (("one-connector", one_connector), ("no-counter-search", no_counter),
+                             ("no-stopping-rule", no_stopping), ("known-item-missed", missed)):
+            with self.subTest(step=step):
+                spec = literature_spec()
+                change(spec)
+                self.capped(spec, step)
+
+    def test_saturation_stop_recomputed_from_the_last_search(self):
+        spec = literature_spec()
+        spec["state"]["stopping"] = {"rule": "saturation", "run": 1}
+        fx, out = self.build_check(spec)
+        self.assertIn("stopping q: saturation met", out)
+        spec = literature_spec()
+        spec["state"]["stopping"] = {"rule": "saturation", "run": 1}
+        spec["map"][search_url("arxiv", COUNTER_Q)] = atom([
+            (ARX, TITLE, 2024, "Ann Smith", "We study caching."),
+            (ARX2, TITLE2, 2024, "Bo Jones", "We study warm caches."),
+            ("2403.00003", "A third caching paper", 2024, "Cy Lee", "New.")])
+        fx, out = self.build_check(spec)
+        self.assertIn("stopping q: saturation not met", out)
+        self.assertRegex(out, r"(?m)^certainty q: .*\bstopping-not-met\b")
+
+    def test_user_supplied_full_text_needs_an_ack_and_the_report_names_it(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = html_body(TITLE, "caching changed nothing we measured")
+        spec["tmp_files"]["paper.txt"] = "Section 4. In our study, %s.\n" % QUOTE
+        ack = "the user pasted section 4 of the paper"
+        spec["fetch"] = [(NOTE, ["--file", "@TMP@/paper.txt", "--ack", ack])]
+        fx = self.build(spec)
+        rc, out = fx.run(["fetch", "q", NOTE, "--file", os.path.join(fx.tmp, "paper.txt")])
+        self.assertEqual(rc, 2, out)
+        with open(fx.path("literature/.sources/SOURCES.jsonl"), encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        self.assertEqual(rows[-1]["access"], "user")
+        with open(fx.path(rows[-1]["file"]), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["ack"], ack)
+        rc, out = fx.check()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("quote not in the captured source text", out)
+        self.assertRegex(out, r"(?m)^warn q: .*report states no user-supplied share")
+        with open(fx.path("to_human/report.md"), "a", encoding="utf-8") as fh:
+            fh.write("\nuser-supplied: 1 of 1 sources\n")
+        fx.must(["commit", "q", "the report names the user-supplied share"])
+        rc, out = fx.check()
+        self.assertNotIn("report states no user-supplied share", out)
+
+    def test_fetch_takes_orx_full_text_before_the_abstract(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = {"status": 404}
+        spec["orx_papers"] = {ARX: "Section 4. In our study, %s.\n" % QUOTE}
+        fx, out = self.build_check(spec)
+        self.assertEqual(self.certainties(out).get("C2"), "moderate", out)
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = html_body(TITLE, "caching changed nothing we measured")
+        spec["orx_papers"] = {ARX: "Section 4. In our study, %s.\n" % QUOTE}
+        spec["fetch"] = [(NOTE, ["--orx"])]
+        fx, out = self.build_check(spec)
+        self.assertNotIn("quote not in the captured source text", out)
+
+    def test_report_without_the_closed_access_share_warns(self):
+        spec = mixed_spec()
+        spec["report"] = spec["report"].replace("\nclosed-access: 0 of 1\n", "\n")
+        fx, out = self.build_check(spec)
+        self.assertRegex(out, r"(?m)^warn q: .*report states no closed-access share")
+
+    def test_quote_with_ellipsis_and_citation_marker_is_found(self):
+        spec = mixed_spec()
+        spec["claims"][1]["quote"] = ("caching lowers tail latency ... in every workload we "
+                                      "measured [12]")
+        fx, out = self.build_check(spec)
+        self.assertNotIn("quote not in the captured source text", out)
+        self.assertEqual(self.certainties(out).get("C2"), "moderate", out)
+
+    def test_year_within_one_of_the_receipt_agrees(self):
+        spec = mixed_spec()
+        spec["index"][0]["year"] = 2025
+        fx, out = self.build_check(spec)
+        self.assertEqual(self.certainties(out).get("C2"), "moderate", out)
+
+    def test_source_value_naming_a_reserved_key_is_misuse(self):
+        spec = mixed_spec()
+        spec["orx_extra"] = {"r6": {"log": "run r6 arm cache\nscope 1\n", "status": "completed"}}
+        fx = self.build(spec)
+        rc, out = fx.run(["source", "q", "h1", "--run", "r6", "--arm", "cache", "--value",
+                          "scope=1", "--scope", "real"])
+        self.assertEqual(rc, 2, out)
+
+
+class StatisticsAndReport(Rules8):
+    def test_report_without_a_claims_certainty_warns(self):
+        spec = mixed_spec()
+        spec["report"] = report("Caching lowered p95 latency from 120 ms to 90 ms (C1).",
+                                [("C1", "high")], (0, 1))
+        fx, out = self.build_check(spec)
+        self.assertRegex(out, r"(?m)^warn q: .*report states no certainty for claim C2")
+
+    def test_untraced_number_is_never_refused_under_strict(self):
+        spec = mixed_spec()
+        spec["claims"][0]["statement"] = "p95 latency dropped from 120 ms to 85 ms after caching"
+        spec["report"] = spec["report"].replace("- C1: high", "- C1: moderate")
+        fx, out = self.build_check(spec, "--strict")
+        self.assertNotRegex(out, r"(?m)^FAIL", out)
+        self.assertIn("untraced-number", certainty_line(self, out, "C1"))
+
+    def test_no_difference_claim_needs_a_sesoi_and_a_passing_tost(self):
+        for extra, present, absent in (("", ("no-sesoi",), ()),
+                                       ("sesoi: 5\n", ("tost-not-passed",), ()),
+                                       ("sesoi: 200\n", (), ("no-sesoi", "tost-not-passed"))):
+            with self.subTest(sesoi=extra.strip() or "none"):
+                spec = mixed_spec()
+                spec["protocol"]["h1"] = protocol(extra=extra)
+                spec["runs"]["h1"] = runs(base=(120, 90), cache=(91, 119))
+                spec["claims"][0].update(statement="caching left p95 latency unchanged",
+                                         effect="no-difference")
+                spec["review"]["findings"][1]["quote"] = "p95 91"
+                fx, out = self.build_check(spec)
+                line = certainty_line(self, out, "C1")
+                for step in present:
+                    self.assertIn(step, line)
+                for step in absent:
+                    self.assertNotIn(step, line)
+
+    def test_bh_correction_caps_only_the_experiment_it_does_not_reject(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(extra="correction: bh\n")
+        spec["protocol"]["h2"] = protocol("h2", extra="correction: bh\n")
+        spec["typed_rows"]["h2"] = [
+            {"run": "t%d" % n, "arm": arm, "p95": v, "scope": "real",
+             "source": "bench.py t%d" % n}
+            for n, (arm, v) in enumerate((("base", 100), ("base", 110), ("cache", 105),
+                                          ("cache", 105)), 1)]
+        spec["analysis"]["h2"] = "# Analysis h2\n\nCONFIRMATORY: no change between builds.\n"
+        spec["claims"].append(evidence_claim("C3", "the second cache build lowered p95 latency",
+                                             proof=["experiments/h2/results.jsonl"]))
+        spec["report"] += "- C3: low, exploratory\n"
+        fx, out = self.build_check(spec)
+        self.assertIn("fails-multiplicity", certainty_line(self, out, "C3"))
+        self.assertNotIn("fails-multiplicity", certainty_line(self, out, "C1"))
+
+    def test_fewer_rows_than_the_planned_n_capped(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol().replace("n: 2\n", "n: 3\n")
+        self.capped(spec, "below-planned-n")
+
+    def test_effect_line_matches_a_hand_welch_interval(self):
+        fx, out = self.build_check(mixed_spec())
+        se = math.sqrt(0.5 / 2 + 0.5 / 2)  # both groups have variance 0.5; Welch df is 2
+        t = 0.95 / math.sqrt(2 * 0.975 * 0.025)  # the exact 0.975 t quantile at df 2
+        z = statistics.NormalDist()
+        mde = (z.inv_cdf(0.975) + z.inv_cdf(0.8)) * se
+        self.assertIn("effect q: h1 cache vs base on p95 effect=30.0000 ci=[%.4f, %.4f] "
+                      "mde=%.4f" % (30 - t * se, 30 + t * se, mde), out)
+
+    def test_falsifier_in_words_is_accepted(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(falsifier="p95 latency exceeds 110 ms on the cache arm")
+        fx, out = self.build_check(spec)
+        self.assertNotIn("falsifier holds no comparator and number", out)
+
+
+class InstrumentLedger(Rules8):
+    def test_redraw_after_labels_refused(self):
+        fx = self.build(instrument_spec(80, 72, 0))
+        rc, out = fx.run(["gold", "q", "judge-x", "--arm", "a", "--n", "72", "--seed", "6"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("gold draw after labels", out)
+
+    def test_a_repeated_label_warns_and_the_first_counts(self):
+        spec = instrument_spec(80, 72, 0)
+        drawn, labels = spec["gold"]["a"]
+        flipped = "".join(json.dumps({"item": r["item"], "truth": 1 - r["truth"]}) + "\n"
+                          for r in labels)
+        spec["ops"].append((["label", "q", "judge-x", "--arm", "a", "--human", "rater two",
+                             "--ack", "the user relabelled them"], flipped))
+        fx, out = self.build_check(spec)
+        self.assertRegex(out, r"(?m)^instrument q: judge-x validated ")
+        self.assertRegex(out, r"(?m)^warn q: .*label repeated for ")
+
+    def test_label_outside_the_gold_sample_refused_and_an_ack_required(self):
+        spec = instrument_spec(80, 72, 0, arms=("a",))
+        drawn, _ = spec["gold"]["a"]
+        outside = next(i for i in ("i%03d" % k for k in range(1, 81)) if i not in drawn)
+        fx = self.build(spec)
+        rc, out = fx.run(["label", "q", "judge-x", "--arm", "a", "--human", "rater one",
+                          "--ack", "the user labelled it"],
+                         json.dumps({"item": outside, "truth": 0}) + "\n")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("not in the gold sample", out)
+        rc, out = fx.run(["label", "q", "judge-x", "--arm", "a", "--human", "rater one"],
+                         json.dumps({"item": drawn[0], "truth": 0}) + "\n")
+        self.assertEqual(rc, 2, out)
+
+    def test_provider_label_records_the_models_own_name(self):
+        spec = mixed_spec()
+        values = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
+        rows = item_rows("judge-m", ("a",), {"a": values})
+        for row in rows:
+            row["text"] = "call %s took long" % row["item"]
+        aux_experiment(spec, "h2", rows)
+        drawn = seeded_draw([r["item"] for r in rows], 2, "a", 4)
+        answer = json.dumps({"model": "openai/gpt-x-2026-01",
+                             "choices": [{"message": {"content": "Answer: 1"}}]})
+        for item in drawn:
+            key = provider_key("judge-m", "a slow item", item, "call %s took long" % item,
+                               "openai/gpt-x")
+            spec["map"][key] = answer
+        spec["ops"] += [(["instrument", "add", "q", "judge-m", "--kind", "measure", "--rung",
+                          "R4", "--construct", "a slow item"], None),
+                        (["gold", "q", "judge-m", "--arm", "a", "--n", "4", "--seed", "2"],
+                         None),
+                        (["label", "q", "judge-m", "--arm", "a", "--provider", "openrouter",
+                          "--model", "openai/gpt-x"], None)]
+        spec["env"]["OPENROUTER_API_KEY"] = "test-key"
+        fx, out = self.build_check(spec)
+        with open(fx.path("instruments/labels.jsonl"), encoding="utf-8") as fh:
+            labels = [json.loads(line) for line in fh if line.strip()]
+        self.assertEqual(sorted(r["item"] for r in labels), sorted(drawn))
+        for row in labels:
+            self.assertEqual(row["truth"], 1)
+            self.assertEqual(row["rater"], {"kind": "model", "provider": "openrouter",
+                                            "model": "openai/gpt-x-2026-01"})
+        errors = sum(1 for i in drawn if values[int(i[1:]) - 1] != 1)
+        self.assertIn("instrument q: judge-m arm a n=4 errors=%d upper=%.4f"
+                      % (errors, cp_upper(errors, 4)), out)
+        del fx.env["OPENROUTER_API_KEY"]
+        rc, out = fx.run(["label", "q", "judge-m", "--arm", "a", "--provider", "openrouter",
+                          "--model", "openai/gpt-x"])
+        self.assertEqual(rc, 2, out)
+
+    def test_switch_narrow_row_lets_conclude_past_the_rejected_instrument(self):
+        fx = self.build(Probes.p9_spec(self))
+        fx.must(["switch", "q", "regex-labeler", "--narrow",
+                 "C3 now reports the labeler's output only", "--reason",
+                 "4 of 10 gold labels disagree"])
+        rc, out = fx.run(["conclude", "q"])
+        self.assertNotIn("has no switch or narrowing row", out)
+
+
+class RoutingAndReview(Rules8):
+    def test_init_prints_the_class_obligations(self):
+        fx = bare_project(self)
+        rc, out = fx.run(["init", "q", "--ask", Q, "--question", Q, "--method", "qualitative",
+                          "--class", "R7", "--in", ITEM_L, "--out", "other changes"])
+        self.assertEqual(rc, 0, out)
+        line = re.search(r"(?m)^obligations: .*$", out)
+        self.assertIsNotNone(line, out)
+        for step in ("no-dual-screening", "no-recall-stopping", "one-connector"):
+            self.assertIn(step, line.group(0))
+
+    def test_budget_line_counts_sources_searches_and_runs(self):
+        fx, out = self.build_check(mixed_spec())
+        self.assertIn("budget q: sources 1/30 searches 0/40 runs 4/40", out)
+
+    def test_default_known_truth_set_holds_enough_cases(self):
+        tmp, env = sandbox(self)
+        proc = subprocess.run([sys.executable, CLI, "release-check"], cwd=tmp, env=env,
+                              capture_output=True, text=True, timeout=600)
+        out = proc.stdout + proc.stderr
+        self.assertEqual(proc.returncode, 0, out)
+        misses = re.search(r"(?m)^misses: \d+/(\d+) upper=", out)
+        alarms = re.search(r"(?m)^false alarms: \d+/(\d+) upper=", out)
+        self.assertIsNotNone(misses, out)
+        self.assertIsNotNone(alarms, out)
+        self.assertGreaterEqual(int(misses.group(1)), 36)
+        self.assertGreaterEqual(int(alarms.group(1)), 17)
+
+    def test_review_quoting_no_raw_log_or_code_warns(self):
+        spec = mixed_spec()
+        spec["review"]["findings"].pop(1)
+        fx, out = self.build_check(spec)
+        self.assertRegex(out, r"(?m)^warn q: .*review quotes no raw log or code")
+
+    def test_init_lists_overlapping_done_claims(self):
+        fx = bare_project(self)
+        done_line(fx.project)
+        rc, out = fx.run(["init", "q", "--ask", Q, "--question", Q, "--method", "measured",
+                          "--class", "R6", "--in", ITEM, "--out", "other changes"])
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(out, r"(?m)^overlap: old/C1 refuted \d\.\d\d$")
 
 
 if __name__ == "__main__":
