@@ -4878,6 +4878,11 @@ def _shell_read(cmd, subst=False):
     for word in re.split(r"[\s;&|()<>]+", dq):
         if "$" in word and ("[" in word or "$" in PLAIN_DOLLAR.sub("", word)):
             return True, ""
+    # a positional parameter is a value no read here sees: where loops read
+    # (`subst`), a `$1` the shell expands - unquoted or double-quoted, never one
+    # inside single quotes, a comment or a heredoc body - makes the command work
+    if subst and POSITIONAL.search(dq):
+        return True, ""
     text = HARMLESS_REDIRECT.sub(" ", "".join(bare))
     # every `<` left is an input redirect or a here-string, both reads; blanking
     # them keeps `_shell_segments`' own heredoc pass from reading one again
@@ -4931,23 +4936,7 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     if effect:
         return False
     segs = _shell_segments(text)
-    # a `$1` inside single quotes is the quoted program's text (`awk '{print $1}'`);
-    # an apostrophe inside double quotes or after a backslash opens nothing
-    unquoted, quote, escaped = [], None, False
-    for ch in raw:
-        if escaped:
-            escaped = False
-        elif ch == "\\" and quote != "'":
-            escaped = True
-        elif quote is None and ch in "'\"":
-            quote = ch
-        elif ch == quote:
-            quote = None
-        elif quote == "'":
-            continue
-        unquoted.append(ch)
-    unseen = loops and (POSITIONAL.search("".join(unquoted)) is not None
-                        or any("for" in w or any("$(" in a for a in w) for w in segs))
+    unseen = loops and any("for" in w or any("$(" in a for a in w) for w in segs)
     for words in segs:
         i = 0
         while i < len(words) and (words[i] in GIT_WRAPPER

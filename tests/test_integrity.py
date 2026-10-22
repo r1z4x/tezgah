@@ -514,12 +514,21 @@ class BookkeepingCommand(unittest.TestCase):
         # `$1` inside single quotes is awk's or grep's text, not a value the shell
         # binds; an unquoted or double-quoted one still is
         for c in ("if true; then awk '{print $1}' f; fi",
-                  "{ jq '.a' f; git show $x; } ; grep '$1' g"):
+                  "{ jq '.a' f; git show $x; } ; grep '$1' g",
+                  "echo $'it\\'s'; awk '{print $1}' f",
+                  "cat a # it's\nawk '{print $1}' f",
+                  "cat <<'E'\nit's\nE\nawk '{print $1}' f"):
             self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        # review of plan 126: an apostrophe in `$'..'`, a comment or a quoted
+        # heredoc body once hid the unquoted `$1` after it
         for c in ("cat() { find . -name x $1; }; cat -delete",
                   'if true; then find . "$1"; fi',
                   'if true; then find . "don\'t" $1 \'x\'; fi',
-                  "if true; then find . \\' $1 \\'; fi"):
+                  "if true; then find . \\' $1 \\'; fi",
+                  "if true; then find . $'\\'' $1; fi",
+                  "sort $'\\'' $1 src/app.py",
+                  "cat a # it's\nfind . $1",
+                  "cat <<'E'\nit's\nE\nfind . $1"):
             self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
 
