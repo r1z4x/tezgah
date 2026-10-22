@@ -38,6 +38,18 @@ import tezgah_untrusted as tu  # noqa: E402
 import tezgah_store as ts  # noqa: E402
 
 NODE = shutil.which("node")
+# The plugin's shell readers on stdin's {"plugin", "lines"}: one JSON object per
+# line, read in the plugin's own module with an export line appended.
+JS_READERS = """
+import { readFileSync } from "node:fs"
+const spec = JSON.parse(readFileSync(0, "utf8"))
+const src = readFileSync(spec.plugin, "utf8") +
+  "\\nexport { heredocs, shellLines, maskText, shellSegments }\\n"
+const m = await import("data:text/javascript;base64," + Buffer.from(src).toString("base64"))
+process.stdout.write(JSON.stringify(spec.lines.map((t) => ({
+  heredocs: m.heredocs(t).length, lines: m.shellLines(t), mask: m.maskText(t),
+  segments: m.shellSegments(t) }))))
+"""
 # The marker the detector must catch, assembled at runtime: the gate denies a
 # file that adds the literal marker, so the test source must not carry it whole.
 SKIP_MARK = "@pytest.mark." + "skip"
@@ -406,6 +418,40 @@ class OpenCodePlugin(TempHome):
                      "cat <<EOF\ndon't\nEOF\ngit commit --no-verify -m x",
                      "cat <<EOF\ndon't\nEOF\nHUSKY=0 git commit -m x; echo 'y'"):
             self.assertIsNotNone(ti.shortcut_command(line), line)
+            self.denied(self.before("bash", {"command": line}))
+
+    def js_readers(self, lines):
+        """The plugin's heredocs, shellLines, maskText and shellSegments over
+        `lines`: module-private, so the source is re-imported with an export
+        line appended (tests/_fuzz_shell_reader.mjs's way)."""
+        proc = subprocess.run(
+            [NODE, "--input-type=module", "-e", JS_READERS],
+            input=json.dumps({"plugin": support.OPENCODE_PLUGIN, "lines": lines}),
+            capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return json.loads(proc.stdout)
+
+    def test_one_comment_and_continuation_rule_on_both_sides(self):
+        # review of plan 126, round 3h, mirrored: every reader opens a comment
+        # where bash does (COMMENT_PREFIXES, held to bash in test_gate), and the
+        # review's lines read as the Python readers read them
+        prefixes = bash_vectors.COMMENT_PREFIXES
+        lines = [p + "#<<E\nb\nE\n" for p, _ in prefixes] + [p + "#x" for p, _ in prefixes]
+        got = self.js_readers(lines)
+        for k, (prefix, comment) in enumerate(prefixes):
+            seen = {"heredocs": not got[k]["heredocs"],
+                    "shell_lines": "#x" not in "\n".join(got[len(prefixes) + k]["lines"]),
+                    "mask": "#x" not in got[len(prefixes) + k]["mask"]}
+            self.assertEqual(seen, dict.fromkeys(seen, comment), repr(prefix))
+        review = list(bash_vectors.CONTINUATION_LINES)
+        for line, js in zip(review, self.js_readers(review)):
+            self.assertEqual(js["segments"], ti._shell_segments(line), repr(line))
+            self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
+            self.assertEqual(js["mask"], ti.mask(line), repr(line))
+        for line in ("true x\r#;git commit --no-verify -m m",
+                     "true x\xa0#;git commit --no-verify -m m",
+                     "git -c core.hooksPath=/x com\\\nmit -m x"):
+            self.assertIsNotNone(ti.shortcut_command(line), repr(line))
             self.denied(self.before("bash", {"command": line}))
 
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
