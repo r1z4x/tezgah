@@ -1963,6 +1963,29 @@ class RoundTwo(Rules8):
         self.assertEqual(rc, 1, out)
         self.assertRegex(out, r"(?m)^FAIL q: .*has no capture")
 
+    def test_search_capture_that_does_not_parse_under_its_connector_does_not_count(self):
+        # R2-5: bytes under searches/raw/ that are not the row's connector output count for
+        # nothing, so a forged second connector leaves the one-connector step standing.
+        spec = literature_spec()
+        spec["searches"] = [{"tag": "counter", "item": ITEM_L, "argv": ["openalex"] + PRIMARY_Q}]
+        fx = self.build(spec)
+        first = ledger_rows(fx, "searches/SEARCHES.jsonl")[0]
+        body = b"<html><body>rate limited</body></html>\n"
+        sha = hashlib.sha256(body).hexdigest()
+        rel = "searches/raw/%s.raw" % sha
+        _write(fx.path(rel), body)
+        row = dict(first, n=2, tag="primary", connector="arxiv", query=" ".join(COUNTER_Q),
+                   file=rel, sha256=sha, hits=0, ids=[])
+        if "argv" in first:
+            row["argv"] = ["arxiv"] + COUNTER_Q
+        if "url" in first:
+            row["url"] = search_url("arxiv", COUNTER_Q)
+        append_row(fx, "searches/SEARCHES.jsonl", row)
+        fx.must(["commit", "q", "a second connector whose capture is not its output"])
+        rc, out = fx.check()
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"(?m)^certainty q: .*\bone-connector\b")
+
 
 class FalseRefusalsTurnedIntoSteps(Rules8):
     def test_receipt_for_an_id_no_index_row_holds_is_ignored(self):
