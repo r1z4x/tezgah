@@ -560,17 +560,22 @@ class Captures(unittest.TestCase):
     def test_orx_metadata_and_abstract_read_as_abstract(self):
         """K6 raters Y5 and Y6: `orx paper --full` answers with metadata and an abstract
         for a paper it cannot read whole, and that was labelled `full`, so a verbatim body
-        quote was refused. The same body test the open-access page gets applies."""
+        quote was refused. The same body test the open-access page gets applies; a short
+        text that holds a quote still backs it, so it stays full."""
         self.run_cmd("cite", "q")
         self.map[HTML] = {"status": 404}
         self.write(self.map_path, json.dumps(self.map))
-        self.orx({"logs": {}, "runs": [], "papers": {ARX: "Abstract only. %s." % QUOTE}})
+        stub = ("Title. Ann Smith. 2024. Abstract: we study caching in three services.")
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: stub}})
         self.assertEqual(self.run_cmd("fetch", "q", NOTE)[0], 0)
         row = self.rows(cap.SOURCES)[-1]
         self.assertEqual(row["access"], "abstract")
         with open(self.at(row["file"])) as fh:
             record = json.load(fh)
         self.assertIn("not full text", record["reason"])
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: "Abstract only. %s." % QUOTE}})
+        self.assertEqual(self.run_cmd("fetch", "q", NOTE)[0], 0)
+        self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
 
     def test_quote_absent_from_the_capture_is_refused(self):
         self.set_map({HTML: "<p>caching changed nothing we measured</p>"})

@@ -827,15 +827,21 @@ def cmd_fetch(repo, args):
     if text is None and rid and not tried_orx:
         data, text, url = _orx_paper(rid)
         orx_text = text is not None
-    reason = None
+    reason, norm = None, None
     if (text is not None and orx_text and access == "full"
             and body_sentences(text) < BODY_SENTENCES):
-        # the same body test the open-access page gets (K6 rater Y5 and Y6): orx
-        # answers with metadata and an abstract for a paper it cannot read whole
-        access = "abstract"
-        reason = ("orx held %d distinct sentences of %d+ words, under the %d of a work's "
-                  "body: metadata and abstract, not full text" % (
-                      body_sentences(text), BODY_WORDS, BODY_SENTENCES))
+        # the same body test the open-access page gets (K6 rater Y5 and Y6): orx answers
+        # with metadata and an abstract for a paper it cannot read whole. A short text
+        # that holds one of the line's quotes still backs it, so it stays full.
+        norm = normalise(text)
+        frags = [f for q in gather_quotes(base, note, _claims(base))
+                 for f in quote_fragments(q)]
+        if not any(f in norm for f in frags):
+            access = "abstract"
+            reason = ("orx held %d distinct sentences of %d+ words, under the %d of a "
+                      "work's body, and none of the line's %d quotes: metadata and "
+                      "abstract, not full text" % (
+                          body_sentences(text), BODY_WORDS, BODY_SENTENCES, len(frags)))
     if text is None and landing:
         # a repository landing page holds the metadata and the abstract, not the body
         # (K6 rater Y4's Tilburg and EUR Pure pages): the abstract-only step
@@ -853,7 +859,7 @@ def cmd_fetch(repo, args):
             access, url = "none", None
             reason = ("no step yielded text: no arXiv HTML, open-access copy, orx full text "
                       "or receipt abstract")
-    norm = normalise(text or "")
+    norm = norm if norm is not None else normalise(text or "")
     passages = []
     for quote in gather_quotes(base, note, _claims(base)):
         for frag, i in _locate(quote_fragments(quote), norm):

@@ -1016,7 +1016,7 @@ always comes from a receipt. The first step that yields text decides the capture
 | 1 | `--file <path>` (needs `--ack "<the user's words>"`, else exit 2), or `--orx` | `user`, or `full` |
 | 2 | an arXiv id: `https://arxiv.org/html/<id>` answering 200 | `full` |
 | 3 | a DOI: the OpenAlex receipt's `open_access.oa_url` answering 200 with no PDF body and holding a work's body (below) | `full` |
-| 4 | `orx paper --full <id>`, when orx is installed and prints text | `full` |
+| 4 | `orx paper --full <id>`, when orx is installed and prints text | `full`; `abstract` when the text is short and holds none of the line's quotes |
 | 5 | the abstract of a resolved receipt | `abstract` |
 | 6 | nothing yielded text: the record names the reason, exit 0 | `none` |
 
@@ -1028,6 +1028,13 @@ either, `fetch` keeps that page as access `abstract`, with the `oa_url` as its
 url. Its reason reads `the open-access page holds <n> distinct sentences of 10+
 words, under the 100 of a work's body: a landing page`. A quote that page lacks
 costs the step `abstract-only`, never a refusal.
+
+Step 4 takes the same body test. Text under 100 such sentences that holds one of
+the line's quotes still backs it, so it stays `full`. Text that holds none is
+`abstract` - orx's metadata and abstract for a paper it cannot read whole - and
+its reason reads `orx held <n> distinct sentences of 10+ words, under the 100 of
+a work's body, and none of the line's <n> quotes: metadata and abstract, not full
+text`. A quote the stub lacks costs `abstract-only`, never a refusal.
 
 The quotes come from three places. One is a citing claim's `quote` field. Another
 is each double-quoted span of three or more words in its `statement`. The last is
