@@ -225,6 +225,9 @@ ROUGH_WORDS = re.compile(r"[;&|()]+|[^\s;&|()<>]+")
 # a redirection operator, or `&` in front of one (`&>`); shlex splits
 # `2>&1` into `2`, `>`, `&`, `1`, and none of those is an argument
 REDIRECTION = re.compile(r"^(?=[&<>]*[<>])[&<>]+$")
+# an fd number glued to its redirection (`2>`, `1<&`): bash reads `1<` as fd 1
+# and `1 <` as the program `1`, and shlex cannot tell them apart afterwards
+FD_REDIRECT = re.compile(r"(?<![\w])(\d+)([<>])")
 # what a shell line puts between the start of a command and its program; the
 # same set in the JS mirror, so the two read a line identically
 GIT_WRAPPER = frozenset(("sudo", "env", "nohup", "time", "timeout", "command",
@@ -2493,6 +2496,7 @@ def _shell_commands(cmd):
     out = []
     text = _blank_heredocs(str(cmd or ""))
     for line in map(_for_shlex, _shell_lines(text)):
+        line = FD_REDIRECT.sub(r"\2", line)
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
             lex.whitespace_split = True
@@ -2507,10 +2511,9 @@ def _shell_commands(cmd):
             if word == "&" and i < len(words) and REDIRECTION.match(words[i]):
                 continue  # `&>` is a redirection, not a separator
             if REDIRECTION.match(word):
-                # the fd before the operator (`2>`), an `&` with its fd (`>&2`),
-                # or the target after it - none of them is an argument
-                if cur and cur[-1].isdigit():
-                    cur.pop()
+                # an `&` with its fd (`>&2`), or the target after it - neither is
+                # an argument. The fd number is cut from the line before shlex
+                # (FD_REDIRECT), because `1<` is an fd and `1 <` a program word.
                 after_redir = True
                 continue
             if after_redir:

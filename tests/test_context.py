@@ -794,6 +794,15 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
                          ["pytest", "tail"])
 
+    def test_a_digit_word_before_a_spaced_redirect_is_a_program(self):
+        # plan 129, fuzzer seed 1: bash reads `1 < /dev/null` as the command `1`
+        # with stdin redirected (a space before `<` ends the fd number) and runs
+        # a URL after it as an argument; only `1<` is an fd
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("1 < /dev/null https://example.com/u1"), ["1"])
+        self.assertEqual(programs("2>f pytest >/dev/null"), ["pytest"])
+        self.assertEqual(programs("12 < f cat"), ["12"])
+
     def test_the_fuzzers_three_program_classes_are_closed(self):
         # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a
         # `$( )` or backtick close stay its command's arguments, and an unquoted

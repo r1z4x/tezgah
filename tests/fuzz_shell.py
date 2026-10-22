@@ -2,10 +2,13 @@
 
 Seeded lines are drawn from the hand vectors' grammar - the gate-01 prefixes,
 quotes including `$'...'`, comments, redirects, heredocs, command and backtick
-substitutions, and every separator - and each is run by the real `bash` with a
-hermetic PATH holding one stub per program word. A stub logs its name and
-exits 0 on the first run and 1 on the second, so a branch `&&` or `||` skips on
-one run is taken on the other; the union of both logs is what bash ran.
+substitutions, every separator, line continuations (inside and outside quotes,
+in a program name, an assignment and a separator, after an escaped backslash)
+and a `#` after a `)`, a backtick or an escaped boundary - and each is run by
+the real `bash` with a hermetic PATH holding one stub per program word. A stub
+logs its name and exits 0 on the first run and 1 on the second, so a branch
+`&&` or `||` skips on one run is taken on the other; the union of both logs is
+what bash ran.
 
 Two readers are compared with it:
 - `programs`: `tezgah_context.shell_programs`, which names the programs a line
@@ -59,10 +62,32 @@ ARGS = (
     ("redirect", "< /dev/null"),
     ("subst", "$(c1 x)"),
     ("backtick", "`b1`"),
+    # a continuation: bash deletes it in double quotes and joins a word with
+    # it, keeps it in single quotes, and after an escaped backslash the
+    # newline is real
+    ("cont-dquote", '"q d3\\\n d4"'),
+    ("cont-squote", "'q s2\\\n s3'"),
+    ("cont-word", "x\\\ny"),
+    ("escaped-backslash", "x\\\\"),
+    # a `#` mid-word opens no comment, so the command after it runs: after a
+    # substitution's `)`, a backtick (a continuation between them too) and an
+    # escaped boundary (round 3i of plan 126's review)
+    ("hash-subst", "$(c2)#;c3"),
+    ("hash-arith", "$((1))#;c4"),
+    ("hash-backtick", "`b2`#;b3"),
+    ("hash-backtick-cont", "`b4`\\\n#;b5"),
+    ("hash-escaped", "x\\ #;e1"),
+    ("hash-escaped", "x\\;#;e2"),
+    ("hash-cont", "x\\\n#;e3"),
 )
 STUBS = PROGRAMS + ("s1", "d1", "d2", "a1", "u1", "r1", "r2", "c1", "b1",
-                    "m1", "h1", "h2", "h3", "h4")
-SEPARATORS = ("; ", " && ", " || ", " | ", "\n", " & ")
+                    "m1", "h1", "h2", "h3", "h4", "d3", "d4", "s2", "s3", "c2",
+                    "c3", "c4", "b2", "b3", "b4", "b5", "e1", "e2", "e3", "j1",
+                    "j2", "g1", "m2", "c5", "k1")
+# the separators, also split by a continuation the way the shortcut rules'
+# tokens are (`|\<nl>|` is `||`), and a real newline after an escaped backslash
+SEPARATORS = ("; ", " && ", " || ", " | ", "\n", " & ",
+              " |\\\n| ", " &\\\n& ", " ;\\\n", " |\\\n ", " \\\\\n")
 
 
 def bash():
@@ -76,8 +101,19 @@ def bash_version():
 
 
 def _command(rnd):
-    words = ["X=1"] if rnd.random() < 0.15 else []
-    words.append(rnd.choice(PROGRAMS))
+    roll = rnd.random()
+    if roll < 0.03:
+        # a subshell's `)` ends a word: the `#` after it opens a comment
+        return "(g1)#;m2"
+    if roll < 0.06:
+        # an array's `)` does not
+        return "A=(q)#;c5"
+    if roll < 0.1:
+        # a continuation inside an assignment and a program name (`SK\<nl>IP=`,
+        # `tr\<nl>ue`): bash joins both
+        return "J\\\n=1 j\\\n2"
+    words = ["X=1"] if roll < 0.25 else []
+    words.append("j\\\n1" if rnd.random() < 0.05 else rnd.choice(PROGRAMS))
     words += [rnd.choice(ARGS)[1] for _ in range(rnd.randint(0, 3))]
     return " ".join(words)
 
@@ -89,8 +125,11 @@ def line(rnd):
         parts += [rnd.choice(SEPARATORS), _command(rnd)]
     text = "".join(parts)
     roll = rnd.random()
-    if roll < 0.1:
+    if roll < 0.08:
         text += " # m1 x"
+    elif roll < 0.1:
+        # a comment takes no continuation: the next line runs
+        text += " # m1 x\\\nk1"
     elif roll < 0.15:
         text += "\ncat <<E\nh1 body\n$(h2)\nE"
     elif roll < 0.2:
@@ -137,7 +176,7 @@ class Oracle:
 
 
 def _visible(name, masked):
-    return any(w.strip("`$()") == name for w in masked.replace(";", " ").split())
+    return any(w.strip("`$()#") == name for w in masked.replace(";", " ").split())
 
 
 def disagreements(text, ran, js=None):
