@@ -1006,7 +1006,7 @@ def _check_success(state, errors, warnings, strict):
         unjudged = [sid for sid, _c, verdict, _e in rows if verdict not in VERDICTS]
         if unjudged:
             errors.append("concluded with no verdict for %s: judge each criterion "
-                          "(`tezgah-research verdict`) before concluding"
+                          "(`~/.config/tezgah/bin/tezgah-research verdict`) before concluding"
                           % ", ".join(unjudged))
         if unanswered(state) and not (state.get("closed") or {}).get("ack") \
                 and not _user_event(state):
@@ -2348,10 +2348,10 @@ def _check_tracking(repo, base, errors, warnings, strict):
             elif folded(repo):
                 # a forced add of a `.tezgah/` path is the control rule's to refuse
                 fix = ("`.tezgah` is tracked by the project - drop that ignore line, "
-                       "then `tezgah-research commit %s \"<message>\"` commits the "
+                       "then `~/.config/tezgah/bin/tezgah-research commit %s \"<message>\"` commits the "
                        "line in the project's history" % os.path.basename(base))
             else:
-                fix = ("`.tezgah` has no git repository of its own - `tezgah-research "
+                fix = ("`.tezgah` has no git repository of its own - `~/.config/tezgah/bin/tezgah-research "
                        "commit %s \"<message>\"` creates it and commits the line there"
                        % os.path.basename(base))
             _soft(errors, warnings, strict,
@@ -4003,7 +4003,7 @@ def import_line(repo, source, slug=None, allow_open=None, date=""):
     lines, here = _committed_lines(ws, rev), slugs(repo)
     if slug is not None and slug not in lines:
         return [], ("%s is not committed in %s, so it has no history to import; "
-                    "commit it there (`tezgah-research commit`) - a plain copy is "
+                    "commit it there (`~/.config/tezgah/bin/tezgah-research commit`) - a plain copy is "
                     "refused because it loses the order proof" % (slug, src))
     wanted = [slug] if slug is not None else sorted(s for s in lines if s not in here)
     clash = [s for s in wanted if s in here]
@@ -4241,7 +4241,7 @@ def conclude_line(repo, slug, date=""):
                         "(state.json `success`) before concluding")
     if unjudged:
         problems.append("no verdict for %s: record it with "
-                        "`tezgah-research verdict <slug> <id> met|not-met|unanswerable "
+                        "`~/.config/tezgah/bin/tezgah-research verdict <slug> <id> met|not-met|unanswerable "
                         "--evidence <ref>`" % ", ".join(unjudged))
     if problems:
         return problems, None
@@ -6262,7 +6262,7 @@ def _next_action(slug, iid, stage, history, record, arena):
     """The one action an idea is owed next, as the command that does it."""
     cmd = "tezgah-research stage %s %s" % (slug, iid)
     if stage == "proposed":
-        return ("dedup (`tezgah-research dedup %s`), then `%s prior-art --evidence "
+        return ("dedup (`~/.config/tezgah/bin/tezgah-research dedup %s`), then `%s prior-art --evidence "
                 "'{\"verdict\": \"novel|incremental|known\", \"nearest\": [3 indexed "
                 "notes], \"delta\": \"<one sentence>\"}'`" % (slug, cmd))
     if stage == "duplicate":
@@ -6275,7 +6275,7 @@ def _next_action(slug, iid, stage, history, record, arena):
     if stage == "prior-art":
         if record["judges"] >= 2 and record["orders"] >= 2:
             return "`%s screened --evidence tournament.jsonl`" % cmd
-        return ("judge it: `tezgah-research match %s` (2+ judges of a family that "
+        return ("judge it: `~/.config/tezgah/bin/tezgah-research match %s` (2+ judges of a family that "
                 "generated neither idea, both orders)" % slug)
     if stage == "screened":
         return ("pilot: commit experiments/<h>/protocol.md naming %s and its kill "
@@ -6339,7 +6339,7 @@ def board(repo, slug):
     live = [e for e in entries if e["stage"] not in ("confirmed", "killed")]
     live.sort(key=lambda e: (-STAGES.index(e["stage"]), -e["score"], _idea_number(e["id"])))
     nxt = ("%s - %s" % (live[0]["id"], live[0]["next"]) if live else
-           ("record ideas: `tezgah-research idea %s`" % slug) if not ideas else
+           ("record ideas: `~/.config/tezgah/bin/tezgah-research idea %s`" % slug) if not ideas else
            "nothing left: every idea is confirmed or killed - write the report")
     evaluator = ("none (review only)" if not _text(arena.get("evaluator")) else
                  "%s %s" % (arena["evaluator"], "changed" if evaluator_problem(repo, state)

@@ -1516,7 +1516,7 @@ GATE_INACTIVE = (
     "tezgah gate inactive on this host: %d gated tool call(s) since this "
     "session's first turn and not one row from the gate, so the shortcut "
     "denials and the Stop check are not running. Say so before claiming a check "
-    "passed, run `tezgah-setup --report` yourself and quote its MISS rows.")
+    "passed, run `~/.config/tezgah/bin/tezgah-setup --report` yourself and quote its MISS rows.")
 
 
 def _iso_epoch(value):

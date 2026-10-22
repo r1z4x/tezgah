@@ -533,8 +533,8 @@ brief carries the same caller-list floor (`hooks/tezgah_agents.py`), and
 
 ## When the injected text grows too large
 
-Each event has a byte budget: `session_start` and `post_compact` 15500,
-`user_prompt` 6500, `subagent_start` 5500, anything else 13000
+Each event has a byte budget: `session_start` and `post_compact` 16000,
+`user_prompt` 6500, `subagent_start` 5800, anything else 13000
 (`hooks/tezgah_context.py::CONTEXT_BUDGET`). The rationale and the measured
 sizes sit beside it. In an empty fixture repo, `session_start` with the core
 builds 9842 B before the ponytail and ADHD rules went inline and 10884 B after

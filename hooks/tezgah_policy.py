@@ -34,7 +34,8 @@ BIN_TOOLS = {"{CONSULT_BIN}": "consult", "{CODEGEN_BIN}": "codegen",
              "{RESEARCH_BIN}": "tezgah-research", "{ROUTE_BIN}": "tezgah-route",
              "{SKILL_BIN}": "tezgah-skill", "{DESIGN_BIN}": "tezgah-design",
              "{TASK_BIN}": "tezgah-task", "{PONY_BIN}": "tezgah-pony",
-             "{ADHD_BIN}": "tezgah-adhd", "{LESSONS_BIN}": "tezgah-lessons"}
+             "{ADHD_BIN}": "tezgah-adhd", "{LESSONS_BIN}": "tezgah-lessons",
+             "{STATUS_BIN}": "tezgah-status"}
 
 PONYTAIL = """
 ## Code style: ponytail (auto-armed, tezgah roots only)
@@ -400,7 +401,7 @@ each item is, and that holds at every phase: a plan's tasks, its acceptance
 commands and the sources of a survey fan out the same way.
 A slice that needs its own checkout: inside Orca (the session-start `Orca:`
 line) create it with `orca worktree create --name <slug> --parent-worktree
-active --json` and track it with `orca worktree ps --json` or `tezgah-status
+active --json` and track it with `orca worktree ps --json` or `{STATUS_BIN}
 --orca` - a raw `git worktree add` gets no card, terminal tracking or agent
 status in Orca; outside Orca, `git worktree add`. Either way the brief names
 absolute paths under that checkout. A writing slice commits `wip: <step>`

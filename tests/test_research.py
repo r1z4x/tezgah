@@ -1950,7 +1950,8 @@ class Tracking(Workspace):
         self.protocol(repo)
         warnings = self.warnings(repo)
         self.assertTrue(hit("protocol.md is ignored by .gitignore", warnings), warnings)
-        self.assertTrue(hit('`tezgah-research commit q "<message>"`', warnings), warnings)
+        self.assertTrue(hit('`~/.config/tezgah/bin/tezgah-research commit q "<message>"`',
+                            warnings), warnings)
 
     def test_a_line_with_no_experiment_has_no_pair_to_order(self):
         # nothing to prove yet, so nothing is claimed either way

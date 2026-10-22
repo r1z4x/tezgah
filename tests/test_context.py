@@ -528,7 +528,7 @@ class InjectedCommandsAreAbsolute(TempHome):
     names is a path the shell can run."""
 
     BARE = re.compile(r"(?<![/\w.-])tezgah-(?:skill|design|task|pony|adhd|status|"
-                      r"lessons|route|research)\b")
+                      r"lessons|route|research|setup|taste)\b")
 
     def test_no_injected_text_names_a_bare_tezgah_cli(self):
         repo = self.make_repo()
@@ -541,7 +541,9 @@ class InjectedCommandsAreAbsolute(TempHome):
             " 'again': tc.context_for('user_prompt', %r, {'session_id': 'b1', 'prompt':"
             " 'urun analizi ve tasarim sistemi, literature review, 1. a\\n2. b'}),\n"
             " 'task': tc.task_line({'id': '001', 'phase': 'plan'}),\n"
-            " 'slices': tc.render(tc.SLICES_HEAD)}\n"
+            " 'slices': tc.render(tc.SLICES_HEAD),\n"
+            " 'orchestrate': tc.render(__import__('tezgah_policy').ORCHESTRATE),\n"
+            " 'gate': tc.GATE_INACTIVE}\n"
             "print(json.dumps(texts))\n" % (support.HOOKS, repo, repo))
         proc = subprocess.run([sys.executable, "-c", body], capture_output=True,
                               text=True, env=self.env())
