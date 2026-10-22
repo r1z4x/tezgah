@@ -8,6 +8,8 @@ Distributions
 - t_cdf(x, df) -> float / t_ppf(p, df) -> float: Student t (df may be fractional;
   df == math.inf is the normal), quantile by bisection on t_cdf.
 - z_ppf(p) -> float: standard normal quantile.
+  Every quantile raises ValueError for p outside (0, 1) (t_ppf also for df not above 0),
+  so none searches without end.
 
 Proportions (spec 2.3, 3.1)
 - wilson(k, n, alpha=0.05) -> (lo, hi): two-sided 1 - alpha Wilson score interval.
@@ -34,7 +36,8 @@ Multiplicity (spec 2.3), each returns list[bool] rejected, in input order
 Instruments (spec 3.1)
 - ppi_mean(y, f, f_rest, alpha=0.05) -> (lam, estimate, lo, hi): PPI++ mean; y truths and f
   outputs on the gold items, f_rest outputs on the arm's other items; lam clipped to [0, 1],
-  0 when var(f + f_rest) is 0.
+  0 when var(f + f_rest) is 0 or fewer than 2 gold items; lo, hi None when the gold items or
+  the other items number fewer than 2 (no sample variance).
 
 Stopping (spec 1.3)
 - hypergeometric_p(labels, n_total, recall) -> float: buscarpy calculate_h0, the minimum p
@@ -96,8 +99,16 @@ def betainc(a, b, x):
     return 1 - front * _betacf(b, a, 1 - x) / b
 
 
+def _unit(p):
+    """p itself when it lies in (0, 1), the only domain a quantile has; else ValueError,
+    so no quantile search can run without end."""
+    if not 0 < p < 1:
+        raise ValueError("quantile p must lie in (0, 1), got %r" % (p,))
+    return p
+
+
 def beta_ppf(p, a, b):
-    return _bisect(lambda x: betainc(a, b, x), p, 0.0, 1.0)
+    return _bisect(lambda x: betainc(a, b, x), _unit(p), 0.0, 1.0)
 
 
 def t_cdf(x, df):
@@ -108,18 +119,21 @@ def t_cdf(x, df):
 
 
 def t_ppf(p, df):
+    _unit(p)
+    if not df > 0:
+        raise ValueError("t quantile df must be above 0, got %r" % (df,))
     if df == math.inf:
         return _Z.inv_cdf(p)
     if p < 0.5:
         return -t_ppf(1 - p, df)
     hi = 1.0
-    while t_cdf(hi, df) < p:
+    while t_cdf(hi, df) < p:  # ends: t_cdf reaches 1.0 by hi = inf, and p < 1
         hi *= 2
     return _bisect(lambda x: t_cdf(x, df), p, 0.0, hi)
 
 
 def z_ppf(p):
-    return _Z.inv_cdf(p)
+    return _Z.inv_cdf(_unit(p))
 
 
 def wilson(k, n, alpha=0.05):
@@ -203,12 +217,14 @@ def ppi_mean(y, f, f_rest, alpha=0.05):
     n, big_n = len(y), len(f_rest)
     var_all = statistics.variance(list(f) + list(f_rest))
     lam = 0.0
-    if var_all:
+    if var_all and n >= 2:
         my, mf = statistics.mean(y), statistics.mean(f)
         cov = sum((a - my) * (b - mf) for a, b in zip(y, f)) / (n - 1)
         lam = min(1.0, max(0.0, cov / ((1 + n / big_n) * var_all)))
     resid = [a - lam * b for a, b in zip(y, f)]
     estimate = lam * statistics.mean(f_rest) + statistics.mean(resid)
+    if n < 2 or big_n < 2:
+        return lam, estimate, None, None
     half = z_ppf(1 - alpha / 2) * math.sqrt(statistics.variance(resid) / n
                                             + lam * lam * statistics.variance(f_rest) / big_n)
     return lam, estimate, estimate - half, estimate + half

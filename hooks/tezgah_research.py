@@ -83,6 +83,7 @@ the offset just past its last newline (`tezgah_integrity.committed_size`) - so a
 fragment a killed writer left behind is neither read as a record by the readers
 here nor appended beside as one.
 """
+import decimal
 import fnmatch
 import json
 import math
@@ -3643,8 +3644,21 @@ FALSIFIER_COMPARATOR = re.compile(
 FALSIFIER_TEST = re.compile(
     r"(?i)\b(?:t-test|welch|wilcoxon|mann-whitney|chi-square|fisher|binomial|tost)\b")
 FALSIFIER_ALPHA = re.compile(r"(?i)\balpha\s*=?\s*0?\.\d+")
+# The structured form (spec 2.2) takes every comparator the grammar above names; each
+# maps to the operator it means. Anything else stays unevaluated (review D3-2).
+FALSIFIER_OPS = {"<=": "<=", ">=": ">=", "≤": "<=", "≥": ">=", "<": "<", ">": ">", "=": "=",
+                 "at most": "<=", "at least": ">=", "above": ">", "below": "<",
+                 "less than": "<", "more than": ">", "fewer than": "<", "greater than": ">",
+                 "exceeds": ">", "exceed": ">", "under": "<", "over": ">"}
 FALSIFIER_FORM = re.compile(
-    r"^([\w.-]+)\s*(<=|>=|<|>|=)\s*(-?\d+(?:\.\d+)?)(?:\s+on\s+(\S+))?\s*$")
+    r"(?i)^([\w.-]+)(?:\s*(<=|>=|≤|≥|<|>|=)|\s+(at\s+most|at\s+least|above|below|less\s+than"
+    r"|more\s+than|fewer\s+than|greater\s+than|exceeds?|under|over))"
+    r"\s*(-?\d+(?:\.\d+)?)(?:\s+on\s+(\S+))?\s*$")
+# A protocol number (spec 2.3): `0.05`, `.05`, `5%` (0.05), `1e-1`.
+PROTOCOL_NUMBER = re.compile(r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(\s*%)?")
+# Each checked protocol number's open range (lower, upper; None = unbounded).
+PROTOCOL_RANGES = {"alpha": (0.0, 1.0), "power": (0.0, 1.0), "sesoi": (0.0, None),
+                   "mde": (0.0, None)}
 COMPARE_FORM = re.compile(
     r"(?i)^(\S+)\s+vs\s+(\S+)\s+on\s+([\w.-]+)\s*,\s*(lower|higher)\s+is\s+better")
 CLAIM_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
@@ -3687,8 +3701,31 @@ def _first(fields, key):
 
 
 def _number(value):
-    found = re.search(r"-?\d+(?:\.\d+)?", value or "")
-    return float(found.group(0)) if found else None
+    """The first number of a protocol value (`PROTOCOL_NUMBER`), a percent read as its
+    fraction; None without one."""
+    found = PROTOCOL_NUMBER.search(value or "")
+    if not found:
+        return None
+    number = float(found.group(1))
+    return number / 100 if found.group(2) else number
+
+
+def protocol_number(key, value):
+    """(number, problem) of the protocol line `key: value`, `key` one of PROTOCOL_RANGES:
+    the one reader `check`, `claim`, the session context and the instruments share.
+    (None, None) when the line is absent or empty; a value with no number, or one
+    outside its range (alpha, power in (0, 1); sesoi, mde above 0), is an invalid
+    record: (None, the refusal naming the key and the value)."""
+    value = (value or "").strip()
+    if not value:
+        return None, None
+    number = _number(value)
+    lo, hi = PROTOCOL_RANGES[key]
+    if number is not None and math.isfinite(number) and number > lo \
+            and (hi is None or number < hi):
+        return number, None
+    return None, "protocol.md %s: %s is not a number %s" % (
+        key, value, "above 0" if hi is None else "in (0, 1)")
 
 
 def _numeric(value):
@@ -3752,16 +3789,21 @@ def _effect(fields, groups, alpha, power):
 
 def experiment_record(base, h):
     """One experiment as the rules-8 checks read it: protocol fields, rows, groups,
-    the plan's numbers and the `compare:` effect."""
+    the plan's numbers and the `compare:` effect. `invalid` holds the refusal of each
+    protocol number outside its range; an invalid alpha or power is None and leaves
+    the effect uncomputed, so no statistic runs on it."""
     d = os.path.join(base, "experiments", h)
     fields = _fields(_note_text(os.path.join(d, "protocol.md")))
     rows = _row_objects(os.path.join(d, "results.jsonl"))
     groups = _groups(rows)
-    alpha = _number(_first(fields, "alpha")) or 0.05
-    power = _number(_first(fields, "power")) or 0.80
+    plan = {k: protocol_number(k, _first(fields, k)) for k in PROTOCOL_RANGES}
+    alpha, power = (None if plan[k][1] else plan[k][0] or default
+                    for k, default in (("alpha", 0.05), ("power", 0.80)))
     return {"h": h, "dir": d, "fields": fields, "rows": rows, "groups": groups,
-            "alpha": alpha, "power": power,
-            "effect": _effect(fields, groups, alpha, power)}
+            "alpha": alpha, "power": power, "sesoi": plan["sesoi"][0],
+            "invalid": [problem for _, problem in plan.values() if problem],
+            "effect": None if alpha is None or power is None
+            else _effect(fields, groups, alpha, power)}
 
 
 def falsifier_fired(exp):
@@ -3771,7 +3813,8 @@ def falsifier_fired(exp):
     found = FALSIFIER_FORM.match(text)
     if not found:
         return None
-    field, op, number, group = found.groups()
+    field, symbol, words, number, group = found.groups()
+    op = FALSIFIER_OPS[" ".join((symbol or words).lower().split())]
     rows = exp["groups"].get(group, []) if group else _live(exp["rows"])
     values = [float(r[field]) for r in rows if _numeric(r.get(field))]
     if not values:
@@ -3802,7 +3845,9 @@ def fired_problems(cid, claim, base):
 
 
 def _ref_value(base, ref):
-    """The number `<h>/<run>:<field>` or `<h>/#<row>:<field>` names, or None."""
+    """The number `<h>/<run>:<field>` or `<h>/#<row>:<field>` names, as the Decimal of
+    the value written in the row (`repr` gives back a JSON float's shortest digits), or
+    None."""
     found = DERIVED_REF.match(str(ref).strip())
     if not found:
         return None
@@ -3813,7 +3858,10 @@ def _ref_value(base, ref):
         row = rows[k - 1] if 1 <= k <= len(rows) else None
     else:
         row = next((r for r in rows if str(r.get("run")) == which), None)
-    return float(row[field]) if row and _numeric(row.get(field)) else None
+    value = row.get(field) if row else None
+    if not _numeric(value) or (isinstance(value, float) and not math.isfinite(value)):
+        return None
+    return decimal.Decimal(repr(value))
 
 
 def _recompute(spec, base):
@@ -3821,7 +3869,7 @@ def _recompute(spec, base):
         return None
     op, refs = spec.get("op"), spec["of"]
     if op == "count":
-        return float(len(refs))
+        return decimal.Decimal(len(refs))
     values = [_ref_value(base, ref) for ref in refs]
     if not values or None in values:
         return None
@@ -3833,26 +3881,36 @@ def _recompute(spec, base):
             "max": max}.get(op, lambda v: None)(values)
 
 
+def _rounds_to(value, written):
+    """True when `value` (a Decimal) rounded half-up or half-even at the precision of the
+    number as written equals it."""
+    try:
+        target = decimal.Decimal(written)
+        return any(value.quantize(target, rounding=mode) == target
+                   for mode in (decimal.ROUND_HALF_UP, decimal.ROUND_HALF_EVEN))
+    except decimal.DecimalException:
+        return False
+
+
 def derived_problems(cid, claim, base):
     """The refusals for `derived_from` entries whose recomputed value differs from
-    the number as written (spec 2.4); writer and checker read this one rule."""
+    the number as written (spec 2.4); writer and checker read this one rule. The
+    arithmetic is decimal over the rows' written values, so 2.675 is 2.675, not the
+    binary float below it."""
     derived = claim.get("derived_from")
     if derived is None:
         return []
     if not isinstance(derived, dict):
         return ["claim %s derived_from is not an object of number -> {op, of}" % cid]
     out = []
-    for written, spec in derived.items():
-        value = _recompute(spec, base)
-        try:
-            target = float(written)
-        except ValueError:
-            target = None
-        decimals = len(written.split(".", 1)[1]) if "." in written else 0
-        if value is None or target is None or round(value, decimals) != target:
-            out.append("claim %s derived_from %s does not recompute: %s gives %s"
-                       % (cid, written, json.dumps(spec),
-                          "nothing" if value is None else "%g" % value))
+    with decimal.localcontext() as ctx:
+        ctx.prec = 50
+        for written, spec in derived.items():
+            value = _recompute(spec, base)
+            if value is None or not _rounds_to(value, written):
+                out.append("claim %s derived_from %s does not recompute: %s gives %s"
+                           % (cid, written, json.dumps(spec),
+                              "nothing" if value is None else "%g" % value))
     return out
 
 
@@ -3926,7 +3984,7 @@ def _experiment_steps(claim, cited, cls, measured, rejected):
         if correction and exp["h"] not in rejected:
             out.append("fails-multiplicity")
         if no_difference:
-            sesoi = _number(_first(fields, "sesoi"))
+            sesoi = exp["sesoi"]
             if sesoi is None:
                 out.append("no-sesoi")
             elif not (eff and eff["ci"] and stats.tost(eff["a"], eff["b"], sesoi,
@@ -3977,6 +4035,7 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
     import tezgah_research_stats as stats
     h, fields = exp["h"], exp["fields"]
     label = "experiment %s" % h
+    errors.extend("%s: %s" % (label, problem) for problem in exp["invalid"])
     falsifier = _first(fields, "falsifier")
     if state.get("method") == "measured" and falsifier and not falsifier_testable(falsifier):
         errors.append("%s: falsifier holds no comparator and number (%r): write "
@@ -4022,8 +4081,9 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
                 errors.append("%s: select rule picks %s, and analysis.md selected: %s"
                               % (label, pick, found.group(1)))
     for group, rows in exp["groups"].items():
-        if rows and all(r.get("outcome") in (0, 1) and not isinstance(r.get("outcome"), bool)
-                        for r in rows):
+        # binary: every outcome 0 or 1, a JSON boolean counting as 1/0 (True == 1)
+        if rows and exp["alpha"] is not None and all(r.get("outcome") in (0, 1)
+                                                     for r in rows):
             k, n = sum(int(r["outcome"]) for r in rows), len(rows)
             lines.append("stats %s: %s %s n=%d k=%d wilson=%s cp=%s"
                          % (slug, h, group, n, k,

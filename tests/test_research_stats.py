@@ -1,4 +1,5 @@
 import math
+import signal
 import statistics
 import sys
 import unittest
@@ -84,6 +85,45 @@ class Instruments(unittest.TestCase):
         lam, est, lo, hi = s.ppi_mean([1, 0, 1], [1, 1, 1], [1, 1, 1, 1])
         self.assertEqual(lam, 0.0)
         self.assertAlmostEqual(est, 2 / 3)
+
+    def test_ppi_with_one_gold_or_one_other_item_has_no_interval(self):
+        lam, est, lo, hi = s.ppi_mean([1], [1], [0, 1, 1])
+        self.assertEqual((lam, est, lo, hi), (0.0, 1.0, None, None))
+        lam, est, lo, hi = s.ppi_mean([1, 0], [1, 0], [1])
+        self.assertEqual((lo, hi), (None, None))
+        self.assertGreaterEqual(lam, 0.0)
+
+
+class Quantiles(unittest.TestCase):
+    """Every quantile helper ends on every input: a p outside (0, 1) is a ValueError,
+    never an endless search (review round one, D3-3: alpha 5 made t_ppf loop)."""
+
+    def bounded(self, fn, *args):
+        def stop(signum, frame):
+            raise AssertionError("%s%r did not finish within 10s" % (fn.__name__, args))
+        old = signal.signal(signal.SIGALRM, stop)
+        signal.alarm(10)
+        try:
+            return fn(*args)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    def test_p_outside_the_open_unit_interval_is_a_value_error(self):
+        for p in (-1.5, 0.0, 1.0, 2.5, math.nan, math.inf):
+            for fn, args in ((s.t_ppf, (p, 10)), (s.t_ppf, (p, math.inf)), (s.z_ppf, (p,)),
+                             (s.beta_ppf, (p, 1, 2))):
+                with self.assertRaises(ValueError, msg="%s%r" % (fn.__name__, args)):
+                    self.bounded(fn, *args)
+
+    def test_df_that_is_not_positive_is_a_value_error(self):
+        for df in (0, -1, math.nan):
+            with self.assertRaises(ValueError):
+                self.bounded(s.t_ppf, 0.975, df)
+
+    def test_extreme_p_and_df_still_end(self):
+        self.assertGreater(self.bounded(s.t_ppf, 1 - 1e-12, 1), 1e5)
+        self.assertGreater(self.bounded(s.t_ppf, 0.975, 1e-300), 0)
 
 
 class Stopping(unittest.TestCase):
