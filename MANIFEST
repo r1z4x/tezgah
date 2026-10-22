@@ -807,6 +807,7 @@ tests/test_replay.py
 tests/test_replay_context.py
 tests/test_reply_lang.py
 tests/test_research.py
+tests/test_research_capture.py
 tests/test_research_evidence.py
 tests/test_research_import.py
 tests/test_research_rules8_acceptance.py
