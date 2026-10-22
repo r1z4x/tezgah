@@ -6120,8 +6120,8 @@ class SliceJournalWiring(unittest.TestCase):
         self.assertEqual(cls, "stopped slice")
         self.assertIn("W1", reason)
         self.assertIn("(quota)", reason)
-        self.assertIn("`tezgah-task slice resume W1`", reason)
-        self.assertIn("`tezgah-task slice done W1`", reason)
+        self.assertIn("`~/.config/tezgah/bin/tezgah-task slice resume W1`", reason)
+        self.assertIn("`~/.config/tezgah/bin/tezgah-task slice done W1`", reason)
         self.journal.pending.assert_called_with(os.path.realpath(self.repo))
         # through stop_reason: a refusal row, then the reply after it is record-only
         self.assertEqual(ti.stop_reason(self.PLAN, "s", cwd=self.repo), reason)
