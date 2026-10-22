@@ -6642,19 +6642,22 @@ class Rules8Numbers(Workspace):
             self.assertIsNone(fired(text), text)
 
     def test_alpha_that_leaves_a_quantile_at_one_is_one_refusal_not_a_traceback(self):
-        """Review round two R2-1: `alpha: 1e-20` lies in (0, 1), and 1 - alpha/2 is 1.0,
-        so it is refused naming the key and the value, by `check` and `failing`."""
+        """Review round two R2-1 (claim 1): `alpha: 1e-20` lies in (0, 1), and
+        1 - alpha/2 is 1.0, so `check`, `claim` and `failing` refuse it naming the key
+        and the value instead of raising."""
         for text in ("1e-20", "0.00000000000000000001"):
+            repo = self.repo()
+            base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                           ("cache", 91)], "alpha: %s\n" % text + self.PLAN)
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+            self.assertEqual(len(named(errors, "alpha: %s leaves" % text)), 1, errors)
+            bounded(tr.claim_problems, dict(CLAIM, proof="experiments/h1/results.jsonl"),
+                    base, repo)
+            self.assertTrue(hit("alpha: %s leaves" % text,
+                                [e for _, e in bounded(tr.failing, repo)]))
             value, problem = tr.protocol_number("alpha", text)
             self.assertIsNone(value)
             self.assertIn("alpha: %s leaves a quantile at 0 or 1" % text, problem)
-            repo = self.repo()
-            self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
-                                    ("cache", 91)], "alpha: %s\n" % text + self.PLAN)
-            errors, _ = bounded(tr.check_line, repo, "q", False)
-            self.assertEqual(len(named(errors, "alpha: %s leaves" % text)), 1, errors)
-            self.assertTrue(hit("alpha: %s leaves" % text,
-                                [e for _, e in bounded(tr.failing, repo)]))
 
     def test_a_statistics_error_is_one_refusal_naming_the_experiment(self):
         """Review round two R2-1: a ValueError or ArithmeticError a statistics
