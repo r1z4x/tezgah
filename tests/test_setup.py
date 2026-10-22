@@ -2910,8 +2910,9 @@ class ContextBudget(SetupBase):
     # characters longer than 074's), kept verbatim because it is the measured text.
     # Lowered to 2927 on 2026-10-22 (plan 126, bafeb51): every description became
     # a `Use when` line of English and Turkish triggers within 160 characters,
-    # the long text moving to each body's `## When to use`.
-    BAND_BEFORE = 2927
+    # the long text moving to each body's `## When to use`. Raised to 2930 when
+    # design-contract named "design system" and pm-frameworks a PM ask (c5b0bdc).
+    BAND_BEFORE = 2930
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
