@@ -560,7 +560,13 @@ whole session instead of the turn:
   count with no writing script, one operand or a read verb. A `sqlite3` read-only open counts,
   from the option or the database URI, and so does an `ssh` whose remote command is
   such a read (`hooks/tezgah_integrity.py::_bookkeeping_command`). Any other command, a commit included,
-  keeps the turn worked and owes the check.
+  keeps the turn worked and owes the check. A reply that claims nothing also ends a turn whose reads
+  loop or substitute (plan 126: `for f in $(find src -type f); do cat -n "$f"; done`, refused in 4 of 6
+  live advice turns): a `for NAME in WORDS` loop, the `if`/`while`/`{` words around reads and an
+  unquoted `$( )` whose body reads count (`loops=True`). A value they bind reaches only a reader with
+  no writing option (`OPTION_FREE`), and the loop name is lowercase, so not `PATH` or `IFS`. A
+  done/tested claim over such a turn keeps the worked turn's fold. A build (`npm run build > log`)
+  is a check, never a read: it records as `verify`, or as `verify_ok`/`verify_fail` when its status is seen.
 - **A bookkeeping turn after a pass.** A turn whose only rows are read-only or VCS-bookkeeping
   commands ends without a fresh check, as long as nothing but bookkeeping ran after the session's
   newest pass, the session fold above allows it, and the reply makes no external-state claim

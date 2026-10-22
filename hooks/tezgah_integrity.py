@@ -4755,9 +4755,20 @@ WRITING_OPTIONS = {
 GIT_CONFIG_OPTS = ("-c", "--config-env", "--exec-path")
 # an fd duplication or a discard: a redirect that writes no file
 HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/null\b")
+# The compound-command words `loops=True` reads (plan 126): an opener is no
+# program (the command after it is: `do cat "$f"`), a closer runs nothing
+SHELL_OPENERS = frozenset(("if", "then", "elif", "else", "do", "while", "until",
+                           "!", "{"))
+SHELL_CLOSERS = frozenset(("done", "fi", "}"))
+# a loop variable the shell itself never reads: lowercase, so not PATH, IFS,
+# BASH_ENV or a GIT_* setting
+LOOP_NAME = re.compile(r"[a-z_][a-z0-9_]*")
+# the readers no option of which writes or runs: the only ones a value this
+# reader never sees (a loop word, a substitution's output) may reach
+OPTION_FREE = READ_ONLY_PROGRAMS - set(WRITING_OPTIONS)
 
 
-def _shell_read(cmd):
+def _shell_read(cmd, subst=False):
     """(effect, text) for `cmd`: whether bash would run a command or process
     substitution, or redirect into a file, anywhere in it - or this reader
     cannot tell - and the command with what is not a command blanked for
@@ -4774,7 +4785,11 @@ def _shell_read(cmd):
 
     Fails closed (effect True): an unquoted heredoc expands `$(` in its body,
     an unterminated one or an empty delimiter cannot be read, and a quote still
-    open at the end means the reading lost sync with bash (review N1)."""
+    open at the end means the reading lost sync with bash (review N1).
+
+    `subst=True` reads an unquoted `$(` as no effect of its own: its body is a
+    command `_shell_segments` returns, and its redirects are in the bare text;
+    inside double quotes it stays one word that reader never splits."""
     n, out = len(cmd), list(cmd)
 
     def blank(a, b):
@@ -4802,7 +4817,7 @@ def _shell_read(cmd):
             i += 2
             bare.append(" ")
             continue
-        elif ch == "`" or cmd.startswith("$(", i):
+        elif ch == "`" or (cmd.startswith("$(", i) and (quote or not subst)):
             return True, ""
         elif quote == '"':
             quote = None if ch == '"' else quote
@@ -4831,7 +4846,7 @@ def _shell_read(cmd):
     return ">" in text or "<(" in text, "".join(out).replace("<", " ")
 
 
-def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
+def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     """True when every simple command of `cmd` reads, or runs a git subcommand
     in `git` (VCS bookkeeping that changes no working-tree file by default,
     GIT_READS for a pure read). A redirect, a substitution, an env assignment
@@ -4844,19 +4859,36 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
     writing dot-command or stdin (`SQLITE_WRITE`), `ssh` with a remote command
     that is itself one of these reads.
 
+    `loops=True` (plan 126) also reads a `for NAME in WORDS` loop, the
+    `if`/`while`/`{` openers and closers around reads, and an unquoted `$( )`
+    whose body reads. The values those bind - a loop word, a substitution's
+    output - are text this reader never sees, so in such a command a `$` word
+    may only reach a reader no option of which writes (`OPTION_FREE`), and the
+    loop variable is a lowercase name the shell does not read (`LOOP_NAME`).
+
     ponytail: `git commit` and `git push` run the repository's hooks, and a
     pre-commit autofixer can rewrite files the row never names. They stay on
     the list because refusing every commit was the measured cost (audit CHAT-04);
     a hook that rewrites the tree is invisible here."""
     raw = str(cmd or "").replace(FAILED_MARK, "")
-    effect, text = _shell_read(raw) if raw.strip() else (True, "")
+    effect, text = _shell_read(raw, loops) if raw.strip() else (True, "")
     if effect:
         return False
     segs = _shell_segments(text)
+    unseen = loops and any("for" in w or any("$(" in a for a in w) for w in segs)
     for words in segs:
         i = 0
-        while i < len(words) and words[i] in GIT_WRAPPER:
+        while i < len(words) and (words[i] in GIT_WRAPPER
+                                  or loops and words[i] in SHELL_OPENERS):
             i += 1
+        if loops and all(w in SHELL_OPENERS for w in words[:i]) and (
+                i == len(words) or words[i:] == words[-1:] and words[i] in SHELL_CLOSERS):
+            continue
+        if loops and words[i:i + 1] == ["for"]:
+            if not (words[i + 1:] and LOOP_NAME.fullmatch(words[i + 1])
+                    and words[i + 2:i + 3] in ([], ["in"])):
+                return False
+            continue
         if i >= len(words) or ENV_WORD.match(words[i]):
             return False
         # a program named by a path is whatever that file is, not the
@@ -4864,6 +4896,8 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
         if "/" in words[i]:
             return False
         program, args = words[i], words[i + 1:]
+        if unseen and program not in OPTION_FREE and any("$" in a for a in args):
+            return False
         writes = WRITING_OPTIONS.get(program)
         if writes and any(writes.match(a) for a in args):
             return False
@@ -4915,7 +4949,7 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING):
     return bool(segs)
 
 
-def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):
+def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING, loops=False):
     """True when every work row in `rows` is a shell call that read or ran a
     git subcommand in `git` (`_bookkeeping_command`) and was not seen to
     change a file.
@@ -4929,7 +4963,7 @@ def _bookkeeping_turn(rows, git=GIT_BOOKKEEPING):
         r.get("kind") == "run" and not _change_row(r)
         and len(str(r.get("detail") or "")) < DETAIL_MAX
         and "[redacted:" not in str(r.get("detail") or "")
-        and _bookkeeping_command(r.get("detail"), git) for r in steps)
+        and _bookkeeping_command(r.get("detail"), git, loops) for r in steps)
 
 
 def _settled(rows):
@@ -5044,7 +5078,12 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # `tail` or a read-only query owes no check. Its claim words are read the
     # same way, and a claim is judged against the session's earlier turns below.
     quiet = _bookkeeping_turn(rows, GIT_READS)
-    if not worked or quiet:
+    # A turn of reads that loop over files or read a read's output (plan 126:
+    # `for f in $(find src); do cat -n "$f"; done`, refused in 4 of 6 live
+    # advice turns) ends like one with no work - but only on a reply that
+    # claims nothing. A done/tested claim over it keeps the worked turn's fold.
+    read = quiet or _bookkeeping_turn(rows, GIT_READS, loops=True)
+    if not worked or read:
         # With no work, the words are the whole trigger, so a question or a
         # negation is not read as the claim it names (`asserted_claims`).
         done, verified = asserted_claims(t)
@@ -5068,7 +5107,7 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None):
     # exit below - "nothing was done and nothing was claimed" - is exactly the
     # shape that used to leave such a claim unjudged.
     external = _external_claim(t)
-    if (not worked or quiet) and not (done or verified) and not external:
+    if (not worked or read) and not (done or verified) and not external:
         return _residual_block(t, rows, shape, session_id=session_id, cwd=cwd)
     if lost:
         return _residual_block(t, rows, shape,
