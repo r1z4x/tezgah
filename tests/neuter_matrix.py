@@ -462,8 +462,8 @@ MUTANTS = (
               "                continue\n", ""),
      "bash deletes a backslash-newline, so `$\\<nl>1` is `$1`"),
     ("comment-word-start", INTEGRITY,
-     anchored('_opens_comment(lit[-1] if lit else "")',
-              "(i == 0 or cmd[i - 1] in \" \\t\\n;&|()<>\")"),
+     anchored("    return not prev or prev in WORD_BREAKS\n",
+              "    return True\n"),
      "a `#` after an escaped character is part of the word, not a comment"),
     # review of plan 126, round 3h: one continuation and comment rule
     # (`_opens_comment`, CONTINUATION) for every shell reader
@@ -488,16 +488,17 @@ MUTANTS = (
               'elif ch == "#" and (not prev or prev.isspace() or prev in ";&|()<>"):'),
      "a `#` after a `\\r` or a non-breaking space is mid-word to the segment reader"),
     ("mask-word-break", INTEGRITY,
-     anchored("start, prev = _opens_comment(ch), ch",
+     anchored("start, prev = _opens_comment(_kept(ch, prev, parens)), ch",
               'start, prev = ch.isspace() or ch in ";&|()<>", ch'),
      "the masked text opens a comment only after a bash word break"),
     ("mask-continuation", INTEGRITY,
-     anchored("            if not text.startswith(CONTINUATION, i):\n"
+     anchored("                cuts.append((word, i))\n            else:\n"
               '                start, prev = False, ""\n',
-              '            if True:\n                start, prev = False, ""\n'),
+              "                cuts.append((word, i))\n            if True:\n"
+              '                start, prev = False, ""\n'),
      "a continuation in the masked text keeps the word state before it"),
     ("backtick-hash", INTEGRITY,
-     anchored('ch = ";\\\\" if text.startswith("#", i + 1) else ";"', 'ch = ";"'),
+     anchored('                out.append(";" + text[i + 1:j] + "\\\\#")\n', ''),
      "a `#` after a backtick opens no comment in the gate's word reader"),
     ("gate-words-comment", GATE,
      anchored("        out.extend((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word)))\n"
@@ -531,12 +532,14 @@ MUTANTS = (
               "if (true) cur +="),
      "the opencode mirror of a continuation inside double quotes"),
     ("js-mask-word-break", PLUGIN,
-     anchored("      start = opensComment(ch)\n",
+     anchored("      start = opensComment(kept(ch, prev, parens))\n",
               '      start = /\\s/.test(ch) || ";&|()<>".includes(ch)\n'),
      "the opencode mirror of the masked text's comment rule"),
     ("js-mask-continuation", PLUGIN,
-     anchored('      if (!text.startsWith(CONTINUATION, i)) { start = false; prev = "" }\n',
-              '      { start = false; prev = "" }\n'),
+     anchored('      if (text.startsWith(CONTINUATION, i)) cuts.push([word, i])\n'
+              '      else { start = false; prev = "" }',
+              '      if (false) cuts.push([word, i])\n'
+              '      else { start = false; prev = "" }'),
      "the opencode mirror of the masked text's continuation"),
     ("js-shellwords-space", PLUGIN,
      anchored('    if (" \\t\\r\\n".includes(c)) { push(); i += 1; continue }\n',
