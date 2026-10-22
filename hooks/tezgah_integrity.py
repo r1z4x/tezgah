@@ -2080,6 +2080,27 @@ def _closes(cmd, pos, tag, strip, message):
     return None, n
 
 
+# bash's metacharacters: unquoted, each one ends a word. Any other character -
+# an escaped or quoted one, a `\r`, a non-breaking space - is part of a word.
+WORD_BREAKS = " \t\n;&|()<>"
+# A line continuation: outside single quotes and comments bash deletes both
+# characters, so the words around it join (`-de\<nl>lete` is `-delete`) and
+# the word before it goes on (`x\<nl>#` is the word `x#`). After an escaped
+# backslash (`a\\<nl>`) the newline is a real one and ends the command.
+CONTINUATION = "\\\n"
+
+
+def _opens_comment(prev):
+    """True when an unquoted, unescaped `#` opens a comment: only at the start
+    of a word. `prev` is the last character bash kept before it - "" at the
+    start of the text, a non-break for an escaped or quoted one, and the one
+    before a CONTINUATION, which is no character. The one rule every shell
+    reader asks (`_heredocs`, `_shell_lines`, `mask`, `_shell_read`, and the
+    gate's `_shell_words` through `_shell_lines`), so none of them reads a
+    comment where bash runs a command (review of plan 126, round 3h)."""
+    return not prev or prev in WORD_BREAKS
+
+
 def _heredocs(cmd):
     """Every heredoc operator in `cmd`, in order, as (operator start, operator
     end, tag, quoted, body start, terminator span or None, safe).
@@ -2102,9 +2123,12 @@ def _heredocs(cmd):
     shows the text. A false refusal of data is the accepted cost
     (tests/bash_vectors.ACCEPTED_REFUSALS)."""
     n, found, pending, i = len(cmd), [], [], 0
-    quote, depth, sure, line_start = None, 0, True, 0
+    quote, depth, sure, line_start, last = None, 0, True, 0, ""
     while i < n:
         ch = cmd[i]
+        # `last` is the character bash kept before `ch`: a quoted or escaped
+        # one leaves "_", a non-break, unless a branch below says otherwise
+        before, last = last, "_"
         if quote in ("'", "$'"):
             if ch == "\\" and quote == "$'":
                 i += 2
@@ -2114,6 +2138,8 @@ def _heredocs(cmd):
             i += 1
             continue
         if ch == "\\":
+            if cmd.startswith(CONTINUATION, i):
+                last = before
             i += 2
             continue
         if quote == '"':
@@ -2125,7 +2151,7 @@ def _heredocs(cmd):
             continue
         if ch == "\n":
             if not pending:
-                line_start = i + 1
+                line_start, last = i + 1, ch
                 i += 1
                 continue
             pos = i + 1
@@ -2139,7 +2165,7 @@ def _heredocs(cmd):
                 pos = i + 1
             pending = []
             continue
-        if ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+        if ch == "#" and _opens_comment(before):
             end = cmd.find("\n", i)
             i = n if end < 0 else end
             continue
@@ -2164,7 +2190,7 @@ def _heredocs(cmd):
             i += 1
             continue
         if cmd.startswith("<<<", i):
-            i += 3
+            i, last = i + 3, "<"
             continue
         if cmd.startswith("<<", i):
             j = i + 2
@@ -2188,7 +2214,7 @@ def _heredocs(cmd):
             depth += 1
         elif ch in ")]}":
             depth -= 1
-        i += 1
+        i, last = i + 1, ch
     found += [(s, e, t, q, n, None, False) for s, e, t, q, _, _ in pending]
     return found
 
@@ -2261,7 +2287,10 @@ def _mask(text):
             i, start, prev = i + 1, True, ""
             continue
         if ch == "\\":
-            i, start, prev = i + 2, False, ""
+            # a CONTINUATION is no character: the word state before it goes on
+            if not text.startswith(CONTINUATION, i):
+                start, prev = False, ""
+            i += 2
             continue
         if ch in "'\"":
             escapes = ch == '"' or prev == "$"
@@ -2273,7 +2302,7 @@ def _mask(text):
             end = text.find("\n", i)
             end = n if end < 0 else end
         else:
-            start, prev = ch.isspace() or ch in ";&|()<>", ch
+            start, prev = _opens_comment(ch), ch
             i += 1
             continue
         for k in range(i, end):
@@ -2301,7 +2330,10 @@ def _unquoted_backticks(text):
         elif ch in "'\"":
             quote = ch
         elif ch == "`":
-            ch = ";"
+            # a `#` right after it opens no comment (`_opens_comment` sees `;`):
+            # bash reads it mid-word after the close, and a comment inside the
+            # body ends at the close, so it is escaped here
+            ch = ";\\" if text.startswith("#", i + 1) else ";"
         out.append(ch)
         i += 1
     return "".join(out)
@@ -2343,28 +2375,32 @@ def _for_shlex(text):
 def _shell_lines(text):
     """`text` split at the newlines that end a command in bash: none inside
     quotes (`'...'`, `"..."`, `$'...'`), each one in a heredoc body or its
-    terminator (`_heredoc_bytes`), and a comment - `#` at the start of a word -
-    dropped to its line end. A double-quoted string holding a `$( )` or a
-    backtick runs a command, so its newlines still split - the reading this had
-    before, which keeps that command visible. A quote left open at the end goes
-    back to a split at every newline from its line on."""
+    terminator (`_heredoc_bytes`), a CONTINUATION deleted outside single quotes
+    (in `$'...'` it stays, as bash keeps it), and a comment - `#` where
+    `_opens_comment` - dropped to its line end. A double-quoted string holding
+    a `$( )` or a backtick runs a command, so its newlines still split - the
+    reading this had before, which keeps that command visible. A quote left
+    open at the end goes back to a split at every newline from its line on."""
     body = _heredoc_bytes(text)
-    lines, cur, quote, start, i, n = [], [], None, True, 0, len(text)
+    lines, cur, quote, prev, i, n = [], [], None, "", 0, len(text)
     opened, runs = 0, False
     while i < n:
         ch = text[i]
         if body[i] or (not quote or runs) and ch in "\r\n":
             if ch in "\r\n":
                 lines.append("".join(cur))
-                cur, quote, start, runs = [], None, True, False
-                i += 2 if text[i:i + 2] == "\r\n" else 1
+                cur, quote, runs = [], None, False
+                step = 2 if text[i:i + 2] == "\r\n" else 1
+                # a lone `\r` is no word break to bash: the split shows more
+                prev, i = text[i + step - 1], i + step
             else:
                 cur.append(ch)
                 i += 1
             continue
         if quote:
             if ch == "\\" and quote != "'" and i + 1 < n:
-                cur.append(text[i:i + 2])
+                if quote != '"' or not text.startswith(CONTINUATION, i):
+                    cur.append(text[i:i + 2])
                 i += 2
                 continue
             if ch == quote[-1]:
@@ -2372,17 +2408,19 @@ def _shell_lines(text):
             elif quote == '"' and (ch == "`" or text.startswith("$(", i)):
                 runs = True
         elif ch == "\\" and i + 1 < n:
-            cur.append(text[i:i + 2])
-            i, start = i + 2, False
+            if not text.startswith(CONTINUATION, i):
+                cur.append(text[i:i + 2])
+                prev = "_"
+            i += 2
             continue
-        elif ch == "#" and start:
+        elif ch == "#" and _opens_comment(prev):
             while i < n and text[i] not in "\r\n":
                 i += 1
             continue
         elif ch in "'\"":
             quote = "$'" if ch == "'" and cur and cur[-1] == "$" else ch
             opened = len(lines)
-        start = not quote and (ch.isspace() or ch in ";&|()<>")
+        prev = "_" if quote or ch in "'\"" else ch
         cur.append(ch)
         i += 1
     lines.append("".join(cur))
@@ -2398,7 +2436,7 @@ def _shell_commands(cmd):
     A `$( )` or backtick body is a command of its own, ended by `$)`, and the
     command around it goes on after its close with a `$()` word in its place."""
     out = []
-    text = _blank_heredocs(str(cmd or "")).replace("\\\n", "  ")
+    text = _blank_heredocs(str(cmd or ""))
     for line in map(_for_shlex, _shell_lines(text)):
         try:
             lex = shlex.shlex(line, posix=True, punctuation_chars=";&|()<>")
@@ -2460,7 +2498,8 @@ def _shell_segments(cmd):
     """The line's simple commands as word lists, read the way
     `tezgah_context.shell_programs` reads a line - shlex, posix, punctuation
     `;&|()<>` - so quotes and escapes are gone, heredoc bodies are blanked first,
-    a continued line is joined, a newline ends a command only where bash ends
+    a continued line is joined (CONTINUATION, in `_shell_lines`, which knows
+    where bash deletes one), a newline ends a command only where bash ends
     one (`_shell_lines`), a `$'...'` is one word (`_for_shlex`), and a `$( )` or
     backtick body is a command of its own (`_shell_commands`). A line shlex
     cannot read is read roughly (`ROUGH_WORDS`) rather than dropped.
@@ -4839,9 +4878,9 @@ def _shell_read(cmd, subst=False):
             elif ch == "'":
                 quote = None
         elif ch == "\\":
-            # `\<newline>` is a line continuation: bash deletes both, so `$\<nl>1`
-            # is `$1` and nothing is left in the word
-            if cmd.startswith("\\\n", i):
+            # a CONTINUATION: bash deletes both, so `$\<nl>1` is `$1` and
+            # nothing is left in the word
+            if cmd.startswith(CONTINUATION, i):
                 i += 2
                 continue
             i += 2
@@ -4853,9 +4892,10 @@ def _shell_read(cmd, subst=False):
             return True, ""
         elif quote == '"':
             quote = None if ch == '"' else quote
-        # a `#` opens a comment only at a word's start: after an escaped or quoted
-        # character (`x\ #...`) it is part of the word (`lit` holds `_` for those)
-        elif ch == "#" and (not lit or lit[-1] in " \t\n;&|()<>"):
+        # a `#` opens a comment only at a word's start (`_opens_comment`): after
+        # an escaped or quoted character (`x\ #...`) it is part of the word
+        # (`lit` holds `_` for those)
+        elif ch == "#" and _opens_comment(lit[-1] if lit else ""):
             end = cmd.find("\n", i)
             end = n if end < 0 else end
             blank(i, end)

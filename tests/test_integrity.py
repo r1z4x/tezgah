@@ -544,6 +544,28 @@ class BookkeepingCommand(unittest.TestCase):
         for c in ("cat a # a comment > not a redirect", "cat a\\\n  b"):
             self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
+    def test_a_continuation_joins_words_and_a_mid_word_hash_is_no_comment(self):
+        # review of plan 126 (round 3h): bash deletes a `\<newline>` and joins the
+        # words around it, but after an escaped backslash the newline is real
+        # and starts a command; a `#` after `\ `, `\;`, `\<newline>`, a `\r` or a
+        # non-breaking space is mid-word, so the heredoc or command after it runs
+        for c in bash_vectors.CONTINUATION_LINES:
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        self.assertEqual(ti._shell_segments("find . -de\\\nlete"), [["find", ".", "-delete"]])
+        self.assertEqual(ti._shell_segments("cat a\\\\\nrm -rf v"),
+                         [["cat", "a\\"], ["rm", "-rf", "v"]])
+        self.assertEqual(ti._shell_segments('cat "a\\\nb"'), [["cat", "ab"]])
+        # a comment is not continued, and a continuation before a word start
+        # leaves the `#` a comment
+        for c in ("cat a \\\n  b", "cat \\\n# c", "cat a # c\\", "cat a # note\\\n"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        self.assertFalse(ti._bookkeeping_command("cat a # c\\\nrm -rf v", ti.GIT_READS))
+        # the masked text every shortcut rule reads asks the same rule
+        for c in ("true x\r#;git commit --no-verify -m m",
+                  "true x\xa0#;git commit --no-verify -m m"):
+            self.assertIsNotNone(ti.shortcut_command(c), repr(c))
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):

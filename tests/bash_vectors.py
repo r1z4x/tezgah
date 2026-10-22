@@ -129,6 +129,25 @@ GATE01_WRAPS = ("curl -s https://example.com/health; %s",
                 # an escaped `\$` is a literal dollar, so `'x\'` is no ANSI-C string
                 "echo \\$'x\\'; %s; echo '\\'")
 
+# review of plan 126, round 3h: a prefix, and whether bash (and zsh) read the
+# `#` right after it as a comment - the one rule (`_opens_comment`) every shell
+# reader asks, on the gate's side and in its opencode mirror
+COMMENT_PREFIXES = (("", True), ("cat x ", True), ("cat x;", True), ("cat x\t", True),
+                    ("cat \\\n", True), ("cat a\\\\\n", True), ("cat x", False),
+                    ("cat x\\ ", False), ("cat x\\;", False), ("cat x\\\n", False),
+                    ("cat x\r", False), ("cat x\xa0", False), ("cat ''", False),
+                    ("cat x\\`", False))
+# the same review's lines: bash deletes a `\<newline>` and joins the words
+# around it (not after an escaped backslash, where the newline is real), and a
+# `#` mid-word opens no comment - each line ran a command a reader did not see
+CONTINUATION_LINES = (
+    "find . -de\\\nlete", "find . -exe\\\nc rm {} +", "cat a\\\\\nrm -rf victim",
+    "if true; then cat x\\\n#;rm -rf victim\nfi", "git diff --out\\\nput=pwn7m",
+    "sort -\\\no pwn7n f", "cat x\\\n#;touch pwn7r",
+    "cat x\\ #<<cat\ncat #$(touch pwn7a)\ncat", "cat x\\ #<<cat\ncat #`touch pwn7b`\ncat",
+    "cat x\\;#<<cat\ncat #$(touch pwn7d)\ncat", "cat x\\\n#<<cat\ncat #$(touch pwn7g)\ncat",
+    "cat x\r#;touch pwn", "cat x\xa0#;touch pwn")
+
 
 def bash():
     """The `bash` on PATH: the one a host's shell tool runs."""

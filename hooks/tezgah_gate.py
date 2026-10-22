@@ -3148,11 +3148,13 @@ def _shell_words(command):
     quoted `>` stays data: shlex in non-posix mode, heredoc bodies blanked, an
     unquoted backtick read as `;`, a continued line joined and every command
     line ended by `;` - the way `_shell_segments` reads a line, minus dropping
-    redirects. A newline inside quotes does not end a line (`_shell_lines`), so
-    a multi-line `python3 -c '...'` is one word, not lines of commands. A line
-    shlex cannot read is read roughly rather than dropped."""
+    redirects. A newline inside quotes does not end a line, a continuation is
+    deleted only where bash deletes one, and a comment is dropped only where
+    `_opens_comment` opens one (`_shell_lines`), so a multi-line `python3 -c
+    '...'` is one word, not lines of commands. A line shlex cannot read is read
+    roughly rather than dropped."""
     text = _unquoted_backticks(_blank_heredocs(_blank_script_heredocs(
-        str(command or ""))).replace("\\\n", " "))
+        str(command or ""))))
     out = []
     for line in map(_hide_escapes, _shell_lines(text)):
         try:
@@ -3162,10 +3164,8 @@ def _shell_words(command):
             words = list(lex)
         except ValueError:
             words = re.findall(r"[;&|()<>]+|[^\s;&|()<>]+", line)
-        for word in words:
-            if word.startswith("#"):
-                break  # bash: a comment starts a word
-            out.append((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word))))
+        out.extend((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word)))
+                   for word in words)
         out.append((";", True))
     return out
 

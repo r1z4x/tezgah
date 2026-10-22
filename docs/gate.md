@@ -37,7 +37,7 @@ writes stays under `~/.cache/tezgah/replay`. The corpus, the exclusions and the 
 |---|---|---|
 | claude, dsh | `hooks/projects-pretooluse.py::main` (`hosts/dsh/hooks.json:13-14`) | `hookSpecificOutput.permissionDecision: "deny"` |
 | codex, cursor, omp | `hosts/codex/hook.py::main`, `hosts/cursor/hook.py::dispatch`, `hosts/omp/hook.py::handle` | that host's own envelope — [hosts.md](hosts.md) |
-| opencode | `hosts/opencode/plugins/tezgah.js:2958` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:3122` |
+| opencode | `hosts/opencode/plugins/tezgah.js:2988` | `new Error(deny)` thrown at `hosts/opencode/plugins/tezgah.js:3152` |
 
 Every refusal is also recorded before it is returned: `_deny` appends a ledger row `deny` whose `detail` is `"<rule>: <reason, first 80 chars>"`, plus any
 `extra` (`hooks/tezgah_gate.py::_deny`). That row, not the reason wording, is where "why was this denied" is answered, and `<rule>` is the name used below.
@@ -113,7 +113,7 @@ request is refused.
 
 Trigger, shell: `--no-verify`, or `SKIP=`/`HUSKY_SKIP_HOOKS=`/`HUSKY=0`, next to a git/hook word; or a `core.hooksPath` assignment (`git -c core.hooksPath=...`, `git config core.hooksPath <dir>` with a quoted value too, `--config-env`, `GIT_CONFIG_KEY_n`/`GIT_CONFIG_PARAMETERS`) in the same command as a `git commit`/`git push` (`HOOKS_KEY`/`GIT_VALUE_OPTS`/`CONFIG_READS`/`ROUGH_WORDS` `hooks/tezgah_integrity.py::HOOKS_KEY`, `hooks/tezgah_integrity.py::GIT_VALUE_OPTS`, `hooks/tezgah_integrity.py::CONFIG_READS`, `hooks/tezgah_integrity.py::ROUGH_WORDS`, `hooks/tezgah_integrity.py::_shell_segments` reads the line word by word the way shlex does - an unquoted backtick ends a command (`hooks/tezgah_integrity.py::_unquoted_backticks`; one inside double quotes is read as data, the blind spot `mask` has) and a line shlex cannot read is read roughly rather than dropped - `hooks/tezgah_integrity.py::_hooks_redirect`; husky's standalone setup, a read or `--unset`, a hook install naming `pre-push`, and a commit message naming the key or the env var pass); or a verification command chained with `|| true`/`; true`
 (`hooks/tezgah_integrity.py::_shortcut_command`, `hooks/tezgah_integrity.py::NO_VERIFY`, `hooks/tezgah_integrity.py::SKIP_ENV`, `hooks/tezgah_integrity.py::NEUTER`, `hooks/tezgah_integrity.py::GITISH`).
-These shell predicates read the line through `mask()` (`hooks/tezgah_integrity.py::mask`), which blanks quotes and comments the way bash reads them. A URL's `//`, a word's `#`, a `/* */` glob pair and `'x\'` are words there, so they do not hide the command after them. The word reader takes a `$'...'` as one word and a `$( )` or backtick body as a command of its own (`hooks/tezgah_integrity.py::_for_shlex`). Trigger, edit/write: a skip marker newly
+These shell predicates read the line through `mask()` (`hooks/tezgah_integrity.py::mask`), which blanks quotes and comments the way bash reads them. A URL's `//`, a word's `#`, a `/* */` glob pair and `'x\'` are words there, so they do not hide the command after them. The word reader takes a `$'...'` as one word and a `$( )` or backtick body as a command of its own (`hooks/tezgah_integrity.py::_for_shlex`). Every shell reader asks one rule for a comment and a line continuation (`hooks/tezgah_integrity.py::_opens_comment`, `hooks/tezgah_integrity.py::CONTINUATION`). A `#` opens a comment only at a word's start, so `x\ #`, `x\<newline>#` and `x\r#` hide nothing. The readers drop a backslash-newline where bash drops it, so `-de\<newline>lete` reads as `-delete`. The opencode mirror asks its port, `opensComment`. Trigger, edit/write: a skip marker newly
 introduced into a test file — the path must match `tests?/`, `test_*`, `*_test`, `*.test.*` (`hooks/tezgah_integrity.py::TEST_PATH`), the marker must survive `mask_source()` so one
 inside a string or comment does not count, and `_added` compares against the file's own text on disk for a `Write` (`hooks/tezgah_integrity.py::_added`, `hooks/tezgah_integrity.py::SKIP_TEST`). Every write dialect is read
 through one reader (`hooks/tezgah_integrity.py::write_texts`, over `hooks/tezgah_taste.py::edit_text`): `new_string`/`newString`, `new_str`, `content`/`file_text`, `edits[]` and an `apply_patch` body, which is split per `*** Update File:`/`*** Add File:` header so the test-path gate and the count run per file (`hooks/tezgah_integrity.py::PATCH_FILE`). Told:
@@ -133,7 +133,7 @@ Passes: a line that opens with `set -o pipefail` (`hooks/tezgah_integrity.py::PI
 (`verify_ok`/`verify_fail`, [evidence.md](evidence.md)); a redirect to a file; a pipe of anything that is not a check (`git log | head`). The
 remedy is one sentence, `hooks/tezgah_integrity.py::PIPED_REMEDY`, which the always-on core and the contract skill quote too. Told: keep the check last with its output in a file, then read the file in a separate call, or open the line with `set -o pipefail;`. A `; tail` on the same line hands the status to `tail`. The refusal names the check as it was typed. Standing, under `verify-off`
 (`hooks/tezgah_gate.py::decision`). opencode asks the core for this rule on any shell line that pipes a check
-(`hosts/opencode/plugins/tezgah.js:3039-3043`) and records such a line as `verify` when a pipe or a later command owns its status (`statusHidden`, `hosts/opencode/plugins/tezgah.js:489`).
+(`hosts/opencode/plugins/tezgah.js:3069-3073`) and records such a line as `verify` when a pipe or a later command owns its status (`statusHidden`, `hosts/opencode/plugins/tezgah.js:505`).
 
 ### Attribution — an AI/model credit on its way into an artifact
 
@@ -150,7 +150,7 @@ A folded `.tezgah` (`hooks/tezgah_research.py::folded`) makes `tezgah-research c
 
 Trigger, shell: a command that would create an identifier - `git checkout -b`/`git switch -c`, `git branch` with a new name, a commit subject (`git commit -m`/`--message`/`-F`), or a `gh pr|issue create --title` (the language section `hooks/tezgah_gate.py::lang_reason`, `hooks/tezgah_gate.py::BRANCH_NEW`, `hooks/tezgah_gate.py::COMMIT_MSG`, `hooks/tezgah_gate.py::GH_NEW`, `hooks/tezgah_gate.py::created_texts`; the text is read from the raw command, because `mask()` blanks quoted strings and a commit subject is one) - whose name or subject is **not English**: a letter outside ASCII anywhere (`hooks/tezgah_lang.py::non_english` - a predicate rather than one language's letter list, so Russian, Greek, Arabic, Chinese and accented Latin hit it exactly as Turkish does) or an ASCII-folded Turkish word from the curated list (`hooks/tezgah_lang.py::ENGLISH`, wi…
 
-The rule is a **heuristic** and its own text says so: a word list is not a language detector, so it cannot tell a proper noun or a product name in another language from a word that ought to be English, and a listed word may be the user's own term. A command that only names the words - `echo`, `grep`, `git log --grep` - creates nothing and passes. An identifier outlives the session that typed it, which is the reason the rule exists at all: `plan/004-admin-durum-onarimi` is in a public history from the moment it exists. On **opencode** the rule is not ported: the plugin asks the core for it through `bin/tezgah-gate check`, one spawn for a command its pre-test reads as identifier-creating (`IDENT_CMD` `hosts/opencode/plugins/tezgah.js:616`, the call site `hosts/opencode/plugins/tezgah.js:3039-3043`).
+The rule is a **heuristic** and its own text says so: a word list is not a language detector, so it cannot tell a proper noun or a product name in another language from a word that ought to be English, and a listed word may be the user's own term. A command that only names the words - `echo`, `grep`, `git log --grep` - creates nothing and passes. An identifier outlives the session that typed it, which is the reason the rule exists at all: `plan/004-admin-durum-onarimi` is in a public history from the moment it exists. On **opencode** the rule is not ported: the plugin asks the core for it through `bin/tezgah-gate check`, one spawn for a command its pre-test reads as identifier-creating (`IDENT_CMD` `hosts/opencode/plugins/tezgah.js:632`, the call site `hosts/opencode/plugins/tezgah.js:3069-3073`).
 
 Off: `lang-off`, the rule's own switch (`hooks/tezgah_gate.py::decision`), and `pretooluse-off` drops it with the whole gate.
 
@@ -382,17 +382,17 @@ widen a list a regex already covers.
 ## The mirror: the opencode plugin
 
 opencode cannot run Python hooks, so `hosts/opencode/plugins/tezgah.js` is an independent JavaScript re-implementation of the same rules, dispatched from
-`tool.execute.before` (hosts/opencode/plugins/tezgah.js:2958, exported `hosts/opencode/plugins/tezgah.js:2906`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2958-3123`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:314`,
-`SKIP_ENV` hosts/opencode/plugins/tezgah.js:315, `NO_VERIFY` hosts/opencode/plugins/tezgah.js:316, `GITISH` hosts/opencode/plugins/tezgah.js:317, `SKIP_TEST` hosts/opencode/plugins/tezgah.js:559). What keeps the two halves honest is a test, not a shared module:
+`tool.execute.before` (hosts/opencode/plugins/tezgah.js:2988, exported `hosts/opencode/plugins/tezgah.js:2936`) in the gate's own order (`hosts/opencode/plugins/tezgah.js:2988-3153`); its shortcut constants restate the same regexes (`NEUTER` `hosts/opencode/plugins/tezgah.js:314`,
+`SKIP_ENV` hosts/opencode/plugins/tezgah.js:315, `NO_VERIFY` hosts/opencode/plugins/tezgah.js:316, `GITISH` hosts/opencode/plugins/tezgah.js:317, `SKIP_TEST` hosts/opencode/plugins/tezgah.js:575). What keeps the two halves honest is a test, not a shared module:
 `tests/test_opencode_plugin.py` drives the plugin's hooks through a node harness with a throwaway HOME, and imports the Python `tezgah_integrity.call_id` so a
 separator or canonical-form drift in the action id fails there instead of silently in a session (`tests/test_opencode_plugin.py:1-7`, `tests/test_opencode_plugin.py:27-30`, `tests/test_opencode_plugin.py::OpenCodePlugin.test_the_id_is_the_hash_the_python_writer_computes`).
 
-The shell rule kinds mirrored last are each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:1010`,
-`heredocBodies` `hosts/opencode/plugins/tezgah.js:1016`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:1049`, the shortcut and attribution twins at
-`hosts/opencode/plugins/tezgah.js:3013-3014` and `hosts/opencode/plugins/tezgah.js:1981`, the credential twin at `hosts/opencode/plugins/tezgah.js:1941-1945`) and the
-ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1870`, `ORDER_DENY`
-`hosts/opencode/plugins/tezgah.js:1872`, `lastVerify` `hosts/opencode/plugins/tezgah.js:1882`, `orderReason` `hosts/opencode/plugins/tezgah.js:1907`, dispatched at
-`hosts/opencode/plugins/tezgah.js:3054-3057`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
+The shell rule kinds mirrored last are each pinned in both suites: the shell's write body (`SHELL_WRITE` `hosts/opencode/plugins/tezgah.js:1039`,
+`heredocBodies` `hosts/opencode/plugins/tezgah.js:1045`, `shellWriteBody` `hosts/opencode/plugins/tezgah.js:1078`, the shortcut and attribution twins at
+`hosts/opencode/plugins/tezgah.js:3043-3044` and `hosts/opencode/plugins/tezgah.js:2010`, the credential twin at `hosts/opencode/plugins/tezgah.js:1970-1974`) and the
+ordering obligation (`COMMIT_CMD` `hosts/opencode/plugins/tezgah.js:1899`, `ORDER_DENY`
+`hosts/opencode/plugins/tezgah.js:1901`, `lastVerify` `hosts/opencode/plugins/tezgah.js:1911`, `orderReason` `hosts/opencode/plugins/tezgah.js:1936`, dispatched at
+`hosts/opencode/plugins/tezgah.js:3084-3087`). `lastVerify` folds the tail exactly as `_last_verify` does, minus the `passing_check` narrowing - this rule reads only
 `fail`, and a row that narrowing would refuse reads `ok`/`ran` on both sides, so the outcome is identical.
 
 The control rule has no JavaScript copy. The plugin's `CONTROL_CMD` pre-test picks the shell lines that could touch the control plane. The plugin puts each
