@@ -184,10 +184,14 @@ rather than inventing one. `--dry-run` prints the same report and writes nothing
 `source` files one run as the experiment's receipt: it runs `orx logs <runId>`,
 writes the log to `experiments/<hypothesis>/raw/<runId>.log`, and appends the row
 `{"source": "orx:<runId>", "log": "raw/<runId>.log"}`. The experiment must already
-have its `protocol.md` on disk; `source` does not check that it is committed, so
-commit the protocol first yourself. Even then the order rule proves commit order,
-not run order. Without orx it exits 2 and says so, and it writes nothing at all
-when the run cannot be read.
+have its `protocol.md` on disk. On a rules-8 line `source` commits the capture
+itself, so it first refuses, writing nothing, while the evaluation lock, the
+arena or `protocol.md` is not committed, or the protocol holds an invalid
+number or a metric other than the locked one: commit the line first
+(`tezgah-research commit <slug> "<message>"`). On an older line it checks none
+of that, so commit the protocol first yourself. Either way the order rule proves
+commit order, not run order. Without orx it exits 2 and says so, and it writes
+nothing at all when the run cannot be read.
 
 `check` enforces the rules a session tends to skip: `protocol.md` committed
 before `results.jsonl` - decided on the commit graph, so two commits inside the
