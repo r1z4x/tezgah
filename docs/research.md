@@ -881,8 +881,15 @@ even when nothing resolves, because judging the receipts is `check`'s job
 
 - `check` refuses a receipt row that a re-parse of its raw bytes contradicts:
   `not derived from its capture`.
+- A resolved receipt has to name the INDEX id in its raw bytes
+  (`hooks/tezgah_research_capture.py::receipt_ids`). Else `check` refuses it with
+  `is not derived from its capture: its raw bytes name <ids>, not that id`. Its
+  `url` has to be the provider's receipt URL for that id. Else the refusal reads
+  `<url> is not the <provider> receipt URL for that id (<expected>)`. A refused
+  receipt resolves nothing.
 - It refuses a formal row that no receipt resolves: `resolves in no registry`. A
-  row with `unindexed_reason` takes the step `unindexed-source` instead.
+  formal row with an empty `id` gets the same refusal. A row with
+  `unindexed_reason` takes the step `unindexed-source` instead.
 - It refuses a row that one provider alone resolves:
   `receipts from fewer than 2 providers`. An alphaXiv or `orx paper` record
   counts as `arxiv`.
@@ -890,9 +897,10 @@ even when nothing resolves, because judging the receipts is `check`'s job
   receipt takes `header-mismatch`. Titles agree at a word overlap of 0.5 or more
   (`hooks/tezgah_research_capture.py::title_agrees`). Years agree within one, for
   a preprint against its venue year.
-- `check --online` fetches up to ten receipts again. A changed id, title, author
-  or year prints `online <slug>: <id> <provider> <field> drifted` and takes
-  `online-drift`.
+- `check --online` fetches up to ten receipts again from the provider's receipt
+  URL. A changed id, title, author or year prints
+  `online <slug>: <id> <provider> <field> drifted`, for instance
+  `online <slug>: <id> <provider> id drifted`, and takes `online-drift`.
 
 **`tezgah-research fetch <slug> <note> [--file <path> --ack "<the user's words>" | --orx]`**
 stores the passages of a source around every quote the line makes of it. The URL
@@ -911,10 +919,19 @@ always comes from a receipt. The first step that yields text decides the capture
 The quotes come from three places. One is a citing claim's `quote` field. Another
 is each double-quoted span of three or more words in its `statement`. The last is
 each `> "..."` blockquote of the note. A quote splits on `...`, `…` and `[...]`.
-Each fragment of three or more words has to appear in order. The record lands in
+Each fragment of three or more words has to appear in order. They all sit in one
+stored passage, or the k-th fragment sits in the k-th passage stored for that
+quote (`hooks/tezgah_research_capture.py::_found`). Normalisation drops citation
+markers, also one split by tags or spaces such as `[ 12 ]`
+(`hooks/tezgah_research_capture.py::normalise`). The record lands in
 `literature/.sources/<sha256>.json` with the 300 characters either side of each
-match, and `literature/.sources/SOURCES.jsonl` gets its row. The note's latest
-record decides what `check` does
+match, and `literature/.sources/SOURCES.jsonl` gets its row. A SOURCES row sets
+access only through its own `literature/.sources/*.json` record for that note,
+never through its own `access` field
+(`hooks/tezgah_research_capture.py::_source_records`). A claim's proof may end a
+note path with `.`, `,`, `;`, `:` or `)`, and the note still counts as cited
+(`hooks/tezgah_research_capture.py::cited_tokens`). The note's latest record
+decides what `check` does
 (`hooks/tezgah_research_capture.py::_check_sources`):
 
 - `full` or `user`: `check` refuses a quote missing from the stored passages with
@@ -935,10 +952,13 @@ registries, `orx discover` and `orx paper`. Any other connector exits 1 with
 `scope.in` entry exits 2. A search that does not answer 200 exits 1 and writes
 nothing. The session screens by hand, one row per decision in
 `searches/screening.jsonl`: `{"search", "id", "decision": "kept"|"dropped", "reason", "screener"}`.
-`check` refuses a SEARCHES row with no file (`has no capture`) and one whose
-`hits` or `ids` a re-parse contradicts (`not derived from its capture`). It also
-refuses a screening row whose id no captured search returned:
-`screens an id no captured search returned`.
+`check` refuses a SEARCHES or SOURCES row with no `file`:
+`<SEARCHES|SOURCES> row <n> names no file, so it has no capture`
+(`hooks/tezgah_research_capture.py::_check_ledger_files`). A SEARCHES row counts
+toward a connector or a counter search only with a readable `searches/raw/`
+capture. `check` also refuses a row whose `hits` or `ids` a re-parse contradicts
+(`not derived from its capture`). It refuses a screening row whose id no captured
+search returned: `screens an id no captured search returned`.
 
 On a search line, claims that cite literature take these steps
 (`hooks/tezgah_research_capture.py::_check_searches`). `one-connector` means fewer
@@ -980,8 +1000,11 @@ ledgers only grow. `check` refuses what changed anyway
 - a ledger row that a later commit changed or dropped
 - a ledger row whose file does not hash to its `sha256`: `hash mismatch`.
 
-These rules cannot see a capture that was false at its first write. `check
---online` is the check for that case.
+The stopping-rule order and these write-once rules read the current branch's
+history only, never every ref (`hooks/tezgah_research.py::file_versions`). A
+backdated side branch neither satisfies the order nor breaks the line. These
+rules cannot see a capture that was false at its first write. `check --online` is
+the check for that case.
 
 ### How a claim's certainty is computed
 
@@ -1057,9 +1080,18 @@ add `compare: <T> vs <C> on <field>, lower|higher is better`, `sesoi:` and
 `correction: bh|holm|bonferroni|e-bh`. Rows group by `arm`, else by `phase`, else
 into one group `all` (`hooks/tezgah_research.py::experiment_record`).
 
+One reader takes every protocol number (`hooks/tezgah_research.py::protocol_number`).
+It reads `0.05`, `.05`, `5%` (as 0.05) and `1e-1`. `alpha:` and `power:` have to
+fall in (0, 1), and `sesoi:` and `mde:` have to be above 0. `check` refuses any
+other value, including one with no number:
+
+- `experiment <h>: protocol.md <alpha|power>: <value> is not a number in (0, 1)`
+- `experiment <h>: protocol.md <sesoi|mde>: <value> is not a number above 0`
+
 - A group whose rows all carry an `outcome` of 0 or 1 prints
   `stats <slug>: <h> <group> n=<n> k=<k> wilson=[<lo>, <hi>] cp=[<lo>, <hi>]`, the
-  Wilson and Clopper-Pearson intervals at 1 - alpha.
+  Wilson and Clopper-Pearson intervals at 1 - alpha. A JSON `true` or `false`
+  outcome counts as 1 or 0.
 - `compare:` gives the mean difference in the better direction. The two groups
   pair by `item` when they hold the same item set, else the test is Welch's
   (`hooks/tezgah_research_stats.py::mean_diff`). The achieved MDE is
@@ -1080,7 +1112,10 @@ On a measured line, a falsifier needs a comparator and a number, or a named test
 with its alpha. `check` refuses anything else with
 `falsifier holds no comparator and number`
 (`hooks/tezgah_research.py::falsifier_testable`). The structured form
-`falsifier: <field> <op> <number> [on <group>]` is the one `check` evaluates. It
+`falsifier: <field> <op> <number> [on <group>]` is the one `check` evaluates. Its
+`<op>` is `<`, `<=`, `>`, `>=`, `=`, `≤`, `≥`, `at most`, `at least`, `above`,
+`below`, `less than`, `more than`, `fewer than`, `greater than`, `exceed`,
+`exceeds`, `under` or `over` (`hooks/tezgah_research.py::FALSIFIER_OPS`). It
 fires when the mean of the field over the group's rows meets the comparison. A
 `supported` claim citing an experiment whose falsifier fired fails with
 `while its falsifier fired` (`hooks/tezgah_research.py::fired_problems`). A
@@ -1102,8 +1137,10 @@ the step `untraced-number`, and `check` never refuses it.
 `derived_from` maps each derived number, as written, to how it came about:
 `{"<number>": {"op": "mean|sum|min|max|diff|ratio|count", "of": ["<h>/<run>:<field>", "<h>/#<row>:<field>"]}}`.
 `diff` is the first minus the second, and `ratio` the first over the second.
-`check` recomputes the value and rounds it to the written decimals. It refuses a
-mismatch: `does not recompute` (`hooks/tezgah_research.py::derived_problems`).
+`check` recomputes the value in decimal arithmetic and rounds it at the written
+precision. Either half-up or half-even rounding may match, so mean(2, 3) accepts
+both `2` and `3` (`hooks/tezgah_research.py::_rounds_to`). It refuses a mismatch:
+`does not recompute` (`hooks/tezgah_research.py::derived_problems`).
 
 The protocol's other lines bind the analysis
 (`hooks/tezgah_research.py::_check_experiment8`):
@@ -1133,7 +1170,10 @@ commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
   the first N (`hooks/tezgah_research_evidence.py::seeded_draw`). The first draw
   per instrument and arm is the one every rule reads. A draw once the arm has
   labels exits 1 with `gold draw after labels`. `check` refuses a gold file that
-  is not its seed's draw: `differs from the seeded draw`.
+  is not its seed's draw: `differs from the seeded draw`. It also refuses a GOLD
+  row that disagrees with its file on instrument, arm, seed or n:
+  `<file> differs from the seeded draw: its GOLD row names <i> arm <a> seed <s> n <n>, the file <i> arm <a> seed <s> n <n>`
+  (`hooks/tezgah_research_evidence.py::gold_record`).
 - `tezgah-research label <slug> <instrument> --arm <a> --human "<name>" --ack "<the user's words>"`
   reads `{"item", "truth"}` rows on stdin. An item outside the gold sample exits 1
   with `not in the gold sample`.
@@ -1146,7 +1186,12 @@ commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
   records a narrowing of the claims instead.
 
 A label's `output` is the results row's `outcome`, and an error is a truth that
-differs from it. The first label per item counts, and a later one warns. An arm
+differs from it. A row without both `truth` and `output` labels nothing
+(`hooks/tezgah_research_evidence.py::_is_label`). `check` refuses a label whose
+output is not the results row's outcome:
+`label output differs from its results row: <i> arm <a> item <x> output <o>, results row <r|none>`
+(`hooks/tezgah_research_evidence.py::label_problems`). The first label per item
+counts, and a later one warns. An arm
 counts as labelled when every item of its first draw has a label. Its error bound is the
 two-sided 95% Clopper-Pearson upper bound of errors over n
 (`hooks/tezgah_research_evidence.py::instrument_report`). The status follows
@@ -1158,14 +1203,19 @@ two-sided 95% Clopper-Pearson upper bound of errors over n
 | `verdict` | an arm's bound is above 0.10 | every arm's bound is 0.10 or less and every arm with rows is labelled |
 
 Anything else is `unvalidated`, and so is a measure with no `mde:` to compare
-against. With an MDE of 0.10 and two arms, 72 items per arm with no error
+against. A measure whose `mde:` is above 1 stays `unvalidated` too, because its
+threshold reads a difference of proportions
+(`hooks/tezgah_research_evidence.py::proportion_threshold`). Its status line ends
+`(mde above 1: the threshold reads a difference of proportions)`. With an MDE of
+0.10 and two arms, 72 items per arm with no error
 validate (bound 0.0499). 71 do not. At 20 items and no error the bound is 0.1684.
 `check` prints `instrument <slug>: <name> arm <a> n=<n> errors=<k> upper=<u>` per
 labelled arm and `instrument <slug>: <name> <status> sum=|max=<x> threshold=<t>`.
 An R3 instrument also prints a PPI++ mean per labelled arm:
 `ppi <slug>: <name> arm <a> lambda=<l> estimate=<e> ci=[<lo>, <hi>]`
 (`hooks/tezgah_research_stats.py::ppi_mean`). It combines the gold truths with the
-arm's unlabelled outputs.
+arm's unlabelled outputs. The line prints `ci=none` when fewer than two gold items
+or fewer than two other items exist.
 
 `conclude` refuses a line with a `rejected` instrument and no `switch` row for it:
 `has no switch or narrowing row` (`hooks/tezgah_research_evidence.py::conclude_problems`).
@@ -1222,6 +1272,13 @@ each release reuses that green run. On that fixture set it printed
   lines, so a source on a wrapped line counts
   (`hooks/tezgah_research.py::_check_patterns`). This reader fix applies to every
   line.
+
+### What rules 8 cannot see
+
+- A gold seed chosen offline after the session saw the outputs goes undetected.
+  The first-draw rule only stops a redraw once a draw exists.
+- `check` reads a number that the session printed into a captured run log as
+  measured. The log's bytes are real to every rule.
 
 ## What `check` refuses, and what it only warns about
 
