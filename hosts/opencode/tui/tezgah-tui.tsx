@@ -51,7 +51,8 @@ function pythonBin(): string {
   return (pythonMemo = found || names[0])
 }
 
-function run(args: string[]): string {
+// Exported for cli/tui.tsx, the opencode 2 shape of this plugin.
+export function run(args: string[]): string {
   try {
     const proc = Bun.spawnSync({ cmd: [pythonBin(), STATUS, ...args], stdout: "pipe", stderr: "ignore" })
     return new TextDecoder().decode(proc.stdout).trim()

@@ -289,22 +289,33 @@ class Install(SetupBase):
         self.assertIs(oc["compaction"]["prune"], False)
         self.assertIn(".git/**", oc["watcher"]["ignore"])
 
-    def test_opencode_2_gets_no_v1_tui_wiring_and_no_prune(self):
+    def test_opencode_2_status_line_goes_to_cli_json_and_no_prune(self):
         """opencode 2 migrates tui.json into cli.json once and ignores it after,
         and drops compaction.prune as an unsupported legacy key (measured on
-        v2.0.32), so neither is written where cli.json exists."""
-        self.write_json(self.path(".config", "opencode", "cli.json"),
-                        {"$schema": "https://opencode.ai/v2/cli.json", "plugins": []})
+        v2.0.32): the v2 CLI plugin is linked and listed in cli.json `plugins`
+        beside every entry already there, and an uninstall takes back only it."""
+        cli = self.path(".config", "opencode", "cli.json")
+        orca = "file:///elsewhere/orca-opencode-status-tui/tui.js"
+        self.write_json(cli, {"$schema": "https://opencode.ai/v2/cli.json", "plugins": [orca]})
         proc = self.setup("--install", "--hosts", "opencode")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
         self.assertNotIn("compaction", oc)
         self.assertIn(self.path(".config", "tezgah", "opencode-skills.md"), oc["instructions"])
         self.assertFalse(os.path.exists(self.path(".config", "opencode", "tui.json")))
-        self.assertEqual(self.read_json(self.path(".config", "opencode", "cli.json"))["plugins"], [])
+        linked = self.path(".config", "opencode", "tui-plugins", "tezgah-cli")
+        self.assertEqual(os.path.realpath(linked),
+                         os.path.join(REPO, "hosts", "opencode", "tui", "cli"))
+        self.assertEqual(self.read_json(cli)["plugins"], [orca, "file://" + linked])
+        self.setup("--install", "--hosts", "opencode")
+        self.assertEqual(self.read_json(cli)["plugins"], [orca, "file://" + linked])
         report = self.setup("--report", "--hosts", "opencode").stdout
         self.assertNotIn("compaction.prune", report)
-        self.assertNotIn("status line plugin", report)
+        self.assertIn("  ok   status line plugin in cli.json + linked", report)
+        self.assertNotIn("tui.json", report)
+        self.setup("--uninstall", "--hosts", "opencode")
+        self.assertEqual(self.read_json(cli)["plugins"], [orca])
+        self.assertFalse(os.path.lexists(linked))
 
     def test_apps_mcp_wired_optional_devtools_and_removable(self):
         self.setup("--install", "--hosts", ALL)
