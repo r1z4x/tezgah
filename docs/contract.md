@@ -87,7 +87,7 @@ that rule's first-line clause on every host
 to an adhd ask still opened on a diagnosis. Measured on this
 machine: 6-15 ms warm, and 1.36 s for the one cold rebuild over 7 502 sections.
 The line costs 187-201 bytes on omp, 264-287 on other hosts and 450-483 on
-Claude, plus about 205 for the `i-have-adhd` clause. It is not a judgement, so
+Claude, plus 231 for the `i-have-adhd` clause. It is not a judgement, so
 `judge-off` leaves it on, and `reminder-off` drops it with the per-turn text.
 The always-on core also
 sends every session to the same search by hand. Run `tezgah-skill <words>`

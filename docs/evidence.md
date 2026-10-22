@@ -561,12 +561,19 @@ whole session instead of the turn:
   count with no writing script, one operand or a read verb. A `sqlite3` read-only open counts,
   from the option or the database URI, and so does an `ssh` whose remote command is
   such a read (`hooks/tezgah_integrity.py::_bookkeeping_command`). Any other command, a commit included,
-  keeps the turn worked and owes the check. Plan 126 measured 4 of 6 live advice turns refused for
-  reads in a loop (`for f in $(find src -type f); do cat -n "$f"; done`). Now a reply that claims
+  keeps the turn worked and owes the check. So does a word bash turns into more than it shows
+  (`hooks/tezgah_integrity.py::_shell_read`). A brace list (`BRACE_EXPANSION`) is two words:
+  `{-delete,-print}`. A `$` other than a plain `$name` or `${name}` counts too (`PLAIN_DOLLAR`).
+  `${x:--delete}` gives an option, and the arithmetic in `$[x]`, `$((x))` and `${a[x]}` runs a
+  `$( )` held in its value. A function definition runs its body with arguments no reader saw.
+  Plan 126 measured 4 of 6
+  live advice turns refused for reads in a loop
+  (`for f in $(find src -type f); do cat -n "$f"; done`). Now a reply that claims
   nothing also ends such a turn. The reader counts a `for NAME in WORDS` loop, the `if`/`while`/`{`
-  words around reads and an unquoted `$( )` whose body reads (`loops=True`). A value they bind
-  reaches only a reader with no writing option (`OPTION_FREE`). The loop name is lowercase, so not
-  `PATH` or `IFS`. A done/tested claim over such a turn keeps the worked turn's fold. A build
+  words around reads and an unquoted `$( )` whose body reads (`loops=True`). A value they bind, or a
+  positional parameter, reaches only a reader with no writing option (`OPTION_FREE`). The loop name
+  is one lowercase letter: not `PATH` or `IFS`, and not a zsh name tied to a setting (`path`,
+  `fpath`, `status`). A done/tested claim over such a turn keeps the worked turn's fold. A build
   (`npm run build > log`) is a check, never a read. It records as `verify`, or as `verify_ok` or
   `verify_fail` when its status shows. A `set` of shell options (`set -o pipefail;`, `set -eu`)
   counts as a read, because the contract asks a check line to open with it. A `set` with any other

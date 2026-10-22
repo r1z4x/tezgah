@@ -187,12 +187,16 @@ common words.
 The hook then appends one line, `A local skill search matched this request:
 skill://<name>:<start>-<end>`, with the section title. Every host but omp also
 gets the absolute path. Claude's manifest declares `TEZGAH_HOST=claude`.
-There the line names the Skill tool's `tezgah:<name>` and the file's line range,
-since Claude resolves no `skill://` address (`hooks/tezgah_skill_pick.py::_emit`).
-It also carries the skill's description, which Claude's roster cuts, and for
-`harness` names Claude's own `workflow-authoring` as the skill it precedes
+There the line names a plugin skill by the Skill tool's `tezgah:<name>`, with
+the file's line range (`hooks/tezgah_skill_pick.py::_emit`). Claude resolves no
+`skill://` address. A host root's skill, such as
+`~/.claude/skills/<name>`, keeps its plain name. The line also carries the
+skill's description, which Claude's roster cuts. It is cut to the 160
+characters a shipped one keeps (`DESCRIPTION_CAP`). For `harness` the line names
+Claude's own `workflow-authoring` as the skill it precedes
 (`hooks/tezgah_skill_pick.py::NATIVE_TWIN`). An `i-have-adhd` line, on every
-host, ends with that rule's first-line clause
+host, ends with that rule's first-line clause. Like the skill, it is
+conditional: when the answer is steps, line 1 is step 1
 (`hooks/tezgah_skill_pick.py::IN_FORCE`).
 The top section must carry 60% of the prompt's
 distinct content terms that any skill contains, and at least three

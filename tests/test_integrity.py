@@ -446,6 +446,59 @@ class BookkeepingCommand(unittest.TestCase):
                   'echo "$(rm x)"', "echo `rm x`", "for", "done x", "sudo"):
             self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
+    def test_a_value_bash_evaluates_is_not_a_read(self):
+        # review 126 round 3, P1, verbatim: bash evaluates the loop word as
+        # arithmetic in `$[x]` and `${a[x]}` and runs the `$( )` in it (pwned1,
+        # pwned2 and pwned4 were created in a bash 5.2 sandbox)
+        for c in ("for x in 'a[$(touch pwned1)]'; do echo $[x]; done",
+                  "for x in 'a[$(touch pwned2)]'; do echo ${a[x]}; done",
+                  "for x in 'a[$(touch pwned3)]'; do cat ${f:x}; done",
+                  "for x in 'a[$(touch pwned4)]'; do head -n $[x] README; done",
+                  'for x in a; do echo "$[x]"; done', "for x in a; do echo $((x)); done",
+                  "for x in a; do cat ${!x}; done", "for x in a; do cat ${#x}; done",
+                  "for x in a; do cat $x[1]; done", "echo $(( ls ))",
+                  "for f in x; do find . {-delete,}; done"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_function_definition_is_not_a_read(self):
+        # review 126 round 3, P1, verbatim: the body takes its options from
+        # the call (`junk.x` deleted, src/app.py sorted over itself in bash)
+        for c in ("cat() { find . -name x $1; }; cat -delete",
+                  "cat() { sort $1 $2 $3; }; cat -o src/app.py src/app.py",
+                  "cat() ( find . $1 ); cat -delete", "ls () { cat a; }",
+                  "function cat { find . $1; }; cat -delete",
+                  "function cat ( find . $1 ); cat -delete"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+            self.assertFalse(ti._bookkeeping_command(c), c)
+        # a positional parameter is a value this reader never sees
+        for c in ("if true; then find . $1; fi", "{ find . $@; }", "{ sort ${1} a; }"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_brace_list_or_an_operator_expansion_is_not_a_read(self):
+        # review 126 round 3, pre-existing at 1d99f95: each word becomes an
+        # option that writes, in the default reader too
+        for c in ("find . -name '*.pyc' {-delete,-print}",
+                  "sort {-o,src/app.py} src/app.py",
+                  "git diff {--output=src/app.py,HEAD}",
+                  "find . -name '*.pyc' ${x:--delete}", "find . ${x:=-delete}",
+                  'find . "${x:--delete}"', "ls {a..c}", "ls x{'a',b}"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS), c)
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        # quoted braces, a plain expansion and git's `@{u}` stay reads
+        for c in ("cat '{a,b}' \"x{1,2}\" $HOME \"${HOME}\" $?",
+                  "git log --oneline @{u}..HEAD", "grep -n '$[a-z]{2,}' f",
+                  "awk '{print $1}' f", "jq '{a, b}' f"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS), c)
+
+    def test_a_loop_name_zsh_ties_to_a_setting_is_not_a_read(self):
+        # review 126 round 3, P3: zsh's `path` is PATH (`command not found:
+        # cat` after `for path in /nonexistent`), and its list grows per module
+        for c in ("for path in .; do cat a; done", "for fpath in .; do cat a; done",
+                  "for status in a; do cat a; done", "for file in a; do cat $file; done"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        self.assertTrue(ti._bookkeeping_command("for f in a; do cat $f; done",
+                                                ti.GIT_READS, loops=True))
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):
@@ -4404,6 +4457,18 @@ class ResidualWork(unittest.TestCase):
                                  "no verify_ok")
                 self.assertEqual(self.verdict(
                     "Dashboard düzeltildi, testler geçti.", rows), "no verify_ok")
+
+    def test_p126_review_bypasses_end_no_advice_turn(self):
+        # review 126 round 3, verbatim: each one wrote in bash, and each ended
+        # the advice turn with no check
+        for cmd in ("for x in 'a[$(touch pwned1)]'; do echo $[x]; done",
+                    "cat() { find . -name x $1; }; cat -delete",
+                    "cat() { sort $1 $2 $3; }; cat -o src/app.py src/app.py",
+                    "cat() ( find . $1 ); cat -delete", "find . {-delete,-print}",
+                    "find . ${x:--delete}", "for path in .; do cat a; done"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.verdict(self.ADVICE, [
+                    {"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
 
     def test_p126_a_pipefail_prefix_keeps_a_read_turn_a_read(self):
         rows = [{"kind": "run", "exit": 0,
