@@ -400,6 +400,14 @@ class Captures(unittest.TestCase):
         self.assertTrue(any(cap.NOT_IN_SOURCE in e for e in errors), errors)
 
     def test_source_values_refile_status_and_census(self):
+        # a rules-8 `source` is refused until a committed state.json locks the
+        # evaluation (its capture is committed at once, so a later lock could never
+        # precede it), and this line's fixture locks none: commit one first
+        st = tr._state(self.base)
+        st["evaluation"] = {"metric": "p95", "baseline": "120 uncached",
+                            "locked_at": "2026-01-01"}
+        self.write(self.at("state.json"), json.dumps(st))
+        self.cli("commit", "q", "evaluation lock")
         self.cli("source", "q", "h1", "--run", "r1", "--arm", "base", "--value", "p95=120")
         out = self.cli("source", "q", "h1", "--run", "r1", "--value", "p95=77", code=1)
         self.assertIn("value not in the run log", out)
@@ -695,6 +703,24 @@ class Captures(unittest.TestCase):
         errors, _w, steps = self.check()
         self.assertFalse([e for e in errors if "not derived" in e or "provider" in e], errors)
         self.assertIn("one-provider", steps.get("C1", []))
+
+    def test_an_openalex_or_s2_id_is_cited_through_its_own_registry(self):
+        # an indexed source known only by its OpenAlex or Semantic Scholar id was
+        # skipped by `cite`, so it cleared `resolves in no registry` only through
+        # `unindexed_reason`; one registry answering it is the K-2 step
+        s2 = json.dumps({"paperId": "abc123", "title": TITLE, "year": 2024,
+                         "authors": [{"name": "Ann Smith"}]})
+        self.set_map({"https://api.openalex.org/works/W7": openalex(wid="W7"),
+                      cap.S2_PAPER % "abc123": s2})
+        for rid in ("openalex:W7", "s2:abc123"):
+            self.index(id=rid)
+            code, out = self.run_cmd("cite", "q")
+            self.assertEqual(code, 0, out)
+            self.assertIn("receipt %s" % rid, out)
+            errors, _w, steps = self.check()
+            self.assertFalse([e for e in errors if cap.NO_REGISTRY in e or "not derived" in e
+                              or "receipt URL" in e], errors)
+            self.assertIn("one-provider", steps.get("C1", []))
 
     def test_quote_written_after_the_capture_is_found_in_the_whole_text(self):
         # K-4: the full text is a capture; a later quote needs no refetch
