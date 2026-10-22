@@ -140,9 +140,12 @@ class Line(unittest.TestCase):
 
 class Certainty(Line):
     def test_step_table_holds_every_section_two_name_with_its_effect(self):
-        self.assertEqual(len(ev.STEPS), 38)
+        self.assertEqual(len(ev.STEPS), 41)
         self.assertEqual(ev.STEPS["no-interval"], ev.CEIL)
         self.assertEqual(ev.STEPS["no-replication"], ev.DEC)
+        # review round two: the false refusals that became steps
+        for name in ("falsifier-not-evaluable", "one-provider", "screened-outside-search"):
+            self.assertEqual(ev.STEPS[name], ev.DEC, name)
 
     def test_decrements_apply_before_the_ceiling_and_each_step_once(self):
         self.assertEqual(ev.compute(3, ["no-power-plan", "no-power-plan"]),
@@ -257,6 +260,29 @@ class Instruments(Line):
         self.assertEqual(code, 2)
         code, _ = self.run_cmd("gold", ["nope", "j", "--arm", "a", "--n", "1", "--seed", "1"])
         self.assertEqual(code, 2)
+
+    def test_gold_and_label_read_the_rows_source_writes(self):
+        """Review round two K-7: rows `source` files with `--instrument`, `--arm` and
+        `--item` are instrument items, so `gold` draws them and `label` reads them."""
+        orx = os.path.join(self.repo, "orx")
+        with open(orx, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\necho 'outcome 1'\necho 'outcome 0'\n")
+        os.chmod(orx, 0o755)
+        self.put("experiments/h2/protocol.md", "change: x\ndesign: experiment\nmde: 0.10\n")
+        for n in range(4):
+            _, problems = tr.source_run(self.repo, "q", "h2", "r%d" % n, orx, arm="flagged",
+                                        item="i%d" % n, instrument="kw",
+                                        values=[("outcome", str(n % 2))])
+            self.assertEqual(problems, [])
+        code, out = self.run_cmd("gold", ["q", "kw", "--arm", "flagged", "--n", "4",
+                                          "--seed", "1"])
+        self.assertEqual(code, 0, out)
+        code, out = self.run_cmd("label", ["q", "kw", "--arm", "flagged", "--human", "r",
+                                           "--ack", "the user labelled them"],
+                                 rows(*({"item": "i%d" % n, "truth": n % 2} for n in range(4))))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted((r["item"], r["output"]) for r in ev._rows(self.base, ev.LABELS)),
+                         [("i0", 0), ("i1", 1), ("i2", 0), ("i3", 1)])
 
     def test_hand_drawn_gold_file_is_refused_and_repeated_label_warns(self):
         self.items("j", {"a": [0] * 20})

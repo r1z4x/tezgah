@@ -144,6 +144,17 @@ prints `certainty <slug>: <claim> <level> start=<level> steps=<step>,...` per cl
 a missing obligation narrows the claim instead of refusing the line, and the report
 states each claim's level.
 
+On a rules-8 line, run `cite <slug>` after adding a formal INDEX row: it stores
+each registry's receipt for its arXiv id or DOI - a bare DOI (`10.1109/...`), a
+`doi:` one or a `https://doi.org/` URL. A source no registry indexes records
+`unindexed_reason` and narrows its claims instead of failing the line. A registered
+metric the report leaves out takes a `not_reported: <metric>: <reason>` line in
+`protocol.md`. Three or more words in double quotation marks in a claim's
+`statement` are a quote, and `check` looks for them in the text `fetch` captured
+and in the receipts' abstracts, so write a paraphrase without quotation marks. A
+falsifier `check` evaluates reads `<field> <op> <number> [on <group>]` over the
+results rows; free text narrows the claims citing it (`falsifier-not-evaluable`).
+
 `claim` reads that object from stdin and appends it as one line: exit 0,
 `claim <id> recorded` (just `claim recorded` when the object carries no `id`);
 exit 1 with one `FAIL <slug>: <problem>` line per problem
@@ -349,7 +360,7 @@ they do not carry.
 
    ```text
    prediction: prompt tokens per turn drop by a third over seven runs
-   falsifier: prompt tokens per turn hold flat or rise
+   falsifier: tokens_per_turn >= 1500 on cache
    headroom: 40% of each prompt repeats the previous turn
    metric: prompt tokens per turn
    unit: tokens per turn

@@ -3053,6 +3053,43 @@ class SourceRun(Workspace):
             self.assertIn(message, proc.stderr, args)
             self.assertEqual(proc.stdout, "", args)
 
+    def test_a_value_matches_a_log_number_by_numeric_equality(self):
+        """Review round two K-6: `--value us=1.5` against a log holding `1.50` names
+        the same number, so it is filed; a number the log does not hold stays refused."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="us 1.50\nrows 12\n")
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--value", "us=1.5",
+                        "--value", "rows=12.0", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        row = json.loads(read(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        self.assertEqual((row["us"], row["rows"]), (1.5, 12.0))
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r2", "--value", "us=1.6",
+                        env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("value not in the run log", proc.stdout)
+
+    def test_a_row_can_name_its_instrument_arm_and_item(self):
+        """Review round two K-7: a row `source` writes carries `instrument`, `arm` and
+        `item` as strings, so `gold` and `label` read it; the keys stay reserved for
+        `--value`."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="outcome 1\n")
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--instrument", "kw",
+                        "--arm", "flagged", "--item", "7", "--value", "outcome=1", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        row = json.loads(read(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        self.assertEqual((row["instrument"], row["arm"], row["item"], row["outcome"]),
+                         ("kw", "flagged", "7", 1))
+        for args, message in ((("--value", "instrument=1"), "reserved row key"),
+                              (("--instrument", "  "), "--instrument needs")):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "r2", *args, env=env)
+            self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
+            self.assertIn(message, proc.stderr, args)
+
 
 class LiteratureIndex(Workspace):
     """I5: what the line read, indexed, and labelled by channel."""
@@ -6375,6 +6412,54 @@ class Rules8Core(Workspace):
         self.assertFalse(tr.falsifier_testable("results may vary between runs"))
         self.assertFalse(tr.falsifier_testable("a welch test rejects"))
 
+    def test_a_free_text_falsifier_narrows_its_claims_instead_of_refusing(self):
+        """Review round two K-1: on a rules-8 line a falsifier with no comparator and
+        number is the step `falsifier-not-evaluable` on each claim citing it, not a
+        refusal; R2-2: `at mo\u017ft` (U+017F) matches no comparator ASCII-case-
+        insensitively, so it is that step and never a KeyError."""
+        import tezgah_research_evidence as ev
+        self.assertEqual(ev.STEPS["falsifier-not-evaluable"], ev.DEC)
+        for falsifier in ("p95 holds or rises", "p95 at mo\u017ft 95 on cache"):
+            repo = self.repo()
+            self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                    ("cache", 91)])
+            path = os.path.join(self.exp_dir(repo), "protocol.md")
+            self.write(path, read(path).replace("falsifier: p95 > 110 on cache",
+                                                "falsifier: " + falsifier))
+            self.claims(repo, dict(CLAIM, proof="experiments/h1/results.jsonl"))
+            extra = {}
+            errors, _ = bounded(tr.check_line, repo, "q", False, False, None, None, extra)
+            self.assertFalse(hit("falsifier holds no comparator", errors), errors)
+            self.assertIn("falsifier-not-evaluable", extra["certainty"]["c1"]["steps"],
+                          (falsifier, extra))
+        self.assertIn("falsifier-not-evaluable", tr.obligations("R6", "measured"))
+
+    def test_a_comparator_is_matched_ascii_case_insensitively(self):
+        """Review round two R2-2: a non-ASCII letter Unicode case folding maps onto an
+        ASCII one leaves the falsifier unevaluated, never a KeyError."""
+        rows = [{"arm": "cache", "p95": 90}, {"arm": "cache", "p95": 91}]
+        for text in ("p95 at mo\u017ft 95 on cache", "p95 le\u017f\u017f than 95 on cache",
+                     "p95 exceed\u017f 80 on cache"):
+            self.assertIsNone(tr.falsifier_fired({"fields": {"falsifier": [text]},
+                                                  "groups": {"cache": rows}, "rows": rows}),
+                              text)
+            self.assertFalse(tr.falsifier_testable(text), text)
+
+    def test_the_skill_teaches_the_machine_readable_falsifier_and_the_rules8_words(self):
+        """Review round two K-9: the skill's falsifier example is one `check` evaluates,
+        and a rules-8 paragraph names `cite`, `unindexed_reason`, `not_reported`, the
+        quotation-mark rule and bare DOIs."""
+        text = read(os.path.join(REPO, "skills", "research", "SKILL.md"))
+        examples = re.findall(r"(?m)^\s*falsifier:\s*(.+)$", text)
+        self.assertTrue(examples)
+        for example in examples:
+            self.assertTrue(tr.FALSIFIER_FORM.match(example.strip()), example)
+        flat = " ".join(text.split())
+        for word in ("`cite", "`unindexed_reason`", "`not_reported:", "quotation marks",
+                     "bare DOI"):
+            self.assertIn(word, flat, word)
+        self.assertIn("description: >\n  Use when the deliverable is evidence", text)
+
     def test_effect_is_the_direction_adjusted_welch_difference(self):
         repo = self.repo()
         base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
@@ -6555,6 +6640,48 @@ class Rules8Numbers(Workspace):
         for text in ("p95 >= 90ms on cache", "p95 is at least 90 on cache",
                      "p95 >= 90 on cache.", "p95 latency >= 90 on cache"):
             self.assertIsNone(fired(text), text)
+
+    def test_alpha_that_leaves_a_quantile_at_one_is_one_refusal_not_a_traceback(self):
+        """Review round two R2-1: `alpha: 1e-20` lies in (0, 1), and 1 - alpha/2 is 1.0,
+        so it is refused naming the key and the value, by `check` and `failing`."""
+        for text in ("1e-20", "0.00000000000000000001"):
+            value, problem = tr.protocol_number("alpha", text)
+            self.assertIsNone(value)
+            self.assertIn("alpha: %s leaves a quantile at 0 or 1" % text, problem)
+            repo = self.repo()
+            self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                    ("cache", 91)], "alpha: %s\n" % text + self.PLAN)
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+            self.assertEqual(len(named(errors, "alpha: %s leaves" % text)), 1, errors)
+            self.assertTrue(hit("alpha: %s leaves" % text,
+                                [e for _, e in bounded(tr.failing, repo)]))
+
+    def test_a_statistics_error_is_one_refusal_naming_the_experiment(self):
+        """Review round two R2-1: a ValueError or ArithmeticError a statistics
+        computation raises is one refusal per experiment, never a traceback: 1e308 and
+        -1e308 overflow the Welch interval, and `claim` reads the same record."""
+        rows = [("base", 1e308), ("base", -1e308), ("cache", 90), ("cache", 91)]
+        repo = self.repo()
+        base = self.rules8_line(repo, rows, "alpha: 0.05\n" + self.PLAN)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        found = named(errors, "experiment h1: statistics could not be computed: ")
+        self.assertEqual(len(found), 1, errors)
+        claim = dict(CLAIM, proof="experiments/h1/results.jsonl")
+        bounded(tr.claim_problems, claim, base, repo)
+        # every statistics call failing still makes one refusal for the experiment
+        repo = self.repo()
+        base = self.rules8_line(repo, rows[2:] + [("base", 120), ("base", 121)],
+                                "alpha: 0.05\n" + self.PLAN)
+        path = os.path.join(self.exp_dir(repo), "results.jsonl")
+        self.write(path, "".join(json.dumps(dict(json.loads(line), outcome=n % 2)) + "\n"
+                                 for n, line in enumerate(read(path).splitlines())))
+        import tezgah_research_stats as stats
+        from unittest import mock
+        with mock.patch.object(stats, "mean_diff", side_effect=ValueError("no mean")), \
+                mock.patch.object(stats, "wilson", side_effect=ZeroDivisionError("no k")):
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+        self.assertEqual(named(errors, "statistics could not be computed"),
+                         ["experiment h1: statistics could not be computed: no mean"], errors)
 
 
 if __name__ == "__main__":

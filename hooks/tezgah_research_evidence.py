@@ -37,6 +37,7 @@ STEPS = {
     "no-dual-screening": DEC, "no-recall-stopping": DEC, "no-positive-control": DEC,
     "no-confounders": DEC, "no-population": DEC, "no-grey-quality": DEC, "no-amstar": DEC,
     "no-codebook": DEC, "fewer-than-two-approaches": DEC,
+    "falsifier-not-evaluable": DEC, "one-provider": DEC, "screened-outside-search": DEC,
 }
 SOURCE_START = {"formal": 2, "grey": 1, "agent-report": 0}
 KIND_START = {"code": 3, "derivation": 2}
@@ -220,8 +221,12 @@ def judge_status(kind, uppers, threshold):
     return ("rejected" if failed else None), agg
 
 
-def instrument_report(base, slug):
-    """({name: status}, report lines)."""
+def instrument_report(base, slug, failed=None):
+    """({name: status}, report lines). A statistics error of an instrument's PPI line
+    goes to `failed` ({"experiment <h>": error}) for each experiment naming the
+    instrument (else "instrument <name>"), for `_check_rules8` to refuse (review round
+    two R2-1)."""
+    failed = {} if failed is None else failed
     declared = {}
     for row in _rows(base, INSTRUMENTS):
         if isinstance(row.get("name"), str):
@@ -248,7 +253,12 @@ def instrument_report(base, slug):
             lines.append("instrument %s: %s arm %s n=%d errors=%d upper=%.4f"
                          % (slug, name, arm, n, errors, uppers[arm]))
             if spec and spec.get("rung") == "R3":
-                lines.extend(_ppi_line(slug, name, arm, record, labels, items[name][arm]))
+                try:
+                    lines.extend(_ppi_line(slug, name, arm, record, labels, items[name][arm]))
+                except (ValueError, ArithmeticError) as exc:
+                    for label in (["experiment %s" % h for h in sorted(used.get(name, ()))]
+                                  or ["instrument %s" % name]):
+                        failed.setdefault(label, str(exc) or type(exc).__name__)
         status, agg = judge_status(kind, uppers, threshold)
         if status is None:
             status = "validated" if spec and uppers and complete else "unvalidated"
@@ -389,7 +399,7 @@ def _report_line(text, cid, level):
 def check(repo, slug, base, state, errors, warnings, strict, git, steps):
     report = steps.setdefault("#report", [])
     claims = [c for c in _rows(base, "claims.jsonl") if isinstance(c.get("id"), str)]
-    statuses, lines = instrument_report(base, slug)
+    statuses, lines = instrument_report(base, slug, steps.setdefault("#stats", {}))
     report.extend(lines)
     errors.extend(gold_problems(base, git))
     errors.extend(label_problems(base))

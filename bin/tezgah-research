@@ -18,6 +18,7 @@
   tezgah-research components [--json]              what predicts what, per component
   tezgah-research migrate <slug> [--dry-run]       derive fields the rules require
   tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
+                           [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
   tezgah-research verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"
@@ -669,15 +670,16 @@ def cmd_migrate(args):
 def cmd_source(args):
     """File one orx run's log as the receipt of an experiment."""
     import re
-    reserved = ("source", "log", "run", "arm", "item", "scope", "fixture", "status",
-                "command")
-    usage = ('source <slug> <hypothesis> --run <orxRunId> [--arm <a>] [--item <i>] '
-             '[--value <field>=<number>]... [--command "<cmd>"] '
+    reserved = ("source", "log", "run", "arm", "item", "instrument", "scope", "fixture",
+                "status", "command")
+    usage = ('source <slug> <hypothesis> --run <orxRunId> [--instrument <name>] [--arm <a>] '
+             '[--item <i>] [--value <field>=<number>]... [--command "<cmd>"] '
              '[--scope real|fixture|derived] [--fixture "<what was generated>"]')
     if len(args) < 2:
         return misuse(usage)
     slug, hypothesis = args[0], args[1]
     run = command = scope = arm = item = ""
+    instrument = None
     fixture = None
     values = []
     rest = args[2:]
@@ -691,6 +693,8 @@ def cmd_source(args):
             scope = rest.pop(0)
         elif flag == "--fixture" and rest:
             fixture = rest.pop(0)
+        elif flag == "--instrument" and rest:
+            instrument = rest.pop(0)
         elif flag == "--arm" and rest:
             arm = rest.pop(0)
         elif flag == "--item" and rest:
@@ -714,6 +718,8 @@ def cmd_source(args):
         return misuse("--scope %r is not one of %s" % (scope, ", ".join(tr.SCOPES)))
     if fixture is not None and not fixture.strip():
         return misuse("--fixture needs the text naming what was generated")
+    if instrument is not None and not instrument.strip():
+        return misuse("--instrument needs the instrument's name")
     repo = repo_root(os.getcwd())
     known = tr.slugs(repo)
     if slug not in known:
@@ -723,7 +729,7 @@ def cmd_source(args):
         return misuse("orx is not installed, so no run log can be read; nothing "
                       "was written (TEZGAH_ORX_BIN overrides the lookup)")
     path, problems = tr.source_run(repo, slug, hypothesis, run, orx, command, scope,
-                                   fixture or "", arm, item, values)
+                                   fixture or "", arm, item, values, instrument or "")
     if problems:
         for problem in problems:
             print("FAIL %s: %s" % (slug, problem))

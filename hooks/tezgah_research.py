@@ -3611,7 +3611,8 @@ def _check_review_integrity(base, errors, warnings, strict):
 # capture module, the checks below and the evidence module, which turns the steps
 # into levels. Keys starting with `#` are the channel, never claim ids: `#flags`
 # (what `check` was asked), `#report` (the report lines `check` prints and never
-# counts) and `#certainty` (each claim's level, for `check --json`).
+# counts), `#certainty` (each claim's level, for `check --json`) and `#stats`
+# ("experiment <h>" -> the statistics error `_check_rules8` refuses).
 
 QUESTION_CLASSES = tuple("R%d" % n for n in range(13))
 CLASS_METHODS = dict(
@@ -3622,14 +3623,14 @@ SEARCH_CLASSES = ("R1", "R2", "R7", "R8", "R9", "R10")
 # sources / searches / runs per tier: starting values, to re-measure (spec 3.3)
 BUDGETS = {"quick": (10, 10, 10), "study": (30, 40, 40), "program": (100, 150, 200)}
 LITERATURE_STEPS = ("header-mismatch", "unindexed-source", "online-drift",
-                    "abstract-only", "source-not-captured")
+                    "abstract-only", "source-not-captured", "one-provider")
 SEARCH_STEPS = ("one-connector", "no-counter-search", "no-stopping-rule",
-                "stopping-not-met", "known-item-missed")
+                "stopping-not-met", "known-item-missed", "screened-outside-search")
 EXPERIMENT_STEPS = ("no-replication", "no-power-plan", "below-planned-n", "no-interval",
                     "interval-includes-zero", "below-achieved-mde",
                     "no-multiplicity-correction", "fails-multiplicity", "no-sesoi",
                     "tost-not-passed", "instrument-unvalidated", "instrument-rejected",
-                    "judged-row-incomplete")
+                    "judged-row-incomplete", "falsifier-not-evaluable")
 CLASS_STEPS = {"R2": ("no-grey-quality",), "R3": ("no-population",),
                "R4": ("no-confounders",),
                "R5": ("fewer-than-two-rivals", "no-positive-control"),
@@ -3640,8 +3641,11 @@ CLASS_STEPS = {"R2": ("no-grey-quality",), "R3": ("no-population",),
 TERMINAL_STATUSES = ("supported", "refuted", "weakened", "revised", "untested",
                      "inconclusive")
 DEAD_ROWS = ("aborted", "failed")
+# The comparator words match ASCII-case-insensitively (`(?a:...)`): a Unicode
+# IGNORECASE lets U+017F match `s`, a spelling FALSIFIER_OPS holds no key for
+# (review round two R2-2).
 FALSIFIER_COMPARATOR = re.compile(
-    r"(?i)(?:<=|>=|≤|≥|<|>|=|\b(?:at most|at least|above|below|less than|more than"
+    r"(?i)(?:<=|>=|≤|≥|<|>|=|\b(?a:at most|at least|above|below|less than|more than"
     r"|fewer than|greater than|exceeds?|under|over))\s*-?\d")
 FALSIFIER_TEST = re.compile(
     r"(?i)\b(?:t-test|welch|wilcoxon|mann-whitney|chi-square|fisher|binomial|tost)\b")
@@ -3653,8 +3657,8 @@ FALSIFIER_OPS = {"<=": "<=", ">=": ">=", "≤": "<=", "≥": ">=", "<": "<", ">"
                  "less than": "<", "more than": ">", "fewer than": "<", "greater than": ">",
                  "exceeds": ">", "exceed": ">", "under": "<", "over": ">"}
 FALSIFIER_FORM = re.compile(
-    r"(?i)^([\w.-]+)(?:\s*(<=|>=|≤|≥|<|>|=)|\s+(at\s+most|at\s+least|above|below|less\s+than"
-    r"|more\s+than|fewer\s+than|greater\s+than|exceeds?|under|over))"
+    r"(?i)^([\w.-]+)(?:\s*(<=|>=|≤|≥|<|>|=)|\s+(?a:(at\s+most|at\s+least|above|below"
+    r"|less\s+than|more\s+than|fewer\s+than|greater\s+than|exceeds?|under|over)))"
     r"\s*(-?\d+(?:\.\d+)?)(?:\s+on\s+(\S+))?\s*$")
 # A protocol number (spec 2.3): `0.05`, `.05`, `5%` (0.05), `1e-1`.
 PROTOCOL_NUMBER = re.compile(r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(\s*%)?")
@@ -3717,7 +3721,9 @@ def protocol_number(key, value):
     the one reader `check`, `claim`, the session context and the instruments share.
     (None, None) when the line is absent or empty; a value with no number, or one
     outside its range (alpha, power in (0, 1); sesoi, mde above 0), is an invalid
-    record: (None, the refusal naming the key and the value)."""
+    record: (None, the refusal naming the key and the value). So is an alpha so close
+    to 0 that alpha/2 or 1 - alpha/2, the quantiles the intervals read, is 0 or 1 as a
+    float (`1e-20`, review round two R2-1)."""
     value = (value or "").strip()
     if not value:
         return None, None
@@ -3725,6 +3731,8 @@ def protocol_number(key, value):
     lo, hi = PROTOCOL_RANGES[key]
     if number is not None and math.isfinite(number) and number > lo \
             and (hi is None or number < hi):
+        if key == "alpha" and not (number / 2 > 0 and 1 - number / 2 < 1):
+            return None, "protocol.md alpha: %s leaves a quantile at 0 or 1" % value
         return number, None
     return None, "protocol.md %s: %s is not a number %s" % (
         key, value, "above 0" if hi is None else "in (0, 1)")
@@ -3789,11 +3797,19 @@ def _effect(fields, groups, alpha, power):
     return out
 
 
+def _stats_failed(exp, exc):
+    """Keep an experiment's first statistics error (ValueError, ArithmeticError);
+    `_check_rules8` turns it into the experiment's one refusal (review round two R2-1)."""
+    if not exp.get("stats_error"):
+        exp["stats_error"] = str(exc) or type(exc).__name__
+
+
 def experiment_record(base, h):
     """One experiment as the rules-8 checks read it: protocol fields, rows, groups,
     the plan's numbers and the `compare:` effect. `invalid` holds the refusal of each
     protocol number outside its range; an invalid alpha or power is None and leaves
-    the effect uncomputed, so no statistic runs on it."""
+    the effect uncomputed, so no statistic runs on it. A statistics error leaves the
+    effect None and lands in `stats_error`."""
     d = os.path.join(base, "experiments", h)
     fields = _fields(_note_text(os.path.join(d, "protocol.md")))
     rows = _row_objects(os.path.join(d, "results.jsonl"))
@@ -3801,11 +3817,16 @@ def experiment_record(base, h):
     plan = {k: protocol_number(k, _first(fields, k)) for k in PROTOCOL_RANGES}
     alpha, power = (None if plan[k][1] else plan[k][0] or default
                     for k, default in (("alpha", 0.05), ("power", 0.80)))
-    return {"h": h, "dir": d, "fields": fields, "rows": rows, "groups": groups,
-            "alpha": alpha, "power": power, "sesoi": plan["sesoi"][0],
-            "invalid": [problem for _, problem in plan.values() if problem],
-            "effect": None if alpha is None or power is None
-            else _effect(fields, groups, alpha, power)}
+    exp = {"h": h, "dir": d, "fields": fields, "rows": rows, "groups": groups,
+           "alpha": alpha, "power": power, "sesoi": plan["sesoi"][0],
+           "invalid": [problem for _, problem in plan.values() if problem],
+           "effect": None, "stats_error": None}
+    if alpha is not None and power is not None:
+        try:
+            exp["effect"] = _effect(fields, groups, alpha, power)
+        except (ValueError, ArithmeticError) as exc:
+            _stats_failed(exp, exc)
+    return exp
 
 
 def falsifier_fired(exp):
@@ -3816,7 +3837,9 @@ def falsifier_fired(exp):
     if not found:
         return None
     field, symbol, words, number, group = found.groups()
-    op = FALSIFIER_OPS[" ".join((symbol or words).lower().split())]
+    op = FALSIFIER_OPS.get(" ".join((symbol or words).casefold().split()))
+    if op is None:
+        return None
     rows = exp["groups"].get(group, []) if group else _live(exp["rows"])
     values = [float(r[field]) for r in rows if _numeric(r.get(field))]
     if not values:
@@ -3969,6 +3992,9 @@ def _experiment_steps(claim, cited, cls, measured, rejected):
             out.append("no-replication")
         if measured and not all(_first(fields, k) for k in ("alpha", "power", "mde", "n")):
             out.append("no-power-plan")
+        falsifier = _first(fields, "falsifier")
+        if measured and falsifier and not falsifier_testable(falsifier):
+            out.append("falsifier-not-evaluable")
         if eff:
             planned = _number(_first(fields, "n"))
             if planned is not None and min(eff["n"]) < planned:
@@ -3989,9 +4015,15 @@ def _experiment_steps(claim, cited, cls, measured, rejected):
             sesoi = exp["sesoi"]
             if sesoi is None:
                 out.append("no-sesoi")
-            elif not (eff and eff["ci"] and stats.tost(eff["a"], eff["b"], sesoi,
-                                                         exp["alpha"], eff["paired"])):
-                out.append("tost-not-passed")
+            else:
+                try:
+                    passed = bool(eff and eff["ci"] and stats.tost(
+                        eff["a"], eff["b"], sesoi, exp["alpha"], eff["paired"]))
+                except (ValueError, ArithmeticError) as exc:
+                    _stats_failed(exp, exc)
+                    passed = False
+                if not passed:
+                    out.append("tost-not-passed")
     return out
 
 
@@ -4007,14 +4039,19 @@ def _multiplicity(base, exps):
     rejected = set()
     for method, hs in by.items():
         alpha = min(exps[h]["alpha"] for h in hs)
-        if method == "e-bh":
-            values = [_number(_first(_fields(_note_text(os.path.join(
-                exps[h]["dir"], "analysis.md"))), "e-value")) or 0.0 for h in hs]
-            flags = stats.ebh(values, alpha)
-        elif method in tests:
-            p = [exps[h]["effect"]["p"] for h in hs]
-            flags = tests[method]([1.0 if v is None else v for v in p], alpha)
-        else:
+        try:
+            if method == "e-bh":
+                values = [_number(_first(_fields(_note_text(os.path.join(
+                    exps[h]["dir"], "analysis.md"))), "e-value")) or 0.0 for h in hs]
+                flags = stats.ebh(values, alpha)
+            elif method in tests:
+                p = [exps[h]["effect"]["p"] for h in hs]
+                flags = tests[method]([1.0 if v is None else v for v in p], alpha)
+            else:
+                continue
+        except (ValueError, ArithmeticError) as exc:
+            for h in hs:
+                _stats_failed(exps[h], exc)
             continue
         rejected.update(h for h, flag in zip(hs, flags) if flag)
     return rejected
@@ -4038,11 +4075,6 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
     h, fields = exp["h"], exp["fields"]
     label = "experiment %s" % h
     errors.extend("%s: %s" % (label, problem) for problem in exp["invalid"])
-    falsifier = _first(fields, "falsifier")
-    if state.get("method") == "measured" and falsifier and not falsifier_testable(falsifier):
-        errors.append("%s: falsifier holds no comparator and number (%r): write "
-                      "`falsifier: <field> <op> <number> [on <group>]` or a named test "
-                      "with its alpha" % (label, falsifier))
     metrics = [m.strip() for v in fields.get("metric", []) for m in v.split(",")
                if m.strip()]
     evaluation = state.get("evaluation") if isinstance(state.get("evaluation"), dict) else {}
@@ -4087,10 +4119,14 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, s
         if rows and exp["alpha"] is not None and all(r.get("outcome") in (0, 1)
                                                      for r in rows):
             k, n = sum(int(r["outcome"]) for r in rows), len(rows)
+            try:
+                wilson = _format_ci(*stats.wilson(k, n, exp["alpha"]))
+                cp = _format_ci(*stats.clopper_pearson(k, n, exp["alpha"]))
+            except (ValueError, ArithmeticError) as exc:
+                _stats_failed(exp, exc)
+                continue
             lines.append("stats %s: %s %s n=%d k=%d wilson=%s cp=%s"
-                         % (slug, h, group, n, k,
-                            _format_ci(*stats.wilson(k, n, exp["alpha"])),
-                            _format_ci(*stats.clopper_pearson(k, n, exp["alpha"]))))
+                         % (slug, h, group, n, k, wilson, cp))
     eff = exp["effect"]
     if eff:
         lines.append("effect %s: %s %s vs %s on %s effect=%s ci=%s mde=%s"
@@ -4327,6 +4363,10 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
         for name in found + every:
             _step(steps, cid, name)
         _overclaim(cid, claim, cited, warnings)
+    failed = steps.setdefault("#stats", {})
+    for h in sorted(exps):
+        if exps[h]["stats_error"]:
+            failed.setdefault("experiment %s" % h, exps[h]["stats_error"])
     _check_review8(base, claims, review, errors, warnings, strict)
     if state.get("phase") == "concluded":
         errors.extend(hypothesis_problems(state))
@@ -4357,9 +4397,11 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
 def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=None):
     """steps of a rules-8 line: the capture checks, the core ones, then the evidence
     module, which reads every step found and holds the certainty engine. A module
-    that cannot be imported is an error on a rules-8 line, never a silent pass."""
+    that cannot be imported is an error on a rules-8 line, never a silent pass. A
+    statistics computation's ValueError or ArithmeticError, kept in `#stats` by
+    the module it ran in, is one refusal per experiment (review round two R2-1)."""
     steps = {"#flags": {"online": bool((flags or {}).get("online")),
-                        "orx": bool((flags or {}).get("orx"))}}
+                        "orx": bool((flags or {}).get("orx"))}, "#stats": {}}
     import importlib
     for name in ("tezgah_research_capture", None, "tezgah_research_evidence"):
         if name is None:
@@ -4372,6 +4414,8 @@ def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=
                           % (name, exc))
             continue
         module.check(repo, slug, base, state, errors, warnings, strict, git, steps)
+    errors.extend("%s: statistics could not be computed: %s" % (label, error)
+                  for label, error in sorted(steps["#stats"].items()))
     return steps
 
 
@@ -5527,7 +5571,7 @@ def urlsplit_host(source):
 
 
 def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="",
-               arm="", item="", values=()):
+               arm="", item="", values=(), instrument=""):
     """(path, problems): file one orx run as this experiment's receipt.
 
     `orx logs` is read here rather than by the session, so the log lands in the
@@ -5552,9 +5596,12 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     refused.
 
     `values` are (field, number as written) pairs: each lands in the row as a
-    number, and one whose number is no token of the stored log is refused. A run
-    already filed keeps its log; the new one is `raw/<run>.<n>.log` (a capture is
-    written once). A rules-8 line's row also names its `run`, the engine's
+    number, and one equal to no number of the stored log is refused - equal as a
+    number, so `1.5` matches a logged `1.50` (review round two K-6). `instrument`,
+    `arm` and `item` land as strings, so the instrument ledger (`gold`, `label`)
+    reads the row (K-7). A run already filed keeps its log; the new one is
+    `raw/<run>.<n>.log` (a capture is written once). A rules-8 line's row also
+    names its `run`, the engine's
     `status` when the line names an orx project, and the log and row are committed
     as `capture: source <slug>` (plan 127, spec 1.4)."""
     if scope and scope not in SCOPES:
@@ -5577,11 +5624,11 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
         return None, ["orx logs %s returned nothing, so there is no receipt to "
                       "file" % run]
     import tezgah_research_capture as cap  # deferred: it imports this module
-    tokens = set(cap.LOG_NUMBER.findall(log))
+    logged = {decimal.Decimal(t) for t in cap.LOG_NUMBER.findall(log)}
     for field, written in values:
-        if written not in tokens:
-            return None, ["%s=%s: value not in the run log (orx logs %s holds no token %s)"
-                          % (field, written, run, written)]
+        if decimal.Decimal(written) not in logged:
+            return None, ["%s=%s: value not in the run log (orx logs %s holds no number "
+                          "equal to %s)" % (field, written, run, written)]
     raw = os.path.join(experiment, "raw")
     os.makedirs(raw, exist_ok=True)
     name, n = run + ".log", 0
@@ -5594,6 +5641,8 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     row = {"source": "orx:%s" % run, "log": "raw/%s" % name}
     if _evidence(state):
         row["run"] = run
+    if instrument:
+        row["instrument"] = instrument
     if arm:
         row["arm"] = arm
     if item:
