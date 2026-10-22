@@ -115,7 +115,7 @@ class Pure(unittest.TestCase):
         good = {"resolved": True, "title": TITLE, "year": 2024}
         self.assertIsNone(cap.citation_verdict(row, [("arxiv", good), ("openalex", good)]))
         self.assertEqual(cap.citation_verdict(row, [("arxiv", good), ("alphaxiv", good)]),
-                         cap.FEWER)
+                         "one-provider")
         self.assertEqual(cap.citation_verdict(row, []), cap.NO_REGISTRY)
         self.assertEqual(cap.citation_verdict(dict(row, unindexed_reason="a workshop"), []),
                          "unindexed-source")
@@ -331,8 +331,7 @@ class Captures(unittest.TestCase):
                                  "ids": []}) + "\n")
         errors, _w, steps = self.check()
         self.assertTrue(any("has no capture" in e for e in errors), errors)
-        self.assertTrue(any("screens an id no captured search returned" in e
-                            for e in errors), errors)
+        self.assertIn("screened-outside-search", steps["C1"])
         for step in ("one-connector", "no-counter-search", "known-item-missed"):
             self.assertIn(step, steps["C1"])
 
@@ -427,6 +426,7 @@ class Captures(unittest.TestCase):
 
     # plan 127 review round one, group G2 -----------------------------------------
     def append(self, rel, *rows):
+        os.makedirs(os.path.dirname(self.at(rel)), exist_ok=True)
         with open(self.at(rel), "a") as fh:
             fh.write("".join(json.dumps(r) + "\n" for r in rows))
 
@@ -533,7 +533,11 @@ class Captures(unittest.TestCase):
         self.wsgit("checkout", "-q", main)
         errors, _w, steps = self.check()
         self.assertIn("no-stopping-rule", steps["C1"])
-        self.assertFalse([e for e in errors if "after its first commit" in e], errors)
+        # the capture file reads HEAD's lineage; the ledger, like results, every ref (R2-3)
+        self.assertFalse([e for e in errors if raw in e and "after its first commit" in e],
+                         errors)
+        self.assertTrue(any(e.startswith(cap.SEARCHES) and "after its first commit" in e
+                            for e in errors), errors)
 
     def test_proof_ending_in_a_period_still_cites_the_note(self):
         # D2-4, D2-5: one cited-note reading for the quote check and the capture step
@@ -597,6 +601,146 @@ class Captures(unittest.TestCase):
         errors, _w, steps = self.check()
         self.assertFalse([e for e in errors if cap.NO_REGISTRY in e], errors)
         self.assertIn("unindexed-source", steps.get("C1", []))
+
+    # plan 127 review round two and the K6 exits ----------------------------------
+    def raw_search(self, connector, body, n=2, **row):
+        data = body.encode()
+        rel = "searches/raw/%s.raw" % hashlib.sha256(data).hexdigest()
+        with open(self.at(rel), "wb") as fh:
+            fh.write(data)
+        self.append(cap.SEARCHES, dict({"n": n, "tag": "primary", "item": None,
+                                        "connector": connector, "query": "x", "file": rel,
+                                        "sha256": hashlib.sha256(data).hexdigest(),
+                                        "hits": 0, "ids": []}, **row))
+
+    def test_ledger_row_removed_from_head_while_a_tag_holds_it_is_refused(self):
+        # R2-3: the ledgers have the results reading, every ref
+        self.run_cmd("cite", "q")
+        self.wsgit("tag", "keep")
+        self.wsgit("reset", "-q", "--soft", "HEAD~1")
+        with open(self.at(cap.RECEIPTS)) as fh:
+            kept = [ln for ln in fh if '"crossref"' not in ln]
+        self.write(self.at(cap.RECEIPTS), "".join(kept))
+        self.wsgit("add", "-A")
+        self.wsgit("commit", "-qm", "rewrite", when="2030-01-01T00:00:00Z")
+        errors, _w, _s = self.check()
+        self.assertTrue(any(e.startswith(cap.RECEIPTS) and "went missing after its first "
+                            "commit" in e for e in errors), errors)
+
+    def test_search_row_naming_a_file_outside_searches_raw_has_no_capture(self):
+        # R2-4
+        self.run_cmd("cite", "q")
+        receipt = next(r for r in self.rows(cap.RECEIPTS) if r["file"])
+        self.append(cap.SEARCHES, {"n": 1, "tag": "primary", "connector": "openalex",
+                                   "file": receipt["file"], "sha256": receipt["sha256"],
+                                   "hits": 0, "ids": []})
+        errors, _w, _s = self.check()
+        self.assertTrue(any(cap.SEARCHES in e and "row 1" in e and "has no capture" in e
+                            for e in errors), errors)
+
+    def test_one_capture_backs_one_search_row(self):
+        # R2-5: a second row borrowing row 1's capture under another connector
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
+        first = self.rows(cap.SEARCHES)[0]
+        self.append(cap.SEARCHES, {"n": 2, "tag": "counter", "item": ITEM,
+                                   "connector": "arxiv", "file": first["file"],
+                                   "sha256": first["sha256"], "hits": 0, "ids": []})
+        errors, _w, steps = self.check()
+        self.assertTrue(any("row 2" in e and "has no capture" in e for e in errors), errors)
+        self.assertIn("no-counter-search", steps.get("C1", []))
+        # the writer keeps to it: a byte-identical answer writes no second row
+        self.write(self.at(cap.SEARCHES), json.dumps(first) + "\n")
+        code, out = self.run_cmd("search", "q", "--tag", "primary", "--", "openalex",
+                                 "caching", "tail")
+        self.assertEqual(code, 0, out)
+        self.assertIn("no row was written", out)
+        self.assertEqual(len(self.rows(cap.SEARCHES)), 1)
+
+    def test_search_capture_must_parse_under_the_rows_connector(self):
+        # R2-5: OpenAlex JSON filed as an arXiv answer re-parses as 0 hits yet is no Atom feed
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
+        self.raw_search("arxiv", json.dumps({"results": []}), tag="counter", item=ITEM)
+        errors, _w, steps = self.check()
+        self.assertTrue(any("row 2" in e and "not derived from its capture" in e
+                            for e in errors), errors)
+        self.assertIn("one-connector", steps.get("C1", []))
+        self.assertTrue(cap.schema_ok("semanticscholar", b'{"total": 0, "offset": 0}'))
+        self.assertFalse(cap.schema_ok("crossref", b'{"results": []}'))
+
+    def test_one_provider_with_header_agreement_is_a_step(self):
+        # K-2
+        self.map[OPENALEX] = {"status": 404}
+        self.write(self.map_path, json.dumps(self.map))
+        self.run_cmd("cite", "q")
+        errors, _w, steps = self.check()
+        self.assertFalse([e for e in errors if "provider" in e], errors)
+        self.assertIn("one-provider", steps.get("C1", []))
+
+    def test_receipts_of_an_id_the_index_no_longer_holds_are_not_judged(self):
+        # K-3: correct the INDEX id, `cite` again, and the id mismatch clears
+        alias, real = "10.1000/alias.7", "10.1000/real.7"
+        body = {"message": {"DOI": real, "title": [TITLE], "author": [{"family": "Smith"}],
+                            "issued": {"date-parts": [[2024]]}}}
+        self.set_map({"https://api.crossref.org/works/" + alias: json.dumps(body),
+                      "https://api.crossref.org/works/" + real: json.dumps(body)})
+        self.index(id="doi:" + alias)
+        self.run_cmd("cite", "q")
+        errors, _w, _s = self.check()
+        self.assertTrue(any("not derived from its capture" in e and "run `cite` again" in e
+                            for e in errors), errors)
+        self.index(id="doi:" + real)
+        self.run_cmd("cite", "q")
+        errors, _w, steps = self.check()
+        self.assertFalse([e for e in errors if "not derived" in e or "provider" in e], errors)
+        self.assertIn("one-provider", steps.get("C1", []))
+
+    def test_quote_written_after_the_capture_is_found_in_the_whole_text(self):
+        # K-4: the full text is a capture; a later quote needs no refetch
+        later = "a second claim about warm caches"
+        self.set_map({HTML: "<p>%s, %s and %s here.</p>" % (QUOTE, "padding words " * 80,
+                                                            later)})
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        with open(self.at(self.rows(cap.SOURCES)[-1]["file"])) as fh:
+            record = json.load(fh)
+        self.assertTrue(os.path.isfile(self.at(record["text_file"])))
+        self.append("claims.jsonl", {"id": "C2", "statement": "Smith", "kind": "literature",
+                                     "proof": ["literature/" + NOTE], "quote": later})
+        self.append("claims.jsonl", {"id": "C3", "statement": "Smith", "kind": "literature",
+                                     "proof": ["literature/" + NOTE],
+                                     "quote": "We study caching"})
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+        self.append("claims.jsonl", {"id": "C4", "statement": "Smith", "kind": "literature",
+                                     "proof": ["literature/" + NOTE],
+                                     "quote": "caching never helped anyone"})
+        errors, _w, _s = self.check()
+        self.assertTrue(any(cap.NOT_IN_SOURCE in e and "without quotation marks" in e
+                            and "fetch --file" in e for e in errors), errors)
+        with open(self.at(record["text_file"]), "a") as fh:
+            fh.write("edited")
+        errors, _w, _s = self.check()
+        self.assertTrue(any(record["text_file"] in e and "hash mismatch" in e
+                            for e in errors), errors)
+
+    def test_hyphen_between_letters_reads_as_a_space_and_bare_doi_reads(self):
+        # K-4, K-5
+        self.assertEqual(cap.normalise("tail-latency drops; cach-\ning, 3-4"),
+                         "tail latency drops; caching, 3-4")
+        self.assertIsNone(cap.quote_problem("caching lowers tail latency",
+                                            "Caching lowers tail-latency."))
+        self.assertEqual(cap.norm_id("10.1145/ABC.1"), "doi:10.1145/abc.1")
+        self.assertEqual(cap.norm_id("10.48550/arXiv.2401.00001"), "arXiv:2401.00001")
+        self.assertIsNone(cap.norm_id("10.1/x"))
+
+    def test_screening_an_id_no_search_returned_is_a_step(self):
+        # K-8
+        self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
+        self.write(self.at(cap.SCREENING), json.dumps({"search": 1, "id": "openalex:W7",
+                                                       "decision": "kept"}) + "\n")
+        errors, _w, steps = self.check()
+        self.assertFalse([e for e in errors if cap.SCREENING in e], errors)
+        self.assertIn("screened-outside-search", steps.get("C1", []))
 
 
 if __name__ == "__main__":
