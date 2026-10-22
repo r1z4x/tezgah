@@ -6270,7 +6270,8 @@ class OrxModuleNames(unittest.TestCase):
                "orx-agent-delegation", "orx-compute", "orx-instances", "orx-logs",
                "orx-results", "orx-reports", "orx-figures", "orx-paper",
                "orx-customize", "orx-lit-review", "orx-feedback")
-    SOURCES = ("skills/research/SKILL.md", "hooks/tezgah_policy.py")
+    SOURCES = ("skills/research/SKILL.md", "hooks/tezgah_policy.py",
+               "skills/tezgah-contract/SKILL.md")
     NAME = re.compile(r"(?:orx|\{ORX_BIN\})[ \t]+skill[ \t]+([a-z][a-z0-9-]*)")
 
     def names(self):

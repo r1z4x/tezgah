@@ -816,8 +816,8 @@ through that CLI instead of ad-hoc local scripting. Resolve it as `orx` on PATH,
 else `~/.cargo/bin/orx` (the installer's location, which a non-interactive shell
 does not put on PATH). Load the operating manual first:
 the `orx` skill if the host has it, otherwise run `orx skill` from the shell; then
-the module the method needs - `orx skill lit-review` for sources,
-`orx skill experiment-tree` and `orx skill evidence` for a measured line. On a
+the module the method needs - `orx skill lit-review` for sources, `orx skill experiment-tree`,
+`orx skill orx-results` and `orx skill orx-logs` for a measured line. On a
 measured line its cardinal rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
