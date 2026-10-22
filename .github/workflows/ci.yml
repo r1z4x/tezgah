@@ -133,6 +133,8 @@ jobs:
         run: python3 bin/tezgah-docs --clarity
       - name: The plan and decision rules, in a real project
         run: TEZGAH_E2E_STRICT=1 python3 tests/e2e_plan_flow.py
+      - name: The research checks against their known-truth set
+        run: python3 bin/tezgah-research release-check
 
   # The suite, sharded, on the floor and the ceiling, with node for the plugin
   # tests. It replaced the serial `unittest discover` run on 2026-10-13 (plan

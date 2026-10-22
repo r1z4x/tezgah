@@ -582,6 +582,12 @@ table computed from other rows. The producer declares it - nothing can recover i
 afterwards - and `{RESEARCH_BIN} check` refuses a claim that claims a wider scope
 than the rows it rests on.
 
+Narrowing a claim to what its evidence reaches, ending a hypothesis
+`inconclusive`, and `{RESEARCH_BIN} close <slug> --limit "<what is left>"` are
+normal outcomes of a line, never failures to avoid: a claim's certainty is
+reported as `check` computes it, an exploratory one says so, and `check` warns on
+universal or causal wording its evidence does not carry.
+
 If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so, briefed with the
 question verbatim, its in- and out-of-scope items and its method. Kill switch:

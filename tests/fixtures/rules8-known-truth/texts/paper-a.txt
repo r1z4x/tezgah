@@ -1,0 +1,1 @@
+Section 4. In our study, caching low- ers tail latency [12] in every workload we measured, across the three services. We found that a “warm cache” halves the slowest requests — the p99 fell from 410 ms to 190 ms. Gains vanished once the working set exceeded memory [3, 4].

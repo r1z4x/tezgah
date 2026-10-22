@@ -1,0 +1,56 @@
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20001", "title": "Caching for tail latency", "year": 2024, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20002", "title": "Warm caches and slow requests", "year": 2024, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20003", "title": "Speculative decoding at scale", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20004", "title": "Retrieval augmented code completion", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20005", "title": "Sparse attention for long documents", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20006", "title": "Gradient noise in small batches", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20007", "title": "Learned index structures revisited", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "sound", "id": "arXiv:2401.20008", "title": "Prompt sensitivity of code models", "year": 2023, "note": "two registries return this title and year"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90000", "title": "Benchmark contamination in program synthesis", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90001", "title": "Self-consistency for arithmetic reasoning", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90002", "title": "Quantised inference on edge devices", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90003", "title": "Flaky tests in continuous integration", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90004", "title": "Static analysis of Python type errors", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90005", "title": "Mutation testing with language models", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90006", "title": "Latency budgets for interactive search", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2499.90007", "title": "Log anomaly detection with transformers", "year": 2024, "note": "an id no registry resolves"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2402.30009", "title": "Quantised inference on edge devices", "year": 2023, "note": "resolved by one provider only"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2402.30010", "title": "Flaky tests in continuous integration", "year": 2023, "note": "resolved by one provider only"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2402.30011", "title": "Static analysis of Python type errors", "year": 2023, "note": "resolved by one provider only"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2402.30012", "title": "Mutation testing with language models", "year": 2023, "note": "resolved by one provider only"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2402.30013", "title": "Latency budgets for interactive search", "year": 2023, "note": "resolved by one provider only"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2403.40014", "title": "Memory safety bugs in Rust crates", "year": 2023, "note": "the id resolves to a different title"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2403.40015", "title": "Compiler fuzzing with grammars", "year": 2023, "note": "the id resolves to a different title"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2403.40016", "title": "Test selection by code coverage", "year": 2023, "note": "the id resolves to a different title"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2403.40017", "title": "Calibration of classifier confidence", "year": 2023, "note": "the id resolves to a different title"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2403.40018", "title": "Log anomaly detection with transformers", "year": 2023, "note": "the id resolves to a different title"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2404.50019", "title": "Gradient noise in small batches", "year": 2019, "note": "the year is four years off the registry's"}
+{"kind": "citation", "truth": "defect", "id": "arXiv:2404.50020", "title": "Learned index structures revisited", "year": 2019, "note": "the year is four years off the registry's"}
+{"kind": "quote", "truth": "sound", "quote": "caching lowers tail latency in every workload we measured", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "sound", "quote": "a \"warm cache\" halves the slowest requests", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "sound", "quote": "caching lowers tail latency ... every workload we measured", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "sound", "quote": "the p99 fell from 410 ms to 190 ms", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "sound", "quote": "Gains vanished once the working set exceeded memory", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "sound", "quote": "In our study, caching lowers tail latency [12] in every workload", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "caching eliminates tail latency in every workload we measured", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "caching lowers tail latency in no workload we measured", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "the p99 fell from 410 ms to 90 ms", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "a cold cache halves the slowest requests", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "Gains persisted once the working set exceeded memory", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "every workload we measured ... caching lowers tail latency in every service", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "retrieval eliminates hallucinated citations in every workload", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "caching lowers median latency in every workload we measured", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "across the five services we measured the gains", "text_file": "texts/paper-a.txt"}
+{"kind": "quote", "truth": "defect", "quote": "the working set never exceeded memory in our study", "text_file": "texts/paper-a.txt"}
+{"kind": "instrument", "truth": "sound", "instrument_kind": "measure", "n": 72, "errors": 0, "mde": 0.1}
+{"kind": "instrument", "truth": "sound", "instrument_kind": "measure", "n": 110, "errors": 1, "mde": 0.1}
+{"kind": "instrument", "truth": "sound", "instrument_kind": "measure", "n": 200, "errors": 0, "mde": 0.05}
+{"kind": "instrument", "truth": "sound", "instrument_kind": "verdict", "n": 40, "errors": 0}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 71, "errors": 0, "mde": 0.1}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 109, "errors": 1, "mde": 0.1}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 20, "errors": 0, "mde": 0.1}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 10, "errors": 4, "mde": 0.1}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "verdict", "n": 30, "errors": 0}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "verdict", "n": 50, "errors": 3}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 500, "errors": 0}
+{"kind": "instrument", "truth": "defect", "instrument_kind": "measure", "n": 150, "errors": 5, "mde": 0.1}
