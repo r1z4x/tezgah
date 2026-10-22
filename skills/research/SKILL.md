@@ -122,18 +122,27 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 
 ```sh
 ~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?" \
-    --method measured --in "X under Y" --out "X under Z"
+    --method measured --class R6 --in "X under Y" --out "X under Z"
 ~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
 ~/.config/tezgah/bin/tezgah-research check    # open lines + done/ seals; 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research check --all-lines   # every line in full, done/ included
 ~/.config/tezgah/bin/tezgah-research check --strict   # the unprovable becomes a refusal
-~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here
+~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here, and the run census
+~/.config/tezgah/bin/tezgah-research check --online   # re-fetch the citation receipts (rules 8)
 ~/.config/tezgah/bin/tezgah-research status
 ~/.config/tezgah/bin/tezgah-research claim my-line   # one JSON object on stdin
 ~/.config/tezgah/bin/tezgah-research migrate my-line [--dry-run]
 ~/.config/tezgah/bin/tezgah-research source my-line <hypothesis> --run <orxRunId> [--command "<cmd>"]
 ~/.config/tezgah/bin/tezgah-research import <other-checkout> my-line   # move a line with its history
 ```
+
+`--class R1..R12` routes the line by question type (rules 8): `init` prints the
+obligations - the step names `check` caps a claim's certainty with when one is
+missing - the tier's budget, and every done line's claim that overlaps the question.
+An R0 question (a fact or a reference) gets no line. On a rules-8 line `check`
+prints `certainty <slug>: <claim> <level> start=<level> steps=<step>,...` per claim:
+a missing obligation narrows the claim instead of refusing the line, and the report
+states each claim's level.
 
 `claim` reads that object from stdin and appends it as one line: exit 0,
 `claim <id> recorded` (just `claim recorded` when the object carries no `id`);
@@ -374,7 +383,12 @@ they do not carry.
    append-only once committed: a correction is a new row, and `check` refuses a
    committed row changed or removed afterwards (a line opened before `rules`
    existed is warned instead, like every rule of this rule set).
-5. A negative result is a result: record what it rules out. When the line locked
+5. A negative result is a result: record what it rules out. Narrowing a claim to
+   what its evidence reaches, ending a hypothesis `inconclusive` and closing a line
+   with `close <slug> --limit "<what is left>"` are normal outcomes, not failures to
+   avoid: report each claim's certainty as `check` computes it (a claim below
+   `moderate` is exploratory and says so), and drop universal or causal wording the
+   evidence does not carry - `check` warns on it. When the line locked
    the two-gate pair (Bootstrap above), a run is a survivor only when it is inside
    the `capability_tolerance` **and** moves the `counter_metric`, and survivors are
    compared against each other on the Pareto frontier rather than by one number's

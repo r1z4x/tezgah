@@ -6309,5 +6309,110 @@ class EvidenceRulesBound(unittest.TestCase):
                       refusal)
 
 
+class Rules8Core(Workspace):
+    """Rules 8 (plan 127) core: routing, the execution trail and the claim rules the
+    writer and the checker share. The black-box acceptance runner
+    (`test_research_rules8_acceptance.py`) is the exogenous check; these pin the
+    functions it reaches through."""
+
+    def rules8_line(self, repo, rows, protocol_extra=""):
+        base = self.line(repo, phase="outer", rules=8)
+        d = self.exp_dir(repo)
+        self.write(os.path.join(d, "protocol.md"),
+                   "# Protocol\n\nchange: cache\ndesign: experiment\n"
+                   "prediction: p95 drops to at most 95\nfalsifier: p95 > 110 on cache\n"
+                   "metric: p95 latency\nunit: ms\n"
+                   "compare: cache vs base on p95, lower is better\n" + protocol_extra)
+        for n, (arm, value) in enumerate(rows, 1):
+            self.write(os.path.join(d, "raw", "r%d.log" % n), "run r%d\np95 %s\n" % (n, value))
+        self.write(os.path.join(d, "results.jsonl"), "".join(
+            json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.log" % n, "run": "r%d" % n,
+                        "arm": arm, "p95": value, "scope": "real"}) + "\n"
+            for n, (arm, value) in enumerate(rows, 1)))
+        return base
+
+    def test_obligations_name_the_class_steps(self):
+        r7 = tr.obligations("R7", "qualitative")
+        for step in ("no-dual-screening", "no-recall-stopping", "one-connector"):
+            self.assertIn(step, r7)
+        self.assertNotIn("no-replication", r7)
+        r6 = tr.obligations("R6", "measured")
+        self.assertIn("fewer-than-two-rivals", r6)
+        self.assertIn("no-interval", r6)
+
+    def test_falsifier_grammar_takes_words_and_named_tests(self):
+        self.assertTrue(tr.falsifier_testable("p95 latency exceeds 110 ms on the cache arm"))
+        self.assertTrue(tr.falsifier_testable("a welch test at alpha = 0.05 rejects"))
+        self.assertTrue(tr.falsifier_testable("the score stays at or below 5"))
+        self.assertFalse(tr.falsifier_testable("results may vary between runs"))
+        self.assertFalse(tr.falsifier_testable("a welch test rejects"))
+
+    def test_effect_is_the_direction_adjusted_welch_difference(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        eff = tr.experiment_record(base, "h1")["effect"]
+        self.assertAlmostEqual(eff["effect"], 30.0)
+        self.assertGreater(eff["ci"][0], 0)
+        self.assertFalse(eff["paired"])
+
+    def test_derived_number_recomputes_or_is_refused_by_writer_and_checker_alike(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     statement="mean p95 with the cache was 90.5 ms",
+                     derived_from={"90.5": {"op": "mean", "of": ["h1/r3:p95", "h1/#4:p95"]}})
+        self.assertEqual(tr.derived_problems("C1", claim, base), [])
+        self.assertEqual(tr._untraced(claim, [tr.experiment_record(base, "h1")]), [])
+        claim["derived_from"]["90.5"]["of"] = ["h1/r1:p95", "h1/r4:p95"]
+        self.assertTrue(hit("does not recompute", tr.derived_problems("C1", claim, base)))
+        self.assertTrue(hit("does not recompute", tr.claim_problems(claim, base, repo)))
+
+    def test_untraced_number_needs_the_row_and_its_log(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     statement="p95 dropped from 120 ms to 85 ms")
+        self.assertEqual(tr._untraced(claim, [tr.experiment_record(base, "h1")]), ["85"])
+
+    def test_supported_claim_over_a_fired_falsifier_is_refused_at_write(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 115),
+                                       ("cache", 116)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     status="supported")
+        self.assertTrue(hit("while its falsifier fired", tr.claim_problems(claim, base, repo)))
+
+    def test_concluded_line_needs_terminal_hypotheses(self):
+        state = {"hypotheses": [{"id": "H1", "text": "x", "status": "testing"},
+                                {"id": "H2", "text": "y", "status": "inconclusive"}]}
+        problems = tr.hypothesis_problems(state)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("H1 has no terminal status", problems[0])
+
+    def test_supersedes_the_report_names_is_not_warned(self):
+        parsed = [("C1", {"id": "C1"}), ("C3", {"id": "C3", "supersedes": "C1"})]
+        errors, warnings = [], []
+        tr._check_supersedes(parsed, errors, warnings, True, "- C3: high, supersedes C1\n")
+        self.assertEqual((errors, warnings), ([], []))
+        tr._check_supersedes(parsed, errors, warnings, False, "- C3: high\n")
+        self.assertTrue(hit("supersedes C1", warnings))
+
+    def test_patterns_source_on_a_continuation_line_counts(self):
+        errors, warnings = [], []
+        tr._check_patterns("## Patterns\n\n- the cache helps\n  (literature/a.md)\n"
+                           "- unsourced\n  still unsourced\n", errors, warnings, False)
+        self.assertTrue(hit("1 of 2 Patterns bullets name no source", warnings), warnings)
+
+    def test_budget_counts_index_rows_searches_and_engine_runs(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("cache", 90)])
+        line, over = tr.budget("q", base, {"tier": "quick"})
+        self.assertEqual(line, "budget q: sources 0/10 searches 0/10 runs 2/10")
+        self.assertEqual(over, [])
+
+
 if __name__ == "__main__":
     unittest.main()

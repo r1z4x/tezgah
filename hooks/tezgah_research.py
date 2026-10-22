@@ -3964,6 +3964,13 @@ def _format_ci(lo, hi):
     return "[%.4f, %.4f]" % (lo, hi)
 
 
+def falsifier_testable(text):
+    """True when a falsifier holds a comparator and a number, or a named test with its
+    alpha (spec 2.2)."""
+    return bool(FALSIFIER_COMPARATOR.search(text)
+                or (FALSIFIER_TEST.search(text) and FALSIFIER_ALPHA.search(text)))
+
+
 def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, git,
                        lines):
     """One experiment's rules-8 refusals (2.2, 2.4) and report lines (2.3)."""
@@ -3971,9 +3978,7 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, g
     h, fields = exp["h"], exp["fields"]
     label = "experiment %s" % h
     falsifier = _first(fields, "falsifier")
-    if state.get("method") == "measured" and falsifier and not (
-            FALSIFIER_COMPARATOR.search(falsifier)
-            or (FALSIFIER_TEST.search(falsifier) and FALSIFIER_ALPHA.search(falsifier))):
+    if state.get("method") == "measured" and falsifier and not falsifier_testable(falsifier):
         errors.append("%s: falsifier holds no comparator and number (%r): write "
                       "`falsifier: <field> <op> <number> [on <group>]` or a named test "
                       "with its alpha" % (label, falsifier))
@@ -4000,11 +4005,10 @@ def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, g
         _check_evaluator(repo, base, exp, evaluator, label, errors, git)
     select = re.match(r"(?i)^(min|max)\s+([\w.-]+)", _first(fields, "select"))
     if select:
-        means = {g: sum(float(r[select.group(2)]) for r in rows
-                        if _numeric(r.get(select.group(2))))
-                 / max(1, sum(1 for r in rows if _numeric(r.get(select.group(2)))))
-                 for g, rows in exp["groups"].items()
-                 if any(_numeric(r.get(select.group(2))) for r in rows)}
+        field = select.group(2)
+        values = {g: [float(r[field]) for r in rows if _numeric(r.get(field))]
+                  for g, rows in exp["groups"].items()}
+        means = {g: sum(v) / len(v) for g, v in values.items() if v}
         if means:
             pick = (min if select.group(1).lower() == "min" else max)(
                 sorted(means), key=means.get)

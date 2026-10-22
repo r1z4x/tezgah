@@ -2,14 +2,15 @@
 """tezgah-research - the research workspace CLI.
 
   tezgah-research init <slug> --ask "<the user's words>" [--question "..."]
-                       [--method qualitative|measured|exploratory] [--in "<covered>"]...
-                       [--out "<left alone>"]... [--allow-open "<why>"] [--supersedes <slug>]
+                       [--method qualitative|measured|exploratory] [--class R1..R12]
+                       [--in "<covered>"]... [--out "<left alone>"]... [--allow-open "<why>"]
+                       [--supersedes <slug>]
                        [--arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<m>"]]
                                                    scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
                                                    (the project's, when it tracks .tezgah)
-  tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
-                                                   the discipline checks
+  tezgah-research check [<slug>] [--json] [--strict] [--orx] [--online] [--all-lines]
+                        [-- <slug>]                the discipline checks
   tezgah-research status                           one line per research line
   tezgah-research --all                            every checkout's lines (git worktrees)
   tezgah-research claim <slug>                     record one claim from stdin
