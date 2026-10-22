@@ -650,13 +650,18 @@ def cmd_migrate(args):
 
 def cmd_source(args):
     """File one orx run's log as the receipt of an experiment."""
-    usage = ('source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"] '
+    import re
+    reserved = ("source", "log", "run", "arm", "item", "scope", "fixture", "status",
+                "command")
+    usage = ('source <slug> <hypothesis> --run <orxRunId> [--arm <a>] [--item <i>] '
+             '[--value <field>=<number>]... [--command "<cmd>"] '
              '[--scope real|fixture|derived] [--fixture "<what was generated>"]')
     if len(args) < 2:
         return misuse(usage)
     slug, hypothesis = args[0], args[1]
-    run = command = scope = ""
+    run = command = scope = arm = item = ""
     fixture = None
+    values = []
     rest = args[2:]
     while rest:
         flag = rest.pop(0)
@@ -668,6 +673,18 @@ def cmd_source(args):
             scope = rest.pop(0)
         elif flag == "--fixture" and rest:
             fixture = rest.pop(0)
+        elif flag == "--arm" and rest:
+            arm = rest.pop(0)
+        elif flag == "--item" and rest:
+            item = rest.pop(0)
+        elif flag == "--value" and rest:
+            field, _eq, number = rest.pop(0).partition("=")
+            if field in reserved:
+                return misuse("--value %s: %s is a reserved row key" % (field, field))
+            if not re.fullmatch(r"[A-Za-z_][\w.-]*", field) or not re.fullmatch(
+                    r"-?\d+(?:\.\d+)?", number):
+                return misuse("--value needs <field>=<number>, not %r" % (field + _eq + number))
+            values.append((field, number))
         else:
             return misuse(usage)
     if "/" in hypothesis or "\\" in hypothesis or hypothesis.startswith("."):
@@ -688,16 +705,15 @@ def cmd_source(args):
         return misuse("orx is not installed, so no run log can be read; nothing "
                       "was written (TEZGAH_ORX_BIN overrides the lookup)")
     path, problems = tr.source_run(repo, slug, hypothesis, run, orx, command, scope,
-                                   fixture or "")
+                                   fixture or "", arm, item, values)
     if problems:
         for problem in problems:
             print("FAIL %s: %s" % (slug, problem))
         return 1
     print("receipt %s" % path)
-    print('row {"source": "orx:%s", "log": "raw/%s.log"%s%s%s}'
-          % (run, run, ', "command": %s' % json.dumps(command) if command else "",
-             ', "scope": %s' % json.dumps(scope) if scope else "",
-             ', "fixture": %s' % json.dumps(fixture) if fixture else ""))
+    rows = tr._row_objects(os.path.join(os.path.dirname(os.path.dirname(path)),
+                                        "results.jsonl"))
+    print("row %s" % json.dumps(rows[-1] if rows else {}))
     if not scope:
         print("note: the row declares no scope, so nothing says whether this run "
               "measured the running system or an input you generated; re-file with "

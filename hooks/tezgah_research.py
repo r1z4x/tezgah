@@ -5459,7 +5459,8 @@ def urlsplit_host(source):
     return host[4:] if host.startswith("www.") else host
 
 
-def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture=""):
+def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="",
+               arm="", item="", values=()):
     """(path, problems): file one orx run as this experiment's receipt.
 
     `orx logs` is read here rather than by the session, so the log lands in the
@@ -5481,12 +5482,21 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     without it files the row and says which field is still missing rather than
     refusing a row a session may have a reason to file; a value that is not a
     string, or one that is empty, is the mistake the field exists to catch and is
-    refused."""
+    refused.
+
+    `values` are (field, number as written) pairs: each lands in the row as a
+    number, and one whose number is no token of the stored log is refused. A run
+    already filed keeps its log; the new one is `raw/<run>.<n>.log` (a capture is
+    written once). A rules-8 line's row also names its `run`, the engine's
+    `status` when the line names an orx project, and the log and row are committed
+    as `capture: source <slug>` (plan 127, spec 1.4)."""
     if scope and scope not in SCOPES:
         return None, ["scope %r is not one of %s" % (scope, ", ".join(SCOPES))]
     if fixture and (not isinstance(fixture, str) or not fixture.strip()):
         return None, ["fixture %r does not name what was generated" % (fixture,)]
-    newer = newer_rules(_state(line_dir(repo, slug)))
+    base = line_dir(repo, slug)
+    state = _state(base)
+    newer = newer_rules(state)
     if newer:
         return None, [newer]
     experiment = os.path.join(line_dir(repo, slug), "experiments", hypothesis)
@@ -5499,19 +5509,48 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     if not log.strip():
         return None, ["orx logs %s returned nothing, so there is no receipt to "
                       "file" % run]
+    import tezgah_research_capture as cap  # deferred: it imports this module
+    tokens = set(cap.LOG_NUMBER.findall(log))
+    for field, written in values:
+        if written not in tokens:
+            return None, ["%s=%s: value not in the run log (orx logs %s holds no token %s)"
+                          % (field, written, run, written)]
     raw = os.path.join(experiment, "raw")
     os.makedirs(raw, exist_ok=True)
-    path = os.path.join(raw, run + ".log")
+    name, n = run + ".log", 0
+    while os.path.lexists(os.path.join(raw, name)):
+        n += 1
+        name = "%s.%d.log" % (run, n)
+    path = os.path.join(raw, name)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(log)
-    row = {"source": "orx:%s" % run, "log": "raw/%s.log" % run}
+    row = {"source": "orx:%s" % run, "log": "raw/%s" % name}
+    if _evidence(state):
+        row["run"] = run
+    if arm:
+        row["arm"] = arm
+    if item:
+        row["item"] = item
+    for field, written in values:
+        row[field] = float(written) if "." in written else int(written)
     if command:
         row["command"] = command
     if scope:
         row["scope"] = scope
     if fixture:
         row["fixture"] = fixture
-    problems = _append_row(os.path.join(experiment, "results.jsonl"), row)
+    if _evidence(state):
+        runs, _err = cap.engine_runs(state)
+        status = next((r.get("status") for r in runs or () if cap.run_id(r) == run), None)
+        if isinstance(status, str) and status:
+            row["status"] = status
+    results = os.path.join(experiment, "results.jsonl")
+    problems = _append_row(results, row)
+    if not problems and _evidence(state):
+        err = cap.commit_capture(repo, base, [os.path.relpath(path, base),
+                                              os.path.relpath(results, base)],
+                                 "source", slug)
+        problems = [err] if err else []
     return path, problems
 
 
