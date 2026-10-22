@@ -77,10 +77,19 @@ uses no model and is on by default (`hooks/tezgah_skill_pick.py::section_hint`,
 rebuilds only when a SKILL.md's stat moves. The line needs a top section that
 carries 60% of the prompt's distinct content terms, and at least three. It
 names each section once per session and drops the absolute path on omp, whose
-read tool resolves `skill://`. Measured on this machine: 6-15 ms warm, and
-1.36 s for the one cold rebuild over 7 502 sections. The line costs 196-239
-bytes on omp and 245-320 elsewhere. It is not a judgement, so `judge-off` leaves it on,
-and `reminder-off` drops it with the per-turn text. The always-on core also
+read tool resolves `skill://`. On Claude it names the Skill tool's
+`tezgah:<name>`. It also carries the skill's description, which Claude's roster
+cuts for 20 of 21 tezgah skills. For `harness` it names Claude's own
+`workflow-authoring` as the skill it precedes
+(`hooks/tezgah_skill_pick.py::NATIVE_TWIN`). A hint for `i-have-adhd` ends with
+that rule's first-line clause on every host
+(`hooks/tezgah_skill_pick.py::IN_FORCE`). The core states the rule, and replies
+to an adhd ask still opened on a diagnosis. Measured on this
+machine: 6-15 ms warm, and 1.36 s for the one cold rebuild over 7 502 sections.
+The line costs 187-201 bytes on omp, 264-287 on other hosts and 450-483 on
+Claude, plus about 205 for the `i-have-adhd` clause. It is not a judgement, so
+`judge-off` leaves it on, and `reminder-off` drops it with the per-turn text.
+The always-on core also
 sends every session to the same search by hand. Run `tezgah-skill <words>`
 before working a topic a skill covers, then read only the returned range.
 

@@ -308,6 +308,33 @@ class ShippedHintPrecision(unittest.TestCase):
                                              "s1", roots=self.ROOTS))
 
 
+class ShippedHintRecall(unittest.TestCase):
+    """The owner's S4 asks earn their skill's hint over the shipped skills
+    (Z3ClaudeReach). The run-the-app ask (p03) covered 3 of the 6 words the
+    corpus knew (uygulama, ekran, tarayıcı) where the bar asks for 4, so
+    Claude, which lists the skill by name only, opened it on 1 of 3 runs."""
+
+    setUp = ShippedHintPrecision.setUp
+
+    def test_the_run_and_open_the_app_ask_names_analyze_app(self):
+        prompt = ("Uygulamayı çalıştır ve dashboard ekranını gerçekten aç; "
+                  "tarayıcıda ne görünüyorsa, durumlarıyla birlikte onu incele.")
+        line = sp.section_hint(prompt, "s1", roots=ShippedHintPrecision.ROOTS)
+        self.assertIn("skill://analyze-app:", line)
+
+    def test_the_adhd_ask_carries_the_first_line_rule_on_every_host(self):
+        # S4 p14 / R1: the always-on rule was in force and the reply still
+        # opened on a diagnosis ("Kök sorun: ...") on 2 of 3 Claude runs and 3
+        # of 3 omp runs; the skill was never opened, so its hint says it
+        prompt = ("adhd mode: dashboard'u düzeltmek için ne yapmam lazım? "
+                  "Kısa ve uygulanabilir.")
+        for i, host in enumerate(("claude", "omp", None)):
+            line = sp.section_hint(prompt, "s%d" % i, host=host,
+                                   roots=ShippedHintPrecision.ROOTS)
+            self.assertIn("i-have-adhd", line)
+            self.assertIn("line 1 is step 1 itself", line)
+
+
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
     dir, so the cached path runs without touching the real index."""
@@ -399,6 +426,24 @@ class LocalHint(CacheHome):
         self.assertIn("Skill tool `tezgah:alpha`", line)
         self.assertIn("lines 10-19 of %s" % self.alpha, line)
         self.assertNotIn("skill://", line)
+
+    def test_claude_gets_the_description_its_roster_drops(self):
+        # Claude lists 20 of 21 tezgah skills by name only (S3 2.2), so the one
+        # line naming a skill carries what the roster cut (Z3ClaudeReach p11:
+        # a bare name lost to Claude's own workflow-authoring skill 3 of 3)
+        line = sp.section_hint(self.TOPIC, "s1", host="claude")
+        self.assertIn("`tezgah:alpha` (Use when authentication tokens are in "
+                      "scope.)", line)
+
+    def test_claude_is_told_which_native_skill_the_hinted_one_precedes(self):
+        # Z3ClaudeReach p11: told the description, Claude still took its own
+        # workflow-authoring skill first on 2 of 3 runs - the line names the
+        # native twin and the order
+        with mock.patch.dict(sp.NATIVE_TWIN, {"alpha": "native-alpha"}):
+            line = sp.section_hint(self.TOPIC, "s1", host="claude")
+            self.assertIn("before Claude's own `native-alpha`", line)
+            self.assertNotIn("native-alpha", sp.section_hint(self.TOPIC, "s2",
+                                                             host="omp"))
 
     def test_claude_names_a_nested_entry_by_its_parent_skill(self):
         self.assertEqual("tezgah:design-library", sp.skill_tool_name(
