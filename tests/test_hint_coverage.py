@@ -354,6 +354,7 @@ CORPUS = {
     "sitenin tasarımını yenile": {"spec", "design"},
     "mobil uygulamanın tasarımını yenile": {"spec", "design"},
     "uygulamanın tasarımı kötü": {"spec", "design"},
+    "web sitesinin tasarımı eski": {"spec", "design"},
     "API tasarla": set(),
     "inconsistent results from the parser": set(),
     # the generic craft words name a UI only beside a UI object (round 1 of

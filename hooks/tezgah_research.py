@@ -6260,7 +6260,7 @@ def bradley_terry(ids, matches):
 
 def _next_action(slug, iid, stage, history, record, arena):
     """The one action an idea is owed next, as the command that does it."""
-    cmd = "tezgah-research stage %s %s" % (slug, iid)
+    cmd = "~/.config/tezgah/bin/tezgah-research stage %s %s" % (slug, iid)
     if stage == "proposed":
         return ("dedup (`~/.config/tezgah/bin/tezgah-research dedup %s`), then `%s prior-art --evidence "
                 "'{\"verdict\": \"novel|incremental|known\", \"nearest\": [3 indexed "
@@ -6465,7 +6465,7 @@ def dedup_text(report, slug):
         rep = c["members"][0]
         out.append("cluster %s: %s" % (rep, ", ".join(
             "%s (%.2f)" % (m, c["similarity"][m]) for m in c["members"][1:])))
-        out.extend("  tezgah-research stage %s %s duplicate --evidence '%s'"
+        out.extend("  ~/.config/tezgah/bin/tezgah-research stage %s %s duplicate --evidence '%s'"
                    % (slug, m, json.dumps({"of": rep, "similarity": c["similarity"][m],
                                            "backend": report["backend"]}))
                    for m in c["members"][1:])

@@ -116,6 +116,9 @@ RECOVERY = ("tezgah: tool call failed. Read the error, fix the cause, then "
 # instead of nothing. sessionStart is not capped: its text goes to the request
 # context (`hooksAdditionalContextPromise`) without that check, and stored Cursor
 # chats carry 15000-character session contexts whole, so the core is not cut.
+# Known limit: with a custom mode on, cursor-agent appends that mode's text to
+# beforeSubmitPrompt's context before the length check; the hook cannot see it,
+# so a long mode text can still push a cut turn over the limit.
 CONTEXT_MAX = 10000
 CONTEXT_CUT = "\n[... cut to Cursor's %d-character hook limit]" % CONTEXT_MAX
 
