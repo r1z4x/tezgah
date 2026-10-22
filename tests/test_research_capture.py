@@ -55,8 +55,9 @@ SEARCH_AX = cap.SEARCH_URLS["arxiv"] % "caching+no+effect"
 
 class Pure(unittest.TestCase):
     def test_normalise_follows_spec_zero(self):
+        # plan 128 C4: the quotation marks themselves are optional, so they read as none
         self.assertEqual(cap.normalise("\u201cTail\u201d  lat- ency [3, 4] \u2013 OK"),
-                         '"tail" latency ok')
+                         "tail latency ok")
 
     def test_ids_normalise_and_identity_prefers_arxiv(self):
         self.assertEqual(cap.norm_id("arXiv:2401.00001v3"), "arXiv:2401.00001")
@@ -161,6 +162,49 @@ class Pure(unittest.TestCase):
         orx = b"2401.00001v2 and 10.48550/arXiv.2401.00001 and 10.1145/z"
         self.assertEqual(cap.search_records("orx", orx),
                          [["arXiv:2401.00001"], ["doi:10.1145/z"]])
+
+    # plan 128 ------------------------------------------------------------------
+    def test_inner_quotation_marks_are_optional(self):
+        # C4: curly or straight, single or double, in the quote or in the text
+        text = "It just uses the same prompt \u201cLet\u2019s think step by step\u201d across all tasks."
+        for quote in ("the same prompt 'Let's think step by step' across all tasks",
+                      "the same prompt Let's think step by step across all tasks",
+                      'the same prompt "Let\u2019s think step by step" across all tasks',
+                      "the same prompt \u2018Lets think step by step\u2019 across all tasks"):
+            self.assertIsNone(cap.quote_problem(quote, text), quote)
+        self.assertIsNone(cap.quote_problem("uses the same prompt across",
+                                            "uses 'the same' \"prompt\" across"))
+        self.assertEqual(cap.quote_problem("the same prompt 'think slowly' across", text),
+                         cap.NOT_IN_SOURCE)
+
+    def test_arxiv_html_math_reads_as_rendered(self):
+        # C5: LaTeXML keeps the TeX annotation beside the rendered symbol
+        page = ('<p>and only yields performance gains when used with models of <math '
+                'alttext="\\sim" display="inline"><semantics><mo>\u223c</mo><annotation '
+                'encoding="application/x-tex">\\sim</annotation></semantics></math>100B '
+                'parameters. We modify the input question <math alttext="\\mathbf{x}">'
+                '<semantics><mi>\U0001d431</mi><annotation encoding="application/x-tex">'
+                '\\mathbf{x}</annotation></semantics></math> into a prompt.</p>').encode()
+        text = cap.html_to_text(page)
+        for quote in ("used with models of ~100B parameters",
+                      "used with models of \u223c100B parameters",
+                      "used with models of \u223c 100B parameters",
+                      "we modify the input question x into a prompt"):
+            self.assertIsNone(cap.quote_problem(quote, text), quote)
+        # the stored capture text of a real arXiv HTML page (K6 rater Y4, probe P1)
+        self.assertIsNone(cap.quote_problem(
+            "models of ~100B parameters",
+            "used with models of    \u223c  \\sim   100B parameters.\nWe qualitatively"))
+        self.assertEqual(cap.quote_problem("used with models of ~10B parameters", text),
+                         cap.NOT_IN_SOURCE)
+
+    def test_a_landing_page_holds_no_body(self):
+        # C3: the rule and its constants
+        body = " ".join("Sentence %d of the body reports one more finding about caching "
+                        "and tail latency here." % i for i in range(cap.BODY_SENTENCES))
+        self.assertEqual(cap.body_sentences(body), cap.BODY_SENTENCES)
+        self.assertEqual(cap.body_sentences(" ".join([body.split(". ")[0] + "."] * 400)), 1)
+        self.assertEqual(cap.body_sentences("Title. Authors. Abstract: We study caching."), 0)
 
 
 class Captures(unittest.TestCase):
@@ -287,8 +331,9 @@ class Captures(unittest.TestCase):
     def test_sound_captures_check_clean_and_commit_each_command(self):
         self.captured()
         receipts = self.rows(cap.RECEIPTS)
-        self.assertEqual([r["provider"] for r in receipts], list(cap.PROVIDERS))
-        self.assertEqual([r["resolved"] for r in receipts], [True, False, True, False])
+        # plan 128 C10: the canned map answers Crossref and S2 404, so no receipt for them
+        self.assertEqual([r["provider"] for r in receipts], ["arxiv", "openalex"])
+        self.assertEqual([r["resolved"] for r in receipts], [True, True])
         self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
         self.assertEqual(self.rows(cap.SEARCHES)[0]["ids"], ["arXiv:" + ARX])
         for command in ("cite", "fetch", "search"):
@@ -496,7 +541,8 @@ class Captures(unittest.TestCase):
                             for e in errors), errors)
 
     def test_receipt_for_another_id_or_url_is_refused(self):
-        # D1-4: the raw bytes must name the INDEX id, the url must be the table's
+        # D1-4: the raw bytes must name the INDEX id, the url must be the table's; plan
+        # 128 C6: bytes naming another id are no receipt for it, and a warning
         fake, real = "10.9999/invented.2024.001", "10.1000/real.2024.042"
         self.index(id="doi:" + fake)
         rows = []
@@ -515,11 +561,12 @@ class Captures(unittest.TestCase):
             rows.append({"id": "doi:" + fake, "provider": provider, "url": url, "status": 200,
                          "resolved": True, "file": rel,
                          "sha256": hashlib.sha256(data).hexdigest(), "title": TITLE,
-                         "first_author": "Smith", "year": 2024, "abstract": None})
+                         "first_author": "Smith", "year": 2024, "abstract": None,
+                         "parser": cap.PARSER})
         self.append(cap.RECEIPTS, *rows)
-        errors, _w, _s = self.check()
-        self.assertTrue(any("crossref" in e and "not derived from its capture" in e
-                            and "doi:" + real in e for e in errors), errors)
+        errors, warnings, _s = self.check()
+        self.assertFalse([e for e in errors if "crossref" in e], errors)
+        self.assertTrue(any("crossref" in w and "doi:" + real in w for w in warnings), warnings)
         self.assertTrue(any("openalex" in e and "is not the openalex receipt URL" in e
                             for e in errors), errors)
         self.assertTrue(any(cap.NO_REGISTRY in e for e in errors), errors)
@@ -644,7 +691,7 @@ class Captures(unittest.TestCase):
         self.wsgit("tag", "keep")
         self.wsgit("reset", "-q", "--soft", "HEAD~1")
         with open(self.at(cap.RECEIPTS)) as fh:
-            kept = [ln for ln in fh if '"crossref"' not in ln]
+            kept = [ln for ln in fh if '"openalex"' not in ln]
         self.write(self.at(cap.RECEIPTS), "".join(kept))
         self.wsgit("add", "-A")
         self.wsgit("commit", "-qm", "rewrite", when="2030-01-01T00:00:00Z")
@@ -686,7 +733,8 @@ class Captures(unittest.TestCase):
     def test_search_capture_must_parse_under_the_rows_connector(self):
         # R2-5: OpenAlex JSON filed as an arXiv answer re-parses as 0 hits yet is no Atom feed
         self.run_cmd("search", "q", "--tag", "primary", "--", "openalex", "caching", "tail")
-        self.raw_search("arxiv", json.dumps({"results": []}), tag="counter", item=ITEM)
+        self.raw_search("arxiv", json.dumps({"results": []}), tag="counter", item=ITEM,
+                        parser=cap.PARSER)
         errors, _w, steps = self.check()
         self.assertTrue(any("row 2" in e and "not derived from its capture" in e
                             for e in errors), errors)
@@ -704,7 +752,8 @@ class Captures(unittest.TestCase):
         self.assertIn("one-provider", steps.get("C1", []))
 
     def test_receipts_of_an_id_the_index_no_longer_holds_are_not_judged(self):
-        # K-3: correct the INDEX id, `cite` again, and the id mismatch clears
+        # K-3: correct the INDEX id, `cite` again, and the id mismatch clears; plan 128
+        # C6: until then the alias resolves in no registry, with a warning, not refused
         alias, real = "10.1000/alias.7", "10.1000/real.7"
         body = {"message": {"DOI": real, "title": [TITLE], "author": [{"family": "Smith"}],
                             "issued": {"date-parts": [[2024]]}}}
@@ -712,9 +761,10 @@ class Captures(unittest.TestCase):
                       "https://api.crossref.org/works/" + real: json.dumps(body)})
         self.index(id="doi:" + alias)
         self.run_cmd("cite", "q")
-        errors, _w, _s = self.check()
-        self.assertTrue(any("not derived from its capture" in e and "run `cite` again" in e
-                            for e in errors), errors)
+        errors, warnings, _s = self.check()
+        self.assertFalse([e for e in errors if "not derived" in e], errors)
+        self.assertTrue(any(cap.NO_REGISTRY in e for e in errors), errors)
+        self.assertTrue(any("doi:" + real in w for w in warnings), warnings)
         self.index(id="doi:" + real)
         self.run_cmd("cite", "q")
         errors, _w, steps = self.check()
@@ -786,6 +836,201 @@ class Captures(unittest.TestCase):
         errors, _w, steps = self.check()
         self.assertFalse([e for e in errors if cap.SCREENING in e], errors)
         self.assertIn("screened-outside-search", steps.get("C1", []))
+
+    # plan 128 ------------------------------------------------------------------
+    def second_note(self, text):
+        """A grey note `lit/jones.md` captured from the user's file holding `text`."""
+        other = "lit/jones.md"
+        self.write(self.at("literature/" + other), "# Jones\n")
+        with open(self.at("literature/INDEX.jsonl"), "a") as fh:
+            fh.write(json.dumps({"note": other, "id": "", "class": "grey",
+                                 "title": "Jones"}) + "\n")
+        paper = os.path.join(self.tmp, "jones.txt")
+        self.write(paper, text)
+        code, out = self.run_cmd("fetch", "q", other, "--file", paper, "--ack", "pasted")
+        self.assertEqual(code, 0, out)
+        return other
+
+    def test_a_quote_found_in_any_cited_note_passes(self):
+        # C1: a synthesis claim cites two full-text notes and quotes one of them
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        other = self.second_note("Jones measured warm caches only.\n")
+        claim = {"id": "C1", "statement": "Smith and Jones agree", "kind": "literature",
+                 "proof": ["literature/" + NOTE, "literature/" + other], "quote": QUOTE}
+        self.write(self.at("claims.jsonl"), json.dumps(claim) + "\n")
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+        self.append("claims.jsonl", dict(claim, id="C2", quote="caching never helped anyone"))
+        errors, _w, _s = self.check()
+        self.assertTrue(any(e.startswith("claim C2") and cap.NOT_IN_SOURCE in e
+                            and "literature/%s, literature/%s" % (NOTE, other) in e
+                            for e in errors), errors)
+
+    def test_quotes_of_a_superseded_claim_are_not_checked(self):
+        # C2: the documented exit - a superseding claim without quotation marks
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        self.write(self.at("claims.jsonl"), json.dumps({
+            "id": "C1", "statement": 'Smith: "caching never helped anyone"',
+            "kind": "literature", "proof": ["literature/" + NOTE]}) + "\n")
+        errors, _w, _s = self.check()
+        self.assertTrue(any(cap.NOT_IN_SOURCE in e for e in errors), errors)
+        self.append("claims.jsonl", {"id": "C2", "statement": "Smith reports lower latency",
+                                     "kind": "literature", "proof": ["literature/" + NOTE],
+                                     "supersedes": "C1"})
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+
+    def doi_line(self, page):
+        """The INDEX row a DOI whose OpenAlex oa_url answers `page`; cite run."""
+        doi = "10.1000/landing.1"
+        work = json.dumps({"id": "https://openalex.org/W5", "doi": "https://doi.org/" + doi,
+                           "title": TITLE, "publication_year": 2024,
+                           "authorships": [{"author": {"display_name": "Ann Smith"}}],
+                           "abstract_inverted_index": {"We": [0], "study": [1],
+                                                       "caching.": [2]},
+                           "open_access": {"oa_url": "https://repo.example/pub/5"}})
+        self.set_map({"https://api.openalex.org/works/doi:" + doi: work,
+                      "https://repo.example/pub/5": page})
+        self.index(id="doi:" + doi)
+        self.run_cmd("cite", "q")
+
+    def test_an_oa_landing_page_is_abstract_only(self):
+        # C3: K6 rater Y4's Tilburg/EUR Pure pages were labelled `full`
+        self.doi_line("<html><h1>%s</h1><p>Ann Smith, Research output: Contribution to "
+                      "journal</p><h2>Abstract</h2><p>We study caching.</p><p>Cite this: "
+                      "APA Harvard BibTeX RIS</p></html>" % TITLE)
+        code, out = self.run_cmd("fetch", "q", NOTE)
+        self.assertEqual(code, 0, out)
+        row = self.rows(cap.SOURCES)[-1]
+        self.assertEqual((row["access"], row["url"]), ("abstract", "https://repo.example/pub/5"))
+        with open(self.at(row["file"])) as fh:
+            self.assertIn("landing page", json.load(fh)["reason"])
+        errors, _w, steps = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+        self.assertIn("abstract-only", steps.get("C1", []))
+
+    def test_an_oa_page_holding_the_body_is_full(self):
+        # C3: the same step reads a body as full text, and a quote it lacks is refused
+        body = "".join("<p>Section %d reports one more measured finding about caching and "
+                       "tail latency.</p>" % i for i in range(cap.BODY_SENTENCES))
+        self.doi_line("<html>%s<p>In our study, %s.</p></html>" % (body, QUOTE))
+        self.run_cmd("fetch", "q", NOTE)
+        self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
+
+    def test_a_receipt_naming_another_id_for_the_work_warns(self):
+        # C6: Crossref answers an alias DOI with the work's other DOI; OpenAlex names it
+        alias, real = "10.1000/alias.9", "10.1000/real.9"
+        cross = {"message": {"DOI": real, "title": [TITLE], "author": [{"family": "Smith"}],
+                             "issued": {"date-parts": [[2024]]}}}
+        work = json.dumps({"id": "https://openalex.org/W9", "doi": "https://doi.org/" + alias,
+                           "title": TITLE, "publication_year": 2024,
+                           "authorships": [{"author": {"display_name": "Ann Smith"}}]})
+        self.set_map({"https://api.crossref.org/works/" + alias: json.dumps(cross),
+                      "https://api.openalex.org/works/doi:" + alias: work})
+        self.index(id="doi:" + alias)
+        self.run_cmd("cite", "q")
+        self.run_cmd("cite", "q")
+        errors, warnings, steps = self.check()
+        self.assertFalse([e for e in errors if "not derived" in e or cap.NO_REGISTRY in e],
+                         errors)
+        named = [w for w in warnings if "doi:" + real in w]
+        self.assertEqual(len(named), 1, warnings)
+        self.assertIn("one-provider", steps.get("C1", []))
+
+    def test_the_share_of_sources_without_full_text_takes_its_words(self):
+        # C7: abstract-only counts with closed access, under any of the three words
+        self.map[HTML] = {"status": 404}
+        self.write(self.map_path, json.dumps(self.map))
+        self.run_cmd("cite", "q")
+        self.run_cmd("fetch", "q", NOTE)
+        for words in ("not full text: 1 of 1", "closed-access: 1 of 1",
+                      "abstract-only: 1 of 1"):
+            self.write(self.at("to_human/report.md"), "# Report\n\n%s\n" % words)
+            _e, warnings, _s = self.check()
+            self.assertFalse([w for w in warnings if "closed-access share" in w], words)
+        self.write(self.at("to_human/report.md"), "# Report\n\nclosed-access: 0 of 1\n")
+        _e, warnings, _s = self.check()
+        self.assertTrue(any("closed-access share" in w and "`not full text: 1 of 1`" in w
+                            and "`abstract-only: 1 of 1`" in w for w in warnings), warnings)
+
+    def test_two_branches_appending_to_a_ledger_and_merged_pass(self):
+        # C8: K6 rater X3's probe-merge, on the receipts ledger
+        self.run_cmd("cite", "q")
+        main = self.wsgit("branch", "--show-current").strip()
+        first = self.rows(cap.RECEIPTS)[0]
+        mine, theirs = dict(first, fetched_at="2030-01-01"), dict(first, fetched_at="2030-01-02")
+        self.wsgit("checkout", "-q", "-b", "other")
+        self.append(cap.RECEIPTS, theirs)
+        self.wsgit("commit", "-qam", "theirs")
+        self.wsgit("checkout", "-q", main)
+        self.append(cap.RECEIPTS, mine)
+        self.wsgit("commit", "-qam", "mine")
+        with open(self.at(cap.RECEIPTS)) as fh:
+            merged = fh.read() + json.dumps(theirs) + "\n"
+        subprocess.run(["git", "-C", os.path.join(self.repo, ".tezgah"), "merge", "-q",
+                        "other", "-m", "merge"], capture_output=True)
+        self.write(self.at(cap.RECEIPTS), merged)
+        self.wsgit("add", "-A")
+        self.wsgit("commit", "-qm", "merge")
+        errors, _w, _s = self.check()
+        self.assertFalse([e for e in errors if "append-only" in e], errors)
+        # a row changed after the merge is still refused
+        self.write(self.at(cap.RECEIPTS), merged.replace("2030-01-01", "2031-01-01"))
+        errors, _w, _s = self.check()
+        self.assertTrue(any(e.startswith(cap.RECEIPTS) and "append-only" in e
+                            for e in errors), errors)
+
+    def test_a_row_of_an_older_parser_is_held_to_its_hash(self):
+        # C9: rows record their parser; an older row is not re-derived
+        self.captured()
+        self.assertEqual({r.get("parser") for r in self.rows(cap.RECEIPTS)
+                          + self.rows(cap.SEARCHES)}, {cap.PARSER})
+        old = {k: v for k, v in self.rows(cap.RECEIPTS)[0].items() if k != "parser"}
+        self.append(cap.RECEIPTS, dict(old, first_author="Smith-Jones"),
+                    dict(old, fetched_at="2030-01-01"))
+        # a row with no `parser` whose hits/ids a re-parse no longer gives
+        self.raw_search("openalex", json.dumps({"results": [{"id": "https://openalex.org/W3"}]}),
+                        n=3)
+        errors, warnings, _s = self.check()
+        self.assertFalse([e for e in errors if "not derived" in e], errors)
+        for rel in (cap.RECEIPTS, cap.SEARCHES):
+            held = [w for w in warnings if w.startswith(rel) and "parser 0" in w]
+            self.assertEqual(len(held), 1, warnings)
+        self.append(cap.RECEIPTS, dict(old, first_author="Smith-Jones", parser=cap.PARSER))
+        errors, _w, _s = self.check()
+        self.assertTrue(any("not derived from its capture" in e for e in errors), errors)
+
+    def test_cite_records_only_a_200_and_online_compares_only_those(self):
+        # C10: a 429 at cite time read as drift once the provider answered
+        s2 = cap.S2_PAPER % ("arXiv:" + ARX)
+        self.write(os.path.join(self.tmp, "limited"), '{"message": "Too Many Requests"}')
+        self.map[s2] = {"status": 429, "body": "limited"}
+        self.write(self.map_path, json.dumps(self.map))
+        code, out = self.run_cmd("cite", "q")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([r["status"] for r in self.rows(cap.RECEIPTS)], [200, 200])
+        # a ledger 2fb1370's cite wrote holds the 429 row
+        data = b'{"message": "Too Many Requests"}'
+        rel = "literature/.receipts/%s.raw" % hashlib.sha256(data).hexdigest()
+        with open(self.at(rel), "wb") as fh:
+            fh.write(data)
+        self.append(cap.RECEIPTS, {"id": "arXiv:" + ARX, "provider": "semanticscholar",
+                                   "url": s2, "status": 429, "resolved": False, "file": rel,
+                                   "sha256": hashlib.sha256(data).hexdigest(),
+                                   "fetched_at": "2026-01-01T00:00:00Z", "title": None,
+                                   "first_author": None, "year": None, "abstract": None,
+                                   "parser": cap.PARSER})
+        self.set_map({s2: json.dumps({"paperId": "abc", "title": TITLE, "year": 2024,
+                                      "authors": [{"name": "Ann Smith"}],
+                                      "externalIds": {"ArXiv": ARX}})})
+        _e, _w, steps = self.check({"online": True})
+        self.assertFalse([r for r in steps["#report"] if "semanticscholar" in r],
+                         steps["#report"])
+        self.assertNotIn("online-drift", steps.get("C1", []))
 
 
 if __name__ == "__main__":

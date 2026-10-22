@@ -19,6 +19,7 @@ Interface (plan 127):
 - engine_runs(state) -> (runs|None, error): `orx runs` scoped by experiment.
 - citation_problem(row) / quote_problem(quote, text) -> str|None: release-check's scorers.
 """
+import collections
 import decimal
 import hashlib
 import html
@@ -77,6 +78,16 @@ LOG_NUMBER = re.compile(r"(?<![\w.])-?(?:[1-9]\d{0,2}(?:,\d{3})+|\d+)(?:\.\d+)?"
 
 NO_REGISTRY = "resolves in no registry"
 NOT_IN_SOURCE = "quote not in the captured source text"
+# The version of the receipt and search parsers (`parse_receipt`, `receipt_ids`,
+# `receipt_urls`, `schema_ok`, `search_records`) a row records as `parser`; a row
+# without it predates the field (version 0). Bump it when a parser's reading changes.
+PARSER = 1
+# An open-access page is a work's body when its text holds this many distinct
+# sentences of BODY_WORDS or more words: the repository landing pages of K6 rater Y4
+# (metadata, the abstract, its citation exports) held 41 and 47, the arXiv HTML and
+# PDF bodies beside them 497 to 814.
+BODY_SENTENCES = 100
+BODY_WORDS = 10
 
 
 def log_numbers(text):
@@ -256,18 +267,35 @@ def _line(repo, slug):
 # --- text and ids -----------------------------------------------------------------
 QUOTE_MARKS = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
                              "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"',
-                             "\u2013": "-", "\u2014": "-"})
+                             "\u2013": "-", "\u2014": "-", "\u223c": "~"})
+# A TeX command and the token it sits in: LaTeXML's annotation beside rendered math
+# (`∼ \sim`, `𝐱 \mathbf{x}`) reads as the rendered symbol alone.
+TEX_TOKEN = re.compile(r"\S*\\[A-Za-z]+\S*")
+# A space beside a math symbol (`∼ 100B` against `~100B`): rendered math has none.
+MATH_SPACE = re.compile(r" ?([%s]) ?" % re.escape("".join(
+    sorted(set("+<=>|~\u00ac\u00b1\u00d7\u00f7") | {chr(c) for c in range(0x2000, 0x2c00)
+                                                    if unicodedata.category(chr(c)) == "Sm"}))))
 
 
 def normalise(text):
     """Spec 0's text normalisation, for quotes, passages and titles."""
     text = unicodedata.normalize("NFKC", str(text or ""))
+    text = TEX_TOKEN.sub(" ", text)
     # a marker split by tags or spaces (LaTeXML's `[<a>12</a>]` reads `[ 12 ]`) too
     text = re.sub(r"\[\s*\d+(?:\s*[,\u2013-]\s*\d+)*\s*\]", "", text).translate(QUOTE_MARKS)
     text = re.sub(r"-\s+", "", text)
     # a hyphen between two letters reads as a space: `tail-latency` quotes `tail latency`
     text = re.sub(r"(?<=[^\W\d_])-(?=[^\W\d_])", " ", text)
-    return " ".join(text.split()).casefold().strip()
+    # inner quotation marks are optional, in the quote and in the text (plan 128 C4)
+    text = text.replace('"', "").replace("'", "")
+    return MATH_SPACE.sub(r"\1", " ".join(text.split())).casefold().strip()
+
+
+def body_sentences(text):
+    """The distinct sentences of >= BODY_WORDS words in `text`: a work's body holds
+    BODY_SENTENCES of them, a landing page (metadata and abstract) fewer."""
+    return len({s for s in re.split(r"(?<=[.!?])\s+", normalise(text))
+                if len(s.split()) >= BODY_WORDS})
 
 
 # A bare arXiv id: new style `YYMM.NNNN[N]`, old style `archive[.SUB]/YYMMNNN`
@@ -543,7 +571,7 @@ def cmd_cite(repo, args):
     base = _line(repo, slug)
     if base is None:
         return _misuse("no such research line: %s" % slug)
-    files, receipts = {}, []
+    files, receipts, asked = {}, [], False
     for row in _rows(base, INDEX):
         if row.get("class") != "formal":
             continue
@@ -554,7 +582,13 @@ def cmd_cite(repo, args):
                   % (row.get("note"), row.get("id")))
             continue
         for provider, url in urls:
+            asked = True
             status, data = fetch_url(url)
+            if status != 200:
+                # an answer other than 200 (a 404, a 429 rate limit) is no receipt: a
+                # later `check --online` would read the provider's answer as drift
+                print("receipt %s %s: status %d, not recorded" % (rid, provider, status))
+                continue
             parsed = parse_receipt(provider, rid, status, data)
             rel = "literature/.receipts/%s.raw" % _sha(data) if data else None
             if rel:
@@ -562,14 +596,15 @@ def cmd_cite(repo, args):
             receipts.append(dict({"id": rid, "provider": provider, "url": url,
                                   "status": status, "resolved": parsed["resolved"],
                                   "file": rel, "sha256": _sha(data) if data else None,
-                                  "fetched_at": _now()},
+                                  "fetched_at": _now(), "parser": PARSER},
                                  **{k: parsed[k] for k in ("title", "first_author", "year",
                                                            "abstract")}))
             print("receipt %s %s: status %d, %s" % (rid, provider, status, "resolved"
                                                     if parsed["resolved"] else "unresolved"))
     if not receipts:
-        print("cite %s: no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id "
-              "to cite" % slug)
+        print("cite %s: %s" % (slug, "no registry answered 200, so nothing was written"
+                               if asked else "no formal row with an arXiv, DOI, OpenAlex "
+                               "or Semantic Scholar id to cite"))
         return 0
     return _store(repo, base, slug, "cite", files, RECEIPTS, receipts)
 
@@ -632,21 +667,27 @@ def _citing(claims, note):
     return [c for c in claims if want & cited_tokens(c.get("proof"))]
 
 
-def gather_quotes(base, note, claims):
-    """The quotes the line makes of `note`: the `quote` field and every double-quoted
-    span of >= 3 words in the statement of each claim citing it, and the note's own
-    `> "..."` blockquotes."""
-    out = []
-    for claim in _citing(claims, note):
-        quote = claim.get("quote")
-        quotes = quote if isinstance(quote, list) else [quote]
-        out += [q for q in quotes if isinstance(q, str)]
-        out += [q for q in QUOTED.findall(str(claim.get("statement") or ""))
-                if len(q.split()) >= 3]
-    data = _read(base, "literature/" + note)
-    if data:
-        out += BLOCKQUOTE.findall(data.decode("utf-8", "replace"))
+def claim_quotes(claim):
+    """A claim's quotes: its `quote` field and every double-quoted span of >= 3 words
+    in its statement."""
+    quote = claim.get("quote")
+    out = [q for q in (quote if isinstance(quote, list) else [quote]) if isinstance(q, str)]
+    out += [q for q in QUOTED.findall(str(claim.get("statement") or "")) if len(q.split()) >= 3]
     return list(dict.fromkeys(q for q in out if q.strip()))
+
+
+def note_quotes(base, note):
+    """The note's own `> "..."` blockquotes."""
+    data = _read(base, "literature/" + note)
+    return [q for q in BLOCKQUOTE.findall(data.decode("utf-8", "replace")) if q.strip()] \
+        if data else []
+
+
+def gather_quotes(base, note, claims):
+    """The quotes the line makes of `note`: those of each claim citing it, and the
+    note's own blockquotes."""
+    return list(dict.fromkeys([q for c in _citing(claims, note) for q in claim_quotes(c)]
+                              + note_quotes(base, note)))
 
 
 def _index_row(base, note):
@@ -706,15 +747,27 @@ def cmd_fetch(repo, args):
         status, body = fetch_url(url)
         if status == 200 and body.strip():
             data, text = body, html_to_text(body)
+    landing = None
     if text is None and rid and rid.startswith("doi:"):
         url = _oa_url(base, receipts)
         status, body = fetch_url(url) if url else (0, b"")
         if status == 200 and body.strip() and not body.startswith(b"%PDF"):
-            data, text = body, html_to_text(body)
+            page = html_to_text(body)
+            if body_sentences(page) >= BODY_SENTENCES:
+                data, text = body, page
+            else:
+                landing = url, body, page
     if text is None and rid and not tried_orx:
         data, text, url = _orx_paper(rid)
     reason = None
-    if text is None:
+    if text is None and landing:
+        # a repository landing page holds the metadata and the abstract, not the body
+        # (K6 rater Y4's Tilburg and EUR Pure pages): the abstract-only step
+        (url, data, text), access = landing, "abstract"
+        reason = ("the open-access page holds %d distinct sentences of %d+ words, under "
+                  "the %d of a work's body: a landing page" % (
+                      body_sentences(text), BODY_WORDS, BODY_SENTENCES))
+    elif text is None:
         rec = next((r for r in receipts if r.get("resolved") and _text(r.get("abstract"))),
                    None)
         if rec:
@@ -749,7 +802,8 @@ def cmd_fetch(repo, args):
         {"note": note, "file": rel, "sha256": _sha(body), "access": access, "url": url,
          "fetched_at": _now()}])
     if not code:
-        print("fetch %s: access %s%s" % (note, access, " (%s)" % url if url else ""))
+        print("fetch %s: access %s%s%s" % (note, access, " (%s)" % url if url else "",
+                                           " - %s" % reason if reason else ""))
     return code
 
 
@@ -898,7 +952,8 @@ def cmd_search(repo, args):
     row = {"n": n, "tag": tag, "item": item, "connector": connector, "query": " ".join(words)}
     row.update({"argv": argv} if argv else {"url": url})
     row.update({"file": rel, "sha256": _sha(data), "hits": len(records),
-                "ids": [identity(r) for r in records], "searched_at": _now()})
+                "ids": [identity(r) for r in records], "searched_at": _now(),
+                "parser": PARSER})
     code = _store(repo, base, slug, "search", {rel: data}, SEARCHES, [row])
     if not code:
         print("search %d: %s, %d hit(s)" % (n, connector, len(records)))
@@ -925,9 +980,9 @@ def check(repo, slug, base, state, errors, warnings, strict, git, steps):
     if git:
         _check_write_once(repo, base, errors)
     _check_ledger_files(base, errors)
-    _check_receipts(slug, base, claims, errors, steps, report, flags.get("online"))
+    _check_receipts(slug, base, claims, errors, warnings, steps, report, flags.get("online"))
     _check_sources(base, state, claims, errors, warnings, strict, steps)
-    _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
+    _check_searches(repo, slug, base, state, claims, errors, warnings, steps, report, git)
     if flags.get("orx"):
         _census(base, state, warnings)
 
@@ -980,12 +1035,16 @@ def _check_write_once(repo, base, errors):
         current, exc = tr._committed_text(path)
         if not exc:
             versions.append(current)
-        for older, newer in zip(versions, versions[1:]):
-            old = [ln for ln in older.splitlines() if ln.strip()]
-            if [ln for ln in newer.splitlines() if ln.strip()][:len(old)] != old:
-                errors.append("%s: a row changed or went missing after its first commit; "
-                              "a ledger is append-only" % rel)
-                break
+        # every row of each version is still in the latest, as a multiset with the order
+        # aside: two branches that appended and merged pass (K6 rater X3's probe-merge).
+        # ponytail: a branch not merged yet reads every row it appended as gone from the
+        # latest; ancestry per version pair is the fuller rule.
+        latest = collections.Counter(ln for ln in (versions or [""])[-1].splitlines()
+                                     if ln.strip())
+        if any(collections.Counter(ln for ln in older.splitlines() if ln.strip()) - latest
+               for older in versions[:-1]):
+            errors.append("%s: a row changed or went missing after its first commit; "
+                          "a ledger is append-only" % rel)
 
 
 def _ledgers(base):
@@ -1023,15 +1082,30 @@ def _notes_by_id(base):
     return out
 
 
-def _check_receipts(slug, base, claims, errors, steps, report, online):
+def _held(warnings, rel, versions):
+    """One warning per ledger naming the parser versions its rows were held under."""
+    if versions:
+        warnings.append("%s: rows of parser %s are held to their hash alone; this check "
+                        "re-derives parser %d rows only" % (rel, ", ".join(sorted(versions)),
+                                                            PARSER))
+
+
+def _check_receipts(slug, base, claims, errors, warnings, steps, report, online):
     # a receipt is judged for an id the INDEX holds now: a corrected id, cited again,
     # leaves the old id's rows in the append-only ledger unjudged
     held = {norm_id(r.get("id")) for r in _rows(base, INDEX) if r.get("class") == "formal"}
-    parsed = []
+    parsed, older = [], set()
     for n, row in enumerate(_rows(base, RECEIPTS), 1):
         rid, provider = norm_id(row.get("id")), row.get("provider")
         data = _read(base, row.get("file")) if row.get("file") else b""
         if data is None or not rid or rid not in held:
+            continue
+        if row.get("parser", 0) != PARSER:
+            # another parser's row is held to its hash (`_check_ledger_files`) and counts
+            # as it was recorded: a re-parse under this parser would refuse it for good
+            older.add(str(row.get("parser", 0)))
+            got = {k: row.get(k) for k in ("resolved", "title", "first_author", "year")}
+            parsed.append((row, rid, dict(got, id=rid)))
             continue
         got = parse_receipt(provider, rid, row.get("status"), data)
         wrong = [k for k in ("resolved", "title", "first_author", "year") if got[k] != row.get(k)]
@@ -1044,10 +1118,13 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
         if got["resolved"]:
             url = dict(receipt_urls(rid)).get(provider)
             if not got["id"]:
-                errors.append("%s row %d (%s %s) is not derived from its capture: its raw "
-                              "bytes name %s, not that id - correct the INDEX id and run "
-                              "`cite` again" % (RECEIPTS, n, rid, provider,
-                                                ", ".join(sorted(named)) or "no id"))
+                # a registry answering an alias with the work's other id: no receipt for
+                # this id, and no refusal - the other providers resolve it, or none does
+                note = ("%s: the %s receipt for %s names %s, not that id, so it does not "
+                        "count for it" % (RECEIPTS, provider, rid,
+                                          ", ".join(sorted(named)) or "no id"))
+                if note not in warnings:
+                    warnings.append(note)
                 continue
             if row.get("url") != url:
                 errors.append("%s row %d (%s %s): %s is not the %s receipt URL for that id "
@@ -1055,6 +1132,7 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
                                         url))
                 continue
         parsed.append((row, rid, got))
+    _held(warnings, RECEIPTS, older)
     for row in _rows(base, INDEX):
         if row.get("class") != "formal":
             continue
@@ -1070,7 +1148,9 @@ def _check_receipts(slug, base, claims, errors, steps, report, online):
             _step(steps, _citing(claims, note), verdict)
     if not online:
         return
-    targets = [(r, i, g) for r, i, g in parsed]
+    # only a receipt recorded from a 200 has an answer to drift from (a 429 row of an
+    # older `cite` read as drift once the provider answered)
+    targets = [(r, i, g) for r, i, g in parsed if r.get("status") == 200]
     if len(targets) > 10:
         targets = sorted(targets, key=lambda t: str(t[0].get("sha256") or ""))[:10]
     notes = _notes_by_id(base)
@@ -1160,32 +1240,50 @@ def _receipt_abstracts(base, rid):
     return out
 
 
+def _quote_missing(errors, where, quote, notes, searched):
+    """1.2's refusal: `quote` found in the captured text of none of `notes`."""
+    if not any(_found(quote, *searched[n]) for n in notes):
+        errors.append('%s: "%s": %s (searched %s; if it is not a quote, rephrase it without '
+                      'quotation marks; if it is, `fetch --file` the version quoted)'
+                      % (where, quote, NOT_IN_SOURCE,
+                         ", ".join("literature/" + n for n in notes)))
+
+
 def _check_sources(base, state, claims, errors, warnings, strict, steps):
     captures = _source_records(base)
     index = _rows(base, INDEX)
     texts = {n: [_source_text(base, rec, errors) for _row, rec in c]
              for n, c in captures.items()}
+    access, searched = {}, {}
     for row in index:
         note = row.get("note")
         if not isinstance(note, str):
             continue
         mine = captures.get(note, [])
-        access = _access(mine[-1]) if mine else None
+        access[note] = _access(mine[-1]) if mine else None
         citing = _citing(claims, note)
-        if access in (None, "none"):
+        if access[note] in (None, "none"):
             _step(steps, citing, "source-not-captured")
-        elif access == "abstract":
+        elif access[note] == "abstract":
             _step(steps, citing, "abstract-only")
-        elif access in ("full", "user"):
+        elif access[note] in ("full", "user"):
             records = [rec for _row, rec in mine if rec.get("access") in ("full", "user")]
             whole = [normalise(t) for (_row, rec), t in zip(mine, texts.get(note, []))
                      if t is not None and rec.get("access") in ("full", "user")]
             whole += [normalise(a) for a in _receipt_abstracts(base, norm_id(row.get("id")))]
-            for quote in gather_quotes(base, note, claims):
-                if not _found(quote, records, whole):
-                    errors.append('literature/%s: "%s": %s (if it is not a quote, rephrase it '
-                                  'without quotation marks; if it is, `fetch --file` the '
-                                  'version quoted)' % (note, quote, NOT_IN_SOURCE))
+            searched[note] = (records, whole)
+            for quote in note_quotes(base, note):
+                _quote_missing(errors, "literature/" + note, quote, [note], searched)
+    # a claim's quote is searched in every note it cites, and refused only when every one
+    # of them holds full text and none holds the quote: a cited note without full text
+    # already narrows the claim by its step. A claim another row supersedes is history.
+    superseded = tr._superseded(claims)
+    for claim in claims:
+        notes = [n for n in access if _citing([claim], n)]
+        if claim["id"] in superseded or not notes or not all(n in searched for n in notes):
+            continue
+        for quote in claim_quotes(claim):
+            _quote_missing(errors, "claim " + claim["id"], quote, notes, searched)
     formal = [r.get("note") for r in index if r.get("class") == "formal"]
     if not formal or not tr._concluding(base, state):
         return
@@ -1193,9 +1291,14 @@ def _check_sources(base, state, claims, errors, warnings, strict, steps):
     closed = sum(1 for n in formal if latest.get(n) in (None, "abstract", "none"))
     user = sum(1 for n in formal if latest.get(n) == "user")
     text = (_read(base, "to_human/report.md") or b"").decode("utf-8", "replace")
-    if not re.search(r"closed-access:\s*%d\s+of\s+%d\b" % (closed, len(formal)), text):
-        tr._soft(errors, warnings, strict, "report states no closed-access share "
-                 "(`closed-access: %d of %d`)" % (closed, len(formal)))
+    # the share counts every source without full text, closed and abstract-only alike,
+    # under any of the words a report may use for it
+    shares = ("closed-access", "not full text", "abstract-only")
+    if not any(re.search(r"%s:\s*%d\s+of\s+%d\b" % (re.escape(w), closed, len(formal)), text)
+               for w in shares):
+        tr._soft(errors, warnings, strict, "report states no closed-access share: %d of %d "
+                 "sources have no full text (%s)" % (closed, len(formal), " or ".join(
+                     "`%s: %d of %d`" % (w, closed, len(formal)) for w in shares)))
     if user and not re.search(r"user-supplied:\s*%d\s+of\s+%d\s+sources" % (user, len(formal)),
                               text):
         tr._soft(errors, warnings, strict, "report states no user-supplied share "
@@ -1237,9 +1340,9 @@ def _stopping_first(repo, base):
         repo, first, searches[0][0]) is True
 
 
-def _check_searches(repo, slug, base, state, claims, errors, steps, report, git):
+def _check_searches(repo, slug, base, state, claims, errors, warnings, steps, report, git):
     rows = _rows(base, SEARCHES)
-    per_row, counted, backs = [], [], {}
+    per_row, counted, backs, older = [], [], {}, set()
     for n, row in enumerate(rows, 1):
         connector, rel = row.get("connector"), row.get("file")
         # only a row whose file is a search capture, backing no earlier row, counts
@@ -1258,18 +1361,26 @@ def _check_searches(repo, slug, base, state, claims, errors, steps, report, git)
             errors.append("%s row %d names %r: connector not on the allowlist"
                           % (SEARCHES, n, connector))
             data = None
-        if data is not None and not schema_ok(connector, data):
+        if data is not None and row.get("parser", 0) != PARSER:
+            # another parser's row is held to its hash and counts as it was recorded; its
+            # records are read where this parser still reads the capture
+            older.add(str(row.get("parser", 0)))
+            records = (search_records(connector, data) if schema_ok(connector, data) else []) \
+                or [[i] for i in row.get("ids") or () if isinstance(i, str)]
+        elif data is not None and not schema_ok(connector, data):
             errors.append("%s row %d is not derived from its capture: %s does not parse as a "
                           "%s response" % (SEARCHES, n, rel, connector))
             data = None
-        records = search_records(connector, data) if data is not None else []
-        if data is not None and (row.get("hits") != len(records)
-                                 or row.get("ids") != [identity(r) for r in records]):
-            errors.append("%s row %d is not derived from its capture: hits/ids differ from a "
-                          "re-parse of %s" % (SEARCHES, n, rel))
+        else:
+            records = search_records(connector, data) if data is not None else []
+            if data is not None and (row.get("hits") != len(records)
+                                     or row.get("ids") != [identity(r) for r in records]):
+                errors.append("%s row %d is not derived from its capture: hits/ids differ "
+                              "from a re-parse of %s" % (SEARCHES, n, rel))
         if data is not None:
             counted.append(row)
             per_row.append(records)
+    _held(warnings, SEARCHES, older)
     owner = {}
     for records in per_row:
         for rec in records:
