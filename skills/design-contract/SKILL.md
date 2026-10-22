@@ -1,8 +1,8 @@
 ---
 name: design-contract
 description: >
-  Use when building or reviewing UI: design floor, tokens, component states,
-  theme; tasarım, arayüz, bileşen, renk. Not for the running app - use
+  Use when building or reviewing UI: design system, design floor, tokens,
+  component states; tasarım sistemi, arayüz, renk. Not for a live app - use
   `analyze-app`.
 ---
 
