@@ -568,7 +568,11 @@ whole session instead of the turn:
   reaches only a reader with no writing option (`OPTION_FREE`). The loop name is lowercase, so not
   `PATH` or `IFS`. A done/tested claim over such a turn keeps the worked turn's fold. A build
   (`npm run build > log`) is a check, never a read. It records as `verify`, or as `verify_ok` or
-  `verify_fail` when its status shows.
+  `verify_fail` when its status shows. A `set` of shell options (`set -o pipefail;`, `set -eu`)
+  counts as a read, because the contract asks a check line to open with it. A `set` with any other
+  word stays work (`SET_FLAGS`, `SET_NAMES`). `find ... | xargs sh -c '...'` stays work: the
+  reader does not follow a command string into `sh -c`. A command of `DETAIL_MAX` (200) characters
+  or more stays work too, because the ledger cut it and the rest is unread.
 - **A bookkeeping turn after a pass.** A turn whose only rows are read-only or VCS-bookkeeping
   commands ends without a fresh check, as long as nothing but bookkeeping ran after the session's
   newest pass, the session fold above allows it, and the reply makes no external-state claim

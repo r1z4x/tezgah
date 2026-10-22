@@ -407,6 +407,23 @@ class BookkeepingCommand(unittest.TestCase):
                   "git diff --stat >/dev/null", "ls -la src", "git -C sub status"):
             self.assertTrue(ti._bookkeeping_command(c), c)
 
+    # R2 omp-1, verbatim: the contract's own `set -o pipefail;` prefix on a line
+    # of git reads
+    PIPEFAIL_READ = ("set -o pipefail; git status --porcelain; git diff --stat; "
+                     "ls tests/impacted.py node_modules 2>&1; git ls-files")
+
+    def test_a_set_of_shell_options_is_bookkeeping(self):
+        for c in (self.PIPEFAIL_READ, "set -euo pipefail; git log -1",
+                  "set -e; set +e -x; ls", "set -o; cat a", "set +o pipefail; wc -l a"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS), c)
+        # positional words, or an option that changes how the rest is read
+        for c in ("set", "set a b; cat a", "set -- -delete; find . $1",
+                  "set -e x; ls", "set -k; git diff GIT_EXTERNAL_DIFF=./x.sh",
+                  "set +o interactive-comments; ls # ; ./regen.sh",
+                  "set -o posix; ls", "set -o pipefail extra; ls",
+                  "set -o -e; ls", "set -B; ls"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS), c)
+
     def test_a_read_loop_counts_only_where_loops_are_read(self):
         # plan 126: a `for` loop and an unquoted `$( )` read when every command
         # in them reads; the default reader (the claim and settled paths) keeps
@@ -4387,6 +4404,12 @@ class ResidualWork(unittest.TestCase):
                                  "no verify_ok")
                 self.assertEqual(self.verdict(
                     "Dashboard düzeltildi, testler geçti.", rows), "no verify_ok")
+
+    def test_p126_a_pipefail_prefix_keeps_a_read_turn_a_read(self):
+        rows = [{"kind": "run", "exit": 0,
+                 "detail": BookkeepingCommand.PIPEFAIL_READ}]
+        self.assertIsNone(self.verdict(self.ADVICE, rows))
+        self.assertEqual(self.verdict(self.ADVICE, rows + [self.EDIT]), "no verify_ok")
 
     def test_p126_a_build_redirected_to_a_file_is_a_check_not_a_read(self):
         # p14-3's second turn: a build is a check whose `; echo` owns the
