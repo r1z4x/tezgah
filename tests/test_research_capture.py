@@ -984,25 +984,50 @@ class Captures(unittest.TestCase):
         self.assertTrue(any(e.startswith(cap.RECEIPTS) and "append-only" in e
                             for e in errors), errors)
 
-    def test_a_row_of_an_older_parser_is_held_to_its_hash(self):
-        # C9: rows record their parser; an older row is not re-derived
+    def test_reordered_ledger_rows_are_refused(self):
+        # C8: the ledgers' readers depend on order (the latest SOURCES record), so a
+        # reordered ledger is refused like a changed one
+        self.run_cmd("cite", "q")
+        with open(self.at(cap.RECEIPTS)) as fh:
+            lines = fh.read().splitlines()
+        self.assertGreater(len(set(lines)), 1, lines)
+        self.write(self.at(cap.RECEIPTS), "\n".join(reversed(lines)) + "\n")
+        self.wsgit("add", "-A")
+        self.wsgit("commit", "-qm", "reorder")
+        errors, _w, _s = self.check()
+        self.assertTrue(any(e.startswith(cap.RECEIPTS) and "append-only" in e
+                            for e in errors), errors)
+
+    def test_a_row_without_parser_is_re_derived_and_refused(self):
+        # C9: no row is held to its hash on its own say-so
         self.captured()
         self.assertEqual({r.get("parser") for r in self.rows(cap.RECEIPTS)
                           + self.rows(cap.SEARCHES)}, {cap.PARSER})
         old = {k: v for k, v in self.rows(cap.RECEIPTS)[0].items() if k != "parser"}
-        self.append(cap.RECEIPTS, dict(old, first_author="Smith-Jones"),
-                    dict(old, fetched_at="2030-01-01"))
-        # a row with no `parser` whose hits/ids a re-parse no longer gives
+        self.append(cap.RECEIPTS, dict(old, first_author="Smith-Jones"))
         self.raw_search("openalex", json.dumps({"results": [{"id": "https://openalex.org/W3"}]}),
                         n=3)
         errors, warnings, _s = self.check()
-        self.assertFalse([e for e in errors if "not derived" in e], errors)
-        for rel in (cap.RECEIPTS, cap.SEARCHES):
-            held = [w for w in warnings if w.startswith(rel) and "parser 0" in w]
-            self.assertEqual(len(held), 1, warnings)
-        self.append(cap.RECEIPTS, dict(old, first_author="Smith-Jones", parser=cap.PARSER))
+        self.assertTrue(any(e.startswith(cap.RECEIPTS) and "not derived from its capture" in e
+                            for e in errors), errors)
+        self.assertTrue(any(e.startswith(cap.SEARCHES) and "not derived from its capture" in e
+                            for e in errors), errors)
+        self.assertFalse([w for w in warnings if "parser" in w], warnings)
+
+    def test_a_row_naming_a_newer_parser_is_refused(self):
+        # C9: a row a later tezgah wrote is the one `parser` value read
+        self.captured()
+        old = self.rows(cap.RECEIPTS)[0]
+        self.append(cap.RECEIPTS, dict(old, parser=cap.PARSER + 1))
+        search = self.rows(cap.SEARCHES)[0]
+        with open(self.at(search["file"])) as fh:
+            body = fh.read() + " "
+        self.raw_search(search["connector"], body, n=3, hits=search["hits"],
+                        ids=search["ids"], parser=cap.PARSER + 1)
         errors, _w, _s = self.check()
-        self.assertTrue(any("not derived from its capture" in e for e in errors), errors)
+        for rel in (cap.RECEIPTS, cap.SEARCHES):
+            self.assertTrue(any(e.startswith(rel) and "newer than this check's" in e
+                                for e in errors), errors)
 
     def test_cite_records_only_a_200_and_online_compares_only_those(self):
         # C10: a 429 at cite time read as drift once the provider answered

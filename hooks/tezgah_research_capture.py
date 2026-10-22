@@ -19,7 +19,6 @@ Interface (plan 127):
 - engine_runs(state) -> (runs|None, error): `orx runs` scoped by experiment.
 - citation_problem(row) / quote_problem(quote, text) -> str|None: release-check's scorers.
 """
-import collections
 import decimal
 import hashlib
 import html
@@ -81,9 +80,9 @@ LOG_NUMBER = re.compile(r"(?<![\w.])-?(?:[1-9]\d{0,2}(?:,\d{3})+|\d+)(?:\.\d+)?"
 
 NO_REGISTRY = "resolves in no registry"
 NOT_IN_SOURCE = "quote not in the captured source text"
-# The version of the receipt and search parsers (`parse_receipt`, `receipt_ids`,
-# `receipt_urls`, `schema_ok`, `search_records`) a row records as `parser`; a row
-# without it predates the field (version 0). Bump it when a parser's reading changes.
+# The receipt and search parsers' version (`parse_receipt`, `receipt_ids`, `receipt_urls`,
+# `schema_ok`, `search_records`), recorded as a row's `parser` (absent: 0). Every row is
+# re-derived under it; a newer one is refused (`_newer`). A bump adds its own hold.
 PARSER = 1
 # An open-access page is a work's body when its text holds this many distinct
 # sentences of BODY_WORDS or more words: the repository landing pages of K6 rater Y4
@@ -1038,16 +1037,22 @@ def _check_write_once(repo, base, errors):
         current, exc = tr._committed_text(path)
         if not exc:
             versions.append(current)
-        # every row of each version is still in the latest, as a multiset with the order
-        # aside: two branches that appended and merged pass (K6 rater X3's probe-merge).
+        # each version's rows stay in the latest in their order, so two branches that
+        # appended and merged pass (K6 rater X3's probe-merge) and a reorder does not:
+        # the readers take the latest SOURCES record, the first label, the first draw.
         # ponytail: a branch not merged yet reads every row it appended as gone from the
         # latest; ancestry per version pair is the fuller rule.
-        latest = collections.Counter(ln for ln in (versions or [""])[-1].splitlines()
-                                     if ln.strip())
-        if any(collections.Counter(ln for ln in older.splitlines() if ln.strip()) - latest
-               for older in versions[:-1]):
-            errors.append("%s: a row changed or went missing after its first commit; "
+        latest = [ln for ln in (versions or [""])[-1].splitlines() if ln.strip()]
+        if not all(_subsequence([ln for ln in older.splitlines() if ln.strip()], latest)
+                   for older in versions[:-1]):
+            errors.append("%s: a row changed, moved or went missing after its first commit; "
                           "a ledger is append-only" % rel)
+
+
+def _subsequence(rows, latest):
+    """`rows` is a subsequence of `latest`: each in it, in the same order."""
+    rest = iter(latest)
+    return all(row in rest for row in rows)
 
 
 def _ledgers(base):
@@ -1085,30 +1090,30 @@ def _notes_by_id(base):
     return out
 
 
-def _held(warnings, rel, versions):
-    """One warning per ledger naming the parser versions its rows were held under."""
-    if versions:
-        warnings.append("%s: rows of parser version %s are held to their hash alone; this "
-                        "check re-derives parser version %d rows only"
-                        % (rel, ", ".join(sorted(versions)), PARSER))
+def _newer(errors, rel, n, row):
+    """A row naming a parser newer than this one: a later tezgah wrote it, and this
+    check cannot re-derive it. The row's `parser` is read for this alone: an older
+    or missing one is re-derived under this parser like any other row."""
+    version = row.get("parser", 0)
+    if isinstance(version, int) and version > PARSER:
+        errors.append("%s row %d names parser version %d, newer than this check's %d: "
+                      "a later tezgah wrote it, so it is not derived here"
+                      % (rel, n, version, PARSER))
+        return True
+    return False
 
 
 def _check_receipts(slug, base, claims, errors, warnings, steps, report, online):
     # a receipt is judged for an id the INDEX holds now: a corrected id, cited again,
     # leaves the old id's rows in the append-only ledger unjudged
     held = {norm_id(r.get("id")) for r in _rows(base, INDEX) if r.get("class") == "formal"}
-    parsed, older = [], set()
+    parsed = []
     for n, row in enumerate(_rows(base, RECEIPTS), 1):
         rid, provider = norm_id(row.get("id")), row.get("provider")
         data = _read(base, row.get("file")) if row.get("file") else b""
         if data is None or not rid or rid not in held:
             continue
-        if row.get("parser", 0) != PARSER:
-            # another parser's row is held to its hash (`_check_ledger_files`) and counts
-            # as it was recorded: a re-parse under this parser would refuse it for good
-            older.add(str(row.get("parser", 0)))
-            got = {k: row.get(k) for k in ("resolved", "title", "first_author", "year")}
-            parsed.append((row, rid, dict(got, id=rid)))
+        if _newer(errors, RECEIPTS, n, row):
             continue
         got = parse_receipt(provider, rid, row.get("status"), data)
         wrong = [k for k in ("resolved", "title", "first_author", "year") if got[k] != row.get(k)]
@@ -1135,7 +1140,6 @@ def _check_receipts(slug, base, claims, errors, warnings, steps, report, online)
                                         url))
                 continue
         parsed.append((row, rid, got))
-    _held(warnings, RECEIPTS, older)
     for row in _rows(base, INDEX):
         if row.get("class") != "formal":
             continue
@@ -1345,7 +1349,7 @@ def _stopping_first(repo, base):
 
 def _check_searches(repo, slug, base, state, claims, errors, warnings, steps, report, git):
     rows = _rows(base, SEARCHES)
-    per_row, counted, backs, older = [], [], {}, set()
+    per_row, counted, backs = [], [], {}
     for n, row in enumerate(rows, 1):
         connector, rel = row.get("connector"), row.get("file")
         # only a row whose file is a search capture, backing no earlier row, counts
@@ -1364,12 +1368,8 @@ def _check_searches(repo, slug, base, state, claims, errors, warnings, steps, re
             errors.append("%s row %d names %r: connector not on the allowlist"
                           % (SEARCHES, n, connector))
             data = None
-        if data is not None and row.get("parser", 0) != PARSER:
-            # another parser's row is held to its hash and counts as it was recorded; its
-            # records are read where this parser still reads the capture
-            older.add(str(row.get("parser", 0)))
-            records = (search_records(connector, data) if schema_ok(connector, data) else []) \
-                or [[i] for i in row.get("ids") or () if isinstance(i, str)]
+        if data is not None and _newer(errors, SEARCHES, n, row):
+            data = None
         elif data is not None and not schema_ok(connector, data):
             errors.append("%s row %d is not derived from its capture: %s does not parse as a "
                           "%s response" % (SEARCHES, n, rel, connector))
@@ -1383,7 +1383,6 @@ def _check_searches(repo, slug, base, state, claims, errors, warnings, steps, re
         if data is not None:
             counted.append(row)
             per_row.append(records)
-    _held(warnings, SEARCHES, older)
     owner = {}
     for records in per_row:
         for rec in records:
