@@ -308,6 +308,21 @@ class ShippedHintPrecision(unittest.TestCase):
                                              "s1", roots=self.ROOTS))
 
 
+class ShippedHintRecall(unittest.TestCase):
+    """The owner's run-the-app ask earns the analyze-app hint. S4 p03 covered 3
+    of the 6 words the shipped corpus knows (uygulama, ekran, tarayıcı) and the
+    bar asks for 4, so Claude, which lists the skill by name only, opened it on
+    0 of 3 runs (Z3ClaudeReach)."""
+
+    setUp = ShippedHintPrecision.setUp
+
+    def test_the_run_and_open_the_app_ask_names_analyze_app(self):
+        prompt = ("Uygulamayı çalıştır ve dashboard ekranını gerçekten aç; "
+                  "tarayıcıda ne görünüyorsa, durumlarıyla birlikte onu incele.")
+        line = sp.section_hint(prompt, "s1", roots=ShippedHintPrecision.ROOTS)
+        self.assertIn("skill://analyze-app:", line)
+
+
 class CacheHome(FixtureTree):
     """The fixture tree as the machine's only skill roots, and a private cache
     dir, so the cached path runs without touching the real index."""
