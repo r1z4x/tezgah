@@ -151,6 +151,53 @@ no line. Cite each finding's source with a confidence. The host-subagent fallbac
 gets the question, its scope and its method in its brief. The research skill's
 "Scope and method" section is the long form.
 
+## Variants of the deliverable
+
+`state.json` `deliverable` names what the line delivers. Its `kind` is `design`,
+`plan`, `code`, `analysis` or `finding`
+(`hooks/tezgah_research.py::DELIVERABLE_KINDS`). A design or plan takes 3 compared
+variants by default and code takes 2 (`hooks/tezgah_research.py::deliverable_problems`).
+On a rules-5 line an analysis and a finding take none. `min_variants` changes the
+count. A count below the default needs `single_variant_reason`, which says why
+the line weighed no alternative. `check` compares any decision across at least 2
+produced variants (`hooks/tezgah_research.py::_check_decisions`).
+
+One comparison lives in `decisions/<id>/`, and one loader reads its files
+(`hooks/tezgah_research.py::load_decision`):
+
+| File | What it holds |
+|---|---|
+| `criteria.json` | `criteria`: a list of `{id, kind, direction}`, with `kind` `measured` or `judged` and `direction` `max`, `min` or `pass`. `baseline_variant`: the id of the status-quo variant in `variants.jsonl` |
+| `variants.jsonl` | one `{id, status}` row per variant. A `produced` variant names its `artifact`: a file in the line or the repository, `git:<rev>` or `orx:<id>`. A `dropped` one gives `drop_reason` |
+| `comparison.jsonl` | one cell per variant and criterion, written by `compare` |
+| `decision.md` | the choice and why the others lost |
+
+Write and commit `criteria.json` and `variants.jsonl` before the first cell. Then
+record each cell with `tezgah-research compare <slug> <decision>`, one JSON object
+on stdin (`hooks/tezgah_research.py::append_comparison`). A cell names a produced
+`variant` and a defined `criterion`. It carries either a `value` with its `source`,
+or `not_checked` with the reason. A cell source has to resolve in the line or the
+repository. An optional `rater` names who judged it
+(`hooks/tezgah_research.py::comparison_problems`). The writer and `check` apply
+this same rule.
+
+`check` reads the whole decision
+(`hooks/tezgah_research.py::_check_decision`):
+
+- `check` refuses two produced variants that are the same file.
+- A matrix cell neither measured nor marked `not_checked` warns. It refuses once
+  `decision.md` exists or the line concludes.
+- A judged cell with fewer than two distinct raters warns.
+- The criteria have to enter the history before the first cell, and
+  `comparison.jsonl` only grows.
+- `decision.md` names a produced variant on a `chosen: <id>` line.
+- Each other produced variant shares a line of `decision.md` with a criterion id
+  that ruled it out. Else: `rejects <id> on no criterion`.
+- `decision.md` has a `flip:` line, the result that would reverse the choice.
+- When every criterion is `max` or `min` and scored, no produced variant may
+  dominate the chosen one. A dominating variant is at least as good on every
+  criterion and better on one (`hooks/tezgah_research.py::dominated_by`).
+
 ## One line, one directory
 
 | Path | Holds |
