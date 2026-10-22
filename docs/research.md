@@ -940,7 +940,10 @@ id resolves through its own registry alone, so it takes the step `one-provider`
 prints `no formal row with an arXiv, DOI, OpenAlex or Semantic Scholar id to cite`.
 It exits 0 even when nothing resolves, because judging the receipts is `check`'s
 job (`hooks/tezgah_research_capture.py::cmd_cite`). The INDEX may write an id as a bare DOI
-such as `10.1145/abc.1` (`hooks/tezgah_research_capture.py::norm_id`). `check`
+such as `10.1145/abc.1`. It may also write a bare arXiv id in new or old style
+(`1805.08612`, `hep-th/9901001`) or an `arxiv.org` abs, pdf or html URL. Each
+reads as `doi:` or `arXiv:<id>`. A JSON number is never an id
+(`hooks/tezgah_research_capture.py::norm_id`). `check`
 reads the receipts offline and judges only those for an id the INDEX holds now
 (`hooks/tezgah_research_capture.py::_check_receipts`):
 
@@ -1063,12 +1066,32 @@ refuses before writing anything when it finds none:
 `the evaluation lock is not committed: no committed state.json holding the metric and the baseline precedes this capture`.
 The message names the way out, `tezgah-research commit <slug> "<message>"`. An
 exploratory line and a line with no `evaluation` are exempt, as in `check`
-(`hooks/tezgah_research.py::_orders_lock`). The row
-names `run`, the arm, the item and each value as a number. `--instrument <name>`
-writes `instrument`, `arm` and `item`, so `gold` and `label` work on the runs
-`source` records. When the line names an orx project the row also holds the
-engine's `status`. A value matches a logged number by numeric equality, so `1.5`
-matches `1.50`. A value with no equal number in the stored log exits 1 with
+(`hooks/tezgah_research.py::_orders_lock`). On a rules-8 line it also refuses
+before writing when the experiment's `protocol.md` is not committed
+(`experiments/<h>/protocol.md is not committed`), or carries an invalid record
+(`experiments/<h>/protocol.md carries an invalid record`). Both messages name
+`tezgah-research commit` as the way out and end `nothing was written`.
+
+`orx logs` may print a summary in place of the log: the path to the full log
+file and its size. `source` then reads that file and checks its size against the
+count orx printed (`hooks/tezgah_research.py::_full_log`). It stores the whole
+log, up to 16 MiB (`hooks/tezgah_research.py::RUN_LOG_BOUND`). Four messages
+refuse a log it cannot hold:
+
+- `printed the log's path without its size`
+- `bytes, above the <bound>-byte bound a receipt is committed under`
+- `cannot read the log orx logs <run> names`
+- `the run is still writing it or it changed since`
+
+The row names `run`, the arm, the item and each value as a number.
+`--instrument <name>` writes `instrument`, `arm` and `item`, so `gold` and
+`label` work on the runs `source` records. When the line names an orx project
+the row also holds the engine's `status`. `source` matches `--value` against the
+whole log, by one number reader (`hooks/tezgah_research_capture.py::log_numbers`). It
+reads thousands separators, so `12,345` is 12345, and exponents such as
+`1.2e-3`, which `--value k=1.2e-3` also accepts. A value matches a logged number
+by numeric equality, so `1.5` matches `1.50`. A value with no equal number in the
+stored log exits 1 with
 `value not in the run log (orx logs <run> holds no number equal to <v>)`. A
 reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
 `fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
@@ -1216,6 +1239,9 @@ The structured form
 `below`, `less than`, `more than`, `fewer than`, `greater than`, `exceed`,
 `exceeds`, `under` or `over` (`hooks/tezgah_research.py::FALSIFIER_OPS`). It
 fires when the mean of the field over the group's rows meets the comparison. A
+falsifier with no `on <group>` over an experiment of several groups is not
+evaluated, and its claims take `falsifier-not-evaluable`
+(`hooks/tezgah_research.py::falsifier_unscoped`). A
 `supported` claim citing an experiment whose falsifier fired fails with
 `while its falsifier fired` (`hooks/tezgah_research.py::fired_problems`). A
 prediction equal to its falsifier still fails with `say the same thing`.
@@ -1248,11 +1274,14 @@ The protocol's other lines bind the analysis
   `not_reported: <metric>: <reason>` line. Else: `neither reported nor marked not_reported`.
   A registered metric that refines the locked one counts as reported when the
   report names the locked metric. It refines it when it equals the locked metric
-  or starts with the locked name and a space.
+  or starts with the locked name and a space. The match collapses whitespace in
+  the report, so a name wrapped across lines still counts.
 - A `metric:` list must hold the locked metric. Else:
   `metric other than the locked one`.
 - `evaluator: <path> [sha256:<hex>]` pins the scoring file to its bytes at the
-  protocol's first commit. Else: `evaluator file changed after lock`.
+  protocol's first commit. `check` compares an evaluator in the project
+  repository with its last version before that commit
+  (`hooks/tezgah_research.py::_check_evaluator`). Else: `evaluator file changed after lock`.
 - `select: min|max <field>` picks the group with the lowest or highest mean, and
   `analysis.md` names it as `selected: <group>`. `check` refuses a different pick
   with `select rule picks`. A missing `selected:` line warns
@@ -1271,7 +1300,10 @@ commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
   gold sample. It sorts the arm's items by `sha256("<S>:<a>:<item>")` and keeps
   the first N (`hooks/tezgah_research_evidence.py::seeded_draw`). The first draw
   per instrument and arm is the one every rule reads. A draw once the arm has
-  labels exits 1 with `gold draw after labels`. `check` refuses a gold file that
+  labels exits 1 with `gold draw after labels`. A draw over results rows that are
+  not committed exits 1 with `has results rows that are not committed`, names
+  `tezgah-research commit` and writes nothing
+  (`hooks/tezgah_research_evidence.py::cmd_gold`). `check` refuses a gold file that
   is not its seed's draw: `differs from the seeded draw`. It also refuses a GOLD
   row that disagrees with its file on instrument, arm, seed or n:
   `<file> differs from the seeded draw: its GOLD row names <i> arm <a> seed <s> n <n>, the file <i> arm <a> seed <s> n <n>`
