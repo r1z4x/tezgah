@@ -443,7 +443,8 @@ class OpenCodePlugin(TempHome):
                     "shell_lines": "#x" not in "\n".join(got[len(prefixes) + k]["lines"]),
                     "mask": "#x" not in got[len(prefixes) + k]["mask"]}
             self.assertEqual(seen, dict.fromkeys(seen, comment), repr(prefix))
-        review = list(bash_vectors.CONTINUATION_LINES)
+        # and one inside double quotes, which bash deletes too
+        review = list(bash_vectors.CONTINUATION_LINES) + ['cat "a\\\nb"']
         for line, js in zip(review, self.js_readers(review)):
             self.assertEqual(js["segments"], ti._shell_segments(line), repr(line))
             self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
