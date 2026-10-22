@@ -4017,5 +4017,39 @@ class ExtensionRepoRule(TempHome):
                                                      "repo_root", "session_id", "tool"])
 
 
+class ShellCommentRule(unittest.TestCase):
+    """One continuation and word-start comment rule (`ti._opens_comment`,
+    `ti.CONTINUATION`) for every shell reader: review of plan 126, round 3h."""
+
+    def test_the_prefixes_are_what_bash_reads(self):
+        # bash_vectors.COMMENT_PREFIXES held to the bash on PATH: the command
+        # after the `#` runs exactly when the `#` opens no comment
+        for prefix, comment in bash_vectors.COMMENT_PREFIXES:
+            with tempfile.TemporaryDirectory() as tmp:
+                subprocess.run([bash_vectors.bash(), "-c", prefix + "#;touch hit"],
+                               cwd=tmp, stdin=subprocess.DEVNULL, capture_output=True,
+                               timeout=10)
+                ran = os.path.exists(os.path.join(tmp, "hit"))
+            self.assertEqual(ran, not comment, repr(prefix))
+
+    def test_every_reader_opens_a_comment_where_bash_does(self):
+        for prefix, comment in bash_vectors.COMMENT_PREFIXES:
+            seen = {"heredocs": not ti._heredocs(prefix + "#<<E\nb\nE\n"),
+                    "shell_read": not ti._shell_read(prefix + "#>f")[0],
+                    "shell_lines": "#x" not in "\n".join(ti._shell_lines(prefix + "#x")),
+                    "mask": "#x" not in ti.mask(prefix + "#x"),
+                    "shell_words": not any("#x" in w for w, _op in
+                                           tg._shell_words(prefix + "#x"))}
+            self.assertEqual(seen, dict.fromkeys(seen, comment), repr(prefix))
+
+    def test_the_control_plane_reader_follows_the_rule(self):
+        target = os.path.join(tg.CONFIG_DIR, "verify-off")
+        for c in ("cat x\\ #;touch %s", "cat x\\\n#;touch %s", "cat x\r#;touch %s",
+                  "cat a\\\\\ntouch %s", "cat x\\ #>%s", "tou\\\nch %s",
+                  "echo `true`#;touch %s", "echo `#x`;touch %s"):
+            self.assertIsNotNone(tg.shell_control(c % target, "/tmp"), repr(c))
+        self.assertIsNone(tg.shell_control("cat x # c\\\n", "/tmp"))
+
+
 if __name__ == "__main__":
     unittest.main()

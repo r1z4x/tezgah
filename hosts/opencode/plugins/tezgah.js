@@ -372,13 +372,23 @@ function heredocBytes(text) {
   return out
 }
 
+// hooks/tezgah_integrity WORD_BREAKS, CONTINUATION and _opens_comment, the one
+// rule every shell reader here asks: a `#` opens a comment only at a word's
+// start (`prev` is the character bash kept before it, "" at the start, a
+// non-break for an escaped or quoted one), and a `\<newline>` outside single
+// quotes and comments is no character - bash deletes it and joins the words
+const WORD_BREAKS = " \t\n;&|()<>"
+const CONTINUATION = "\\\n"
+function opensComment(prev) { return !prev || WORD_BREAKS.includes(prev) }
+
 // The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
 // inside quotes, each one in a heredoc body, every one inside a double-quoted
-// `$( )`/backtick; a comment dropped to its line end; a quote left open goes
-// back to a split at every newline from its line on.
+// `$( )`/backtick; a CONTINUATION deleted outside single quotes (kept in
+// `$'...'`); a comment (opensComment) dropped to its line end; a quote left
+// open goes back to a split at every newline from its line on.
 function shellLines(text) {
   const body = heredocBytes(text)
-  let lines = [], cur = "", quote = null, start = true, i = 0, opened = 0, runs = false
+  let lines = [], cur = "", quote = null, prev = "", i = 0, opened = 0, runs = false
   let dollar = false  // the character before i was a `$` bash read unescaped
   const n = text.length
   while (i < n) {
@@ -386,27 +396,33 @@ function shellLines(text) {
     if (body[i] || ((!quote || runs) && (ch === "\r" || ch === "\n"))) {
       if (ch === "\r" || ch === "\n") {
         lines.push(cur)
-        cur = ""; quote = null; start = true; runs = false; dollar = false
-        i += text.slice(i, i + 2) === "\r\n" ? 2 : 1
+        cur = ""; quote = null; runs = false; dollar = false
+        const step = text.slice(i, i + 2) === "\r\n" ? 2 : 1
+        // a lone `\r` is no word break to bash: the split shows more
+        prev = text[i + step - 1]; i += step
       } else { cur += ch; i += 1 }
       continue
     }
     if (quote) {
       if (ch === "\\" && quote !== "'" && i + 1 < n) {
-        cur += text.slice(i, i + 2); i += 2; continue
+        if (quote !== '"' || !text.startsWith(CONTINUATION, i)) cur += text.slice(i, i + 2)
+        i += 2; continue
       }
       if (ch === quote[quote.length - 1]) { quote = null; runs = false }
       else if (quote === '"' && (ch === "`" || text.startsWith("$(", i))) runs = true
     } else if (ch === "\\" && i + 1 < n) {
-      cur += text.slice(i, i + 2); i += 2; start = false; dollar = false; continue
-    } else if (ch === "#" && start) {
+      if (!text.startsWith(CONTINUATION, i)) {
+        cur += text.slice(i, i + 2); prev = "_"; dollar = false
+      }
+      i += 2; continue
+    } else if (ch === "#" && opensComment(prev)) {
       while (i < n && text[i] !== "\r" && text[i] !== "\n") i += 1
       continue
     } else if (ch === "'" || ch === '"') {
       quote = ch === "'" && dollar ? "$'" : ch
       opened = lines.length
     }
-    start = !quote && (/\s/.test(ch) || ";&|()<>".includes(ch))
+    prev = quote || ch === "'" || ch === '"' ? "_" : ch
     dollar = !quote && ch === "$"
     cur += ch
     i += 1
@@ -424,7 +440,7 @@ function shellLines(text) {
 // it goes on after its close with a `$()` word in its place.
 function shellCommands(cmd) {
   const out = []
-  const text = blankHeredocs(String(cmd || "")).replace(/\\\n/g, "  ")
+  const text = blankHeredocs(String(cmd || ""))
   for (const line of shellLines(text).map(forShlex)) {
     const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
     // a redirection is not an argument and not a command: its words (the fd
@@ -680,16 +696,23 @@ function closes(cmd, pos, tag, strip, message) {
 // safe]. Only a safe one is ever blanked.
 function heredocs(cmd) {
   const n = cmd.length, found = []
-  let pending = [], i = 0, quote = null, depth = 0, sure = true, lineStart = 0
+  let pending = [], i = 0, quote = null, depth = 0, sure = true, lineStart = 0, last = ""
   while (i < n) {
     const ch = cmd[i]
+    // `last` is the character bash kept before `ch` (_heredocs)
+    const before = last
+    last = "_"
     if (quote === "'" || quote === "$'") {
       if (ch === "\\" && quote === "$'") { i += 2; continue }
       if (ch === "'") quote = null
       i++
       continue
     }
-    if (ch === "\\") { i += 2; continue }
+    if (ch === "\\") {
+      if (cmd.startsWith(CONTINUATION, i)) last = before
+      i += 2
+      continue
+    }
     if (quote === '"') {
       if (ch === '"') quote = null
       else if (riskAt(cmd, i)) sure = false
@@ -697,7 +720,7 @@ function heredocs(cmd) {
       continue
     }
     if (ch === "\n") {
-      if (!pending.length) { lineStart = i + 1; i++; continue }
+      if (!pending.length) { lineStart = i + 1; last = ch; i++; continue }
       let pos = i + 1
       for (const [start, stop, tag, quoted, strip, safe0] of pending) {
         const [term, resume] = closes(cmd, pos, tag, strip, false)
@@ -711,7 +734,7 @@ function heredocs(cmd) {
       pending = []
       continue
     }
-    if (ch === "#" && (i === 0 || " \t\n;&|()<>".includes(cmd[i - 1]))) {
+    if (ch === "#" && opensComment(before)) {
       const end = cmd.indexOf("\n", i)
       i = end < 0 ? n : end
       continue
@@ -730,7 +753,7 @@ function heredocs(cmd) {
       continue
     }
     if (ch === "'" || ch === '"') { quote = ch; i++; continue }
-    if (cmd.startsWith("<<<", i)) { i += 3; continue }
+    if (cmd.startsWith("<<<", i)) { i += 3; last = "<"; continue }
     if (cmd.startsWith("<<", i)) {
       let j = i + 2
       const strip = j < n && cmd[j] === "-"
@@ -751,6 +774,7 @@ function heredocs(cmd) {
     if (riskAt(cmd, i)) sure = false
     if ("([{".includes(ch)) depth++
     else if (")]}".includes(ch)) depth--
+    last = ch
     i++
   }
   for (const [s, e, t, q] of pending) found.push([s, e, t, q, n, null, false])
@@ -790,7 +814,12 @@ function maskText(raw) {
     const ch = text[i]
     let end
     if (body[i]) { i += 1; start = true; prev = ""; continue }
-    if (ch === "\\") { i += 2; start = false; prev = ""; continue }
+    if (ch === "\\") {
+      // a CONTINUATION is no character: the word state before it goes on
+      if (!text.startsWith(CONTINUATION, i)) { start = false; prev = "" }
+      i += 2
+      continue
+    }
     if (ch === "'" || ch === '"') {
       const escapes = ch === '"' || prev === "$"
       end = i + 1
@@ -800,7 +829,7 @@ function maskText(raw) {
       end = text.indexOf("\n", i)
       if (end < 0) end = n
     } else {
-      start = /\s/.test(ch) || ";&|()<>".includes(ch)
+      start = opensComment(ch)
       prev = ch
       i += 1
       continue
@@ -2224,7 +2253,8 @@ function shellWords(line) {
   }
   while (i < text.length) {
     const c = text[i]
-    if (/\s/.test(c)) { push(); i += 1; continue }
+    // shlex's whitespace: a non-breaking space is part of a word, as in bash
+    if (" \t\r\n".includes(c)) { push(); i += 1; continue }
     if (";&|()<>".includes(c)) {
       push()
       let run = c

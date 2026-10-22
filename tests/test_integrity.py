@@ -446,6 +446,126 @@ class BookkeepingCommand(unittest.TestCase):
                   'echo "$(rm x)"', "echo `rm x`", "for", "done x", "sudo"):
             self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
+    def test_a_value_bash_evaluates_is_not_a_read(self):
+        # review 126 round 3, P1, verbatim: bash evaluates the loop word as
+        # arithmetic in `$[x]` and `${a[x]}` and runs the `$( )` in it (pwned1,
+        # pwned2 and pwned4 were created in a bash 5.2 sandbox)
+        for c in ("for x in 'a[$(touch pwned1)]'; do echo $[x]; done",
+                  "for x in 'a[$(touch pwned2)]'; do echo ${a[x]}; done",
+                  "for x in 'a[$(touch pwned3)]'; do cat ${f:x}; done",
+                  "for x in 'a[$(touch pwned4)]'; do head -n $[x] README; done",
+                  'for x in a; do echo "$[x]"; done', "for x in a; do echo $((x)); done",
+                  "for x in a; do cat ${!x}; done", "for x in a; do cat ${#x}; done",
+                  "for x in a; do cat $x[1]; done", "echo $(( ls ))",
+                  "for f in x; do find . {-delete,}; done"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_function_definition_is_not_a_read(self):
+        # review 126 round 3, P1, verbatim: the body takes its options from
+        # the call (`junk.x` deleted, src/app.py sorted over itself in bash)
+        for c in ("cat() { find . -name x $1; }; cat -delete",
+                  "cat() { sort $1 $2 $3; }; cat -o src/app.py src/app.py",
+                  "cat() ( find . $1 ); cat -delete", "ls () { cat a; }",
+                  "function cat { find . $1; }; cat -delete",
+                  "function cat ( find . $1 ); cat -delete"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+            self.assertFalse(ti._bookkeeping_command(c), c)
+        # a positional parameter is a value this reader never sees
+        for c in ("if true; then find . $1; fi", "{ find . $@; }", "{ sort ${1} a; }"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_brace_list_or_an_operator_expansion_is_not_a_read(self):
+        # review 126 round 3, pre-existing at 1d99f95: each word becomes an
+        # option that writes, in the default reader too
+        for c in ("find . -name '*.pyc' {-delete,-print}",
+                  "sort {-o,src/app.py} src/app.py",
+                  "git diff {--output=src/app.py,HEAD}",
+                  "find . -name '*.pyc' ${x:--delete}", "find . ${x:=-delete}",
+                  'find . "${x:--delete}"', "ls {a..c}", "ls x{'a',b}"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS), c)
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        # quoted braces, a plain expansion and git's `@{u}` stay reads
+        for c in ("cat '{a,b}' \"x{1,2}\" $HOME \"${HOME}\" $?",
+                  "git log --oneline @{u}..HEAD", "grep -n '$[a-z]{2,}' f",
+                  "awk '{print $1}' f", "jq '{a, b}' f"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS), c)
+
+    def test_a_loop_name_zsh_ties_to_a_setting_is_not_a_read(self):
+        # review 126 round 3, P3: zsh's `path` is PATH (`command not found:
+        # cat` after `for path in /nonexistent`), and its list grows per module
+        for c in ("for path in .; do cat a; done", "for fpath in .; do cat a; done",
+                  "for status in a; do cat a; done", "for file in a; do cat $file; done"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        self.assertTrue(ti._bookkeeping_command("for f in a; do cat $f; done",
+                                                ti.GIT_READS, loops=True))
+
+    def test_a_brace_list_nesting_a_dollar_or_braces_is_not_a_read(self):
+        # review of plan 126: `{-delete,${x}-print}` expands to `-delete` in bash
+        # and zsh, and deleted files in a sandbox while it read as bookkeeping
+        for c in ("find . -name '*.pyc' {-delete,${x}}", "find . {-delete,{}}",
+                  "sort {-o,${x}src/app.py} src/app.py",
+                  "git diff {--output=src/app.py,${x}HEAD}", "rg --files {--pre=./x,${x}.}"):
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in ("git log @{u}..HEAD", "echo '{a,b}'", "jq '{a, b}' f"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_quoted_dollar_one_is_not_a_positional_parameter(self):
+        # `$1` inside single quotes is awk's or grep's text, not a value the shell
+        # binds; an unquoted or double-quoted one still is
+        for c in ("if true; then awk '{print $1}' f; fi",
+                  "{ jq '.a' f; git show $x; } ; grep '$1' g",
+                  "echo $'it\\'s'; awk '{print $1}' f",
+                  "cat a # it's\nawk '{print $1}' f",
+                  "cat <<'E'\nit's\nE\nawk '{print $1}' f"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        # review of plan 126: an apostrophe in `$'..'`, a comment or a quoted
+        # heredoc body once hid the unquoted `$1` after it
+        for c in ("cat() { find . -name x $1; }; cat -delete",
+                  'if true; then find . "$1"; fi',
+                  'if true; then find . "don\'t" $1 \'x\'; fi',
+                  "if true; then find . \\' $1 \\'; fi",
+                  "if true; then find . $'\\'' $1; fi",
+                  "sort $'\\'' $1 src/app.py",
+                  "cat a # it's\nfind . $1",
+                  "cat <<'E'\nit's\nE\nfind . $1"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_an_escaped_boundary_or_a_line_continuation_hides_nothing(self):
+        # review of plan 126: bash deletes `\<newline>` (so `$\<nl>1` is `$1`), and a
+        # `#` after an escaped space is mid-word, not a comment; both once hid a
+        # positional, a substitution or a redirect from the reader
+        for c in ("if true; then find . $\\\n1; fi", 'if true; then find . "$\\\n1"; fi',
+                  "if true; then find . x\\ #$1\nfi"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        for c in ("cat x\\ #$(touch pwn4)", "cat x\\ #>pwn6", "cat x\\;#>pwn6"):
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in ("cat a # a comment > not a redirect", "cat a\\\n  b"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_continuation_joins_words_and_a_mid_word_hash_is_no_comment(self):
+        # review of plan 126 (round 3h): bash deletes a `\<newline>` and joins the
+        # words around it, but after an escaped backslash the newline is real
+        # and starts a command; a `#` after `\ `, `\;`, `\<newline>`, a `\r` or a
+        # non-breaking space is mid-word, so the heredoc or command after it runs
+        for c in bash_vectors.CONTINUATION_LINES:
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        self.assertEqual(ti._shell_segments("find . -de\\\nlete"), [["find", ".", "-delete"]])
+        self.assertEqual(ti._shell_segments("cat a\\\\\nrm -rf v"),
+                         [["cat", "a\\"], ["rm", "-rf", "v"]])
+        self.assertEqual(ti._shell_segments('cat "a\\\nb"'), [["cat", "ab"]])
+        # a comment is not continued, and a continuation before a word start
+        # leaves the `#` a comment
+        for c in ("cat a \\\n  b", "cat \\\n# c", "cat a # c\\", "cat a # note\\\n"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        self.assertFalse(ti._bookkeeping_command("cat a # c\\\nrm -rf v", ti.GIT_READS))
+        # the masked text every shortcut rule reads asks the same rule
+        for c in ("true x\r#;git commit --no-verify -m m",
+                  "true x\xa0#;git commit --no-verify -m m"):
+            self.assertIsNotNone(ti.shortcut_command(c), repr(c))
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):
@@ -4404,6 +4524,18 @@ class ResidualWork(unittest.TestCase):
                                  "no verify_ok")
                 self.assertEqual(self.verdict(
                     "Dashboard düzeltildi, testler geçti.", rows), "no verify_ok")
+
+    def test_p126_review_bypasses_end_no_advice_turn(self):
+        # review 126 round 3, verbatim: each one wrote in bash, and each ended
+        # the advice turn with no check
+        for cmd in ("for x in 'a[$(touch pwned1)]'; do echo $[x]; done",
+                    "cat() { find . -name x $1; }; cat -delete",
+                    "cat() { sort $1 $2 $3; }; cat -o src/app.py src/app.py",
+                    "cat() ( find . $1 ); cat -delete", "find . {-delete,-print}",
+                    "find . ${x:--delete}", "for path in .; do cat a; done"):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.verdict(self.ADVICE, [
+                    {"kind": "run", "exit": 0, "detail": cmd}]), "no verify_ok")
 
     def test_p126_a_pipefail_prefix_keeps_a_read_turn_a_read(self):
         rows = [{"kind": "run", "exit": 0,
