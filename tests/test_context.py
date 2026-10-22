@@ -812,6 +812,12 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true"])
         self.assertEqual(programs("SKIP=1 true || x; cat"), ["true", "cat"])
         self.assertEqual(programs("p0 || ls"), ["p0", "ls"])
+        self.assertEqual(programs("true x || p1 || curl"), ["true"])
+        # when the `&&` arm itself never ran, the pipeline's status is the
+        # failed list's, so the `||` arm after it does run
+        self.assertEqual(programs("j\
+2 && pytest | true || cat"),
+                         ["j2", "pytest", "true", "cat"])
 
     def test_the_fuzzers_three_program_classes_are_closed(self):
         # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a

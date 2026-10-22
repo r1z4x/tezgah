@@ -460,7 +460,8 @@ class OpenCodePlugin(TempHome):
         # plan 129: a `||` arm behind `true` runs in neither oracle run, and
         # both sides drop it
         review = ["pytest |\\\n| true || p1", "p0 | true || j2 && j3",
-                  "SKIP=1 true || x; cat", "p0 || ls"]
+                  "SKIP=1 true || x; cat", "p0 || ls",
+                  "j\\\n2 && pytest | true || cat", "true x || p1 || curl"]
         for line, js in zip(review, self.js_readers(review)):
             self.assertEqual(js["programs"], tc.shell_programs(line), repr(line))
         self.assertEqual(tc.shell_programs("pytest |\\\n| true || p1"),

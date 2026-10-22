@@ -2432,21 +2432,31 @@ function shellPrograms(command, depth = 0) {
   // list its last stage's status, as bash's exit is the pipeline's last.
   const out = []
   let alive = true
-  let ok = false
+  let safe = true
+  let pipe = false
   for (const [words, sep] of shellCommands(text.join(""))) {
+    let progs = null
     if (alive) {
-      const progs = commandWords(words, depth)
+      progs = commandWords(words, depth)
       out.push(...progs)
-      const this_ = progs.length > 0 && NO_FAIL.has(progs[0])
-      ok = sep.includes("&&") ? ok && this_ : sep.includes("|") ? this_ : ok
     }
+    // a pipeline stage's own status is overwritten by the stage after it, so
+    // only the stage that ends the pipeline folds into `safe`; a stage that
+    // was skipped leaves the list's own status standing (a skipped `&&` arm
+    // is why `a && b | true || c` still runs `c` when `a` fails)
+    if (sep.includes("|") && !sep.includes("||")) {
+      pipe = true
+      continue
+    }
+    if (alive) safe = safe && progs.length > 0 && NO_FAIL.has(progs[0])
+    pipe = false
     // the separator decides the NEXT command, so it is read after this one
     if (sep.includes("||")) {
-      alive = !ok
-      ok = false
+      alive = !safe
+      safe = true
     } else if (sep.includes(";") || sep.includes("\n") || sep === "&" || sep === "") {
       alive = true
-      ok = false
+      safe = true
     }
   }
   return out

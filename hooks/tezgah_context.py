@@ -2540,19 +2540,26 @@ def shell_programs(command, _depth=0):
     # `a && b || c` runs `c` when `a` fails, so a `||` arm is dead only when
     # every link before it cannot fail. A builder (`|`, not `||`) hands the
     # list its last stage's status, as bash's exit is the pipeline's last.
-    out, alive, ok = [], True, False
+    out, alive, safe, pipe = [], True, True, False
     for words, sep in _shell_commands("".join(text)):
         if alive:
             progs = _command_words(words, _depth)
             out += progs
-            this = bool(progs) and progs[0] in NO_FAIL
-            ok = ok and this if "&&" in sep else this if "|" in sep else ok
+        # a pipeline stage's own status is overwritten by the stage after it,
+        # so only the stage that ends the pipeline folds into `safe`; a stage
+        # that was skipped leaves the list's own status standing (a skipped
+        # `&&` arm is why `a && b | true || c` still runs `c` when `a` fails)
+        if "|" in sep and "||" not in sep:
+            pipe = True
+            continue
+        if alive:
+            safe = safe and bool(progs) and progs[0] in NO_FAIL
+        pipe = False
         # the separator decides the NEXT command, so it is read after this one
         if "||" in sep:
-            alive = not ok
-            ok = False
+            alive, safe = not safe, True
         elif ";" in sep or "\n" in sep or sep == "&" or sep == "":
-            alive, ok = True, False
+            alive, safe = True, True
     return out
 
 
