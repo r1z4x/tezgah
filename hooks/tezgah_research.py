@@ -1256,7 +1256,7 @@ def _check_findings(base, errors, warnings, strict):
     missing = [s for s in FINDINGS_SECTIONS if ("## " + s) not in text]
     if missing:
         errors.append("findings.md does not answer: %s" % ", ".join(missing))
-    _check_patterns(text, errors, warnings, strict)
+    _check_patterns(text, errors, warnings, strict, _evidence(_state(base)))
 
 
 PATTERNS_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
@@ -1275,7 +1275,7 @@ def _section(text, name):
     return out
 
 
-def _check_patterns(text, errors, warnings, strict):
+def _check_patterns(text, errors, warnings, strict, wrapped):
     """Every bullet under `## Patterns` names the source it came from.
 
     A pattern is the one finding a reader is meant to carry into other work, so
@@ -1284,15 +1284,16 @@ def _check_patterns(text, errors, warnings, strict):
     none is a guess wearing the clothes of a finding, which is exactly the
     failure the review exists to catch, and it is reported once per line with the
     count so a line with seventeen of them says so in one row rather than
-    seventeen. A bullet is its first line plus every following indented,
-    non-blank line before the next bullet (spec 4.7): a source wrapped onto a
-    continuation line is still the bullet's source."""
+    seventeen. With `wrapped` (a rules-8 line, `_evidence`) a bullet is its first
+    line plus every following indented, non-blank line before the next bullet
+    (spec 4.7): a source wrapped onto a continuation line is still the bullet's
+    source. An older line reads each bullet's first line, as it was opened under."""
     bullets = []
     for line in _section(text, "Patterns"):
         found = PATTERNS_BULLET.match(line)
         if found:
             bullets.append(found.group(1).strip())
-        elif bullets and line[:1].isspace() and line.strip():
+        elif wrapped and bullets and line[:1].isspace() and line.strip():
             bullets[-1] += " " + line.strip()
     unsourced = [b for b in bullets if not PATTERNS_SOURCE.search(b)]
     if unsourced:
@@ -1820,6 +1821,11 @@ def _supersedes(claim):
     return ids, None
 
 
+def _superseded(rows):
+    """The claim ids some row supersedes (`_supersedes`): the historical rows."""
+    return {ref for row in rows for ref in _supersedes(row)[0]}
+
+
 def _claim_ids(base, handle=None):
     """The ids `claims.jsonl` already carries, for the rule that a claim may only
     supersede one this line holds. A row that does not parse is skipped here: the
@@ -2060,8 +2066,10 @@ def claim_problems(claim, base, repo, held=None):
         if scopes and all(s == "fixture" for s in scopes):
             problems.append("claim %s declares scope real and every row it rests on "
                             "records fixture" % cid)
-    # rules 8: the claim refusals `_core_rules8` applies, from the same functions
-    if _evidence(_state(base)):
+    # rules 8: the claim refusals `_core_rules8` applies, from the same functions, and
+    # like it never to a claim a row supersedes (the correction is that row)
+    if _evidence(_state(base)) and cid not in _superseded(
+            _row_objects(os.path.join(base, "claims.jsonl"))):
         problems.extend(derived_problems(cid, claim, base))
         problems.extend(fired_problems(cid, claim, base))
     return problems
@@ -3746,8 +3754,13 @@ def _numeric(value):
 
 
 def _live(rows):
-    """Rows that count: an `aborted` or `failed` run stays a row and counts nowhere."""
-    return [r for r in rows if r.get("status") not in DEAD_ROWS]
+    """Rows that count. A run counts once: a refile is a correction, so the latest row
+    filed for a `run` id stands for it, and a row with no `run` counts on its own.
+    An `aborted` or `failed` run stays a row and counts nowhere."""
+    last = {str(r["run"]): n for n, r in enumerate(rows) if r.get("run") is not None}
+    return [r for n, r in enumerate(rows)
+            if (r.get("run") is None or last[str(r["run"])] == n)
+            and r.get("status") not in DEAD_ROWS]
 
 
 def _groups(rows):
@@ -3893,7 +3906,7 @@ def _ref_value(base, ref):
         k = int(which[1:])
         row = rows[k - 1] if 1 <= k <= len(rows) else None
     else:
-        row = next((r for r in rows if str(r.get("run")) == which), None)
+        row = next((r for r in reversed(rows) if str(r.get("run")) == which), None)
     value = row.get(field) if row else None
     if not _numeric(value) or (isinstance(value, float) and not math.isfinite(value)):
         return None
@@ -4364,8 +4377,9 @@ def _check_review8(base, claims, review, errors, warnings, strict):
 
 
 def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
-    claims = [c for c in _row_objects(os.path.join(base, "claims.jsonl"))
-              if isinstance(c.get("id"), str) and c["id"]]
+    rows = _row_objects(os.path.join(base, "claims.jsonl"))
+    claims = [c for c in rows if isinstance(c.get("id"), str) and c["id"]]
+    superseded = _superseded(rows)
     exps = {h: experiment_record(base, h) for h in _experiment_names(base)}
     report_path = os.path.join(base, "to_human", "report.md")
     report = _note_text(report_path) if os.path.isfile(report_path) else None
@@ -4383,8 +4397,9 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
         cid = claim["id"]
         cited = [exps[h] for h in _experiments_named(_cited(claim.get("proof")))
                  if h in exps]
-        errors.extend(derived_problems(cid, claim, base))
-        errors.extend(fired_problems(cid, claim, base))
+        if cid not in superseded:
+            errors.extend(derived_problems(cid, claim, base))
+            errors.extend(fired_problems(cid, claim, base))
         found = _experiment_steps(claim, cited, cls, measured, rejected) if cited else []
         if claim.get("kind") == "evidence" and _untraced(claim, cited):
             found.append("untraced-number")
@@ -5609,13 +5624,18 @@ ORX_LOG_SUMMARY = re.compile(r"\s*This is the path to the full log file: (.+?)[ 
 def _full_log(repo, run, out):
     """(bytes, problem): the run log `orx logs` printed - its output, or, when that is
     orx's summary, the file the summary names, held to the size it printed (K6 rater
-    Y2: the summary's 500-character tail is not the log)."""
+    Y2: the summary's 500-character tail is not the log). Either is held to
+    `RUN_LOG_BOUND`."""
     found = ORX_LOG_SUMMARY.match(out)
     if not found:
         if out.lstrip().startswith("This is the path to the full log file:"):
             return None, ("orx logs %s printed the log's path without its size, so the "
                           "file cannot be held to what orx saw" % run)
-        return out.encode("utf-8"), None
+        data = out.encode("utf-8")
+        if len(data) > RUN_LOG_BOUND:
+            return None, ("orx logs %s printed %d bytes, above the %d-byte bound a receipt "
+                          "is committed under" % (run, len(data), RUN_LOG_BOUND))
+        return data, None
     path, size = os.path.join(repo, found.group(1)), int(found.group(2).replace(",", ""))
     if size > RUN_LOG_BOUND:
         return None, ("orx logs %s said %d bytes, above the %d-byte bound a receipt is "

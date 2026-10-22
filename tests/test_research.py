@@ -3179,6 +3179,18 @@ class SourceRun(Workspace):
         self.assertIn("above the %d-byte bound" % tr.RUN_LOG_BOUND, proc.stdout)
         self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw", "r1.1.log")))
 
+    def test_a_log_orx_logs_prints_itself_is_held_to_the_bound(self):
+        """Close review 3: the bound held only the summary path, so a log `orx logs`
+        printed in full was captured at any size. Printed or summarised, a log above
+        `RUN_LOG_BOUND` is refused with one message shape; one at the bound is kept."""
+        data, problem = tr._full_log(self.home, "r1", "x" * (tr.RUN_LOG_BOUND + 1))
+        self.assertIsNone(data)
+        self.assertEqual(problem, "orx logs r1 printed %d bytes, above the %d-byte bound a "
+                         "receipt is committed under" % (tr.RUN_LOG_BOUND + 1,
+                                                         tr.RUN_LOG_BOUND))
+        data, problem = tr._full_log(self.home, "r1", "x" * tr.RUN_LOG_BOUND)
+        self.assertEqual((len(data), problem), (tr.RUN_LOG_BOUND, None))
+
     def test_log_numbers_read_thousands_separators_and_exponents(self):
         """K6 rater Y2: `12,345` is 12345 and never 345, `1.2e-3` is 0.0012, and
         `--value k=1.2e-3` is a number; matching stays numeric equality."""
@@ -6758,6 +6770,72 @@ class Rules8Core(Workspace):
                      status="supported")
         self.assertTrue(hit("while its falsifier fired", tr.claim_problems(claim, base, repo)))
 
+    def test_a_superseded_claim_is_not_refused_by_the_claim_rules(self):
+        """Close review 1: rows filed after a `supported` claim can fire its
+        falsifier, and the record is append-only, so a superseding row is the only
+        correction. A claim a later row supersedes is the historical row, as rules 7
+        reads it: neither `fired_problems` nor `derived_problems` refuses it, on the
+        write path or in `check`; the same claim unsuperseded is still refused."""
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        c1 = dict(CLAIM, id="C1", proof="experiments/h1/results.jsonl",
+                  derived_from={"90.5": {"op": "mean", "of": ["h1/r1:p95", "h1/r3:p95"]}})
+        self.assertFalse(hit("while its falsifier fired", tr.claim_problems(c1, base, repo)))
+        d = self.exp_dir(repo)
+        with open(os.path.join(d, "results.jsonl"), "a") as fh:
+            for n, value in ((5, 140), (6, 141)):
+                self.write(os.path.join(d, "raw", "r%d.log" % n), "run r%d\np95 %d\n"
+                           % (n, value))
+                fh.write(json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.log" % n,
+                                     "run": "r%d" % n, "arm": "cache", "p95": value,
+                                     "scope": "real"}) + "\n")
+        wanted = ("claim C1 is supported while its falsifier fired",
+                  "claim C1 derived_from 90.5 does not recompute")
+        self.claims(repo, c1)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        for needle in wanted:
+            self.assertTrue(hit(needle, errors), (needle, errors))
+            self.assertTrue(hit(needle, tr.claim_problems(c1, base, repo)), needle)
+        c2 = dict(CLAIM, id="C2", proof="experiments/h1/results.jsonl", status="refuted",
+                  statement="the cache does not cut p95", supersedes="C1")
+        self.claims(repo, c1, c2)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        for needle in wanted:
+            self.assertFalse(hit(needle, errors), (needle, errors))
+            self.assertFalse(hit(needle, tr.claim_problems(c1, base, repo)), needle)
+
+    def test_a_run_filed_twice_counts_once_and_its_latest_row_stands(self):
+        """Close review 2: `source` refiles a run as a second row, and each row
+        counted as a replicate - one run per arm read as two, dropping
+        `no-replication`. A run counts once: its latest row stands for it in every
+        group, mean and lookup; a latest `failed` row leaves it nowhere; rows with no
+        `run` are read as before."""
+        import tezgah_research_evidence as ev
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("cache", 90)])
+        d = self.exp_dir(repo)
+        with open(os.path.join(d, "results.jsonl"), "a") as fh:
+            for n, arm, value in ((1, "base", 120), (2, "cache", 95)):
+                self.write(os.path.join(d, "raw", "r%d.1.log" % n), "run r%d\np95 %d\n"
+                           % (n, value))
+                fh.write(json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.1.log" % n,
+                                     "run": "r%d" % n, "arm": arm, "p95": value,
+                                     "scope": "real"}) + "\n")
+        exp = tr.experiment_record(base, "h1")
+        self.assertEqual({g: [r["p95"] for r in rows] for g, rows in exp["groups"].items()},
+                         {"base": [120], "cache": [95]})
+        self.assertEqual(exp["effect"]["n"], (1, 1))
+        claim = dict(CLAIM, proof="experiments/h1/results.jsonl")
+        self.assertIn("no-replication",
+                      tr._experiment_steps(claim, [exp], "R4", True, set()))
+        self.assertEqual(str(tr._ref_value(base, "h1/r2:p95")), "95")
+        self.assertEqual(len(ev._results(base, "h1")), 2)
+        self.assertEqual(tr._live([{"run": "r1", "p95": 1}, {"run": "r1", "status": "failed"}]),
+                         [])
+        self.assertEqual(len(tr._groups([{"arm": "a", "p95": 1}, {"arm": "a", "p95": 1}])["a"]),
+                         2)
+
     def test_a_falsifier_on_no_group_over_several_groups_is_not_evaluated(self):
         """K6 X2 (5): `p95 > 100` with no `on <group>` was the mean over every arm,
         the control's included - 105.5 here, so a supported claim was refused while
@@ -6801,8 +6879,25 @@ class Rules8Core(Workspace):
     def test_patterns_source_on_a_continuation_line_counts(self):
         errors, warnings = [], []
         tr._check_patterns("## Patterns\n\n- the cache helps\n  (literature/a.md)\n"
-                           "- unsourced\n  still unsourced\n", errors, warnings, False)
+                           "- unsourced\n  still unsourced\n", errors, warnings, False, True)
         self.assertTrue(hit("1 of 2 Patterns bullets name no source", warnings), warnings)
+
+    def test_a_rules7_line_reads_its_patterns_first_lines_only(self):
+        """Close review 4: the continuation join is a rules-8 reading. A rules-7 line
+        reads each bullet's first line only, as at 944de61 - 2 of these 2 bullets
+        name no source there, 1 of 2 on a rules-8 line."""
+        body = "".join("## %s\n\n%s\n" % (s, "- the cache helps\n  (literature/a.md)\n"
+                                          "- unsourced\n  still unsourced\n"
+                                          if s == "Patterns" else "x")
+                       for s in tr.FINDINGS_SECTIONS)
+        for rules, want in ((tr.EXPLORE_RULES, "2 of 2"), (tr.EVIDENCE_RULES, "1 of 2")):
+            repo = self.repo()
+            base = self.line(repo, rules=rules)
+            self.write(os.path.join(base, "findings.md"), body)
+            errors, warnings = [], []
+            tr._check_findings(base, errors, warnings, False)
+            self.assertTrue(hit("findings.md: %s Patterns bullets name no source" % want,
+                                warnings), (rules, warnings))
 
     def test_budget_counts_index_rows_searches_and_engine_runs(self):
         repo = self.repo()

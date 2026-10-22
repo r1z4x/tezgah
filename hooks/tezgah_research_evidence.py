@@ -41,7 +41,6 @@ STEPS = {
 }
 SOURCE_START = {"formal": 2, "grey": 1, "agent-report": 0}
 KIND_START = {"code": 3, "derivation": 2}
-DROPPED = ("aborted", "failed")
 VERDICT_BOUND = 0.10
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 PROMPT = ("Instrument: %s\nConstruct: %s\nItem: %s\nText: %s\nAnswer 1 if the construct "
@@ -79,9 +78,9 @@ def _protocol(base, h):
 
 
 def _results(base, h):
-    """The experiment's rows that count: aborted and failed runs stay rows and are left out."""
-    return [r for r in _rows(base, "experiments/%s/results.jsonl" % h)
-            if r.get("status") not in DROPPED]
+    """The experiment's rows that count (`tr._live`): one row per run, and aborted and
+    failed runs left out."""
+    return tr._live(_rows(base, "experiments/%s/results.jsonl" % h))
 
 
 # --- instruments (3.1, 3.2) ---------------------------------------------------------
@@ -309,13 +308,16 @@ def _items_at(base, rev):
             if done.returncode:
                 continue
             text = done.stdout
+        rows = []
         for raw in text.splitlines():
             try:
                 row = json.loads(raw)
             except ValueError:
                 continue
-            if isinstance(row, dict) and row.get("status") not in DROPPED \
-                    and _row_instrument(row) and row.get("item") is not None:
+            if isinstance(row, dict):
+                rows.append(row)
+        for row in tr._live(rows):
+            if _row_instrument(row) and row.get("item") is not None:
                 out.setdefault(_row_instrument(row), {}).setdefault(
                     str(row.get("arm") or "all"), set()).add(str(row["item"]))
     return out

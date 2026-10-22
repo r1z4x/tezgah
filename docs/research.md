@@ -1075,8 +1075,9 @@ before writing when the experiment's `protocol.md` is not committed
 `orx logs` may print a summary in place of the log: the path to the full log
 file and its size. `source` then reads that file and checks its size against the
 count orx printed (`hooks/tezgah_research.py::_full_log`). It stores the whole
-log, up to 16 MiB (`hooks/tezgah_research.py::RUN_LOG_BOUND`). Four messages
-refuse a log it cannot hold:
+log, printed or read from that file, up to 16 MiB
+(`hooks/tezgah_research.py::RUN_LOG_BOUND`). Four messages refuse a log it
+cannot hold:
 
 - `printed the log's path without its size`
 - `bytes, above the <bound>-byte bound a receipt is committed under`
@@ -1084,8 +1085,9 @@ refuse a log it cannot hold:
 - `the run is still writing it or it changed since`
 
 The row names `run`, the arm, the item and each value as a number.
-`--instrument <name>` writes `instrument`, `arm` and `item`, so `gold` and
-`label` work on the runs `source` records. When the line names an orx project
+`--instrument <name>` writes `instrument`, `--arm` writes `arm` and `--item`
+writes `item`, each without the others. A row with `instrument` and `item` is one
+`gold` and `label` read. When the line names an orx project
 the row also holds the engine's `status`. `source` matches `--value` against the
 whole log, by one number reader (`hooks/tezgah_research_capture.py::log_numbers`). It
 reads thousands separators, so `12,345` is 12345, and exponents such as
@@ -1095,7 +1097,10 @@ stored log exits 1 with
 `value not in the run log (orx logs <run> holds no number equal to <v>)`. A
 reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
 `fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
-writes `raw/<run>.<n>.log`.
+writes `raw/<run>.<n>.log` and a second row. A refile is a correction: the latest
+row filed for a `run` stands for that run, and every count and statistic counts
+the run once (`hooks/tezgah_research.py::_live`). A row with no `run` counts on
+its own.
 `check --orx` warns `orx run <id> has no results row` for an engine run that no
 row names. A row with status `aborted` or `failed` stays a row and counts in no
 group.
@@ -1245,6 +1250,11 @@ evaluated, and its claims take `falsifier-not-evaluable`
 `supported` claim citing an experiment whose falsifier fired fails with
 `while its falsifier fired` (`hooks/tezgah_research.py::fired_problems`). A
 prediction equal to its falsifier still fails with `say the same thing`.
+
+Neither this refusal nor `does not recompute` (below) reaches a claim that another
+row supersedes. The record is append-only, so that row is the correction, and
+`claim` and `check` skip the superseded claim alike
+(`hooks/tezgah_research.py::_superseded`).
 
 `state.hypotheses[]` holds `{"id", "text", "status", "probability"}` entries. A
 concluded line ends each one as `supported`, `refuted`, `weakened`, `revised`,
@@ -1402,10 +1412,10 @@ each release reuses that green run. On that fixture set it printed
 - The supersedes warning drops when a `report.md` line names both claim ids
   (`hooks/tezgah_research.py::_check_supersedes`). Otherwise it stays soft, so
   `--strict` refuses it.
-- A `Patterns` bullet in `findings.md` now runs over its indented continuation
-  lines, so a source on a wrapped line counts
-  (`hooks/tezgah_research.py::_check_patterns`). This reader fix applies to every
-  line.
+- A `Patterns` bullet in `findings.md` on a rules-8 line runs over its indented
+  continuation lines, so a source on a wrapped line counts
+  (`hooks/tezgah_research.py::_check_patterns`). An older line reads each
+  bullet's first line only, as before.
 
 ### What rules 8 cannot see
 
