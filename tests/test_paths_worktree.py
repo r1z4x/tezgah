@@ -734,6 +734,14 @@ class BareRepository(TempHome):
                                   env=env)
         proc = cli("init", "code-line", "--ask", "q", "--question", "q", "--in", "p95")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # pinned to rules 7: this case is about worktree paths, and the
+        # claim-numbers warning it reads is rules-7 behaviour, replaced by the
+        # `untraced-number` step on the rules 8 `init` writes since plan 127
+        state = os.path.join(self.ws, "research", "open", "code-line", "state.json")
+        with open(state) as fh:
+            pinned = dict(json.load(fh), rules=7)
+        with open(state, "w") as fh:
+            json.dump(pinned, fh)
         claim = {"id": "c1", "statement": "p95 dropped 12 ms", "status": "untested",
                  "provenance": "ai-executed", "kind": "code", "falsification": "f",
                  "proof": "see src/report.md", "trace": ["S1"]}
