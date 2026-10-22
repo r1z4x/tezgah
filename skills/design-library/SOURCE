@@ -83,7 +83,7 @@ hash fails, and a directory beside them that the table does not name fails.
 Every adopted body is byte-for-byte upstream except these two, and each keeps its
 upstream bytes everywhere else:
 
-1. `inclusive-interaction/skills/touch-target-design/SKILL.md`, in "Minimum
+1. `inclusive-interaction/skills/touch-target-design/ENTRY.md`, in "Minimum
    Sizes", says the touch floor is `44x44 CSS pixels (WCAG 2.2 Level AA)`. That
    pairs a size with the wrong level: WCAG 2.2 SC 2.5.8 Target Size (Minimum) is
    Level AA at 24x24 CSS px, and SC 2.5.5 Target Size (Enhanced) is Level AAA at
@@ -93,7 +93,7 @@ upstream bytes everywhere else:
    24`, citing SC 2.5.8 - so the vendored copy and the checker now agree. The
    file's other 44x44 mentions (its touch checklist, the Material
    recommendation) state no level and are kept as upstream wrote them.
-2. `cognitive-accessibility/skills/adaptive-personalisation/SKILL.md` carries
+2. `cognitive-accessibility/skills/adaptive-personalisation/ENTRY.md` carries
    `name: contextual-help-design`, which does not match its directory: it is the
    duplicate of the sibling `contextual-help-design` skill, body included. A host
    that loads a skill from its directory skips a name that disagrees with it, so
