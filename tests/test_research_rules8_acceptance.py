@@ -680,10 +680,10 @@ class Rules8(unittest.TestCase):
         fx = self.build(spec)
         return fx, fx.check(*flags)[1]
 
-    def invalid_protocol(self, old, new):
-        """C0 whose h1 protocol carries `new` for `old` and no captured run yet (F-3: `source`
-        refuses over it). Asserts the writer side - `source` exits 1 with `carries an invalid
-        record` and writes nothing - and returns `check`'s (rc, out)."""
+    def invalid_protocol(self, old, new, refusal="carries an invalid record"):
+        """C0 whose h1 protocol carries `new` for `old` and no captured run yet (F-3, plan 128
+        K4: `source` refuses over it). Asserts the writer side - `source` exits 1 with
+        `refusal` and writes nothing - and returns `check`'s (rc, out)."""
         spec = mixed_spec()
         spec["protocol"]["h1"] = protocol().replace(old, new)
         del spec["runs"]["h1"]
@@ -693,7 +693,7 @@ class Rules8(unittest.TestCase):
         rc, out = fx.run(["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value",
                           "p95=90", "--scope", "real"])
         self.assertEqual(rc, 1, out)
-        self.assertIn("carries an invalid record", out)
+        self.assertIn(refusal, out)
         self.assertEqual(line_snapshot(fx), before, "source wrote over an invalid protocol")
         rc, out = fx.check()
         self.assertNotIn("Traceback", out)
@@ -1063,11 +1063,10 @@ class Certainty(Rules8):
         self.refused(spec, "does not recompute")
 
     def test_metric_other_than_the_locked_one_refused(self):
-        spec = mixed_spec()
-        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
-                                                    "metric: p50 latency\n")
-        spec["report"] += "\np50 latency is reported here.\n"
-        self.refused(spec, "metric other than the locked one")
+        rc, out = self.invalid_protocol("metric: p95 latency\n", "metric: p50 latency\n",
+                                        "registers a metric other than the locked one")
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*metric other than the locked one")
 
     def test_evaluator_edited_after_lock_refused(self):
         spec = mixed_spec()
@@ -2516,23 +2515,51 @@ class Plan128(Rules8):
         rc, out = fx.check()
         self.assertRegex(out, r"(?m)^FAIL q: .*a ledger is append-only")
 
-    def test_c9_rows_of_an_older_parser_are_held_to_their_hash_and_warned(self):
-        old_keys = ("id", "provider", "url", "status", "resolved", "file", "sha256",
-                    "fetched_at", "title", "first_author", "year", "abstract")
-        with self.subTest(ledger="receipts"):
+    def test_c8_reordered_ledger_rows_refused(self):
+        # amended C8: an earlier version is an order-preserving subsequence of the latest
+        spec = mixed_spec()
+        spec["tmp_files"]["paper.txt"] = "Section 4. In our study, %s.\n" % QUOTE
+        spec["fetch"] = [NOTE, (NOTE, ["--file", "@TMP@/paper.txt", "--ack",
+                                       "the user pasted section 4 of the paper"])]
+        fx = self.build(spec)
+        rel = "literature/.sources/SOURCES.jsonl"
+        rows = ledger_rows(fx, rel)
+        self.assertEqual([r["access"] for r in rows], ["full", "user"], rows)
+        _write(fx.path(rel), "".join(json.dumps(r) + "\n" for r in reversed(rows)))
+        fx.must(["commit", "q", "SOURCES rows reordered: the latest record changes"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*SOURCES\.jsonl: a row changed or went missing"
+                              r".*a ledger is append-only")
+
+    def test_c9_no_row_is_held_to_its_hash_on_its_own_say_so(self):
+        # amended C9: every receipt and search row is re-derived under the current parser
+        rel = "literature/.receipts/RECEIPTS.jsonl"
+        with self.subTest(row="forged receipt without parser"):
             fx = self.build(mixed_spec())
-            rel = "literature/.receipts/RECEIPTS.jsonl"
             real = next(r for r in ledger_rows(fx, rel)
                         if r.get("provider") == "arxiv" and r.get("resolved"))
-            old = {k: real[k] for k in old_keys if k in real}
-            old["first_author"] = "Ann Smith"  # an older parser kept the whole name
-            append_row(fx, rel, old)
-            fx.must(["commit", "q", "a receipt row of an older parser"])
+            data = b"<html><body>not a registry answer</body></html>\n"
+            sha = hashlib.sha256(data).hexdigest()
+            _write(fx.path("literature/.receipts/%s.raw" % sha), data)
+            forged = {k: v for k, v in real.items() if k != "parser"}
+            forged.update(file="literature/.receipts/%s.raw" % sha, sha256=sha)
+            append_row(fx, rel, forged)
+            fx.must(["commit", "q", "a receipt row with no parser over forged bytes"])
             rc, out = fx.check()
-            self.assertNotIn("not derived from its capture", out)
-            self.assertEqual(rc, 0, out)
-            self.assertEqual(len(re.findall(r"(?m)^warn q: .*\bversion\b", out)), 1, out)
-        with self.subTest(ledger="searches"):
+            self.assertEqual(rc, 1, out)
+            self.assertRegex(out, r"(?m)^FAIL q: .*not derived from its capture")
+        with self.subTest(row="receipt naming a newer parser"):
+            fx = self.build(mixed_spec())
+            rows = ledger_rows(fx, rel)
+            real = next(r for r in rows if r.get("provider") == "arxiv" and r.get("resolved"))
+            append_row(fx, rel, dict(real, parser=99))
+            fx.must(["commit", "q", "a receipt row from a later tezgah"])
+            rc, out = fx.check()
+            self.assertEqual(rc, 1, out)
+            self.assertTrue(fail_lines(out, "RECEIPTS.jsonl", "row %d" % (len(rows) + 1),
+                                       "parser"), out)
+        with self.subTest(row="search row without parser"):
             fx = self.build(literature_spec())
             data = json.dumps({"results": [
                 {"id": "https://openalex.org/W4390000003",
@@ -2543,13 +2570,13 @@ class Plan128(Rules8):
                 "n": 3, "tag": "snowball", "item": ITEM_L, "connector": "openalex",
                 "query": "warm caches", "url": search_url("openalex", ["warm", "caches"]),
                 "file": "searches/raw/%s.raw" % sha, "sha256": sha, "hits": 1,
-                "ids": ["openalex:W4390000003"],  # an older parser read the OpenAlex id
+                "ids": ["openalex:W4390000003"],  # not what its bytes parse to
                 "searched_at": "2026-01-01T00:00:00Z"})
-            fx.must(["commit", "q", "a search row of an older parser"])
+            fx.must(["commit", "q", "a search row with no parser"])
             rc, out = fx.check()
-            self.assertNotIn("not derived from its capture", out)
-            self.assertEqual(rc, 0, out)
-            self.assertEqual(len(re.findall(r"(?m)^warn q: .*\bversion\b", out)), 1, out)
+            self.assertEqual(rc, 1, out)
+            self.assertRegex(out, r"(?m)^FAIL q: .*SEARCHES\.jsonl row 3 is not derived from "
+                                  r"its capture")
 
     def test_c10_cite_keeps_no_receipt_of_a_non_200_answer_and_online_skips_it(self):
         spec = mixed_spec()
@@ -2594,12 +2621,10 @@ class Plan128(Rules8):
                 fx, out = self.build_check(spec)
                 self.assertNotIn("metric other than the locked one", out)
                 self.assertNotRegex(out, r"(?m)^FAIL", out)
-        spec = mixed_spec()
-        spec["state"]["evaluation"]["metric"] = "p95 latency"
-        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
-                                                    "metric: p95 latencyx\n")
-        spec["report"] += "\np95 latencyx is reported here.\n"
-        self.refused(spec, "metric other than the locked one")
+        rc, out = self.invalid_protocol("metric: p95 latency\n", "metric: p95 latencyx\n",
+                                        "registers a metric other than the locked one")
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*metric other than the locked one")
 
     def test_k3_a_comma_in_the_lock_never_splits_it(self):
         spec = mixed_spec()
@@ -2613,18 +2638,9 @@ class Plan128(Rules8):
         self.assertNotRegex(out, r"(?m)^FAIL", out)
 
     def test_k4_source_refuses_a_protocol_failing_the_locked_metric_rule(self):
-        spec = mixed_spec()
-        spec["protocol"]["h1"] = protocol().replace("metric: p95 latency\n",
-                                                    "metric: p50 latency\n")
-        del spec["runs"]["h1"]
-        spec["orx_extra"] = {"r1": {"log": "run r1 arm cache\np95 90\n", "status": "completed"}}
-        fx = self.build(spec)
-        before = line_snapshot(fx)
-        rc, out = fx.run(["source", "q", "h1", "--run", "r1", "--arm", "cache", "--value",
-                          "p95=90", "--scope", "real"])
-        self.assertEqual(rc, 1, out)
-        self.assertIn("metric other than the locked one", out)
-        self.assertEqual(line_snapshot(fx), before, "source wrote over a refused protocol")
+        rc, out = self.invalid_protocol("metric: p95 latency\n", "metric: p50 latency\n",
+                                        "registers a metric other than the locked one")
+        self.assertRegex(out, r"(?m)^FAIL q: .*metric other than the locked one")
 
     def test_k5_not_reported_message_names_the_exit_still_open(self):
         with self.subTest(results="after the run"):
