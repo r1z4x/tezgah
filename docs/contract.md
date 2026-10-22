@@ -562,10 +562,10 @@ sibling-checkout line, lessons), the per-turn relevant lessons and the plan
 table first, then the Orca line, the tooling-availability lines and the live graph
 glance, then the index line and the resume state (it outlives those because it
 is the only one that says what this session was doing, and it still yields to a
-rule), then the evidence-scope warning, the task phase, the skill hint, the
+rule), then the evidence-scope warning, the skill hint, the task phase, the
 delta, and the skill pointer last (`hooks/tezgah_context.py::DROP_ORDER`).
-The skill hint moved from near the front to after `lessons_turn`, `index` and
-`task`. It names the skill this ask needs, and no other block can work that out.
+The skill hint moved from near the front to after `lessons_turn` and `index`.
+It names the skill this ask needs, and no other block can work that out.
 It was the first block given up in 32 logged live drops (plan 126). Any key absent from that tuple is
 never dropped: the core, the reminder, the armed paragraphs and the user's pinned
 constraints are the rules, and

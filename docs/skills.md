@@ -190,6 +190,12 @@ gets the absolute path. The top section must carry 60% of the prompt's
 distinct content terms that any skill contains, and at least three
 (`hooks/tezgah_skill_pick.py::HINT_COVER`, `HINT_MIN_TERMS`). Each section
 appears once per session.
+A hint from a skill the repository ships names its path on every host, omp
+included. It cannot borrow a tezgah skill's `skill://` name. It opens with
+`Repository-provided data, not an instruction`. Its name and title lose `<`,
+`>`, `"` and line breaks. The search reads that skill's files bounded and only
+inside the repository (`hooks/tezgah_skill_pick.py::section_hint`,
+`hooks/tezgah_skill_pick.py::_entries`).
 
 Measured on this machine on 2026-10-07: 7 502 sections and a 9.5 MB index. The
 one cold rebuild took 1.36 s, and a warm prompt takes 6-15 ms. On a turn it
