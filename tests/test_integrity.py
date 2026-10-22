@@ -123,6 +123,11 @@ class ShortcutCommand(unittest.TestCase):
                   "echo $'it\\'s pytest || true'", "ls # pytest || true",
                   "git commit -m 'a\npytest || true'"):
             self.assertNotIn("pytest", ti.mask(c), c)
+        # a `#` right after a backtick close, continuations aside, is mid-word:
+        # `true \`:\`\<nl>#;touch ~/.config/tezgah/exec-mode.off` writes the
+        # switch in bash, so the masked text keeps what follows it (plan 129)
+        for c in ("true `:`\\\n#;touch x", "true `x`#;touch x"):
+            self.assertIn("touch x", ti.mask(c), c)
 
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
