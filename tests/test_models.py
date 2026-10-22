@@ -818,6 +818,13 @@ class ProviderHealth(unittest.TestCase):
         tm.refresh_health("anthropic", probe=probe)
         self.assertEqual(tm.down_families(), {"any"})
 
+    def test_a_family_funds_from_its_environment_key(self):
+        """Review of plan 131 (P2): the store mock would hide a renamed environment key,
+        so this pins the branch `funded_families` reads a family's key from."""
+        with mock.patch.object(tm, "_omp_stored_providers", return_value=set()), \
+                mock.patch.dict(os.environ, {"EXPERIMENTALLABS_API_KEY": "k"}, clear=True):
+            self.assertIn("experientiallabs", tm.funded_families())
+
     def test_a_down_family_leaves_the_chain_until_its_reset(self):
         import time
         # the families the test names, not the machine's own: a runner holds no
