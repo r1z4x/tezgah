@@ -20,7 +20,7 @@ import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
 from tezgah_integrity import (GRANT_KIND, STEP_KINDS, _heredocs, _path as _ledger_path,
-                              _shell_commands, _shell_segments, bind_session,
+                              _shell_segments, bind_session,
                               changed_files, cut, last_check, note,
                               note_compaction, note_turn, outward_classes, redact,
                               scratch_evidence, UNTRUSTED_CHANNEL)
@@ -2491,8 +2491,6 @@ _WRAPPER_ARG = frozenset(("timeout",))
 _OPTION_ARG = frozenset(("-u", "-g", "-k", "-o", "-C", "-h", "-T", "-r", "-t",
                          "--user", "--group", "--prompt", "--chdir"))
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# the programs that cannot fail, so the `||` arm behind one never runs
-NO_FAIL = frozenset(("true", ":"))
 
 
 def _substitutions(text, start, end):
@@ -2520,10 +2518,7 @@ def shell_programs(command, _depth=0):
     """Every word a shell line would run as a program, in order. A closed
     heredoc body is data: a quoted tag's whole, an unquoted tag's all but its
     `$( )` and backtick substitutions, which bash runs. The deny readers keep an
-    unquoted body visible whole. A `||` arm behind a pipeline that cannot fail
-    (`true` or `:` in its last stage, `SKIP=1 true` included) never runs, so its
-    words are dropped until the next `;`, newline, `&` or substitution close
-    (plan 129)."""
+    unquoted body visible whole."""
     command = str(command or "")
     text = list(command)
     for h in _heredocs(command):
@@ -2536,23 +2531,9 @@ def shell_programs(command, _depth=0):
         for k in range(h[4], h[5][1]):
             if text[k] != "\n" and k not in keep:
                 text[k] = " "
-    # `ok` is the whole `&&`/`||` list's failability so far, not one stage's:
-    # `a && b || c` runs `c` when `a` fails, so a `||` arm is dead only when
-    # every link before it cannot fail. A builder (`|`, not `||`) hands the
-    # list its last stage's status, as bash's exit is the pipeline's last.
-    out, alive, ok = [], True, False
-    for words, sep in _shell_commands("".join(text)):
-        if alive:
-            progs = _command_words(words, _depth)
-            out += progs
-            this = bool(progs) and progs[0] in NO_FAIL
-            ok = ok and this if "&&" in sep else this if "|" in sep else ok
-        # the separator decides the NEXT command, so it is read after this one
-        if "||" in sep:
-            alive = not ok
-            ok = False
-        elif ";" in sep or "\n" in sep or sep == "&" or sep == "":
-            alive, ok = True, False
+    out = []
+    for words in _shell_segments("".join(text)):
+        out += _command_words(words, _depth)
     return out
 
 
