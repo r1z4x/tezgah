@@ -91,7 +91,9 @@ EMPTY_IS_NOT_PROOF = (
 # the main thread delegates to.
 STEER = (("mechanical edit (tier from `tezgah-route`)", "tezgah-cheap"),
          ("bounded code or tests", "tezgah-standard"),
-         ("design, invariants, unknown-cause debugging", "tezgah-frontier"),
+         ("software design, invariants, unknown-cause debugging", "tezgah-frontier"),
+         ("UI/screen/component build or redesign (brief loads design-contract)",
+          "tezgah-standard"),
          ("review of a diff", "tezgah-reviewer"),
          ("running the impacted checks", "tezgah-tester"),
          ("docs and path:line citations", "tezgah-docs"),
@@ -263,6 +265,9 @@ def _worker_body(tier):
                 "progress, but never redefine the work. Never widen or narrow the brief's\n"
                 "scope, budget or question. If the brief cannot be met as written, say\n"
                 "so and stop rather than answering a different question.\n%s\n"
+                "A brief that builds or changes UI: read the `design-contract` skill\n"
+                "(and `design-library` for critique) and derive/check with\n"
+                "`~/.config/tezgah/bin/tezgah-design` before editing.\n"
                 "Never spawn subagents.\n%s" % (tier, tier, scope, WORKER_OUTPUT))
     return body
 
