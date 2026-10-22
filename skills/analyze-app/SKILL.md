@@ -1,8 +1,8 @@
 ---
 name: analyze-app
 description: >
-  Use when verifying a running app: walk a flow, read the UI, console;
-  uygulamayı aç, ekran, tarayıcı, web or mobile. Not for strategy - use
+  Use when verifying a running app: walk a flow, UI, console; uygulamayı aç,
+  çalıştır, ekran, tarayıcı, durumlar. Not for strategy - use
   `product-analysis`.
 ---
 
