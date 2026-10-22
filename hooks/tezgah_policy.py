@@ -565,8 +565,9 @@ When the task is research and the OpenResearch CLI (`{ORX_BIN}`) is installed,
 drive it through that CLI instead of ad-hoc local scripting. Load the operating
 manual first: the `orx` skill if the host has it, otherwise run
 `{ORX_BIN} skill` from the shell; then the module the method needs -
-`{ORX_BIN} skill lit-review` for sources, `{ORX_BIN} skill experiment-tree` and
-`{ORX_BIN} skill evidence` for a measured line. On a measured line its cardinal
+`{ORX_BIN} skill lit-review` for sources, `{ORX_BIN} skill experiment-tree`,
+`{ORX_BIN} skill orx-results` and `{ORX_BIN} skill orx-logs` for a measured
+line. On a measured line its cardinal
 rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
