@@ -4839,6 +4839,11 @@ def _shell_read(cmd, subst=False):
             elif ch == "'":
                 quote = None
         elif ch == "\\":
+            # `\<newline>` is a line continuation: bash deletes both, so `$\<nl>1`
+            # is `$1` and nothing is left in the word
+            if cmd.startswith("\\\n", i):
+                i += 2
+                continue
             i += 2
             bare.append(" ")
             lit.append("_")
@@ -4848,7 +4853,9 @@ def _shell_read(cmd, subst=False):
             return True, ""
         elif quote == '"':
             quote = None if ch == '"' else quote
-        elif ch == "#" and (i == 0 or cmd[i - 1] in " \t\n;&|()<>"):
+        # a `#` opens a comment only at a word's start: after an escaped or quoted
+        # character (`x\ #...`) it is part of the word (`lit` holds `_` for those)
+        elif ch == "#" and (not lit or lit[-1] in " \t\n;&|()<>"):
             end = cmd.find("\n", i)
             end = n if end < 0 else end
             blank(i, end)

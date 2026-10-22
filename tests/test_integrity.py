@@ -531,6 +531,19 @@ class BookkeepingCommand(unittest.TestCase):
                   "cat <<'E'\nit's\nE\nfind . $1"):
             self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
 
+    def test_an_escaped_boundary_or_a_line_continuation_hides_nothing(self):
+        # review of plan 126: bash deletes `\<newline>` (so `$\<nl>1` is `$1`), and a
+        # `#` after an escaped space is mid-word, not a comment; both once hid a
+        # positional, a substitution or a redirect from the reader
+        for c in ("if true; then find . $\\\n1; fi", 'if true; then find . "$\\\n1"; fi',
+                  "if true; then find . x\\ #$1\nfi"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        for c in ("cat x\\ #$(touch pwn4)", "cat x\\ #>pwn6", "cat x\\;#>pwn6"):
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in ("cat a # a comment > not a redirect", "cat a\\\n  b"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):
