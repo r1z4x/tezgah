@@ -147,6 +147,7 @@ hooks/tezgah_product.py
 hooks/tezgah_rank.py
 hooks/tezgah_replay.py
 hooks/tezgah_research.py
+hooks/tezgah_research_stats.py
 hooks/tezgah_shapes.py
 hooks/tezgah_skill_pick.py
 hooks/tezgah_snapshot.py
@@ -769,6 +770,7 @@ tests/test_research.py
 tests/test_research_import.py
 tests/test_research_rules8_acceptance.py
 tests/test_research_seal.py
+tests/test_research_stats.py
 tests/test_review_quote.py
 tests/test_setup.py
 tests/test_shapes.py
