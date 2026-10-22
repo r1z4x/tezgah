@@ -1361,18 +1361,18 @@ DEFAULT_BUDGET = 13000
 # journal's stopped or open slices, which outlive the resume block because after
 # an omp `/clear` they are the one pointer left to delegated work in flight - then
 # the scratch-path warning, which is about evidence the turn may already have
-# claimed - then the active task's phase, which outlives both because a phase is what
-# stops a refused write before it happens - then the per-turn skill hint, which
-# names the skill this ask needs and no other block can work that out (it was
-# the first block given up: 32 live drops, plan 126) - then the delta, and the
-# skill pointer last. A key absent from this tuple is never dropped: the always-on core, the
+# claimed - then the per-turn skill hint, which names the skill this ask needs
+# and no other block can work that out (it was the first block given up: 32
+# live drops, plan 126) - then the active task's phase, which outlives the hint
+# because a phase is what stops a refused write before it happens - then the
+# delta, and the skill pointer last. A key absent from this tuple is never dropped: the always-on core, the
 # per-turn reminder and an armed paragraph ARE the rules, and a budget that could
 # spend them would turn bloat into rule loss - which is the failure the budget
 # exists to prevent, not one it may cause.
 DROP_ORDER = ("knowledge", "worktrees", "lessons", "lessons_turn",
               "taste", "plans", "subagents", "steer", "orca", "consult", "research",
               "research_broken", "graph", "offnote", "orchestrate",
-              "index", "resume", "slices", "context", "scratch", "task", "skill",
+              "index", "resume", "slices", "context", "scratch", "skill", "task",
               "delta", "pointer")
 
 
