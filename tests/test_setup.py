@@ -289,6 +289,23 @@ class Install(SetupBase):
         self.assertIs(oc["compaction"]["prune"], False)
         self.assertIn(".git/**", oc["watcher"]["ignore"])
 
+    def test_opencode_2_gets_no_v1_tui_wiring_and_no_prune(self):
+        """opencode 2 migrates tui.json into cli.json once and ignores it after,
+        and drops compaction.prune as an unsupported legacy key (measured on
+        v2.0.32), so neither is written where cli.json exists."""
+        self.write_json(self.path(".config", "opencode", "cli.json"),
+                        {"$schema": "https://opencode.ai/v2/cli.json", "plugins": []})
+        proc = self.setup("--install", "--hosts", "opencode")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        oc = self.read_json(self.path(".config", "opencode", "opencode.json"))
+        self.assertNotIn("compaction", oc)
+        self.assertIn(self.path(".config", "tezgah", "opencode-skills.md"), oc["instructions"])
+        self.assertFalse(os.path.exists(self.path(".config", "opencode", "tui.json")))
+        self.assertEqual(self.read_json(self.path(".config", "opencode", "cli.json"))["plugins"], [])
+        report = self.setup("--report", "--hosts", "opencode").stdout
+        self.assertNotIn("compaction.prune", report)
+        self.assertNotIn("status line plugin", report)
+
     def test_apps_mcp_wired_optional_devtools_and_removable(self):
         self.setup("--install", "--hosts", ALL)
         self.assertTrue(os.path.isdir(self.path(".cache", "tezgah", "apps")))
@@ -1042,7 +1059,7 @@ class SkillRouterTriggers(SetupBase):
         pony = self.line(body, "ponytail")
         self.assertIn("Use when", contract)
         self.assertIn("code graph", contract)
-        self.assertIn("Use on ANY coding task", pony)
+        self.assertIn("Use when coding", pony)
         self.assertIn("refactoring", pony)
         # the router line is the only skill list opencode has, and it is cut at
         # 140 characters: a product trigger that lands past the cut names a skill
@@ -1090,7 +1107,8 @@ class Collisions(SetupBase):
     # The pairs a session could pick either way from today, and one that it could
     # not: the threshold is only trustworthy if both ends of it are pinned.
     KNOWN = (("plan-add", "plan-status"), ("plan-add", "plan-sync"),
-             ("plan-status", "plan-sync"), ("product-analysis", "feature-audit"))
+             ("plan-status", "plan-sync"), ("product-analysis", "feature-audit"),
+             ("design-contract", "design-library"))
     NOT_A_PAIR = ("ponytail", "i-have-adhd")
 
     def routers(self):
@@ -1113,8 +1131,12 @@ class Collisions(SetupBase):
 
     def test_every_pair_names_two_shipped_skills_that_share_the_words_it_lists(self):
         _, full = self.routers()
-        lines = router_lines(full)
-        shipped = set(setup_module().SKILLS)
+        module = setup_module()
+        shipped = set(module.SKILLS)
+        # the words come from each body's `## When to use` trigger line, not the
+        # short router line: that is the text the table compares
+        lines = {name: module.skill_when_line(
+            os.path.join(REPO, "skills", name, "SKILL.md")) for name in shipped}
         pairs = self.pairs(full)
         self.assertTrue(pairs, "the collision table names no pair")
         self.assertEqual(len(pairs), len({pair[:2] for pair in pairs}),
@@ -1521,6 +1543,15 @@ class CodexHome(SetupBase):
         self.assertTrue(row.strip().startswith("MISS"), row)
         self.assertIn("(omp) match the hosts wired (codex)", row)
         self.assertEqual(self.read_json(path)["hosts"], ["omp"])
+
+    def test_arming_one_host_keeps_the_others_on_record(self):
+        # `--install --hosts opencode` on a machine armed for codex used to
+        # write hosts=["opencode"]: --upgrade and a full uninstall then skipped
+        # codex, though its wiring was still on disk.
+        self.assertEqual(self.setup("--install", "--hosts", "codex").returncode, 0)
+        self.assertEqual(self.setup("--install", "--hosts", "opencode").returncode, 0)
+        path = self.path(".config", "tezgah", "config.json")
+        self.assertEqual(self.read_json(path)["hosts"], ["codex", "opencode"])
 
     def test_the_codex_roles_land_in_the_relocated_home(self):
         proc = self.setup("--install", "--hosts", "codex")
@@ -2850,7 +2881,10 @@ class ContextBudget(SetupBase):
     # recorded here rather than absorbed by the 2000-byte headroom. Raised to 11765
     # when plan 076 shipped the description plan 075 measured as arm V1 (67
     # characters longer than 074's), kept verbatim because it is the measured text.
-    BAND_BEFORE = 11765
+    # Lowered to 2927 on 2026-10-22 (plan 126, bafeb51): every description became
+    # a `Use when` line of English and Turkish triggers within 160 characters,
+    # the long text moving to each body's `## When to use`.
+    BAND_BEFORE = 2927
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:
@@ -2866,7 +2900,7 @@ class ContextBudget(SetupBase):
         own = (len("design-library")
                + len(module._frontmatter_description(entry)) + 8)
         self.assertIn("design-library", module.SKILLS)
-        self.assertEqual(own, 341, "the library's always-on cost moved")
+        self.assertEqual(own, 174, "the library's always-on cost moved")
         self.assertLessEqual(band - own, self.BAND_BEFORE,
                              "the band without the library grew")
         self.assertLessEqual(band, self.BAND_BEFORE + 2000,
@@ -3208,8 +3242,9 @@ class VersionPrefixIsNotContract(SetupBase):
 
     def test_the_always_on_band_is_unchanged(self):
         module = setup_module()
-        band = dict(module.context_budget()[0])[
-            "core contract (always-on, per session)"]
+        # the unrendered core: rendering turns each BIN_TOOLS name into its
+        # installed absolute path, so the rendered length follows HOME, not text
+        band = len(module.tezgah_context.always_on_core())
         # Re-pinned 2026-09-21 with the graph-engine cutover: the code-discovery
         # paragraph names codegraph and its real surface now, which is 8 bytes
         # shorter than the codebase-memory-mcp wording it replaced. Re-pinned
@@ -3259,7 +3294,9 @@ class VersionPrefixIsNotContract(SetupBase):
         # says a research, analysis, review or plan ask ends at the written plan
         # and building it is an approval-batch question (+132 B); review round
         # 1: building it waits for the answer, in the Ask policy too (+56 B).
-        self.assertEqual(13180, band, "the always-on band moved")
+        # Re-pinned 2026-10-22 (plan 126): measured unrendered, so the absolute
+        # CLI paths the render now writes do not tie the pin to one HOME.
+        self.assertEqual(13160, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
 
