@@ -469,6 +469,11 @@ class Gate(TempHome):
                         "git log --oneline | head -5"):
             self.assertIsNone(self.decide("Bash", {"command": command}), command)
 
+    def test_a_shortcut_behind_a_substitution_or_a_continuation_is_refused(self):
+        # review of plan 126, round 3i: bash runs each of these as the shortcut
+        for command in bash_vectors.SHORTCUT_LINES + bash_vectors.PIPED_LINES:
+            self.assertIsNotNone(self.decide("Bash", {"command": command}), repr(command))
+
     def test_verify_off_drops_the_piped_check_rule(self):
         self.touch(os.path.join(self.home, ".config", "tezgah", "verify-off"))
         self.assertIsNone(self.decide("Bash", {"command": "pytest -q | tail -3"}))
@@ -4046,9 +4051,14 @@ class ShellCommentRule(unittest.TestCase):
         target = os.path.join(tg.CONFIG_DIR, "verify-off")
         for c in ("cat x\\ #;touch %s", "cat x\\\n#;touch %s", "cat x\r#;touch %s",
                   "cat a\\\\\ntouch %s", "cat x\\ #>%s", "tou\\\nch %s",
-                  "echo `true`#;touch %s", "echo `#x`;touch %s"):
+                  "echo `true`#;touch %s", "echo `#x`;touch %s") + bash_vectors.CONTROL_LINES:
             self.assertIsNotNone(tg.shell_control(c % target, "/tmp"), repr(c))
+        exec_mode = os.path.join(tg.CONFIG_DIR, "exec-mode.off")
+        for c in bash_vectors.CONTROL_LINES:
+            self.assertIsNotNone(tg.shell_control(c % exec_mode, "/tmp"), repr(c))
         self.assertIsNone(tg.shell_control("cat x # c\\\n", "/tmp"))
+        # a subshell's `)` does end a word: bash reads the rest as a comment
+        self.assertIsNone(tg.shell_control("(true)#;touch %s" % target, "/tmp"))
 
 
 if __name__ == "__main__":

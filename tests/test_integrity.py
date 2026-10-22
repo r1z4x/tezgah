@@ -566,6 +566,23 @@ class BookkeepingCommand(unittest.TestCase):
                   "true x\xa0#;git commit --no-verify -m m"):
             self.assertIsNotNone(ti.shortcut_command(c), repr(c))
 
+    def test_a_substitution_close_and_a_joined_token_hide_nothing(self):
+        # review of plan 126, round 3i: a `#` after the `)` of a `$( )`, `<( )`,
+        # `$(( ))` or `x=( )` is mid-word, so the command after it runs; and a
+        # continuation inside a shortcut rule's token (`|\<nl>|`, `tr\<nl>ue`,
+        # `SK\<nl>IP=`) is deleted by bash before any rule could read it
+        for c in bash_vectors.SUBSTITUTION_LINES:
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in bash_vectors.SHORTCUT_LINES:
+            self.assertIsNotNone(ti.shortcut_command(c), repr(c))
+        for c in bash_vectors.PIPED_LINES:
+            self.assertIn("`pytest` is piped into `tail`", ti.piped_check(c) or "", repr(c))
+        # the masked text keeps its length, and the joined word is whole in it
+        for c in ("pytest; tr\\\nue", "SK\\\nIP=all git commit -m m"):
+            self.assertEqual(len(ti.mask(c)), len(c))
+        self.assertIn("true", ti.mask("pytest; tr\\\nue").split())
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):

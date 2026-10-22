@@ -2101,6 +2101,25 @@ def _opens_comment(prev):
     return not prev or prev in WORD_BREAKS
 
 
+# What before a `(` makes it part of a word: a command or process substitution
+# or an arithmetic expansion (`$(`, `<(`, `>(`, `$((`) and an array (`x=(`).
+WORD_PARENS = "$<>="
+
+
+def _kept(ch, before, parens):
+    """`ch` as the `prev` `_opens_comment` asks of the character after it: a
+    `)` closing a `(` opened right after WORD_PARENS ends no word (`$(:)#x` is
+    one word, so bash runs a command after it), and reads as "_"; a subshell's,
+    an arithmetic command's or a `case` pattern's `)` is a break. `before` is
+    the character kept before `ch` and `parens` the reader's stack of open `(`
+    (review of plan 126, round 3i)."""
+    if ch == "(":
+        parens.append(bool(before) and before in WORD_PARENS)
+    elif ch == ")" and parens and parens.pop():
+        return "_"
+    return ch
+
+
 def _heredocs(cmd):
     """Every heredoc operator in `cmd`, in order, as (operator start, operator
     end, tag, quoted, body start, terminator span or None, safe).
@@ -2122,7 +2141,7 @@ def _heredocs(cmd):
     bash runs - so the reader no longer decides where such a context ends: it
     shows the text. A false refusal of data is the accepted cost
     (tests/bash_vectors.ACCEPTED_REFUSALS)."""
-    n, found, pending, i = len(cmd), [], [], 0
+    n, found, pending, i, parens = len(cmd), [], [], 0, []
     quote, depth, sure, line_start, last = None, 0, True, 0, ""
     while i < n:
         ch = cmd[i]
@@ -2214,7 +2233,7 @@ def _heredocs(cmd):
             depth += 1
         elif ch in ")]}":
             depth -= 1
-        i, last = i + 1, ch
+        i, last = i + 1, _kept(ch, before, parens)
     found += [(s, e, t, q, n, None, False) for s, e, t, q, _, _ in pending]
     return found
 
@@ -2263,32 +2282,54 @@ def _heredoc_bytes(text):
 
 def mask(text):
     """A shell line with quoted strings, comments and heredoc bodies blanked,
-    length and newlines kept, read the way bash reads it: `'...'` takes no
-    escape, `$'...'` (an unescaped `$` only) and `"..."` do, a `\\` outside
-    quotes escapes one character, and `#` starts a comment only at the start of
-    a word. So `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'`
-    are words, not a comment or an open string that blanks the command after
-    them (gate-01). A quote left open blanks from itself to the end - bash runs
-    nothing after it - and keeps the reading before it.
+    length kept, read the way bash reads it: `'...'` takes no escape, `$'...'`
+    (an unescaped `$` only) and `"..."` do, a `\\` outside quotes escapes one
+    character, and `#` starts a comment only at the start of a word. So
+    `https://x`, `a#b`, `src/*.py ... lib/*/`, `'x\\'` and `\\$'x\\'` are words,
+    not a comment or an open string that blanks the command after them
+    (gate-01). A quote left open blanks from itself to the end - bash runs
+    nothing after it - and keeps the reading before it. A CONTINUATION bash
+    deletes (outside single quotes, `$'...'` and comments) is moved to its
+    word's start as two spaces, so every rule reads the token bash joins
+    (`tr\\<nl>ue` is `true`, `|\\<nl>|` is `||`) at offsets `joined` keeps
+    (review of plan 126, round 3i).
 
     Memoised per process: a pure function of the text, and one Stop asks it of
     the same ledger details from several readers (both Stop folds, plan 063)."""
-    return _mask(str(text or ""))
+    return _mask(str(text or ""))[0]
+
+
+def joined(text):
+    """The raw `text` with each CONTINUATION moved as `mask` moves it: the text
+    a rule slices at the offsets a masked match proved."""
+    text = str(text or "")
+    return _moved(list(text), _mask(text)[1])
+
+
+def _moved(out, cuts):
+    for word, at in cuts:
+        out[word + 2:at + 2] = out[word:at]
+        out[word:word + 2] = "  "
+    return "".join(out)
 
 
 @functools.lru_cache(maxsize=4096)
 def _mask(text):
+    """(the masked text, the (word start, offset) of each CONTINUATION moved)."""
     text = _blank_heredocs(text)
     body = _heredoc_bytes(text)
     out, i, n, start, prev = list(text), 0, len(text), True, ""
+    parens, word, cuts = [], 0, []
     while i < n:
         ch = text[i]
         if body[i]:
-            i, start, prev = i + 1, True, ""
+            i, start, prev, word = i + 1, True, "", i + 1
             continue
         if ch == "\\":
             # a CONTINUATION is no character: the word state before it goes on
-            if not text.startswith(CONTINUATION, i):
+            if text.startswith(CONTINUATION, i):
+                cuts.append((word, i))
+            else:
                 start, prev = False, ""
             i += 2
             continue
@@ -2296,20 +2337,26 @@ def _mask(text):
             escapes = ch == '"' or prev == "$"
             end = i + 1
             while end < n and text[end] != ch:
-                end += 2 if escapes and text[end] == "\\" else 1
+                if escapes and text[end] == "\\":
+                    if ch == '"' and text.startswith(CONTINUATION, end):
+                        cuts.append((word, end))
+                    end += 1
+                end += 1
             end = min(end + 1, n)
         elif ch == "#" and start:
             end = text.find("\n", i)
             end = n if end < 0 else end
         else:
-            start, prev = _opens_comment(ch), ch
+            start, prev = _opens_comment(_kept(ch, prev, parens)), ch
             i += 1
+            if ch in " \t\n":
+                word = i
             continue
         for k in range(i, end):
             if out[k] != "\n":
                 out[k] = " "
         i, start, prev = end, False, ""
-    return "".join(out)
+    return _moved(out, cuts), tuple(cuts)
 
 
 def _unquoted_backticks(text):
@@ -2330,10 +2377,18 @@ def _unquoted_backticks(text):
         elif ch in "'\"":
             quote = ch
         elif ch == "`":
-            # a `#` right after it opens no comment (`_opens_comment` sees `;`):
-            # bash reads it mid-word after the close, and a comment inside the
-            # body ends at the close, so it is escaped here
-            ch = ";\\" if text.startswith("#", i + 1) else ";"
+            # a `#` right after it, continuations aside, opens no comment
+            # (`_opens_comment` sees `;`): bash reads it mid-word after the
+            # close, and a comment inside the body ends at the close, so it is
+            # escaped here (review of plan 126, round 3i: `` `:`\<nl># ``)
+            j = i + 1
+            while text.startswith(CONTINUATION, j):
+                j += 2
+            if text.startswith("#", j):
+                out.append(";" + text[i + 1:j] + "\\#")
+                i = j + 1
+                continue
+            ch = ";"
         out.append(ch)
         i += 1
     return "".join(out)
@@ -2383,7 +2438,7 @@ def _shell_lines(text):
     open at the end goes back to a split at every newline from its line on."""
     body = _heredoc_bytes(text)
     lines, cur, quote, prev, i, n = [], [], None, "", 0, len(text)
-    opened, runs = 0, False
+    opened, runs, parens = 0, False, []
     while i < n:
         ch = text[i]
         if body[i] or (not quote or runs) and ch in "\r\n":
@@ -2420,7 +2475,7 @@ def _shell_lines(text):
         elif ch in "'\"":
             quote = "$'" if ch == "'" and cur and cur[-1] == "$" else ch
             opened = len(lines)
-        prev = "_" if quote or ch in "'\"" else ch
+        prev = "_" if quote or ch in "'\"" else _kept(ch, prev, parens)
         cur.append(ch)
         i += 1
     lines.append("".join(cur))
@@ -2815,9 +2870,10 @@ def piped_check(cmd):
     c = mask(cmd)
     if PIPEFAIL.match(c):
         return None
-    raw = str(cmd or "")
+    raw = joined(cmd)
     pos, check = 0, None
-    # mask keeps every offset, so a stage's span in `c` is its text in `raw`
+    # mask keeps every offset of `joined`, so a stage's span in `c` is its text
+    # in `raw`
     for part in re.split(r"(&&|\|\||;|\n|\|)", c):
         if part in ("&&", "||", ";", "\n"):
             check = None
@@ -4868,6 +4924,7 @@ def _shell_read(cmd, subst=False):
         blank(body, term[1])
     cmd = "".join(out)
     bare, lit, dq, quote, i = [], [], [], None, 0
+    kept, parens = "", []  # lit's last character as `_opens_comment` asks it
     while i < n:
         ch = cmd[i]
         if quote == "'":
@@ -4887,15 +4944,16 @@ def _shell_read(cmd, subst=False):
             bare.append(" ")
             lit.append("_")
             dq.append("_")
+            kept = "_"
             continue
         elif ch == "`" or (cmd.startswith("$(", i) and (quote or not subst)):
             return True, ""
         elif quote == '"':
             quote = None if ch == '"' else quote
         # a `#` opens a comment only at a word's start (`_opens_comment`): after
-        # an escaped or quoted character (`x\ #...`) it is part of the word
-        # (`lit` holds `_` for those)
-        elif ch == "#" and _opens_comment(lit[-1] if lit else ""):
+        # an escaped or quoted character (`x\ #...`) or a substitution's `)`
+        # (`_kept`) it is part of the word
+        elif ch == "#" and _opens_comment(kept):
             end = cmd.find("\n", i)
             end = n if end < 0 else end
             blank(i, end)
@@ -4910,11 +4968,13 @@ def _shell_read(cmd, subst=False):
             bare.append(ch)
             lit.append(ch)
             dq.append(ch)
+            kept = _kept(ch, kept, parens)
             i += 1
             continue
         bare.append(" ")
         # `lit` keeps only unquoted text, `dq` double-quoted text too
         lit.append("_")
+        kept = "_"
         dq.append(ch if quote == '"' or ch == '"' and not quote else "_")
         i += 1
     if quote:

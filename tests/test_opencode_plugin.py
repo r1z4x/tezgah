@@ -449,11 +449,25 @@ class OpenCodePlugin(TempHome):
             self.assertEqual(js["segments"], ti._shell_segments(line), repr(line))
             self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
             self.assertEqual(js["mask"], ti.mask(line), repr(line))
+        # round 3i's: a `#` after a substitution's `)`, a joined token
+        review = (bash_vectors.SUBSTITUTION_LINES + bash_vectors.SHORTCUT_LINES
+                  + bash_vectors.PIPED_LINES)
+        for line, js in zip(review, self.js_readers(list(review))):
+            self.assertEqual(js["lines"], ti._shell_lines(line), repr(line))
+            self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
+            self.assertEqual(js["mask"], ti.mask(line), repr(line))
         for line in ("true x\r#;git commit --no-verify -m m",
                      "true x\xa0#;git commit --no-verify -m m",
-                     "git -c core.hooksPath=/x com\\\nmit -m x"):
+                     "git -c core.hooksPath=/x com\\\nmit -m x",
+                     *bash_vectors.SHORTCUT_LINES):
             self.assertIsNotNone(ti.shortcut_command(line), repr(line))
             self.denied(self.before("bash", {"command": line}))
+        # the piped rule is the core's (piped_check), asked through its gate
+        self.gate_bin()
+        for line in bash_vectors.PIPED_LINES:
+            expected = self.gate("bash", {"command": line})
+            self.assertIn("Piped check", expected, repr(line))
+            self.assertEqual(self.denied(self.before("bash", {"command": line})), expected)
 
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
         # review F4 (`-S`/`-u` take no separate word), F10 (bash options before

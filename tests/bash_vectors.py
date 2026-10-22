@@ -136,7 +136,14 @@ COMMENT_PREFIXES = (("", True), ("cat x ", True), ("cat x;", True), ("cat x\t", 
                     ("cat \\\n", True), ("cat a\\\\\n", True), ("cat x", False),
                     ("cat x\\ ", False), ("cat x\\;", False), ("cat x\\\n", False),
                     ("cat x\r", False), ("cat x\xa0", False), ("cat ''", False),
-                    ("cat x\\`", False))
+                    ("cat x\\`", False),
+                    # round 3i: a `)` closing a substitution (`$( )`, `<( )`,
+                    # `>( )`, `$(( ))`) or an array (`x=( )`) ends no word; a
+                    # subshell's or an arithmetic command's does
+                    ("true $(:)", False), ("true <(:)", False), ("true >(:)", False),
+                    ("true $((1))", False), ("true $( (:) )", False), ("x=(a)", False),
+                    ("true $(:)\\\n", False), ("(true)", True), ("((1))", True),
+                    ("(true)\\\n", True))
 # the same review's lines: bash deletes a `\<newline>` and joins the words
 # around it (not after an escaped backslash, where the newline is real), and a
 # `#` mid-word opens no comment - each line ran a command a reader did not see
@@ -147,6 +154,22 @@ CONTINUATION_LINES = (
     "cat x\\ #<<cat\ncat #$(touch pwn7a)\ncat", "cat x\\ #<<cat\ncat #`touch pwn7b`\ncat",
     "cat x\\;#<<cat\ncat #$(touch pwn7d)\ncat", "cat x\\\n#<<cat\ncat #$(touch pwn7g)\ncat",
     "cat x\r#;touch pwn", "cat x\xa0#;touch pwn")
+# round 3i: each line ran a command a reader did not see - after a `)` that
+# ends no word (`$(:)#`), a backtick and a continuation (`` `:`\<nl># ``), or
+# a continuation inside a shortcut rule's token (`|\<nl>|`, `tr\<nl>ue`)
+SUBSTITUTION_LINES = (
+    "cat $(echo x)#;rm -rf victim", "cat <(echo x)#;touch pwn8b",
+    "cat $((1))#;touch pwn8c", "x=(a)#;rm -rf victim",
+    "if true; then cat $(echo x)#;rm -rf victim\nfi")
+SHORTCUT_LINES = (
+    "true $(:)#;git commit --no-verify -m m", "pytest $(:)#|| true",
+    "true <(:)#;git commit --no-verify -m m", "pytest $((1))#|| true",
+    "pytest |\\\n| true", "pytest; tr\\\nue", "pytest ;\\\ntrue",
+    "SK\\\nIP=all git commit -m m", "pytest \\\n|| true")
+PIPED_LINES = ("pytest |\\\n tail", "pytest |\\\ntail -3", "pytest | ta\\\nil")
+CONTROL_LINES = (
+    "true `:`\\\n#;touch %s", "true `:`\\\n\\\n#;touch %s", "true $(:)#;touch %s",
+    "true <(:)#;touch %s", "true $((1))#;touch %s", "x=(a)#;touch %s")
 
 
 def bash():

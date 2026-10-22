@@ -380,6 +380,15 @@ function heredocBytes(text) {
 const WORD_BREAKS = " \t\n;&|()<>"
 const CONTINUATION = "\\\n"
 function opensComment(prev) { return !prev || WORD_BREAKS.includes(prev) }
+// hooks/tezgah_integrity WORD_PARENS and _kept: a `)` closing a `(` opened right
+// after `$`, `<`, `>` or `=` (a substitution, an arithmetic expansion, an array)
+// ends no word, so `$(:)#x` is one word; a subshell's `)` is a break
+const WORD_PARENS = "$<>="
+function kept(ch, before, parens) {
+  if (ch === "(") parens.push(Boolean(before) && WORD_PARENS.includes(before))
+  else if (ch === ")" && parens.length && parens.pop()) return "_"
+  return ch
+}
 
 // The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
 // inside quotes, each one in a heredoc body, every one inside a double-quoted
@@ -389,6 +398,7 @@ function opensComment(prev) { return !prev || WORD_BREAKS.includes(prev) }
 function shellLines(text) {
   const body = heredocBytes(text)
   let lines = [], cur = "", quote = null, prev = "", i = 0, opened = 0, runs = false
+  const parens = []
   let dollar = false  // the character before i was a `$` bash read unescaped
   const n = text.length
   while (i < n) {
@@ -422,7 +432,7 @@ function shellLines(text) {
       quote = ch === "'" && dollar ? "$'" : ch
       opened = lines.length
     }
-    prev = quote || ch === "'" || ch === '"' ? "_" : ch
+    prev = quote || ch === "'" || ch === '"' ? "_" : kept(ch, prev, parens)
     dollar = !quote && ch === "$"
     cur += ch
     i += 1
@@ -697,6 +707,7 @@ function closes(cmd, pos, tag, strip, message) {
 function heredocs(cmd) {
   const n = cmd.length, found = []
   let pending = [], i = 0, quote = null, depth = 0, sure = true, lineStart = 0, last = ""
+  const parens = []
   while (i < n) {
     const ch = cmd[i]
     // `last` is the character bash kept before `ch` (_heredocs)
@@ -774,7 +785,7 @@ function heredocs(cmd) {
     if (riskAt(cmd, i)) sure = false
     if ("([{".includes(ch)) depth++
     else if (")]}".includes(ch)) depth--
-    last = ch
+    last = kept(ch, before, parens)
     i++
   }
   for (const [s, e, t, q] of pending) found.push([s, e, t, q, n, null, false])
@@ -803,35 +814,66 @@ function maskSource(text) {
 // them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` (an
 // unescaped `$` only) and `"..."` do, a `\` outside quotes escapes one
 // character, `#` is a comment only at the start of a word, a heredoc body is
-// data, and a quote left open blanks from itself to the end.
+// data, and a quote left open blanks from itself to the end. A CONTINUATION
+// bash deletes (outside single quotes, `$'...'` and comments) is moved to its
+// word's start as two spaces, so a rule reads the token bash joins at the
+// offsets joinedText keeps.
 function maskText(raw) {
-  const text = blankHeredocs(String(raw || ""))
+  return maskRead(String(raw || ""))[0]
+}
+
+// the raw text with each CONTINUATION moved as maskText moves it: what a rule
+// slices at a masked match's offsets (hooks/tezgah_integrity.joined)
+function joinedText(raw) {
+  const text = String(raw || "")
+  return moved(text.split(""), maskRead(text)[1])
+}
+
+function moved(out, cuts) {
+  for (const [word, at] of cuts) {
+    out.splice(word + 2, at - word, ...out.slice(word, at))
+    out[word] = " "; out[word + 1] = " "
+  }
+  return out.join("")
+}
+
+function maskRead(raw) {
+  const text = blankHeredocs(raw)
   const body = heredocBytes(text)
   const out = text.split("")
   const n = text.length
-  let i = 0, start = true, prev = ""
+  const parens = [], cuts = []
+  let i = 0, start = true, prev = "", word = 0
   while (i < n) {
     const ch = text[i]
     let end
-    if (body[i]) { i += 1; start = true; prev = ""; continue }
+    if (body[i]) { i += 1; start = true; prev = ""; word = i; continue }
     if (ch === "\\") {
       // a CONTINUATION is no character: the word state before it goes on
-      if (!text.startsWith(CONTINUATION, i)) { start = false; prev = "" }
+      if (text.startsWith(CONTINUATION, i)) cuts.push([word, i])
+      else { start = false; prev = "" }
       i += 2
       continue
     }
     if (ch === "'" || ch === '"') {
       const escapes = ch === '"' || prev === "$"
       end = i + 1
-      while (end < n && text[end] !== ch) end += escapes && text[end] === "\\" ? 2 : 1
+      while (end < n && text[end] !== ch) {
+        if (escapes && text[end] === "\\") {
+          if (ch === '"' && text.startsWith(CONTINUATION, end)) cuts.push([word, end])
+          end += 1
+        }
+        end += 1
+      }
       end = Math.min(end + 1, n)
     } else if (ch === "#" && start) {
       end = text.indexOf("\n", i)
       if (end < 0) end = n
     } else {
-      start = opensComment(ch)
+      start = opensComment(kept(ch, prev, parens))
       prev = ch
       i += 1
+      if (ch === " " || ch === "\t" || ch === "\n") word = i
       continue
     }
     for (let k = i; k < end; k++) if (out[k] !== "\n") out[k] = " "
@@ -839,7 +881,7 @@ function maskText(raw) {
     start = false
     prev = ""
   }
-  return out.join("")
+  return [moved(out, cuts), cuts]
 }
 
 // mirrors hooks/tezgah_integrity INFO_ARGS / INFO_SUBCOMMAND / FORMAT_WRITE: an
@@ -1067,7 +1109,7 @@ function shellTarget(command) {
   // of `m[0]` - no index lookup that a target named after a flag letter
   // (`| tee e`) could fool.
   const token = m[1] || m[2]
-  return c.slice(m.index + m[0].length - token.length, m.index + m[0].length)
+  return joinedText(c).slice(m.index + m[0].length - token.length, m.index + m[0].length)
     .replace(/^['"]|['"]$/g, "")
 }
 
@@ -2043,14 +2085,14 @@ function realPath(p) {
 function secretCommand(command) {
   const c = String(command || "")
   if (!c || !SECRET_TOKEN.test(c)) return null
-  const masked = maskText(c)
+  const masked = maskText(c), raw = joinedText(c)
   const relax = !(SECRET_ENVIRON.test(c) || SECRET_STARTUP.test(c)
                   || SECRET_FUNCTION.test(masked) || SECRET_TRACE.test(masked))
   let start = 0
   const carried = new Set()
   const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
   for (const end of ends.concat(c.length)) {
-    const text = c.slice(start, end)
+    const text = raw.slice(start, end)
     if (SECRET_SINK.test(masked.slice(start, end))) {
       if (SECRET_TOKEN.test(text) && !(relax && envPrefixOnly(text))) return SECRET_DENY
       if ([...text.matchAll(SECRET_VAR)].some((v) => carried.has(v[1] || v[2]))
