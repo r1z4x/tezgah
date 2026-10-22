@@ -285,6 +285,9 @@ def normalise(text):
     text = TEX_TOKEN.sub(" ", text)
     # a marker split by tags or spaces (LaTeXML's `[<a>12</a>]` reads `[ 12 ]`) too
     text = re.sub(r"\[\s*\d+(?:\s*[,\u2013-]\s*\d+)*\s*\]", "", text).translate(QUOTE_MARKS)
+    # an editorial change keeps its letter and loses only its brackets: a quote that
+    # prints `[T]he` cites the work's `The` (K6 rater Y6's probe)
+    text = re.sub(r"\[([^\]]{1,3})\]", r"\1", text)
     text = re.sub(r"-\s+", "", text)
     # a hyphen between two letters reads as a space: `tail-latency` quotes `tail latency`
     text = re.sub(r"(?<=[^\W\d_])-(?=[^\W\d_])", " ", text)
@@ -741,9 +744,11 @@ def cmd_fetch(repo, args):
                 else data.decode("utf-8", "replace"))
         access = "user"
     tried_orx = False
+    orx_text = False
     if text is None and use_orx and rid:
         tried_orx = True
         data, text, url = _orx_paper(rid)
+        orx_text = text is not None
     if text is None and rid and rid.startswith("arXiv:"):
         url = "https://arxiv.org/html/%s" % rid[6:]
         status, body = fetch_url(url)
@@ -761,7 +766,16 @@ def cmd_fetch(repo, args):
                 landing = url, body, page
     if text is None and rid and not tried_orx:
         data, text, url = _orx_paper(rid)
+        orx_text = text is not None
     reason = None
+    if (text is not None and orx_text and access == "full"
+            and body_sentences(text) < BODY_SENTENCES):
+        # the same body test the open-access page gets (K6 rater Y5 and Y6): orx
+        # answers with metadata and an abstract for a paper it cannot read whole
+        access = "abstract"
+        reason = ("orx held %d distinct sentences of %d+ words, under the %d of a work's "
+                  "body: metadata and abstract, not full text" % (
+                      body_sentences(text), BODY_WORDS, BODY_SENTENCES))
     if text is None and landing:
         # a repository landing page holds the metadata and the abstract, not the body
         # (K6 rater Y4's Tilburg and EUR Pure pages): the abstract-only step

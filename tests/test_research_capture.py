@@ -450,9 +450,27 @@ class Captures(unittest.TestCase):
         self.assertTrue(all(p["found"] for p in record["passages"]))
         self.map[HTML] = {"status": 404}
         self.write(self.map_path, json.dumps(self.map))
-        self.orx({"logs": {}, "runs": [], "papers": {ARX: "it says %s" % QUOTE}})
+        body = " ".join(
+            "Measure %d: the cache lowered tail latency in every workload we measured." % i
+            for i in range(120))
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: body}})
         self.run_cmd("fetch", "q", NOTE)
         self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
+
+    def test_orx_metadata_and_abstract_read_as_abstract(self):
+        """K6 raters Y5 and Y6: `orx paper --full` answers with metadata and an abstract
+        for a paper it cannot read whole, and that was labelled `full`, so a verbatim body
+        quote was refused. The same body test the open-access page gets applies."""
+        self.run_cmd("cite", "q")
+        self.map[HTML] = {"status": 404}
+        self.write(self.map_path, json.dumps(self.map))
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: "Abstract only. %s." % QUOTE}})
+        self.assertEqual(self.run_cmd("fetch", "q", NOTE)[0], 0)
+        row = self.rows(cap.SOURCES)[-1]
+        self.assertEqual(row["access"], "abstract")
+        with open(self.at(row["file"])) as fh:
+            record = json.load(fh)
+        self.assertIn("not full text", record["reason"])
 
     def test_quote_absent_from_the_capture_is_refused(self):
         self.set_map({HTML: "<p>caching changed nothing we measured</p>"})
@@ -663,6 +681,9 @@ class Captures(unittest.TestCase):
         errors, _w, _s = self.check()
         self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
         self.assertEqual(cap.normalise("latency [ 12 ] in [3 , 4]"), "latency in")
+        # an editorial change keeps its letter and loses only its brackets (Y6's probe)
+        self.assertEqual(cap.normalise("[T]he thing"), cap.normalise("the thing"))
+        self.assertEqual(cap.normalise("the [T]hing"), "the thing")
 
     def test_formal_row_with_an_empty_id_resolves_in_no_registry(self):
         # D2-6
