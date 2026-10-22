@@ -83,6 +83,7 @@ the offset just past its last newline (`tezgah_integrity.committed_size`) - so a
 fragment a killed writer left behind is neither read as a record by the readers
 here nor appended beside as one.
 """
+import decimal
 import fnmatch
 import json
 import math
@@ -142,7 +143,7 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # that owes no variants), 6 the selection warnings (`_check_selection`: the
 # held-out set, repeats per arm, the noise band), 7 the exploratory method (an
 # arena locked before the first idea, the idea/stage/tournament rows and their
-# rules, `_check_exploratory`). A `rules` above `RULES` is
+# rules, `_check_exploratory`). A `rules` above `EVIDENCE_RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
@@ -150,7 +151,11 @@ PROTOCOL_RULES = 4
 SCOPE_RULES = 5
 HOLDOUT_RULES = 6
 EXPLORE_RULES = 7
-RULES = EXPLORE_RULES
+# Rules 8 (plan 127): evidence captured by the tool and claims narrowed rather
+# than lines refused. `init` writes it since the plan's last wave moved `RULES`
+# here.
+EVIDENCE_RULES = 8
+RULES = EVIDENCE_RULES
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
@@ -1251,7 +1256,7 @@ def _check_findings(base, errors, warnings, strict):
     missing = [s for s in FINDINGS_SECTIONS if ("## " + s) not in text]
     if missing:
         errors.append("findings.md does not answer: %s" % ", ".join(missing))
-    _check_patterns(text, errors, warnings, strict)
+    _check_patterns(text, errors, warnings, strict, _evidence(_state(base)))
 
 
 PATTERNS_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
@@ -1270,7 +1275,7 @@ def _section(text, name):
     return out
 
 
-def _check_patterns(text, errors, warnings, strict):
+def _check_patterns(text, errors, warnings, strict, wrapped):
     """Every bullet under `## Patterns` names the source it came from.
 
     A pattern is the one finding a reader is meant to carry into other work, so
@@ -1279,9 +1284,17 @@ def _check_patterns(text, errors, warnings, strict):
     none is a guess wearing the clothes of a finding, which is exactly the
     failure the review exists to catch, and it is reported once per line with the
     count so a line with seventeen of them says so in one row rather than
-    seventeen."""
-    bullets = [m.group(1).strip() for line in _section(text, "Patterns")
-               for m in [PATTERNS_BULLET.match(line)] if m]
+    seventeen. With `wrapped` (a rules-8 line, `_evidence`) a bullet is its first
+    line plus every following indented, non-blank line before the next bullet
+    (spec 4.7): a source wrapped onto a continuation line is still the bullet's
+    source. An older line reads each bullet's first line, as it was opened under."""
+    bullets = []
+    for line in _section(text, "Patterns"):
+        found = PATTERNS_BULLET.match(line)
+        if found:
+            bullets.append(found.group(1).strip())
+        elif wrapped and bullets and line[:1].isspace() and line.strip():
+            bullets[-1] += " " + line.strip()
     unsourced = [b for b in bullets if not PATTERNS_SOURCE.search(b)]
     if unsourced:
         _soft(errors, warnings, strict,
@@ -1721,14 +1734,17 @@ def _check_claims(base, errors, warnings, roots=(), strict=False):
         # held to their proof here. Warning on the historical statement too would
         # make a correction that rewords a figure impossible to land (it already
         # cannot edit the row), for a sentence no reader is meant to keep.
-        if cid not in superseded:
+        # rules 8 replaces this rule by `untraced-number`, a step that never refuses
+        if cid not in superseded and not _evidence(line_state):
             _check_claim_numbers(cid, claim, base, repo, errors, warnings, strict)
         _check_claim_raters(cid, claim, base, errors, warnings, strict)
         if sections and cid not in superseded:
             problem = _token_claim_problem(cid, claim, base)
             if problem:
                 errors.append(problem)
-    _check_supersedes(parsed, errors, warnings, strict)
+    _check_supersedes(parsed, errors, warnings, strict,
+                      _note_text(os.path.join(base, "to_human", "report.md"))
+                      if _evidence(line_state) else None)
     if not count:
         warnings.append("no claims recorded yet")
     return count
@@ -1752,7 +1768,7 @@ def _token_claim_problem(cid, claim, base):
     return None
 
 
-def _check_supersedes(parsed, errors, warnings, strict):
+def _check_supersedes(parsed, errors, warnings, strict, report=None):
     """A claim that supersedes another names one this line holds, and says so.
 
     The record is append-only: a claim whose number went stale is corrected by a
@@ -1773,6 +1789,10 @@ def _check_supersedes(parsed, errors, warnings, strict):
             if ref not in known:
                 errors.append("claim %s supersedes %s, and no claim in this line "
                               "carries that id" % (cid, ref))
+                continue
+            # rules 8 (spec 4.6): a report line naming both ids tells the reader
+            if report is not None and any(_mentions(cid, line) and _mentions(ref, line)
+                                          for line in report.splitlines()):
                 continue
             _soft(errors, warnings, strict,
                   "claim %s supersedes %s: a reader who opens %s alone reads the "
@@ -1799,6 +1819,11 @@ def _supersedes(claim):
     if not all(ids):
         return [], "supersedes names an empty id"
     return ids, None
+
+
+def _superseded(rows):
+    """The claim ids some row supersedes (`_supersedes`): the historical rows."""
+    return {ref for row in rows for ref in _supersedes(row)[0]}
 
 
 def _claim_ids(base, handle=None):
@@ -2041,6 +2066,12 @@ def claim_problems(claim, base, repo, held=None):
         if scopes and all(s == "fixture" for s in scopes):
             problems.append("claim %s declares scope real and every row it rests on "
                             "records fixture" % cid)
+    # rules 8: the claim refusals `_core_rules8` applies, from the same functions, and
+    # like it never to a claim a row supersedes (the correction is that row)
+    if _evidence(_state(base)) and cid not in _superseded(
+            _row_objects(os.path.join(base, "claims.jsonl"))):
+        problems.extend(derived_problems(cid, claim, base))
+        problems.extend(fired_problems(cid, claim, base))
     return problems
 
 
@@ -2553,7 +2584,7 @@ def _check_literature(base, errors, warnings, strict):
             _soft(errors, warnings, note in legacy or newer,
                   "literature/%s is not in INDEX.jsonl: a note the index does not "
                   "name is a source no reader can weigh" % note)
-    _index_fields(rows, errors, warnings, strict)
+    _index_fields(rows, errors, warnings, strict, _evidence(_state(base)))
 
 
 def _read_index(index, literature, errors, warnings, strict):
@@ -2593,9 +2624,10 @@ def _read_index(index, literature, errors, warnings, strict):
     return rows, named
 
 
-def _index_fields(rows, errors, warnings, strict):
+def _index_fields(rows, errors, warnings, strict, evidence=False):
     """The index entries the rules read: a grey source's quality, a verification
-    against two records, and the three fields a note has to carry."""
+    against two records (rules 8 reads its receipts instead), and the three fields a
+    note has to carry."""
     total = len(rows)
     if not total:
         return
@@ -2606,8 +2638,8 @@ def _index_fields(rows, errors, warnings, strict):
               "literature/INDEX.jsonl: %d of %d rows are a grey source with no "
               "quality note, so nothing says how good the practice evidence is"
               % (len(grey), total))
-    verified = [r for r in rows
-                if not isinstance(r.get("verified"), list) or len(r["verified"]) < 2]
+    verified = [] if evidence else [
+        r for r in rows if not isinstance(r.get("verified"), list) or len(r["verified"]) < 2]
     if verified:
         _soft(errors, warnings, strict,
               "literature/INDEX.jsonl: %d of %d rows are verified by fewer than "
@@ -2782,6 +2814,11 @@ def _rules(state):
     return value if isinstance(value, int) and not isinstance(value, bool) else 1
 
 
+def _evidence(state):
+    """True for a line opened under the evidence rules (`EVIDENCE_RULES`)."""
+    return _rules(state) >= EVIDENCE_RULES
+
+
 def _state(base):
     """state.json as an object, or {} when it is missing or unreadable."""
     state, exc = _read_json(os.path.join(base, "state.json"))
@@ -2791,16 +2828,16 @@ def _state(base):
 def newer_rules(state):
     """The refusal for a line a later tezgah wrote, or None.
 
-    A `rules` above `RULES` names rules this code does not implement. Reading the
-    line by the rules it does know would pass what the later set refuses, and a
-    writer would append rows judged by the older set. So the line is refused by
-    name, before any rule reads it."""
+    A `rules` above `EVIDENCE_RULES` names rules this code does not implement.
+    Reading the line by the rules it does know would pass what the later set
+    refuses, and a writer would append rows judged by the older set. So the line
+    is refused by name, before any rule reads it."""
     found = _rules(state)
-    if found <= RULES:
+    if found <= EVIDENCE_RULES:
         return None
     return ("state.json rules %d is newer than the rules this tezgah implements (%d): "
             "a later tezgah wrote this line, so it is refused rather than read as if "
-            "current - upgrade tezgah to read or write it" % (found, RULES))
+            "current - upgrade tezgah to read or write it" % (found, EVIDENCE_RULES))
 
 
 def _concluding(base, state):
@@ -2812,20 +2849,22 @@ def _concluding(base, state):
             or os.path.isfile(os.path.join(base, "to_human", "report.md")))
 
 
-def file_versions(repo, path):
+def file_versions(repo, path, every_ref=True):
     """[(sha, text)] of every committed version of `path`, oldest first; [] when git
     cannot say. The append-only rule compares versions, which the added/last-touched
     pair cannot. The project's history is read first and the private `.tezgah`
     repository's after it, like `added_commits`: a line committed in the project
     before the move has its older versions there.
 
-    The order rules read HEAD's lineage; this reads every ref of the private
-    repository (`--all`), because it looks for a rewrite and not an order: a row
-    amended away while a tag keeps the old commit is a result rewritten after the
-    run, which HEAD alone no longer shows (an internal research decision). A side
-    ref can only add a version, so it can refuse a line and never pass one."""
+    By default this reads every ref of the private repository (`--all`), because
+    the results rule looks for a rewrite: a row amended away while a tag keeps the
+    old commit is a result rewritten after the run, which HEAD alone no longer
+    shows (an internal research decision); the append-only capture ledgers read it
+    the same way. `every_ref=False` reads HEAD's lineage only, for the order rule of
+    the captures: a backdated side branch read through `--all` supplied the oldest
+    version and satisfied the stopping-rule order."""
     return [v for top, rel in _histories(repo, path)
-            for v in _versions(top, rel, ("--all",) if top != repo else ())]
+            for v in _versions(top, rel, ("--all",) if every_ref and top != repo else ())]
 
 
 def _versions(top, rel, extra=()):
@@ -2911,19 +2950,22 @@ def _evaluation_commit(repo, path):
     return {top: _first_lock(top, rel) for top, rel in _histories(repo, path)}
 
 
+def _orders_lock(state):
+    """True when a line's results are ordered against its evaluation lock: the
+    arena is an exploratory line's lock, and `_check_arena_order` orders every
+    results.jsonl against it instead; a state with no evaluation has none."""
+    return not _exploratory(state) and isinstance(state.get("evaluation"), dict)
+
+
 def _check_evaluation_order(repo, base, state, errors, warnings, strict):
     """The evaluation is locked before the first result, and `locked_at` names a
     commit the history holds. `_check_evaluation` reads that the fields are filled;
     this reads when: a metric and a baseline committed after the results are the
     criterion the results were measured against after the fact."""
-    if _exploratory(state):
-        # the arena is an exploratory line's lock, and `_check_arena_order` orders
-        # every results.jsonl against it the way this orders them against a metric
+    if not _orders_lock(state):
         return
     hard = strict or _rules(state) >= STANDARDS_RULES
-    evaluation = state.get("evaluation")
-    if not isinstance(evaluation, dict):
-        return
+    evaluation = state["evaluation"]
     for token in SHA_TOKEN.findall(str(evaluation.get("locked_at", ""))):
         if is_ancestor(repo, token, "HEAD") is not True:
             _soft(errors, warnings, hard,
@@ -3554,7 +3596,8 @@ def _check_review_integrity(base, errors, warnings, strict):
               "to_human/review.json names no %s: a review says who produced the line "
               "and who judged it, and those are two readers"
               % ("reviewer" if not reviewer else "producer"))
-    elif reviewer == producer:
+    elif reviewer == producer or (_evidence(state) and re.sub(r"\s+", "", reviewer).casefold()
+                                  == re.sub(r"\s+", "", producer).casefold()):
         errors.append("to_human/review.json reviewer %r is the producer: a line graded "
                       "by the session that wrote it is not reviewed" % reviewer)
     if review.get("findings") == []:
@@ -3572,14 +3615,865 @@ def _check_review_integrity(base, errors, warnings, strict):
                       % (" and ".join(high), len(order), order[0][:80]))
 
 
-def check_line(repo, slug, git=True, strict=False, code=None):
+# --- rules 8 (plan 127): steps, routing and the execution trail ----------------
+# A line opened under `EVIDENCE_RULES` is read for the steps that narrow each
+# claim's certainty (spec section 2) beside its refusals. `_check_rules8` threads
+# one `steps` dict - claim id -> step names in the order found - through the
+# capture module, the checks below and the evidence module, which turns the steps
+# into levels. Keys starting with `#` are the channel, never claim ids: `#flags`
+# (what `check` was asked), `#report` (the report lines `check` prints and never
+# counts), `#certainty` (each claim's level, for `check --json`) and `#stats`
+# ("experiment <h>" -> the statistics error `_check_rules8` refuses).
+
+QUESTION_CLASSES = tuple("R%d" % n for n in range(13))
+CLASS_METHODS = dict(
+    [(c, ("qualitative",)) for c in ("R1", "R2", "R7", "R8", "R9", "R10")]
+    + [(c, ("qualitative", "measured")) for c in ("R3", "R12")]
+    + [(c, ("measured",)) for c in ("R4", "R5", "R6")] + [("R11", ("exploratory",))])
+SEARCH_CLASSES = ("R1", "R2", "R7", "R8", "R9", "R10")
+# sources / searches / runs per tier: starting values, to re-measure (spec 3.3)
+BUDGETS = {"quick": (10, 10, 10), "study": (30, 40, 40), "program": (100, 150, 200)}
+LITERATURE_STEPS = ("header-mismatch", "unindexed-source", "online-drift",
+                    "abstract-only", "source-not-captured", "one-provider")
+SEARCH_STEPS = ("one-connector", "no-counter-search", "no-stopping-rule",
+                "stopping-not-met", "known-item-missed", "screened-outside-search")
+EXPERIMENT_STEPS = ("no-replication", "no-power-plan", "below-planned-n", "no-interval",
+                    "interval-includes-zero", "below-achieved-mde",
+                    "no-multiplicity-correction", "fails-multiplicity", "no-sesoi",
+                    "tost-not-passed", "instrument-unvalidated", "instrument-rejected",
+                    "judged-row-incomplete", "falsifier-not-evaluable")
+CLASS_STEPS = {"R2": ("no-grey-quality",), "R3": ("no-population",),
+               "R4": ("no-confounders",),
+               "R5": ("fewer-than-two-rivals", "no-positive-control"),
+               "R6": ("fewer-than-two-rivals",),
+               "R7": ("no-dual-screening", "no-recall-stopping"),
+               "R8": ("no-dual-screening",), "R9": ("no-amstar",), "R10": ("no-codebook",),
+               "R12": ("fewer-than-two-approaches",)}
+TERMINAL_STATUSES = ("supported", "refuted", "weakened", "revised", "untested",
+                     "inconclusive")
+DEAD_ROWS = ("aborted", "failed")
+# The comparator words match ASCII-case-insensitively (`(?a:...)`): a Unicode
+# IGNORECASE lets U+017F match `s`, a spelling FALSIFIER_OPS holds no key for
+# (review round two R2-2).
+FALSIFIER_COMPARATOR = re.compile(
+    r"(?i)(?:<=|>=|≤|≥|<|>|=|\b(?a:at most|at least|above|below|less than|more than"
+    r"|fewer than|greater than|exceeds?|under|over))\s*-?\d")
+FALSIFIER_TEST = re.compile(
+    r"(?i)\b(?:t-test|welch|wilcoxon|mann-whitney|chi-square|fisher|binomial|tost)\b")
+FALSIFIER_ALPHA = re.compile(r"(?i)\balpha\s*=?\s*0?\.\d+")
+# The structured form (spec 2.2) takes every comparator the grammar above names; each
+# maps to the operator it means. Anything else stays unevaluated (review D3-2).
+FALSIFIER_OPS = {"<=": "<=", ">=": ">=", "≤": "<=", "≥": ">=", "<": "<", ">": ">", "=": "=",
+                 "at most": "<=", "at least": ">=", "above": ">", "below": "<",
+                 "less than": "<", "more than": ">", "fewer than": "<", "greater than": ">",
+                 "exceeds": ">", "exceed": ">", "under": "<", "over": ">"}
+FALSIFIER_FORM = re.compile(
+    r"(?i)^([\w.-]+)(?:\s*(<=|>=|≤|≥|<|>|=)|\s+(?a:(at\s+most|at\s+least|above|below"
+    r"|less\s+than|more\s+than|fewer\s+than|greater\s+than|exceeds?|under|over)))"
+    r"\s*(-?\d+(?:\.\d+)?)(?:\s+on\s+(\S+))?\s*$")
+# A protocol number (spec 2.3): `0.05`, `.05`, `5%` (0.05), `1e-1`.
+PROTOCOL_NUMBER = re.compile(r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)(\s*%)?")
+# Each checked protocol number's open range (lower, upper; None = unbounded).
+PROTOCOL_RANGES = {"alpha": (0.0, 1.0), "power": (0.0, 1.0), "sesoi": (0.0, None),
+                   "mde": (0.0, None)}
+COMPARE_FORM = re.compile(
+    r"(?i)^(\S+)\s+vs\s+(\S+)\s+on\s+([\w.-]+)\s*,\s*(lower|higher)\s+is\s+better")
+CLAIM_NUMBER = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
+DERIVED_REF = re.compile(r"^([\w.-]+)/(#\d+|[\w.-]+):([\w.-]+)$")
+UNIVERSAL_WORDS = re.compile(r"(?i)\b(every|all|always|never|any)\b")
+CAUSAL_WORDS = re.compile(r"(?i)\b(causes|caused|cause|leads to|due to|because of)\b")
+CODE_SUFFIXES = (".py", ".sh", ".js", ".ts", ".rs", ".go")
+
+
+def obligations(cls, method=""):
+    """The step names of spec section 2 a line of class `cls` can trigger."""
+    out = ["no-question-class", "class-unreviewed", "method-not-allowed",
+           "untraced-number", "uncalibrated-verifier"] + list(LITERATURE_STEPS)
+    if cls in SEARCH_CLASSES or method == "qualitative":
+        out += SEARCH_STEPS
+    if method == "measured" or "measured" in CLASS_METHODS.get(cls, ()):
+        out += EXPERIMENT_STEPS
+    return out + list(CLASS_STEPS.get(cls, ()))
+
+
+def _step(steps, cid, name):
+    """Name `name` once for claim `cid`, in the order found."""
+    found = steps.setdefault(cid, [])
+    if name not in found:
+        found.append(name)
+
+
+def _fields(text):
+    """{key: [values]} of every column-0 `key: value` line of a protocol."""
+    out = {}
+    for line in text.lstrip("\ufeff").splitlines():
+        found = PROTOCOL_LABEL.match(line)
+        if found:
+            out.setdefault(found.group(1).lower(), []).append(found.group(2).strip())
+    return out
+
+
+def _first(fields, key):
+    return (fields.get(key) or [""])[0]
+
+
+def _number(value):
+    """The first number of a protocol value (`PROTOCOL_NUMBER`), a percent read as its
+    fraction; None without one."""
+    found = PROTOCOL_NUMBER.search(value or "")
+    if not found:
+        return None
+    number = float(found.group(1))
+    return number / 100 if found.group(2) else number
+
+
+def protocol_number(key, value):
+    """(number, problem) of the protocol line `key: value`, `key` one of PROTOCOL_RANGES:
+    the one reader `check`, `claim`, the session context and the instruments share.
+    (None, None) when the line is absent or empty; a value with no number, or one
+    outside its range (alpha, power in (0, 1); sesoi, mde above 0), is an invalid
+    record: (None, the refusal naming the key and the value). So is an alpha so close
+    to 0 that alpha/2 or 1 - alpha/2, the quantiles the intervals read, is 0 or 1 as a
+    float (`1e-20`, review round two R2-1)."""
+    value = (value or "").strip()
+    if not value:
+        return None, None
+    number = _number(value)
+    lo, hi = PROTOCOL_RANGES[key]
+    if number is not None and math.isfinite(number) and number > lo \
+            and (hi is None or number < hi):
+        if key == "alpha" and not (number / 2 > 0 and 1 - number / 2 < 1):
+            return None, "protocol.md alpha: %s leaves a quantile at 0 or 1" % value
+        return number, None
+    return None, "protocol.md %s: %s is not a number %s" % (
+        key, value, "above 0" if hi is None else "in (0, 1)")
+
+
+def _numeric(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _live(rows):
+    """Rows that count. A refile is a correction: the latest row filed for the same
+    `run`, `arm`, `item` and `instrument` stands for it, so one run measured over
+    several arms or items keeps a row for each; a row with no `run` counts on its
+    own. An `aborted` or `failed` run stays a row and counts nowhere."""
+    key = lambda r: tuple(str(r.get(k)) for k in ("run", "arm", "item", "instrument"))  # noqa: E731
+    last = {key(r): n for n, r in enumerate(rows) if r.get("run") is not None}
+    return [r for n, r in enumerate(rows)
+            if (r.get("run") is None or last[key(r)] == n)
+            and r.get("status") not in DEAD_ROWS]
+
+
+def _groups(rows):
+    """{group: rows}: by `arm`, else `phase`, else one group `all`."""
+    live = _live(rows)
+    key = next((k for k in ("arm", "phase") if any(k in r for r in live)), None)
+    out = {}
+    for row in live:
+        out.setdefault(str(row[key]) if key in row else "all", []).append(row)
+    return out
+
+
+def _paired(rows_a, rows_b):
+    """The two groups aligned by `item` when both carry the same item set, else None."""
+    items_a, items_b = [r.get("item") for r in rows_a], [r.get("item") for r in rows_b]
+    if None in items_a or None in items_b or len(set(map(str, items_a))) != len(items_a):
+        return None
+    if sorted(map(str, items_a)) != sorted(map(str, items_b)):
+        return None
+    order = {str(i): n for n, i in enumerate(items_a)}
+    return rows_a, sorted(rows_b, key=lambda r: order[str(r.get("item"))])
+
+
+def _effect(fields, groups, alpha, power):
+    """The `compare:` line's effect (spec 2.3), or None without one."""
+    import tezgah_research_stats as stats
+    found = COMPARE_FORM.match(_first(fields, "compare"))
+    if not found:
+        return None
+    t, c, field, better = found.groups()
+    rows_t, rows_c = groups.get(t, []), groups.get(c, [])
+    out = {"t": t, "c": c, "field": field, "n": (len(rows_t), len(rows_c)),
+           "effect": None, "ci": None, "mde": None, "p": None, "a": [], "b": [],
+           "paired": False}
+    rows_t = [r for r in rows_t if _numeric(r.get(field))]
+    rows_c = [r for r in rows_c if _numeric(r.get(field))]
+    if better.lower() == "lower":
+        rows_t, rows_c = rows_c, rows_t
+    aligned = _paired(rows_t, rows_c) if len(rows_t) >= 2 else None
+    if aligned:
+        rows_t, rows_c = aligned
+    a, b = [float(r[field]) for r in rows_t], [float(r[field]) for r in rows_c]
+    out.update(a=a, b=b, paired=bool(aligned))
+    if a and b:
+        out["effect"] = sum(a) / len(a) - sum(b) / len(b)
+    if len(a) >= 2 and len(b) >= 2:
+        diff = stats.mean_diff(a, b, alpha, paired=bool(aligned))
+        out.update(effect=diff["effect"], ci=(diff["lo"], diff["hi"]), p=diff["p"],
+                   mde=stats.achieved_mde(diff["se"], alpha, power))
+    return out
+
+
+def _stats_failed(exp, exc):
+    """Keep an experiment's first statistics error (ValueError, ArithmeticError);
+    `_check_rules8` turns it into the experiment's one refusal (review round two R2-1)."""
+    if not exp.get("stats_error"):
+        exp["stats_error"] = str(exc) or type(exc).__name__
+
+
+def experiment_record(base, h):
+    """One experiment as the rules-8 checks read it: protocol fields, rows, groups,
+    the plan's numbers and the `compare:` effect. `invalid` holds the refusal of each
+    protocol number outside its range; an invalid alpha or power is None and leaves
+    the effect uncomputed, so no statistic runs on it. A statistics error leaves the
+    effect None and lands in `stats_error`."""
+    d = os.path.join(base, "experiments", h)
+    fields = _fields(_note_text(os.path.join(d, "protocol.md")))
+    rows = _row_objects(os.path.join(d, "results.jsonl"))
+    groups = _groups(rows)
+    plan = {k: protocol_number(k, _first(fields, k)) for k in PROTOCOL_RANGES}
+    alpha, power = (None if plan[k][1] else plan[k][0] or default
+                    for k, default in (("alpha", 0.05), ("power", 0.80)))
+    exp = {"h": h, "dir": d, "fields": fields, "rows": rows, "groups": groups,
+           "alpha": alpha, "power": power, "sesoi": plan["sesoi"][0],
+           "invalid": [problem for _, problem in plan.values() if problem],
+           "effect": None, "stats_error": None}
+    if alpha is not None and power is not None:
+        try:
+            exp["effect"] = _effect(fields, groups, alpha, power)
+        except (ValueError, ArithmeticError) as exc:
+            _stats_failed(exp, exc)
+    return exp
+
+
+def falsifier_unscoped(text, groups):
+    """True when a structured falsifier names no `on <group>` while the rows hold
+    more than one group: its mean would pool the control with the arm it judges."""
+    found = FALSIFIER_FORM.match(text)
+    return bool(found and not found.group(5) and len(groups) > 1)
+
+
+def falsifier_fired(exp):
+    """(falsifier, mean) when the structured `falsifier:` holds over its rows, else
+    None - also when the group holds no row carrying the field, and when it names no
+    group over several (`falsifier_unscoped`)."""
+    text = _first(exp["fields"], "falsifier")
+    found = FALSIFIER_FORM.match(text)
+    if not found or falsifier_unscoped(text, exp["groups"]):
+        return None
+    field, symbol, words, number, group = found.groups()
+    op = FALSIFIER_OPS.get(" ".join((symbol or words).casefold().split()))
+    if op is None:
+        return None
+    rows = exp["groups"].get(group, []) if group else _live(exp["rows"])
+    values = [float(r[field]) for r in rows if _numeric(r.get(field))]
+    if not values:
+        return None
+    mean, x = sum(values) / len(values), float(number)
+    holds = {"<": mean < x, "<=": mean <= x, ">": mean > x, ">=": mean >= x,
+             "=": mean == x}[op]
+    return (text, mean) if holds else None
+
+
+def _claim_experiments(claim, base):
+    return [h for h in _experiments_named(_cited(claim.get("proof")))
+            if os.path.isdir(os.path.join(base, "experiments", h))]
+
+
+def fired_problems(cid, claim, base):
+    """The refusal for a `supported` claim whose cited experiment's falsifier fired."""
+    if claim.get("status") != "supported":
+        return []
+    out = []
+    for h in _claim_experiments(claim, base):
+        fired = falsifier_fired(experiment_record(base, h))
+        if fired:
+            out.append("claim %s is supported while its falsifier fired: experiments/%s "
+                       "`falsifier: %s` holds at a mean of %s" % (cid, h, fired[0],
+                                                                 "%g" % fired[1]))
+    return out
+
+
+def _ref_value(base, ref):
+    """The number `<h>/<run>:<field>` or `<h>/#<row>:<field>` names, as the Decimal of
+    the value written in the row (`repr` gives back a JSON float's shortest digits), or
+    None."""
+    found = DERIVED_REF.match(str(ref).strip())
+    if not found:
+        return None
+    h, which, field = found.groups()
+    rows = _row_objects(os.path.join(base, "experiments", h, "results.jsonl"))
+    if which.startswith("#"):
+        k = int(which[1:])
+        row = rows[k - 1] if 1 <= k <= len(rows) else None
+    else:
+        row = next((r for r in reversed(rows) if str(r.get("run")) == which), None)
+    value = row.get(field) if row else None
+    if not _numeric(value) or (isinstance(value, float) and not math.isfinite(value)):
+        return None
+    return decimal.Decimal(repr(value))
+
+
+def _recompute(spec, base):
+    if not isinstance(spec, dict) or not isinstance(spec.get("of"), list):
+        return None
+    op, refs = spec.get("op"), spec["of"]
+    if op == "count":
+        return decimal.Decimal(len(refs))
+    values = [_ref_value(base, ref) for ref in refs]
+    if not values or None in values:
+        return None
+    if op in ("diff", "ratio"):
+        if len(values) != 2 or (op == "ratio" and values[1] == 0):
+            return None
+        return values[0] - values[1] if op == "diff" else values[0] / values[1]
+    return {"mean": lambda v: sum(v) / len(v), "sum": sum, "min": min,
+            "max": max}.get(op, lambda v: None)(values)
+
+
+def _rounds_to(value, written):
+    """True when `value` (a Decimal) rounded half-up or half-even at the precision of the
+    number as written equals it."""
+    try:
+        target = decimal.Decimal(written)
+        return any(value.quantize(target, rounding=mode) == target
+                   for mode in (decimal.ROUND_HALF_UP, decimal.ROUND_HALF_EVEN))
+    except decimal.DecimalException:
+        return False
+
+
+def derived_problems(cid, claim, base):
+    """The refusals for `derived_from` entries whose recomputed value differs from
+    the number as written (spec 2.4); writer and checker read this one rule. The
+    arithmetic is decimal over the rows' written values, so 2.675 is 2.675, not the
+    binary float below it."""
+    derived = claim.get("derived_from")
+    if derived is None:
+        return []
+    if not isinstance(derived, dict):
+        return ["claim %s derived_from is not an object of number -> {op, of}" % cid]
+    out = []
+    with decimal.localcontext() as ctx:
+        ctx.prec = 50
+        for written, spec in derived.items():
+            value = _recompute(spec, base)
+            if value is None or not _rounds_to(value, written):
+                out.append("claim %s derived_from %s does not recompute: %s gives %s"
+                           % (cid, written, json.dumps(spec),
+                              "nothing" if value is None else "%g" % value))
+    return out
+
+
+def _log_tokens(exp, row, cache):
+    rel = row.get("log")
+    if not isinstance(rel, str) or not rel:
+        return set()
+    for root in (exp["dir"], os.path.dirname(os.path.dirname(exp["dir"]))):
+        path = os.path.join(root, rel)
+        if os.path.isfile(path):
+            if path not in cache:
+                cache[path] = set(CLAIM_NUMBER.findall(_note_text(path)))
+            return cache[path]
+    return set()
+
+
+def _untraced(claim, cited):
+    """The numbers of an evidence claim no cited row holds with its log, and no
+    `derived_from` entry names (spec 2.4)."""
+    derived = claim.get("derived_from")
+    derived = derived if isinstance(derived, dict) else {}
+    cache, out = {}, []
+    for token in CLAIM_NUMBER.findall(str(claim.get("statement", ""))):
+        if token in derived:
+            continue
+        value = float(token)
+        if not any(token in _log_tokens(exp, row, cache)
+                   and any(_numeric(v) and float(v) == value for v in row.values())
+                   for exp in cited for row in _live(exp["rows"])):
+            out.append(token)
+    return out
+
+
+def _rivals(fields):
+    return [v for v in fields.get("rival", [])
+            if re.match(r"\S.*\sexcludes:\s*\S", v)]
+
+
+def _observational(fields):
+    design = _first(fields, "design").lower()
+    return design == "observational" or (not design and not _first(fields, "change"))
+
+
+def _experiment_steps(claim, cited, cls, measured, rejected):
+    """The section-2 steps an experiment claim takes from the experiments it cites."""
+    import tezgah_research_stats as stats
+    out = []
+    no_difference = claim.get("effect") == "no-difference"
+    for exp in cited:
+        fields, groups, eff = exp["fields"], exp["groups"], exp["effect"]
+        if cls in ("R5", "R6") and len(_rivals(fields)) < 2:
+            out.append("fewer-than-two-rivals")
+        if not groups or any(len(rows) < 2 for rows in groups.values()):
+            out.append("no-replication")
+        if measured and not all(_first(fields, k) for k in ("alpha", "power", "mde", "n")):
+            out.append("no-power-plan")
+        falsifier = _first(fields, "falsifier")
+        if measured and falsifier and (not falsifier_testable(falsifier)
+                                       or falsifier_unscoped(falsifier, groups)):
+            out.append("falsifier-not-evaluable")
+        if eff:
+            planned = _number(_first(fields, "n"))
+            if planned is not None and min(eff["n"]) < planned:
+                out.append("below-planned-n")
+            if eff["ci"] is None:
+                out.append("no-interval")
+            elif not no_difference:
+                if eff["ci"][0] <= 0:
+                    out.append("interval-includes-zero")
+                if eff["effect"] < eff["mde"]:
+                    out.append("below-achieved-mde")
+        correction = _first(fields, "correction")
+        if len(groups) > 2 and not correction:
+            out.append("no-multiplicity-correction")
+        if correction and exp["h"] not in rejected:
+            out.append("fails-multiplicity")
+        if no_difference:
+            sesoi = exp["sesoi"]
+            if sesoi is None:
+                out.append("no-sesoi")
+            else:
+                try:
+                    passed = bool(eff and eff["ci"] and stats.tost(
+                        eff["a"], eff["b"], sesoi, exp["alpha"], eff["paired"]))
+                except (ValueError, ArithmeticError) as exc:
+                    _stats_failed(exp, exc)
+                    passed = False
+                if not passed:
+                    out.append("tost-not-passed")
+    return out
+
+
+def _multiplicity(base, exps):
+    """The experiments their declared `correction:` rejects, corrected together."""
+    import tezgah_research_stats as stats
+    tests = {"bh": stats.bh, "holm": stats.holm, "bonferroni": stats.bonferroni}
+    by = {}
+    for h, exp in sorted(exps.items()):
+        method = _first(exp["fields"], "correction").strip().lower()
+        if method and exp["effect"]:
+            by.setdefault(method, []).append(h)
+    rejected = set()
+    for method, hs in by.items():
+        alpha = min(exps[h]["alpha"] for h in hs)
+        try:
+            if method == "e-bh":
+                values = [_number(_first(_fields(_note_text(os.path.join(
+                    exps[h]["dir"], "analysis.md"))), "e-value")) or 0.0 for h in hs]
+                flags = stats.ebh(values, alpha)
+            elif method in tests:
+                p = [exps[h]["effect"]["p"] for h in hs]
+                flags = tests[method]([1.0 if v is None else v for v in p], alpha)
+            else:
+                continue
+        except (ValueError, ArithmeticError) as exc:
+            for h in hs:
+                _stats_failed(exps[h], exc)
+            continue
+        rejected.update(h for h, flag in zip(hs, flags) if flag)
+    return rejected
+
+
+def _format_ci(lo, hi):
+    return "[%.4f, %.4f]" % (lo, hi)
+
+
+def falsifier_testable(text):
+    """True when a falsifier holds a comparator and a number, or a named test with its
+    alpha (spec 2.2)."""
+    return bool(FALSIFIER_COMPARATOR.search(text)
+                or (FALSIFIER_TEST.search(text) and FALSIFIER_ALPHA.search(text)))
+
+
+def _check_experiment8(repo, slug, base, state, exp, report, errors, warnings, strict,
+                       git, lines):
+    """One experiment's rules-8 refusals (2.2, 2.4) and report lines (2.3)."""
+    import tezgah_research_stats as stats
+    h, fields = exp["h"], exp["fields"]
+    label = "experiment %s" % h
+    errors.extend("%s: %s" % (label, problem) for problem in exp["invalid"])
+    metrics = [m.strip() for v in fields.get("metric", []) for m in v.split(",")
+               if m.strip()]
+    evaluation = state.get("evaluation") if isinstance(state.get("evaluation"), dict) else {}
+    locked = " ".join(re.sub(r"\s*\([^)]*\)\s*$", "", str(evaluation.get("metric") or ""))
+                      .casefold().split())
+    norm = [" ".join(m.casefold().split()) for m in metrics]
+    if locked and norm and not any(m == locked or m.startswith(locked + " ")
+                                   for m in norm):
+        errors.append("%s: protocol.md registers a metric other than the locked one "
+                      "(%s, locked: %s)" % (label, ", ".join(metrics), locked))
+    if report is not None:
+        excused = {" ".join(v.split(":", 1)[0].casefold().split())
+                   for v in fields.get("not_reported", []) if ":" in v}
+        text = " ".join(report.casefold().split())
+        for metric, key in zip(metrics, norm):
+            # a registered metric that refines the locked one (the rule above's
+            # equivalence) is reported where the report names the locked metric
+            refines = locked and (key == locked or key.startswith(locked + " "))
+            if (key not in text and not (refines and locked in text)
+                    and key not in excused):
+                errors.append("%s: registered metric %r is neither reported nor marked "
+                              "not_reported in protocol.md" % (label, metric))
+    evaluator = _first(fields, "evaluator")
+    if evaluator:
+        _check_evaluator(repo, base, exp, evaluator, label, errors, git)
+    select = re.match(r"(?i)^(min|max)\s+([\w.-]+)", _first(fields, "select"))
+    if select:
+        field = select.group(2)
+        values = {g: [float(r[field]) for r in rows if _numeric(r.get(field))]
+                  for g, rows in exp["groups"].items()}
+        means = {g: sum(v) / len(v) for g, v in values.items() if v}
+        if means:
+            pick = (min if select.group(1).lower() == "min" else max)(
+                sorted(means), key=means.get)
+            found = re.search(r"(?im)^\W*selected\W*:\s*`?([\w.-]+)",
+                              _note_text(os.path.join(exp["dir"], "analysis.md")))
+            if not found:
+                _soft(errors, warnings, strict,
+                      "%s: analysis states no selected group, and `select:` picks %s"
+                      % (label, pick))
+            elif found.group(1) != pick:
+                errors.append("%s: select rule picks %s, and analysis.md selected: %s"
+                              % (label, pick, found.group(1)))
+    for group, rows in exp["groups"].items():
+        # binary: every outcome 0 or 1, a JSON boolean counting as 1/0 (True == 1)
+        if rows and exp["alpha"] is not None and all(r.get("outcome") in (0, 1)
+                                                     for r in rows):
+            k, n = sum(int(r["outcome"]) for r in rows), len(rows)
+            try:
+                wilson = _format_ci(*stats.wilson(k, n, exp["alpha"]))
+                cp = _format_ci(*stats.clopper_pearson(k, n, exp["alpha"]))
+            except (ValueError, ArithmeticError) as exc:
+                _stats_failed(exp, exc)
+                continue
+            lines.append("stats %s: %s %s n=%d k=%d wilson=%s cp=%s"
+                         % (slug, h, group, n, k, wilson, cp))
+    eff = exp["effect"]
+    if eff:
+        lines.append("effect %s: %s %s vs %s on %s effect=%s ci=%s mde=%s"
+                     % (slug, h, eff["t"], eff["c"], eff["field"],
+                        "none" if eff["effect"] is None else "%.4f" % eff["effect"],
+                        _format_ci(*eff["ci"]) if eff["ci"] else "none",
+                        "none" if eff["mde"] is None else "%.4f" % eff["mde"]))
+
+
+def _check_evaluator(repo, base, exp, evaluator, label, errors, git):
+    """An `evaluator:` file holds the bytes it held at the protocol's first commit -
+    in a history that does not hold that commit (a project evaluator of a line in
+    `.tezgah`'s repository), its latest version not after that commit's time - and
+    its declared `sha256:` (spec 2.4)."""
+    import hashlib
+    parts = evaluator.split()
+    path = next((p for p in (os.path.join(base, parts[0]), os.path.join(repo, parts[0]))
+                 if os.path.isfile(p)), None)
+    declared = next((p.split(":", 1)[1] for p in parts[1:] if p.startswith("sha256:")), "")
+    if path is None:
+        errors.append("%s: evaluator %s is not a file in the line or the repository"
+                      % (label, parts[0]))
+        return
+    with open(path, "rb") as fh:
+        now = fh.read()
+    if declared and hashlib.sha256(now).hexdigest() != declared.lower():
+        errors.append("%s: evaluator file changed after lock: %s no longer hashes to its "
+                      "declared sha256" % (label, parts[0]))
+        return
+    if not git:
+        return
+    proto_path = os.path.join(exp["dir"], "protocol.md")
+    proto = file_versions(repo, proto_path)
+    if not proto:
+        return
+    sha, stamp, locked = proto[0][0], "", None
+    for top, _rel in _histories(repo, proto_path):
+        out, err = _git_out(top, "show", "-s", "--format=%cI", sha)
+        stamp = stamp or ("" if err else out.strip())
+    for top, rel in _histories(repo, path):
+        rev = sha if _holds(top, sha) else None
+        if rev is None and stamp:
+            out, err = _git_out(top, "log", "-1", "--format=%H", "--until=" + stamp,
+                                "--", rel)
+            rev = None if err else out.strip()
+        if rev:
+            out, err = _git_out(top, "show", "%s:%s" % (rev, rel))
+            locked = locked if err else out
+    if locked is None:
+        # committed only after the lock: its first version is the nearest to it
+        versions = file_versions(repo, path)
+        locked = versions[0][1] if versions else None
+    if locked is not None and locked.encode("utf-8") != now:
+        errors.append("%s: evaluator file changed after lock: %s differs from its state "
+                      "at the protocol's first commit" % (label, parts[0]))
+
+
+def _overclaim(cid, claim, cited, warnings):
+    """Universal words over fixture evidence, causal words over an observational or
+    single-group experiment (spec 4.4). Warns in both modes."""
+    text = str(claim.get("statement", ""))
+    rows = [r for exp in cited for r in exp["rows"]]
+    words = []
+    if claim.get("scope") == "fixture" or (rows and all(r.get("scope") == "fixture"
+                                                        for r in rows)):
+        words += UNIVERSAL_WORDS.findall(text)
+    if any(_observational(exp["fields"]) or len(exp["groups"]) < 2 for exp in cited):
+        words += CAUSAL_WORDS.findall(text)
+    if words:
+        warnings.append("claim %s overclaims: %s - the evidence it cites does not reach "
+                        "that far; narrow the claim to what was measured"
+                        % (cid, ", ".join('"%s"' % w for w in dict.fromkeys(words))))
+
+
+def _routing_steps(base, state, exps, review):
+    """The 3.3 steps that touch every claim of the line."""
+    cls = state.get("question_class")
+    out = []
+    if not cls:
+        out.append("no-question-class")
+    if review is not None and review.get("question_class") != cls:
+        out.append("class-unreviewed")
+    if cls in CLASS_METHODS and state.get("method") not in CLASS_METHODS[cls]:
+        out.append("method-not-allowed")
+    index = _row_objects(os.path.join(base, "literature", "INDEX.jsonl"))
+    protocols = [exp["fields"] for exp in exps.values()]
+    if cls in ("R7", "R8"):
+        screeners, dropped = {}, set()
+        for row in _row_objects(os.path.join(base, "searches", "screening.jsonl")):
+            rid = str(row.get("id"))
+            if rid not in screeners and row.get("decision") == "dropped":
+                dropped.add(rid)
+            screeners.setdefault(rid, set()).add(
+                re.sub(r"\s+", "", str(row.get("screener") or "")).casefold())
+        dual = {rid for rid, who in screeners.items() if len(who - {""}) >= 2}
+        if cls == "R7":
+            thin = not screeners or len(dual) < len(screeners)
+        else:
+            thin = (not screeners or 5 * len(dual) < len(screeners)
+                    or bool(dropped - dual))
+        if thin:
+            out.append("no-dual-screening")
+    stopping = state.get("stopping")
+    if cls == "R7" and not (isinstance(stopping, dict)
+                            and stopping.get("rule") == "hypergeometric"):
+        out.append("no-recall-stopping")
+    if cls == "R5" and state.get("method") == "measured" and any(
+            not _first(f, "control") for f in protocols):
+        out.append("no-positive-control")
+    if cls == "R4" and any(not _first(f, "confounders") for f in protocols):
+        out.append("no-confounders")
+    if cls == "R3" and not (state.get("population") and state.get("n")):
+        out.append("no-population")
+    if cls == "R2" and any(r.get("class") == "grey" and not str(r.get("quality", "")).strip()
+                           for r in index):
+        out.append("no-grey-quality")
+    if cls == "R9" and any(not str(r.get("amstar", "")).strip() for r in index):
+        out.append("no-amstar")
+    if cls == "R10" and not os.path.isfile(os.path.join(base, "codebook.md")):
+        out.append("no-codebook")
+    approaches = state.get("approaches")
+    if cls == "R12" and sum(1 for a in approaches or [] if isinstance(a, dict)
+                            and a.get("biases")) < 2:
+        out.append("fewer-than-two-approaches")
+    return out
+
+
+def budget(slug, base, state):
+    """(report line, [what is over]) of the tier's budget (spec 3.3)."""
+    caps = BUDGETS.get(state.get("tier"), BUDGETS[DEFAULT_TIER])
+    used = (len(_row_objects(os.path.join(base, "literature", "INDEX.jsonl"))),
+            len(_row_objects(os.path.join(base, "searches", "SEARCHES.jsonl"))),
+            sum(1 for h in _experiment_names(base)
+                for r in _row_objects(os.path.join(base, "experiments", h, "results.jsonl"))
+                if str(r.get("source", "")).startswith("orx:")))
+    names = ("sources", "searches", "runs")
+    line = "budget %s: %s" % (slug, " ".join("%s %d/%d" % (n, u, c)
+                                             for n, u, c in zip(names, used, caps)))
+    return line, ["%s %d/%d" % (n, u, c) for n, u, c in zip(names, used, caps) if u > c]
+
+
+def hypothesis_problems(state):
+    """A concluded line ends every hypothesis in a terminal status (spec 2.2)."""
+    out = []
+    for n, entry in enumerate(state.get("hypotheses") or [], 1):
+        status = entry.get("status") if isinstance(entry, dict) else None
+        if status not in TERMINAL_STATUSES:
+            hid = entry.get("id") if isinstance(entry, dict) and entry.get("id") else n
+            out.append("state.json hypothesis %s has no terminal status (%r): a concluded "
+                       "line ends each one %s" % (hid, status, ", ".join(TERMINAL_STATUSES)))
+    return out
+
+
+def overlaps(repo, question, slug=None):
+    """[(line, claim, status, similarity)] of the done lines' claims whose
+    `similarity_matrix` value against `question` is >= 0.5, over the corpus of the
+    question plus every done line's claim statements (spec 4.2)."""
+    done = [(name, row) for name in slugs(repo) if name != slug and sealed(repo, name)
+            for row in _row_objects(os.path.join(line_dir(repo, name), "claims.jsonl"))
+            if str(row.get("statement", "")).strip()]
+    if not done or not str(question or "").strip():
+        return []
+    _backend, matrix = similarity_matrix([question] + [str(r["statement"]) for _, r in done])
+    return [(name, row.get("id"), row.get("status"), matrix[0][n])
+            for n, (name, row) in enumerate(done, 1) if matrix[0][n] >= 0.5]
+
+
+def _post_hoc(repo, ddir):
+    """The variant ids whose variants.jsonl row was first committed after the first
+    comparison.jsonl cell (spec 4.5)."""
+    paths = [os.path.join(ddir, f) for f in ("variants.jsonl", "comparison.jsonl")]
+    top, _rel = _histories(repo, paths[0])[-1]
+    order, err = _git_out(top, "rev-list", "--reverse", "HEAD")
+    if err:
+        return set()
+    index = {sha: n for n, sha in enumerate(order.split())}
+    firsts = []
+    for path in paths:
+        seen = {}
+        for sha, text in _versions(top, _histories(repo, path)[-1][1]):
+            for line in text.splitlines():
+                if line.strip() and sha in index:
+                    seen.setdefault(line.strip(), index[sha])
+        firsts.append(seen)
+    if not firsts[1]:
+        return set()
+    first_cell = min(firsts[1].values())
+    out = set()
+    for line, n in firsts[0].items():
+        if n > first_cell:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("id"):
+                out.add(str(row["id"]))
+    return out
+
+
+def _check_review8(base, claims, review, errors, warnings, strict):
+    """4.1: families compared normalised, and a review of evidence claims that reads
+    a raw log or code."""
+    if review is None:
+        return
+    family = [re.sub(r"\s+", "", str(review.get(k) or "")).casefold()
+              for k in ("producer_family", "reviewer_family")]
+    if family[0] and family[0] == family[1]:
+        warnings.append("to_human/review.json: same-family review (%s): producer and "
+                        "reviewer share a model family, so they share its blind spots"
+                        % family[0])
+    if any(c.get("kind") == "evidence" for c in claims):
+        targets = [str(f.get("target", "")).strip() for f in review.get("findings") or []
+                   if isinstance(f, dict)]
+        if not any(re.match(r"experiments/[^/]+/raw/", t) or t.endswith(CODE_SUFFIXES)
+                   for t in targets):
+            _soft(errors, warnings, strict,
+                  "to_human/review.json: review quotes no raw log or code, so no finding "
+                  "reads the bytes an evidence claim rests on")
+
+
+def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps):
+    rows = _row_objects(os.path.join(base, "claims.jsonl"))
+    claims = [c for c in rows if isinstance(c.get("id"), str) and c["id"]]
+    superseded = _superseded(rows)
+    exps = {h: experiment_record(base, h) for h in _experiment_names(base)}
+    report_path = os.path.join(base, "to_human", "report.md")
+    report = _note_text(report_path) if os.path.isfile(report_path) else None
+    review_path = os.path.join(base, "to_human", "review.json")
+    review, exc = _read_json(review_path) if os.path.isfile(review_path) else (None, None)
+    review = review if isinstance(review, dict) and not exc else None
+    lines = steps.setdefault("#report", [])
+    for h in sorted(exps):
+        _check_experiment8(repo, slug, base, state, exps[h], report, errors, warnings,
+                           strict, git, lines)
+    rejected = _multiplicity(base, exps)
+    every = _routing_steps(base, state, exps, review)
+    cls, measured = state.get("question_class"), state.get("method") == "measured"
+    for claim in claims:
+        cid = claim["id"]
+        cited = [exps[h] for h in _experiments_named(_cited(claim.get("proof")))
+                 if h in exps]
+        if cid not in superseded:
+            errors.extend(derived_problems(cid, claim, base))
+            errors.extend(fired_problems(cid, claim, base))
+        found = _experiment_steps(claim, cited, cls, measured, rejected) if cited else []
+        if claim.get("kind") == "evidence" and _untraced(claim, cited):
+            found.append("untraced-number")
+        for name in found + every:
+            _step(steps, cid, name)
+        _overclaim(cid, claim, cited, warnings)
+    failed = steps.setdefault("#stats", {})
+    for h in sorted(exps):
+        if exps[h]["stats_error"]:
+            failed.setdefault("experiment %s" % h, exps[h]["stats_error"])
+    _check_review8(base, claims, review, errors, warnings, strict)
+    if state.get("phase") == "concluded":
+        errors.extend(hypothesis_problems(state))
+    line, over = budget(slug, base, state)
+    lines.append(line)
+    if over:
+        warnings.append("over budget: %s (tier %s)" % (", ".join(over),
+                                                      state.get("tier") or DEFAULT_TIER))
+    if git:
+        for name, ddir in _decision_dirs(base):
+            body = _note_text(os.path.join(ddir, "decision.md"))
+            found = re.search(r"(?im)^\W*chosen\W*:\s*`?([\w.-]+)", body)
+            if found and found.group(1) in _post_hoc(repo, ddir) \
+                    and "post-hoc" not in body and "post_hoc" not in body:
+                errors.append("decisions/%s: decision.md chooses %s, a variant first "
+                              "committed after the first comparison cell, without saying "
+                              "post-hoc" % (name, found.group(1)))
+        related = {(str(r.get("line")), str(r.get("claim")))
+                   for r in _row_objects(os.path.join(base, "related.jsonl"))
+                   if r.get("relation") in ("builds-on", "dismissed")}
+        for line_name, cid, status, _sim in overlaps(repo, state.get("question"), slug):
+            if status == "refuted" and (line_name, str(cid)) not in related:
+                warnings.append("overlaps refuted claim %s/%s: record in related.jsonl "
+                                "whether this line builds on it or dismisses it, and why"
+                                % (line_name, cid))
+
+
+def _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags=None):
+    """steps of a rules-8 line: the capture checks, the core ones, then the evidence
+    module, which reads every step found and holds the certainty engine. A module
+    that cannot be imported is an error on a rules-8 line, never a silent pass. A
+    statistics computation's ValueError or ArithmeticError, kept in `#stats` by
+    the module it ran in, is one refusal per experiment (review round two R2-1)."""
+    steps = {"#flags": {"online": bool((flags or {}).get("online")),
+                        "orx": bool((flags or {}).get("orx"))}, "#stats": {}}
+    import importlib
+    for name in ("tezgah_research_capture", None, "tezgah_research_evidence"):
+        if name is None:
+            _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps)
+            continue
+        try:
+            module = importlib.import_module(name)
+        except ImportError as exc:
+            errors.append("rules 8: %s cannot be imported (%s), so its checks did not run"
+                          % (name, exc))
+            continue
+        module.check(repo, slug, base, state, errors, warnings, strict, git, steps)
+    errors.extend("%s: statistics could not be computed: %s" % (label, error)
+                  for label, error in sorted(steps["#stats"].items()))
+    return steps
+
+
+def check_line(repo, slug, git=True, strict=False, code=None, flags=None, extra=None):
     """(errors, warnings) for one research line. `git=False` skips the checks that
     need git history, for callers that must stay cheap (the session context).
     `strict=True` turns every guarantee the checker cannot decide into an error.
     `code` is the checkout the check runs in when it is not `repo`: the line
     lives in the main checkout's workspace (plan 097) and its citations and
     proofs resolve against the checkout whose branch holds the code; unnamed, a
-    bare repository's worktree holding the cwd (`tp.work_tree`, plan 098)."""
+    bare repository's worktree holding the cwd (`tp.work_tree`, plan 098).
+    A rules-8 line (`_evidence`) also runs `_check_rules8` with `flags` (`online`,
+    `orx`); a dict `extra` receives its `report` lines and per-claim `certainty`."""
     code = code or tp.work_tree(repo)
     base = line_dir(repo, slug)
     errors, warnings = [], []
@@ -3607,6 +4501,12 @@ def check_line(repo, slug, git=True, strict=False, code=None):
     if git:
         _check_tracking(repo, base, errors, warnings, strict)
     _check_review_integrity(base, errors, warnings, strict)
+    state = _state(base)
+    if _evidence(state):
+        steps = _check_rules8(repo, slug, base, state, errors, warnings, strict, git, flags)
+        if extra is not None:
+            extra["report"] = list(steps.get("#report", []))
+            extra["certainty"] = dict(steps.get("#certainty", {}))
     return errors, warnings
 
 
@@ -3713,8 +4613,10 @@ def _check_derived_phase(base, phase, direction, warnings):
                         "stopped describing the line" % (direction, derived, want))
 
 
-def check(repo, slug=None, git=True, strict=False, all_lines=True, code=None):
-    """{slug: {"errors": [...], "warnings": [...]}} for one line or every line.
+def check(repo, slug=None, git=True, strict=False, all_lines=True, code=None, flags=None):
+    """{slug: {"errors": [...], "warnings": [...]}} for one line or every line; a
+    rules-8 line adds "report" (the lines `check` prints, never counted) and
+    "certainty" ({claim id: {level, start, steps}}).
 
     With `all_lines=False` and no slug, a line under `done/` is read by its order
     seal alone (`done_seal`), not re-checked, and appears only when that read
@@ -3727,8 +4629,10 @@ def check(repo, slug=None, git=True, strict=False, all_lines=True, code=None):
             if errors:
                 out[name] = {"errors": errors, "warnings": []}
             continue
-        errors, warnings = check_line(repo, name, git=git, strict=strict, code=code)
-        out[name] = {"errors": errors, "warnings": warnings}
+        extra = {}
+        errors, warnings = check_line(repo, name, git=git, strict=strict, code=code,
+                                      flags=flags, extra=extra)
+        out[name] = dict({"errors": errors, "warnings": warnings}, **extra)
     return out
 
 
@@ -4243,6 +5147,18 @@ def conclude_line(repo, slug, date=""):
         problems.append("no verdict for %s: record it with "
                         "`~/.config/tezgah/bin/tezgah-research verdict <slug> <id> met|not-met|unanswerable "
                         "--evidence <ref>`" % ", ".join(unjudged))
+    if _evidence(state):
+        # the rules `check` refuses a concluded rules-8 line for, asked before the
+        # line is concluded: every hypothesis terminal, every rejected instrument
+        # switched or narrowed (the evidence module's rule)
+        problems.extend(hypothesis_problems(state))
+        try:
+            import tezgah_research_evidence as evidence
+        except ImportError as exc:
+            problems.append("rules 8: tezgah_research_evidence cannot be imported (%s)"
+                            % exc)
+        else:
+            problems.extend(evidence.conclude_problems(repo, slug, base, state))
     if problems:
         return problems, None
     state.update(phase="concluded", direction="conclude")
@@ -4699,7 +5615,47 @@ def urlsplit_host(source):
     return host[4:] if host.startswith("www.") else host
 
 
-def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture=""):
+# ponytail: a run log above 16 MiB is refused rather than committed as a receipt; a run
+# that logs more is the ceiling, filed by hand with its log trimmed.
+RUN_LOG_BOUND = 16 * 1024 * 1024
+# What orx 0.2.20's `orx logs` prints instead of the log: the path, the size, a tail.
+ORX_LOG_SUMMARY = re.compile(r"\s*This is the path to the full log file: (.+?)[ \t]*\n"
+                             r"\s*It is ([\d,]+) bytes\.")
+
+
+def _full_log(repo, run, out):
+    """(bytes, problem): the run log `orx logs` printed - its output, or, when that is
+    orx's summary, the file the summary names, held to the size it printed (K6 rater
+    Y2: the summary's 500-character tail is not the log). Either is held to
+    `RUN_LOG_BOUND`."""
+    found = ORX_LOG_SUMMARY.match(out)
+    if not found:
+        if out.lstrip().startswith("This is the path to the full log file:"):
+            return None, ("orx logs %s printed the log's path without its size, so the "
+                          "file cannot be held to what orx saw" % run)
+        data = out.encode("utf-8")
+        if len(data) > RUN_LOG_BOUND:
+            return None, ("orx logs %s printed %d bytes, above the %d-byte bound a receipt "
+                          "is committed under" % (run, len(data), RUN_LOG_BOUND))
+        return data, None
+    path, size = os.path.join(repo, found.group(1)), int(found.group(2).replace(",", ""))
+    if size > RUN_LOG_BOUND:
+        return None, ("orx logs %s said %d bytes, above the %d-byte bound a receipt is "
+                      "committed under" % (run, size, RUN_LOG_BOUND))
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(RUN_LOG_BOUND + 1)
+    except OSError as exc:
+        return None, "cannot read the log orx logs %s names: %s" % (run, exc)
+    if len(data) != size:
+        return None, ("orx logs %s said %d bytes and %s holds %d: the run is still "
+                      "writing it or it changed since, so it is not the log orx saw - "
+                      "file the run once its log is complete" % (run, size, path, len(data)))
+    return data, None
+
+
+def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="",
+               arm="", item="", values=(), instrument=""):
     """(path, problems): file one orx run as this experiment's receipt.
 
     `orx logs` is read here rather than by the session, so the log lands in the
@@ -4721,37 +5677,113 @@ def source_run(repo, slug, hypothesis, run, orx, command="", scope="", fixture="
     without it files the row and says which field is still missing rather than
     refusing a row a session may have a reason to file; a value that is not a
     string, or one that is empty, is the mistake the field exists to catch and is
-    refused."""
+    refused.
+
+    `values` are (field, number as written) pairs: each lands in the row as a
+    number, and one equal to no number of the stored log is refused - equal as a
+    number, so `1.5` matches a logged `1.50` (review round two K-6). `instrument`,
+    `arm` and `item` land as strings, so the instrument ledger (`gold`, `label`)
+    reads the row (K-7). A run already filed keeps its log; the new one is
+    `raw/<run>.<n>.log` (a capture is written once). A rules-8 line's row also
+    names its `run`, the engine's
+    `status` when the line names an orx project, and the log and row are committed
+    as `capture: source <slug>` (plan 127, spec 1.4)."""
     if scope and scope not in SCOPES:
         return None, ["scope %r is not one of %s" % (scope, ", ".join(SCOPES))]
     if fixture and (not isinstance(fixture, str) or not fixture.strip()):
         return None, ["fixture %r does not name what was generated" % (fixture,)]
-    newer = newer_rules(_state(line_dir(repo, slug)))
+    base = line_dir(repo, slug)
+    state = _state(base)
+    newer = newer_rules(state)
     if newer:
         return None, [newer]
     experiment = os.path.join(line_dir(repo, slug), "experiments", hypothesis)
     if not os.path.isfile(os.path.join(experiment, "protocol.md")):
         return None, ["experiments/%s holds no protocol.md: write and commit the "
                       "plan before filing the run it predicts" % hypothesis]
-    log, err = _run([orx, "logs", run], cwd=repo)
+    if _evidence(state) and _orders_lock(state):
+        # the capture is committed at once, after HEAD of the history carrying the
+        # line, so an uncommitted lock would follow its results for good: the order
+        # `_check_evaluation_order` reads, asked of that HEAD before anything is written
+        lock_path = os.path.join(base, "state.json")
+        top = _histories(repo, lock_path)[-1][0]
+        if _answers(repo, _evaluation_commit(repo, lock_path), {top: "HEAD"}).get(top) \
+                is not True:
+            return None, ["the evaluation lock is not committed: no committed state.json "
+                          "holding the metric and the baseline precedes this capture, so "
+                          "its results would come before the lock for good - commit the "
+                          "line first (`tezgah-research commit %s \"<message>\"`); nothing "
+                          "was written" % slug]
+    if _evidence(state):
+        # the same reason as the lock: what the capture commits next would leave the
+        # protocol refused for good - entered after its results, or frozen invalid
+        # (left, refused; fixed, `changed after the run`) - K6 rater X2
+        commit = 'commit the line first (`tezgah-research commit %s "<message>"`); ' \
+                 'nothing was written' % slug
+        invalid = experiment_record(base, hypothesis)["invalid"]
+        if invalid:
+            return None, ["experiments/%s/protocol.md carries an invalid record (%s): the "
+                          "capture commits its results at once, after which the protocol "
+                          "cannot be fixed - fix it, then %s"
+                          % (hypothesis, "; ".join(invalid), commit)]
+        if not _git_out(repo, "rev-parse", "--is-inside-work-tree")[1] and not any(
+                _oldest_adds(repo, os.path.join(experiment, "protocol.md"))[0].values()):
+            return None, ["experiments/%s/protocol.md is not committed: the capture commits "
+                          "its results at once, so the protocol would enter the history "
+                          "after them for good - %s" % (hypothesis, commit)]
+    out, err = _run([orx, "logs", run], cwd=repo)
     if err:
         return None, ["orx logs %s failed: %s" % (run, err)]
-    if not log.strip():
+    data, problem = _full_log(repo, run, out)
+    if problem:
+        return None, [problem]
+    if not data.strip():
         return None, ["orx logs %s returned nothing, so there is no receipt to "
                       "file" % run]
+    import tezgah_research_capture as cap  # deferred: it imports this module
+    logged = cap.log_numbers(data.decode("utf-8", "replace"))
+    for field, written in values:
+        if decimal.Decimal(written) not in logged:
+            return None, ["%s=%s: value not in the run log (orx logs %s holds no number "
+                          "equal to %s)" % (field, written, run, written)]
     raw = os.path.join(experiment, "raw")
     os.makedirs(raw, exist_ok=True)
-    path = os.path.join(raw, run + ".log")
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(log)
-    row = {"source": "orx:%s" % run, "log": "raw/%s.log" % run}
+    name, n = run + ".log", 0
+    while os.path.lexists(os.path.join(raw, name)):
+        n += 1
+        name = "%s.%d.log" % (run, n)
+    path = os.path.join(raw, name)
+    with open(path, "wb") as fh:
+        fh.write(data)
+    row = {"source": "orx:%s" % run, "log": "raw/%s" % name}
+    if _evidence(state):
+        row["run"] = run
+    if instrument:
+        row["instrument"] = instrument
+    if arm:
+        row["arm"] = arm
+    if item:
+        row["item"] = item
+    for field, written in values:
+        row[field] = int(written) if re.fullmatch(r"-?\d+", written) else float(written)
     if command:
         row["command"] = command
     if scope:
         row["scope"] = scope
     if fixture:
         row["fixture"] = fixture
-    problems = _append_row(os.path.join(experiment, "results.jsonl"), row)
+    if _evidence(state):
+        runs, _err = cap.engine_runs(state)
+        status = next((r.get("status") for r in runs or () if cap.run_id(r) == run), None)
+        if isinstance(status, str) and status:
+            row["status"] = status
+    results = os.path.join(experiment, "results.jsonl")
+    problems = _append_row(results, row)
+    if not problems and _evidence(state):
+        err = cap.commit_capture(repo, base, [os.path.relpath(path, base),
+                                              os.path.relpath(results, base)],
+                                 "source", slug)
+        problems = [err] if err else []
     return path, problems
 
 
@@ -4920,7 +5952,7 @@ def verdict_problems(state, rows):
 
 
 def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFAULT_TIER,
-         method="", scope_in=(), scope_out=(), arena=None):
+         method="", scope_in=(), scope_out=(), arena=None, question_class=""):
     """Scaffold a research line. Returns the paths created (never overwrites).
 
     Refuses a slug `slugs()` cannot list - see `valid_slug` - so no caller can
@@ -4935,6 +5967,8 @@ def init(repo, slug, question="", created="", supersedes=None, ask="", tier=DEFA
         os.makedirs(path, exist_ok=True)
     state = dict(STATE_TEMPLATE)
     state["method"] = method
+    if question_class:
+        state["question_class"] = question_class
     state["scope"] = {"in": list(scope_in), "out": list(scope_out)}
     state["question"] = question
     state["created"] = created

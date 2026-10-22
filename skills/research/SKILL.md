@@ -73,8 +73,8 @@ breaking one silently invalidates the run:
 - grow the experiment tree downward, not sideways.
 
 Load its manual before driving it: `orx skill`, then the module for the step
-(`orx skill lit-review` for sources; `orx skill experiment-tree` and
-`orx skill evidence` for a measured line).
+(`orx skill lit-review` for sources; `orx skill experiment-tree`,
+`orx skill orx-results` and `orx skill orx-logs` for a measured line).
 Local runs need no login; managed compute does - run locally at a scale that fits,
 and ask for `orx login` only when the question cannot be answered without it.
 If `orx` is absent, say the research tooling is unavailable and do not improvise
@@ -122,18 +122,38 @@ Scaffold and check it with the CLI (`~/.config/tezgah/bin/tezgah-research`, or
 
 ```sh
 ~/.config/tezgah/bin/tezgah-research init my-line --ask "<the user's words>" --question "does X hold under Y?" \
-    --method measured --in "X under Y" --out "X under Z"
+    --method measured --class R6 --in "X under Y" --out "X under Z"
 ~/.config/tezgah/bin/tezgah-research commit my-line "<message>"   # commit in .tezgah's repo
 ~/.config/tezgah/bin/tezgah-research check    # open lines + done/ seals; 0 clean, 1 broken rule, 2 misuse
 ~/.config/tezgah/bin/tezgah-research check --all-lines   # every line in full, done/ included
 ~/.config/tezgah/bin/tezgah-research check --strict   # the unprovable becomes a refusal
-~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here
+~/.config/tezgah/bin/tezgah-research check --orx      # the run command registered here, and the run census
+~/.config/tezgah/bin/tezgah-research check --online   # re-fetch the citation receipts (rules 8)
 ~/.config/tezgah/bin/tezgah-research status
 ~/.config/tezgah/bin/tezgah-research claim my-line   # one JSON object on stdin
 ~/.config/tezgah/bin/tezgah-research migrate my-line [--dry-run]
 ~/.config/tezgah/bin/tezgah-research source my-line <hypothesis> --run <orxRunId> [--command "<cmd>"]
 ~/.config/tezgah/bin/tezgah-research import <other-checkout> my-line   # move a line with its history
 ```
+
+`--class R1..R12` routes the line by question type (rules 8): `init` prints the
+obligations - the step names `check` caps a claim's certainty with when one is
+missing - the tier's budget, and every done line's claim that overlaps the question.
+An R0 question (a fact or a reference) gets no line. On a rules-8 line `check`
+prints `certainty <slug>: <claim> <level> start=<level> steps=<step>,...` per claim:
+a missing obligation narrows the claim instead of refusing the line, and the report
+states each claim's level.
+
+On a rules-8 line, run `cite <slug>` after adding a formal INDEX row: it stores
+each registry's receipt for its arXiv id or DOI - a bare DOI (`10.1109/...`), a
+`doi:` one or a `https://doi.org/` URL. A source no registry indexes records
+`unindexed_reason` and narrows its claims instead of failing the line. A registered
+metric the report leaves out takes a `not_reported: <metric>: <reason>` line in
+`protocol.md`. Three or more words in double quotation marks in a claim's
+`statement` are a quote, and `check` looks for them in the text `fetch` captured
+and in the receipts' abstracts, so write a paraphrase without quotation marks. A
+falsifier `check` evaluates reads `<field> <op> <number> [on <group>]` over the
+results rows; free text narrows the claims citing it (`falsifier-not-evaluable`).
 
 `claim` reads that object from stdin and appends it as one line: exit 0,
 `claim <id> recorded` (just `claim recorded` when the object carries no `id`);
@@ -340,7 +360,7 @@ they do not carry.
 
    ```text
    prediction: prompt tokens per turn drop by a third over seven runs
-   falsifier: prompt tokens per turn hold flat or rise
+   falsifier: tokens_per_turn >= 1500 on cache
    headroom: 40% of each prompt repeats the previous turn
    metric: prompt tokens per turn
    unit: tokens per turn
@@ -374,7 +394,12 @@ they do not carry.
    append-only once committed: a correction is a new row, and `check` refuses a
    committed row changed or removed afterwards (a line opened before `rules`
    existed is warned instead, like every rule of this rule set).
-5. A negative result is a result: record what it rules out. When the line locked
+5. A negative result is a result: record what it rules out. Narrowing a claim to
+   what its evidence reaches, ending a hypothesis `inconclusive` and closing a line
+   with `close <slug> --limit "<what is left>"` are normal outcomes, not failures to
+   avoid: report each claim's certainty as `check` computes it (a claim below
+   `moderate` is exploratory and says so), and drop universal or causal wording the
+   evidence does not carry - `check` warns on it. When the line locked
    the two-gate pair (Bootstrap above), a run is a survivor only when it is inside
    the `capability_tolerance` **and** moves the `counter_metric`, and survivors are
    compared against each other on the Pareto frontier rather than by one number's

@@ -565,9 +565,9 @@ When the task is research and the OpenResearch CLI (`{ORX_BIN}`) is installed,
 drive it through that CLI instead of ad-hoc local scripting. Load the operating
 manual first: the `orx` skill if the host has it, otherwise run
 `{ORX_BIN} skill` from the shell; then the module the method needs -
-`{ORX_BIN} skill lit-review` for sources, `{ORX_BIN} skill experiment-tree` and
-`{ORX_BIN} skill evidence` for a measured line. On a measured line its cardinal
-rules are not style preferences - they
+`{ORX_BIN} skill lit-review` for sources, `{ORX_BIN} skill experiment-tree`,
+`{ORX_BIN} skill orx-results` and `{ORX_BIN} skill orx-logs` for a measured
+line. On a measured line its cardinal rules are not style preferences - they
 are what keeps results comparable, and breaking one silently invalidates the run:
 never edit a node once a run has answered it (branch a child instead); the run
 command and environment are a fixed contract identical on every node; vary the
@@ -581,6 +581,12 @@ for the running system, `fixture` for an input you generated, `derived` for a
 table computed from other rows. The producer declares it - nothing can recover it
 afterwards - and `{RESEARCH_BIN} check` refuses a claim that claims a wider scope
 than the rows it rests on.
+
+Narrowing a claim to what its evidence reaches, ending a hypothesis
+`inconclusive`, and `{RESEARCH_BIN} close <slug> --limit "<what is left>"` are
+normal outcomes of a line, never failures to avoid: a claim's certainty is
+reported as `check` computes it, an exploratory one says so, and `check` warns on
+universal or causal wording its evidence does not carry.
 
 If the CLI is not installed, say the research tooling is unavailable and do not
 improvise its protocol; fall back to a host subagent and say so, briefed with the

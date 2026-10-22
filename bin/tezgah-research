@@ -2,14 +2,15 @@
 """tezgah-research - the research workspace CLI.
 
   tezgah-research init <slug> --ask "<the user's words>" [--question "..."]
-                       [--method qualitative|measured|exploratory] [--in "<covered>"]...
-                       [--out "<left alone>"]... [--allow-open "<why>"] [--supersedes <slug>]
+                       [--method qualitative|measured|exploratory] [--class R1..R12]
+                       [--in "<covered>"]... [--out "<left alone>"]... [--allow-open "<why>"]
+                       [--supersedes <slug>]
                        [--arena "<problem>" --budget "<budget>" [--evaluator <path> --metric "<m>"]]
                                                    scaffold a line
   tezgah-research commit <slug> "<message>"       commit the line in .tezgah's own repo
                                                    (the project's, when it tracks .tezgah)
-  tezgah-research check [<slug>] [--json] [--strict] [--orx] [--all-lines] [-- <slug>]
-                                                   the discipline checks
+  tezgah-research check [<slug>] [--json] [--strict] [--orx] [--online] [--all-lines]
+                        [-- <slug>]                the discipline checks
   tezgah-research status                           one line per research line
   tezgah-research --all                            every checkout's lines (git worktrees)
   tezgah-research claim <slug>                     record one claim from stdin
@@ -17,6 +18,7 @@
   tezgah-research components [--json]              what predicts what, per component
   tezgah-research migrate <slug> [--dry-run]       derive fields the rules require
   tezgah-research source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"]
+                           [--instrument <name>] [--arm <a>] [--item <i>] [--value <field>=<number>]...
                            [--scope real|fixture|derived] [--fixture "<what was generated>"]
   tezgah-research compare <slug> <decision>        record one variants x criteria cell from stdin
   tezgah-research verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"
@@ -38,6 +40,23 @@
   tezgah-research dedup <slug> [--threshold <(0,1]>] [--json]
                                                    cluster the proposed ideas, write nothing
   tezgah-research yield [--json] [--all-lines]     how far ideas got, per operator and family
+  tezgah-research cite <slug>                      query four registries for each formal INDEX id
+  tezgah-research fetch <slug> <note> [--file <path> --ack "<the user's words>" | --orx]
+                                                   capture a note's source text and its quotes
+  tezgah-research search <slug> --tag primary|snowball|counter|known [--item "<scope.in item>"]
+                         -- <connector> <args...>  capture one search on an allowlisted connector
+  tezgah-research instrument add <slug> <name> --kind measure|verdict --rung R1|R2|R3|R4
+                         --construct "<text>"      register an instrument
+  tezgah-research gold <slug> <instrument> --arm <a> --n N --seed S
+                                                   draw an arm's seeded gold sample
+  tezgah-research label <slug> <instrument> --arm <a> (--human "<name>" --ack "<the user's words>"
+                        | --provider openrouter --model <m>)
+                                                   label an arm's gold sample
+  tezgah-research switch <slug> <instrument> (--to R1|R2|R3|R4|<method> | --narrow "<what the
+                         claims now say>") --reason "<why>"
+                                                   record a switch away from an instrument
+  tezgah-research release-check [--fixtures <dir>] score the known-truth cases, exit 1 past the bounds
+  tezgah-research calibration                      Brier score over resolved hypotheses
 
 A research line lives at <repo>/.tezgah/research/<slug>/ and holds the state an
 auditable investigation needs: the question, the decision log, the findings, the
@@ -165,8 +184,8 @@ def misuse(message):
 
 
 INIT_USAGE = ('init <slug> --ask "<the user\'s words>" [--tier quick|study|program]'
-              ' [--method qualitative|measured|exploratory] [--in "<covered>"]...'
-              ' [--out "<left alone>"]... [--question "..."]'
+              ' [--method qualitative|measured|exploratory] [--class R1..R12]'
+              ' [--in "<covered>"]... [--out "<left alone>"]... [--question "..."]'
               ' [--allow-open "<reason>"] [--supersedes <slug>]'
               ' [--arena "<problem>" --budget "<budget>"'
               ' [--evaluator <path> --metric "<metric>"]]')
@@ -175,6 +194,12 @@ INIT_EXAMPLE = ('tezgah-research init cache-latency --ask "does the cache cut p9
 
 
 def cmd_init(args):
+    # R0 is refused before any other argument is read (spec 3.3): a factual or
+    # reference question gets its answer in the reply, never a line
+    if any(a == "--class" and b == "R0" for a, b in zip(args, args[1:])):
+        print("FAIL init: R0 gets no line: a factual or reference question is answered "
+              "in the reply with its evidence")
+        return 1
     if not args:
         return misuse("init needs a slug")
     if args[0] in ("-h", "--help"):
@@ -189,7 +214,7 @@ def cmd_init(args):
                       "and dashes" % args[0])
     question, allow, supersedes = "", None, None
     ask, tier, method, scope_in, scope_out = "", str(tr.DEFAULT_TIER), "", [], []
-    arena = {}
+    arena, question_class = {}, ""
     rest = args[1:]
     while rest:
         flag = rest.pop(0)
@@ -203,6 +228,9 @@ def cmd_init(args):
             method = rest.pop(0)
         elif flag == "--in" and rest:
             scope_in.append(rest.pop(0))
+        elif flag == "--class" and rest and rest[0] in tr.QUESTION_CLASSES[1:] \
+                and not question_class:
+            question_class = rest.pop(0)
         elif flag == "--out" and rest:
             scope_out.append(rest.pop(0))
         elif flag == "--allow-open" and rest:
@@ -284,7 +312,8 @@ def cmd_init(args):
                                  arena.get("--metric", "").strip())
     made = tr.init(repo, slug, question=question, created=created,
                    supersedes=supersedes, ask=ask, tier=tier, method=method,
-                   scope_in=scope_in, scope_out=scope_out, arena=record)
+                   scope_in=scope_in, scope_out=scope_out, arena=record,
+                   question_class=question_class)
     if allow is not None:
         problem = tr.note_open(repo, slug, allow, created)
         if problem:
@@ -295,6 +324,11 @@ def cmd_init(args):
         print("  wrote %s" % path)
     for problem in tr.scope_problems(tr.line_state(repo, slug)):
         print("  owed: %s" % problem)
+    if question_class:
+        print("obligations: %s" % ", ".join(tr.obligations(question_class, method)))
+        print(tr.budget(slug, tr.line_dir(repo, slug), tr.line_state(repo, slug))[0])
+        for line, cid, status, sim in tr.overlaps(repo, question or ask, slug):
+            print("overlap: %s/%s %s %.2f" % (line, cid, status, sim))
     if method == "exploratory":
         print("\nnext: commit the arena now, before any idea - `~/.config/tezgah/bin/tezgah-research commit "
               "%s \"arena\"`; an idea committed with it or before it is refused. Then "
@@ -323,7 +357,8 @@ def cmd_init(args):
 def cmd_commit(args):
     """Commit one line in the private `.tezgah` repository, or in the project's
     when `.tezgah` is folded - the commit the order rule reads. Only the line's
-    own path is staged and committed."""
+    own paths are staged and committed: every layout location of the slug, so
+    the move `conclude` makes from `open/` to `done/` lands whole."""
     if len(args) != 2 or not args[1].strip():
         return misuse('commit <slug> "<message>"')
     slug, message = args
@@ -331,25 +366,35 @@ def cmd_commit(args):
     known = tr.slugs(repo)
     if slug not in known:
         return misuse("no such research line (have: %s)" % (", ".join(known) or "none"))
-    return commit_path(repo, tr.line_dir(repo, slug), message)
+    return commit_path(repo, [os.path.join(f, slug) for f in tr.layout_roots(repo)],
+                       message)
 
 
-def commit_path(repo, path, message):
-    """Stage and commit `path` alone in the private repository of `repo`, or in
+def present(paths, base, ls_files):
+    """The paths relative to `base` that exist on disk or that git still
+    tracks: a pathspec matching nothing would make `git add` fail."""
+    rels = [os.path.relpath(p, base) for p in paths]
+    tracked = ls_files(*rels).splitlines() if rels else []
+    return [r for r, p in zip(rels, paths) if os.path.lexists(p) or any(
+        t == r or t.startswith(r + "/") for t in tracked)]
+
+
+def commit_path(repo, paths, message):
+    """Stage and commit `paths` alone in the private repository of `repo`, or in
     the project's own when `.tezgah` is folded - tracked by the project, with no
     repository of its own (`tr.folded`)."""
     ws = tp.ensure_workspace(repo)
     if ws is None and tr.folded(repo):
-        return commit_project(repo, path, message)
+        return commit_project(repo, paths, message)
     if ws is None:
         print("commit refused: %s is not a git work tree (or .tezgah could not be "
               "set up), so there is no private repository to commit into" % repo)
         return 1
-    rel = os.path.relpath(path, ws)
     try:
-        done = tp.ws_git(repo, "add", "-A", "--", rel)
+        rels = present(paths, ws, lambda *r: tp.ws_git(repo, "ls-files", "--", *r).stdout)
+        done = tp.ws_git(repo, "add", "-A", "--", *rels)
         if not done.returncode:
-            done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", rel)
+            done = tp.ws_git(repo, "commit", "-q", "-m", message, "--", *rels)
     except OSError as exc:
         print("commit failed: %s" % exc)
         return 1
@@ -357,7 +402,7 @@ def commit_path(repo, path, message):
         print("commit failed: %s" % (done.stderr or done.stdout).strip())
         return 1
     sha = tp.ws_git(repo, "rev-parse", "HEAD").stdout.strip()
-    print("committed %s in %s at %s" % (rel, ws, sha))
+    print("committed %s in %s at %s" % (" ".join(rels), ws, sha))
     return 0
 
 
@@ -378,23 +423,24 @@ def message_refusal(message):
     return gate.ATTRIB_DENY if gate.ATTRIB.search(message) else None
 
 
-def commit_project(repo, path, message):
-    """Stage and commit `path` alone in the project's repository: the history a
+def commit_project(repo, paths, message):
+    """Stage and commit `paths` alone in the project's repository: the history a
     folded `.tezgah` lives in. Anything else the owner staged stays staged and
-    out of this commit (`commit -- <path>`); the project's identity, signing and
+    out of this commit (`commit -- <paths>`); the project's identity, signing and
     hooks apply, since this is the project's own history. A message the gate
     would refuse is refused first, exit 2, and nothing is staged."""
     refused = message_refusal(message)
     if refused:
         print("commit refused: %s" % refused, file=sys.stderr)
         return 2
-    rel = os.path.relpath(path, repo)
     git = ["git", "-C", repo]
     try:
-        done = subprocess.run(git + ["add", "-A", "--", rel], capture_output=True,
+        rels = present(paths, repo, lambda *r: subprocess.run(
+            git + ["ls-files", "--"] + list(r), capture_output=True, text=True).stdout)
+        done = subprocess.run(git + ["add", "-A", "--"] + rels, capture_output=True,
                               text=True)
         if not done.returncode:
-            done = subprocess.run(git + ["commit", "-q", "-m", message, "--", rel],
+            done = subprocess.run(git + ["commit", "-q", "-m", message, "--"] + rels,
                                   capture_output=True, text=True)
     except OSError as exc:
         print("commit failed: %s" % exc)
@@ -405,7 +451,8 @@ def commit_project(repo, path, message):
     sha = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True,
                          text=True).stdout.strip()
     print("committed %s in the project repository %s at %s (.tezgah is tracked by "
-          "the project, so the project's history carries the line)" % (rel, repo, sha))
+          "the project, so the project's history carries the line)"
+          % (" ".join(rels), repo, sha))
     return 0
 
 
@@ -416,13 +463,14 @@ def cmd_check(args):
     as_json = "--json" in flags
     strict = "--strict" in flags
     ask_orx = "--orx" in flags
+    online = "--online" in flags
     all_lines = "--all-lines" in flags
     rest = [a for a in flags
-            if a not in ("--json", "--strict", "--orx", "--all-lines")] + after
+            if a not in ("--json", "--strict", "--orx", "--online", "--all-lines")] + after
     repo = repo_root(os.getcwd())
     if len(rest) > 1:
-        return misuse("check [<slug>] [--json] [--strict] [--orx] [--all-lines] "
-                      "[-- <slug>]")
+        return misuse("check [<slug>] [--json] [--strict] [--orx] [--online] "
+                      "[--all-lines] [-- <slug>]")
     known = tr.slugs(repo)
     if rest and rest[0] not in known:
         print("FAIL %s: no such research line (have: %s)"
@@ -432,13 +480,18 @@ def cmd_check(args):
     report = {}
     if known:
         report = tr.check(repo, rest[0] if rest else None, strict=strict,
-                          all_lines=all_lines, code=checkout_root(os.getcwd()))
+                          all_lines=all_lines, code=checkout_root(os.getcwd()),
+                          flags={"online": online, "orx": ask_orx})
         for slug, row in report.items():
             for err in row["errors"]:
                 problems += 1
                 print("FAIL %s: %s" % (slug, err))
             for warn in row["warnings"]:
                 print("warn %s: %s" % (slug, warn))
+            # rules 8's report lines (certainty, stats, effect, budget, ...): never
+            # problems, and inside the JSON row rather than before it
+            for line in [] if as_json else row.get("report", []):
+                print(line)
     else:
         print("no research line under %s" % tr.root(repo))
     lines = len(report)
@@ -629,13 +682,20 @@ def cmd_migrate(args):
 
 def cmd_source(args):
     """File one orx run's log as the receipt of an experiment."""
-    usage = ('source <slug> <hypothesis> --run <orxRunId> [--command "<cmd>"] '
+    import re
+    import tezgah_research_capture as cap
+    reserved = ("source", "log", "run", "arm", "item", "instrument", "scope", "fixture",
+                "status", "command")
+    usage = ('source <slug> <hypothesis> --run <orxRunId> [--instrument <name>] [--arm <a>] '
+             '[--item <i>] [--value <field>=<number>]... [--command "<cmd>"] '
              '[--scope real|fixture|derived] [--fixture "<what was generated>"]')
     if len(args) < 2:
         return misuse(usage)
     slug, hypothesis = args[0], args[1]
-    run = command = scope = ""
+    run = command = scope = arm = item = ""
+    instrument = None
     fixture = None
+    values = []
     rest = args[2:]
     while rest:
         flag = rest.pop(0)
@@ -647,6 +707,20 @@ def cmd_source(args):
             scope = rest.pop(0)
         elif flag == "--fixture" and rest:
             fixture = rest.pop(0)
+        elif flag == "--instrument" and rest:
+            instrument = rest.pop(0)
+        elif flag == "--arm" and rest:
+            arm = rest.pop(0)
+        elif flag == "--item" and rest:
+            item = rest.pop(0)
+        elif flag == "--value" and rest:
+            field, _eq, number = rest.pop(0).partition("=")
+            if field in reserved:
+                return misuse("--value %s: %s is a reserved row key" % (field, field))
+            if not re.fullmatch(r"[A-Za-z_][\w.-]*", field) or not re.fullmatch(
+                    cap.VALUE_NUMBER, number):
+                return misuse("--value needs <field>=<number>, not %r" % (field + _eq + number))
+            values.append((field, number))
         else:
             return misuse(usage)
     if "/" in hypothesis or "\\" in hypothesis or hypothesis.startswith("."):
@@ -658,6 +732,8 @@ def cmd_source(args):
         return misuse("--scope %r is not one of %s" % (scope, ", ".join(tr.SCOPES)))
     if fixture is not None and not fixture.strip():
         return misuse("--fixture needs the text naming what was generated")
+    if instrument is not None and not instrument.strip():
+        return misuse("--instrument needs the instrument's name")
     repo = repo_root(os.getcwd())
     known = tr.slugs(repo)
     if slug not in known:
@@ -667,16 +743,15 @@ def cmd_source(args):
         return misuse("orx is not installed, so no run log can be read; nothing "
                       "was written (TEZGAH_ORX_BIN overrides the lookup)")
     path, problems = tr.source_run(repo, slug, hypothesis, run, orx, command, scope,
-                                   fixture or "")
+                                   fixture or "", arm, item, values, instrument or "")
     if problems:
         for problem in problems:
             print("FAIL %s: %s" % (slug, problem))
         return 1
     print("receipt %s" % path)
-    print('row {"source": "orx:%s", "log": "raw/%s.log"%s%s%s}'
-          % (run, run, ', "command": %s' % json.dumps(command) if command else "",
-             ', "scope": %s' % json.dumps(scope) if scope else "",
-             ', "fixture": %s' % json.dumps(fixture) if fixture else ""))
+    rows = tr._row_objects(os.path.join(os.path.dirname(os.path.dirname(path)),
+                                        "results.jsonl"))
+    print("row %s" % json.dumps(rows[-1] if rows else {}))
     if not scope:
         print("note: the row declares no scope, so nothing says whether this run "
               "measured the running system or an input you generated; re-file with "
@@ -1132,9 +1207,23 @@ def main(argv):
                 "board": cmd_board, "dedup": cmd_dedup, "yield": cmd_yield}
     if cmd in campaign:
         return campaign[cmd](rest)
+    # rules 8's capture and evidence commands, imported only when asked for so a
+    # missing optional module never breaks another command. Each handler takes
+    # (repo, args), prints its own output and returns its exit code; `release-check`
+    # and `calibration` need no line and run from any directory.
+    import importlib
+    for name in ("tezgah_research_capture", "tezgah_research_evidence"):
+        try:
+            commands = importlib.import_module(name).COMMANDS
+        except (ImportError, AttributeError):
+            continue
+        if cmd in commands:
+            return commands[cmd](repo_root(os.getcwd()), rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
                   "components, migrate, source, compare, verdict, conclude, migrate-layout, "
-                  "close, seal, import, next, idea, stage, match, board, dedup, yield)" % cmd)
+                  "close, seal, import, next, idea, stage, match, board, dedup, yield, cite, "
+                  "fetch, search, instrument, gold, label, switch, release-check, "
+                  "calibration)" % cmd)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import textwrap
@@ -45,6 +46,20 @@ def hit(needles, errors):
     """True when some error carries the needle."""
     return any(n in e for e in errors for n in ([needles] if
                                                 isinstance(needles, str) else needles))
+
+
+def bounded(fn, *args, seconds=20):
+    """fn(*args), or an AssertionError once it runs past `seconds`: a hang is the
+    defect such a test pins, so it must fail rather than stall the suite."""
+    def stop(signum, frame):
+        raise AssertionError("did not finish within %ds" % seconds)
+    old = signal.signal(signal.SIGALRM, stop)
+    signal.alarm(seconds)
+    try:
+        return fn(*args)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def named(errors, needle):
@@ -167,8 +182,11 @@ class Workspace(TempHome):
         the warning that says it is not locked yet or owes no variants. Its
         direction is one the artifacts a test adds cannot contradict - `conclude`
         on a concluded line, `deepen` otherwise - unless `direction` names one.
-        `rules` overrides the rule set `init` wrote, for a case about an older
-        line."""
+
+        Pinned to rules 7 (`EXPLORE_RULES`) unless `rules` names another: `init`
+        writes rules 8 since plan 127, and these cases are about the rules-7
+        reading every sealed line up to rules 7 is still checked by - a rules-8
+        case opts in with `rules=tr.EVIDENCE_RULES`."""
         tr.init(repo, slug, question=question, created="2026-01-01")
         base = tr.line_dir(repo, slug)
         state = json.loads(read(os.path.join(base, "state.json")))
@@ -180,8 +198,7 @@ class Workspace(TempHome):
         state["deliverable"] = {"kind": "finding"}
         state["method"] = "measured"
         state["scope"] = {"in": ["the change's effect"], "out": ["other changes"]}
-        if rules is not None:
-            state["rules"] = rules
+        state["rules"] = tr.EXPLORE_RULES if rules is None else rules
         self.write(os.path.join(base, "state.json"), json.dumps(state))
         return base
 
@@ -1165,13 +1182,14 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        # plan 127's last wave moved `RULES` to the evidence rules: `init` writes 8
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
-        base = self.line(repo, rules=tr.RULES + 1)
+        base = self.line(repo, rules=tr.EVIDENCE_RULES + 1)
         needle = "rules %d is newer than the rules this tezgah implements" % (
-            tr.RULES + 1)
+            tr.EVIDENCE_RULES + 1)
         errors = self.errors(repo)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn(needle, errors[0])
@@ -1995,6 +2013,21 @@ class Tracking(Workspace):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(self.ws_log(repo, "research/open/q")), 2)
 
+    def test_commit_after_conclude_carries_the_move(self):
+        """Plan 127 F11: `conclude` moves the line from `open/` to `done/`; the
+        commit that follows records the deletions under `open/` too, so the
+        private repository is left with no change for the slug."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.assertEqual(self.cli(repo, "commit", "q", "protocol h1").returncode, 0)
+        self.assertIsNone(tr.move_line(repo, "q", tr.DONE)[1])
+        done = self.cli(repo, "commit", "q", "conclude q")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        ws = os.path.join(repo, ".tezgah")
+        self.assertEqual(self.git(ws, "status", "--porcelain", "--", "research").strip(), "")
+        self.assertEqual(self.git(ws, "ls-files", "--", "research/open/q").strip(), "")
+
 
 class Folded(Workspace):
     """Plan 124: a folded workspace - a `.tezgah` the project tracks, with no
@@ -2046,6 +2079,17 @@ class Folded(Workspace):
         done = self.cli(repo, "commit", "q", "protocol h1")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertNotEqual(self.git(repo, "rev-parse", "HEAD").strip(), head)
+
+    def test_folded_commit_after_conclude_carries_the_move(self):
+        repo = self.folded_repo()
+        self.line(repo)
+        self.protocol(repo)
+        self.assertEqual(self.cli(repo, "commit", "q", "protocol h1").returncode, 0)
+        self.assertIsNone(tr.move_line(repo, "q", tr.DONE)[1])
+        done = self.cli(repo, "commit", "q", "conclude q")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.git(repo, "status", "--porcelain", "--", ".tezgah").strip(), "")
+        self.assertEqual(self.git(repo, "ls-files", "--", ".tezgah/research/open/q").strip(), "")
 
     def test_folded_gate_names_the_project_commit_form(self):
         def reason(repo):
@@ -3034,6 +3078,289 @@ class SourceRun(Workspace):
             self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
             self.assertIn(message, proc.stderr, args)
             self.assertEqual(proc.stdout, "", args)
+
+    def test_a_value_matches_a_log_number_by_numeric_equality(self):
+        """Review round two K-6: `--value us=1.5` against a log holding `1.50` names
+        the same number, so it is filed; a number the log does not hold stays refused."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="us 1.50\nrows 12\n")
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--value", "us=1.5",
+                        "--value", "rows=12.0", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        row = json.loads(read(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        self.assertEqual((row["us"], row["rows"]), (1.5, 12.0))
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r2", "--value", "us=1.6",
+                        env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("value not in the run log", proc.stdout)
+
+    def test_a_row_can_name_its_instrument_arm_and_item(self):
+        """Review round two K-7: a row `source` writes carries `instrument`, `arm` and
+        `item` as strings, so `gold` and `label` read it; the keys stay reserved for
+        `--value`."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="outcome 1\n")
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--instrument", "kw",
+                        "--arm", "flagged", "--item", "7", "--value", "outcome=1", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        row = json.loads(read(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        self.assertEqual((row["instrument"], row["arm"], row["item"], row["outcome"]),
+                         ("kw", "flagged", "7", 1))
+        for args, message in ((("--value", "instrument=1"), "reserved row key"),
+                              (("--instrument", "  "), "--instrument needs")):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "r2", *args, env=env)
+            self.assertEqual(proc.returncode, 2, (args, proc.stdout, proc.stderr))
+            self.assertIn(message, proc.stderr, args)
+
+    def test_a_rules8_capture_before_the_lock_is_committed_is_refused(self):
+        """A rules-8 `source` commits its capture at once, so one filed while the
+        evaluation lock is uncommitted would put the results before the lock for good
+        (`the evaluation was not locked before the first results row`, with no repair).
+        It is refused with nothing written; after `commit` it lands and the order holds."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.protocol(repo)
+        env = self.with_orx(repo)
+        args = ("source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real")
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn('commit the line first (`tezgah-research commit q "<message>"`)',
+                      proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo)
+        self.assertFalse(hit("was not locked before", errors), errors)
+
+    def summarising_orx(self, repo, body, declared=None):
+        """An `orx logs` that prints what orx 0.2.20 prints: the path of the full log,
+        its size and the last 500 characters, never the log itself."""
+        log = os.path.join(self.home, "run-logs", "r1.log")
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "wb") as fh:
+            fh.write(body)
+        size = len(body) if declared is None else declared
+        summary = ("This is the path to the full log file: %s\nIt is %d bytes.\n\n"
+                   "Here are the last 500 characters of the log file:\n%s\n"
+                   "Use targeted search on this path. This preview is not proof of "
+                   "absence.\n" % (log, size, body.decode("utf-8")[-500:]))
+        return self.with_orx(repo, logs=summary)
+
+    def test_a_summarising_orx_logs_is_followed_to_the_full_log(self):
+        """K6 rater Y2: orx 0.2.20's `orx logs` prints a summary, so `source` matched
+        `--value` against the last 500 characters and stored the summary as the log.
+        The full log at the path orx names is the receipt, held to the size orx
+        printed; a declared size above the bound is refused naming the bound."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        body = ("first p95=118\n" + "".join("rep=%d ms=%d.5\n" % (n, n) for n in range(80))
+                ).encode("utf-8")
+        self.assertGreater(len(body), 1000)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1", "--value", "p95=118",
+                        env=self.summarising_orx(repo, body))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        with open(os.path.join(self.exp_dir(repo), "raw", "r1.log"), "rb") as fh:
+            self.assertEqual(fh.read(), body)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1",
+                        env=self.summarising_orx(repo, body, declared=len(body) + 7))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("orx logs r1 said %d bytes and" % (len(body) + 7), proc.stdout)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "r1",
+                        env=self.summarising_orx(repo, body, declared=tr.RUN_LOG_BOUND + 1))
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("above the %d-byte bound" % tr.RUN_LOG_BOUND, proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw", "r1.1.log")))
+
+    def test_a_log_orx_logs_prints_itself_is_held_to_the_bound(self):
+        """Close review 3: the bound held only the summary path, so a log `orx logs`
+        printed in full was captured at any size. Printed or summarised, a log above
+        `RUN_LOG_BOUND` is refused with one message shape; one at the bound is kept."""
+        data, problem = tr._full_log(self.home, "r1", "x" * (tr.RUN_LOG_BOUND + 1))
+        self.assertIsNone(data)
+        self.assertEqual(problem, "orx logs r1 printed %d bytes, above the %d-byte bound a "
+                         "receipt is committed under" % (tr.RUN_LOG_BOUND + 1,
+                                                         tr.RUN_LOG_BOUND))
+        data, problem = tr._full_log(self.home, "r1", "x" * tr.RUN_LOG_BOUND)
+        self.assertEqual((len(data), problem), (tr.RUN_LOG_BOUND, None))
+
+    def test_log_numbers_read_thousands_separators_and_exponents(self):
+        """K6 rater Y2: `12,345` is 12345 and never 345, `1.2e-3` is 0.0012, and
+        `--value k=1.2e-3` is a number; matching stays numeric equality."""
+        repo = self.repo()
+        self.line(repo)
+        self.protocol(repo)
+        env = self.with_orx(repo, logs="tokens 12,345\nlat 1.2e-3\nwall 0.25\n")
+        for n, value in enumerate(("tokens=12345", "lat=0.0012", "lat=1.2e-3",
+                                   "wall=2.5E-1")):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "r%d" % n, "--value", value,
+                            env=env)
+            self.assertEqual(proc.returncode, 0, (value, proc.stdout + proc.stderr))
+        rows = [json.loads(line) for line in
+                read(os.path.join(self.exp_dir(repo), "results.jsonl")).splitlines()]
+        self.assertEqual([r.get("tokens", r.get("lat", r.get("wall"))) for r in rows],
+                         [12345, 0.0012, 0.0012, 0.25])
+        for value in ("tokens=345", "tokens=12"):
+            proc = self.cli(repo, "source", "q", "h1", "--run", "rx", "--value", value,
+                            env=env)
+            self.assertEqual(proc.returncode, 1, (value, proc.stdout + proc.stderr))
+            self.assertIn("value not in the run log", proc.stdout)
+
+    def test_a_rules8_capture_over_an_uncommitted_protocol_is_refused(self):
+        """K6 rater X2 (1): the capture commits its results at once, so a protocol not
+        yet committed would enter the history after them for good (`protocol.md
+        entered the history after results.jsonl`). Refused, nothing written."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.protocol(repo)
+        args = ("source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real")
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("experiments/h1/protocol.md is not committed", proc.stdout)
+        self.assertIn('tezgah-research commit q "<message>"', proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+        proc = self.cli(repo, "commit", "q", "protocol", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *args, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(hit("entered the history after", self.errors(repo)))
+
+    def test_a_rules8_capture_over_an_invalid_protocol_is_refused(self):
+        """K6 rater X2 (1): once results are committed an invalid protocol number is
+        frozen - left, it is refused; fixed, `protocol.md changed after the run`.
+        Refused before anything is written, naming the record."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "alpha: 2\n")
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, "source", "q", "h1", "--run", "9f0c1d2e", "--scope", "real",
+                        env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("experiments/h1/protocol.md carries an invalid record", proc.stdout)
+        self.assertIn("alpha", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "raw")))
+        self.assertFalse(os.path.exists(os.path.join(self.exp_dir(repo), "results.jsonl")))
+
+    def test_gold_over_uncommitted_results_rows_is_refused(self):
+        """K6 rater X2 (6): `gold` drew over rows not yet committed, so the gold file
+        matched neither the rows at its add nor, once rows grew, the rows now -
+        `differs from the seeded draw` for good. Refused naming `tezgah-research
+        commit`, nothing written; committed, the draw survives grown rows."""
+        repo = self.repo()
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.protocol(repo)
+        env = self.with_orx(repo)
+        proc = self.cli(repo, "commit", "q", "protocol and evaluation lock", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        results = os.path.join(self.exp_dir(repo), "results.jsonl")
+        rows = [{"instrument": "j", "arm": "a", "item": "i%03d" % n, "outcome": n % 2,
+                 "scope": "real", "source": "fixture.py i%03d" % n} for n in range(1, 41)]
+        self.write(results, "".join(json.dumps(r) + "\n" for r in rows[:10]))
+        proc = self.cli(repo, "commit", "q", "ten rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for row in rows[10:20]:
+            self.append_line(results, row)
+        gold = ("gold", "q", "j", "--arm", "a", "--n", "5", "--seed", "3")
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn("not committed", proc.stdout)
+        self.assertIn("tezgah-research commit q", proc.stdout)
+        self.assertFalse(os.path.exists(os.path.join(tr.line_dir(repo, "q"), "instruments",
+                                                     "gold")))
+        proc = self.cli(repo, "commit", "q", "twenty rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        proc = self.cli(repo, *gold, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        for row in rows[20:]:
+            self.append_line(results, row)
+        proc = self.cli(repo, "commit", "q", "forty rows", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        errors = self.errors(repo)
+        self.assertFalse(hit("differs from the seeded draw", errors), errors)
+
+
+class RegisteredMetric(Workspace):
+    """Rules 8 (2.3): every registered metric is reported or marked `not_reported:`."""
+
+    def test_a_metric_refining_the_locked_one_is_reported_by_the_locked_name(self):
+        """The protocol registers `p95 latency`, the line locked `p95` (the locked-metric
+        rule's equivalence), and the report says `p95`: reported. A registered metric
+        that is not the locked one still has to be named."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        d = self.protocol(repo)
+        needle = "registered metric 'p95 latency' is neither reported"
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit(needle, errors), errors)
+        report = os.path.join(base, "to_human", "report.md")
+        self.write(report, REPORT.replace("p95", "tail latency"))
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit(needle, errors), errors)
+        self.write(report, REPORT)
+        path = os.path.join(d, "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n",
+                                            "metric: p95 latency, error rate\n"))
+        errors = self.errors(repo, git=False)
+        self.assertTrue(hit("registered metric 'error rate' is neither reported", errors),
+                        errors)
+        self.assertFalse(hit(needle, errors), errors)
+
+    def test_a_hard_wrapped_metric_name_in_the_report_is_reported(self):
+        """K6 X2 (2): the match collapses whitespace in the report as it does in the
+        metric name, so `error rate` wrapped over two lines is reported."""
+        repo = self.repo()
+        base = self.line(repo, rules=tr.EVIDENCE_RULES)
+        self.deliver(repo)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path).replace("metric: p95 latency\n",
+                                            "metric: p95 latency, error rate\n"))
+        self.write(os.path.join(base, "to_human", "report.md"),
+                   REPORT + "\nthe error\nrate  stayed flat.\n")
+        errors = self.errors(repo, git=False)
+        self.assertFalse(hit("registered metric 'error rate'", errors), errors)
+
+
+class EvaluatorLock(Workspace):
+    """Rules 8 (2.4): a project `evaluator:` holds its bytes at the protocol's lock."""
+
+    def test_a_project_evaluator_is_compared_with_its_version_at_the_lock(self):
+        """K6 X2 (3): the line's protocol is committed in `.tezgah`'s repository, which
+        the project's history does not hold, so the evaluator was compared with its
+        oldest project version: an edit before the line existed refused for good. It
+        is compared with the latest project version not after the lock; an edit after
+        the lock still refuses."""
+        repo = self.repo()
+        script = os.path.join(repo, "eval", "score.py")
+        self.write(script, "print(1)\n")
+        self.commit(repo, "evaluator", when="2019-01-01T00:00:00+0000")
+        self.write(script, "print(2)\n")
+        self.commit(repo, "evaluator fix", when="2019-06-01T00:00:00+0000")
+        self.line(repo, rules=tr.EVIDENCE_RULES)
+        path = os.path.join(self.protocol(repo), "protocol.md")
+        self.write(path, read(path) + "evaluator: eval/score.py\n")
+        self.commit(repo, "protocol", when=BEFORE)
+        needle = "evaluator file changed after lock"
+        errors = self.errors(repo)
+        self.assertFalse(hit(needle, errors), errors)
+        self.write(script, "print(3)\n")
+        self.commit(repo, "evaluator after the lock", when=AFTER)
+        errors = self.errors(repo)
+        self.assertTrue(hit(needle, errors), errors)
 
 
 class LiteratureIndex(Workspace):
@@ -5844,7 +6171,11 @@ class Exploratory(Workspace):
     the stage an idea is in is read from its newest row, and the board, the
     dedup and the yield reports are reports, never gates."""
 
-    def campaign(self, repo, evaluator=True, commit=True):
+    def campaign(self, repo, evaluator=True, commit=True, rules=tr.EXPLORE_RULES):
+        """An exploratory line, pinned to rules 7 like `line`: these cases are the
+        rules-7 campaign reading, and its formal INDEX rows hold no receipt, which
+        rules 8 refuses (`resolves in no registry`). `rules=None` keeps what `init`
+        wrote."""
         self.write(os.path.join(repo, "eval", "score.py"), "print(1)\n")
         arena = tr.arena_record(repo, "pick integers whose sum scores best",
                                 "8 ideas, 2 pilots, 1 full run",
@@ -5854,6 +6185,9 @@ class Exploratory(Workspace):
                 ask="new ways to hit 100", method="exploratory",
                 scope_in=["integer lists"], scope_out=["floats"], arena=arena)
         base = tr.line_dir(repo, "camp")
+        if rules is not None:
+            path = os.path.join(base, "state.json")
+            self.write(path, json.dumps(dict(json.loads(read(path)), rules=rules)))
         for name, cls in (("n1.md", "formal"), ("n2.md", "formal"),
                           ("n3.md", "grey"), ("a1.md", "agent-report"),
                           ("a2.md", "agent-report"), ("a3.md", "agent-report")):
@@ -5906,12 +6240,13 @@ class Exploratory(Workspace):
                                "fixture": "toy"}) + "\n")
         self.write(os.path.join(d, "analysis.md"), "# a\n")
 
-    def test_init_locks_the_arena_on_rules_7_only(self):
+    def test_init_locks_the_arena_from_rules_7_on(self):
         repo = self.repo()
-        base = self.campaign(repo)
+        base = self.campaign(repo, rules=None)
         state = tr.line_state(repo, "camp")
         self.assertEqual(state["rules"], tr.RULES)
-        self.assertEqual(tr.RULES, tr.EXPLORE_RULES)
+        # plan 127's flip: `init` writes rules 8, and the arena stays locked on it
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
         self.assertEqual(state["arena"]["evaluator_sha256"],
                          tr._digest(os.path.join(repo, "eval", "score.py")))
         self.assertEqual(tr.scope_problems(state), [])
@@ -6259,6 +6594,501 @@ class Exploratory(Workspace):
                   self.match("I1", "I2", "ba", judge=JUDGE_D))
         self.assertFalse(hit(("generator", "one order", "judges"),
                              self.warnings(repo, slug="camp", git=False)))
+
+
+class OrxModuleNames(unittest.TestCase):
+    """Every `orx skill <name>` the research skill and the policy text name is a
+    module orx 0.2.20 ships; a bare name resolves to its `orx-` prefixed module.
+    When orx is installed, each name also loads (`orx skill <name>` exits 0)."""
+
+    MODULES = ("orx-create", "orx-experiment-tree", "orx-git",
+               "orx-agent-delegation", "orx-compute", "orx-instances", "orx-logs",
+               "orx-results", "orx-reports", "orx-figures", "orx-paper",
+               "orx-customize", "orx-lit-review", "orx-feedback")
+    SOURCES = ("skills/research/SKILL.md", "hooks/tezgah_policy.py",
+               "skills/tezgah-contract/SKILL.md")
+    NAME = re.compile(r"(?:orx|\{ORX_BIN\})[ \t]+skill[ \t]+([a-z][a-z0-9-]*)")
+
+    def names(self):
+        found = set()
+        for rel in self.SOURCES:
+            found.update(self.NAME.findall(read(os.path.join(REPO, rel))))
+        return sorted(found)
+
+    def test_every_named_module_exists_in_orx(self):
+        names = self.names()
+        self.assertTrue(names)
+        unknown = [n for n in names if n not in self.MODULES
+                   and "orx-" + n not in self.MODULES]
+        self.assertEqual(unknown, [])
+        orx = shutil.which("orx") or os.path.expanduser("~/.cargo/bin/orx")
+        if not os.path.exists(orx):
+            return
+        failed = [n for n in names if subprocess.run(
+            [orx, "skill", n], capture_output=True).returncode != 0]
+        self.assertEqual(failed, [])
+
+
+class EvidenceRulesBound(unittest.TestCase):
+    """Rules 8 (plan 127) is the rules `init` writes: a line declaring it is read
+    as current, rules 9 is still refused, and a rules-7 line (every sealed line
+    up to the flip) is not held to the evidence rules."""
+
+    def test_rules_8_is_read_and_rules_9_is_refused(self):
+        self.assertEqual(tr.EVIDENCE_RULES, 8)
+        # the flip: `RULES` was `EXPLORE_RULES` (7) until plan 127's last wave
+        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
+        self.assertIsNone(tr.newer_rules({"rules": tr.EVIDENCE_RULES}))
+        self.assertTrue(tr._evidence({"rules": tr.EVIDENCE_RULES}))
+        self.assertFalse(tr._evidence({"rules": tr.EXPLORE_RULES}))
+        refusal = tr.newer_rules({"rules": 9})
+        self.assertIn("rules 9 is newer than the rules this tezgah implements (8)",
+                      refusal)
+
+
+class Rules8Core(Workspace):
+    """Rules 8 (plan 127) core: routing, the execution trail and the claim rules the
+    writer and the checker share. The black-box acceptance runner
+    (`test_research_rules8_acceptance.py`) is the exogenous check; these pin the
+    functions it reaches through."""
+
+    def rules8_line(self, repo, rows, protocol_extra=""):
+        base = self.line(repo, phase="outer", rules=8)
+        d = self.exp_dir(repo)
+        self.write(os.path.join(d, "protocol.md"),
+                   "# Protocol\n\nchange: cache\ndesign: experiment\n"
+                   "prediction: p95 drops to at most 95\nfalsifier: p95 > 110 on cache\n"
+                   "metric: p95 latency\nunit: ms\n"
+                   "compare: cache vs base on p95, lower is better\n" + protocol_extra)
+        for n, (arm, value) in enumerate(rows, 1):
+            self.write(os.path.join(d, "raw", "r%d.log" % n), "run r%d\np95 %s\n" % (n, value))
+        self.write(os.path.join(d, "results.jsonl"), "".join(
+            json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.log" % n, "run": "r%d" % n,
+                        "arm": arm, "p95": value, "scope": "real"}) + "\n"
+            for n, (arm, value) in enumerate(rows, 1)))
+        return base
+
+    def test_obligations_name_the_class_steps(self):
+        r7 = tr.obligations("R7", "qualitative")
+        for step in ("no-dual-screening", "no-recall-stopping", "one-connector"):
+            self.assertIn(step, r7)
+        self.assertNotIn("no-replication", r7)
+        r6 = tr.obligations("R6", "measured")
+        self.assertIn("fewer-than-two-rivals", r6)
+        self.assertIn("no-interval", r6)
+
+    def test_falsifier_grammar_takes_words_and_named_tests(self):
+        self.assertTrue(tr.falsifier_testable("p95 latency exceeds 110 ms on the cache arm"))
+        self.assertTrue(tr.falsifier_testable("a welch test at alpha = 0.05 rejects"))
+        self.assertTrue(tr.falsifier_testable("the score stays at or below 5"))
+        self.assertFalse(tr.falsifier_testable("results may vary between runs"))
+        self.assertFalse(tr.falsifier_testable("a welch test rejects"))
+
+    def test_a_free_text_falsifier_narrows_its_claims_instead_of_refusing(self):
+        """Review round two K-1: on a rules-8 line a falsifier with no comparator and
+        number is the step `falsifier-not-evaluable` on each claim citing it, not a
+        refusal; R2-2: `at mo\u017ft` (U+017F) matches no comparator ASCII-case-
+        insensitively, so it is that step and never a KeyError."""
+        import tezgah_research_evidence as ev
+        self.assertEqual(ev.STEPS["falsifier-not-evaluable"], ev.DEC)
+        for falsifier in ("p95 holds or rises", "p95 at mo\u017ft 95 on cache"):
+            repo = self.repo()
+            self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                    ("cache", 91)])
+            path = os.path.join(self.exp_dir(repo), "protocol.md")
+            self.write(path, read(path).replace("falsifier: p95 > 110 on cache",
+                                                "falsifier: " + falsifier))
+            self.claims(repo, dict(CLAIM, proof="experiments/h1/results.jsonl"))
+            extra = {}
+            errors, _ = bounded(tr.check_line, repo, "q", False, False, None, None, extra)
+            self.assertFalse(hit("falsifier holds no comparator", errors), errors)
+            self.assertIn("falsifier-not-evaluable", extra["certainty"]["c1"]["steps"],
+                          (falsifier, extra))
+        self.assertIn("falsifier-not-evaluable", tr.obligations("R6", "measured"))
+
+    def test_a_comparator_is_matched_ascii_case_insensitively(self):
+        """Review round two R2-2: a non-ASCII letter Unicode case folding maps onto an
+        ASCII one leaves the falsifier unevaluated, never a KeyError."""
+        rows = [{"arm": "cache", "p95": 90}, {"arm": "cache", "p95": 91}]
+        for text in ("p95 at mo\u017ft 95 on cache", "p95 le\u017f\u017f than 95 on cache",
+                     "p95 exceed\u017f 80 on cache"):
+            self.assertIsNone(tr.falsifier_fired({"fields": {"falsifier": [text]},
+                                                  "groups": {"cache": rows}, "rows": rows}),
+                              text)
+            self.assertFalse(tr.falsifier_testable(text), text)
+
+    def test_the_skill_teaches_the_machine_readable_falsifier_and_the_rules8_words(self):
+        """Review round two K-9: the skill's falsifier example is one `check` evaluates,
+        and a rules-8 paragraph names `cite`, `unindexed_reason`, `not_reported`, the
+        quotation-mark rule and bare DOIs."""
+        text = read(os.path.join(REPO, "skills", "research", "SKILL.md"))
+        examples = re.findall(r"(?m)^\s*falsifier:\s*(.+)$", text)
+        self.assertTrue(examples)
+        for example in examples:
+            self.assertTrue(tr.FALSIFIER_FORM.match(example.strip()), example)
+        flat = " ".join(text.split())
+        for word in ("`cite", "`unindexed_reason`", "`not_reported:", "quotation marks",
+                     "bare DOI"):
+            self.assertIn(word, flat, word)
+        self.assertIn("description: >\n  Use when the deliverable is evidence", text)
+
+    def test_effect_is_the_direction_adjusted_welch_difference(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        eff = tr.experiment_record(base, "h1")["effect"]
+        self.assertAlmostEqual(eff["effect"], 30.0)
+        self.assertGreater(eff["ci"][0], 0)
+        self.assertFalse(eff["paired"])
+
+    def test_derived_number_recomputes_or_is_refused_by_writer_and_checker_alike(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     statement="mean p95 with the cache was 90.5 ms",
+                     derived_from={"90.5": {"op": "mean", "of": ["h1/r3:p95", "h1/#4:p95"]}})
+        self.assertEqual(tr.derived_problems("C1", claim, base), [])
+        self.assertEqual(tr._untraced(claim, [tr.experiment_record(base, "h1")]), [])
+        claim["derived_from"]["90.5"]["of"] = ["h1/r1:p95", "h1/r4:p95"]
+        self.assertTrue(hit("does not recompute", tr.derived_problems("C1", claim, base)))
+        self.assertTrue(hit("does not recompute", tr.claim_problems(claim, base, repo)))
+
+    def test_untraced_number_needs_the_row_and_its_log(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     statement="p95 dropped from 120 ms to 85 ms")
+        self.assertEqual(tr._untraced(claim, [tr.experiment_record(base, "h1")]), ["85"])
+
+    def test_supported_claim_over_a_fired_falsifier_is_refused_at_write(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 115),
+                                       ("cache", 116)])
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     status="supported")
+        self.assertTrue(hit("while its falsifier fired", tr.claim_problems(claim, base, repo)))
+
+    def test_a_superseded_claim_is_not_refused_by_the_claim_rules(self):
+        """Close review 1: rows filed after a `supported` claim can fire its
+        falsifier, and the record is append-only, so a superseding row is the only
+        correction. A claim a later row supersedes is the historical row, as rules 7
+        reads it: neither `fired_problems` nor `derived_problems` refuses it, on the
+        write path or in `check`; the same claim unsuperseded is still refused."""
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        c1 = dict(CLAIM, id="C1", proof="experiments/h1/results.jsonl",
+                  derived_from={"90.5": {"op": "mean", "of": ["h1/r1:p95", "h1/r3:p95"]}})
+        self.assertFalse(hit("while its falsifier fired", tr.claim_problems(c1, base, repo)))
+        d = self.exp_dir(repo)
+        with open(os.path.join(d, "results.jsonl"), "a") as fh:
+            for n, value in ((5, 140), (6, 141)):
+                self.write(os.path.join(d, "raw", "r%d.log" % n), "run r%d\np95 %d\n"
+                           % (n, value))
+                fh.write(json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.log" % n,
+                                     "run": "r%d" % n, "arm": "cache", "p95": value,
+                                     "scope": "real"}) + "\n")
+        wanted = ("claim C1 is supported while its falsifier fired",
+                  "claim C1 derived_from 90.5 does not recompute")
+        self.claims(repo, c1)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        for needle in wanted:
+            self.assertTrue(hit(needle, errors), (needle, errors))
+            self.assertTrue(hit(needle, tr.claim_problems(c1, base, repo)), needle)
+        c2 = dict(CLAIM, id="C2", proof="experiments/h1/results.jsonl", status="refuted",
+                  statement="the cache does not cut p95", supersedes="C1")
+        self.claims(repo, c1, c2)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        for needle in wanted:
+            self.assertFalse(hit(needle, errors), (needle, errors))
+            self.assertFalse(hit(needle, tr.claim_problems(c1, base, repo)), needle)
+
+    def test_a_run_filed_twice_counts_once_and_its_latest_row_stands(self):
+        """Close review 2: `source` refiles a run as a second row, and each row
+        counted as a replicate - one run per arm read as two, dropping
+        `no-replication`. A run counts once: its latest row stands for it in every
+        group, mean and lookup; a latest `failed` row leaves it nowhere; rows with no
+        `run` are read as before."""
+        import tezgah_research_evidence as ev
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("cache", 90)])
+        d = self.exp_dir(repo)
+        with open(os.path.join(d, "results.jsonl"), "a") as fh:
+            for n, arm, value in ((1, "base", 120), (2, "cache", 95)):
+                self.write(os.path.join(d, "raw", "r%d.1.log" % n), "run r%d\np95 %d\n"
+                           % (n, value))
+                fh.write(json.dumps({"source": "orx:r%d" % n, "log": "raw/r%d.1.log" % n,
+                                     "run": "r%d" % n, "arm": arm, "p95": value,
+                                     "scope": "real"}) + "\n")
+        exp = tr.experiment_record(base, "h1")
+        self.assertEqual({g: [r["p95"] for r in rows] for g, rows in exp["groups"].items()},
+                         {"base": [120], "cache": [95]})
+        self.assertEqual(exp["effect"]["n"], (1, 1))
+        claim = dict(CLAIM, proof="experiments/h1/results.jsonl")
+        self.assertIn("no-replication",
+                      tr._experiment_steps(claim, [exp], "R4", True, set()))
+        self.assertEqual(str(tr._ref_value(base, "h1/r2:p95")), "95")
+        self.assertEqual(len(ev._results(base, "h1")), 2)
+        self.assertEqual(tr._live([{"run": "r1", "p95": 1}, {"run": "r1", "status": "failed"}]),
+                         [])
+        self.assertEqual(len(tr._groups([{"arm": "a", "p95": 1}, {"arm": "a", "p95": 1}])["a"]),
+                         2)
+
+    def test_one_run_filed_per_arm_and_item_keeps_every_row(self):
+        """Close review round 2: deduplicating by `run` alone folded one orx run that
+        measured several arms and items (`source --run r1 --arm a --item i`, one row
+        each) into its last row - one arm vanished from the comparison. A row is a
+        refile only when it repeats the run, arm, item and instrument; and a refiled
+        row's old value no longer traces a claim's number."""
+        rows = [{"run": "r1", "arm": arm, "item": item, "instrument": "kw", "p95": v}
+                for arm, item, v in (("base", "i1", 120), ("base", "i2", 121),
+                                     ("cache", "i1", 90), ("cache", "i2", 91))]
+        self.assertEqual(tr._live(rows), rows)
+        self.assertEqual({g: len(r) for g, r in tr._groups(rows).items()},
+                         {"base": 2, "cache": 2})
+        refiled = rows + [dict(rows[0], p95=118)]
+        self.assertEqual([r["p95"] for r in tr._live(refiled)], [121, 90, 91, 118])
+        d = self.repo()
+        self.write(os.path.join(d, "raw", "r1.log"), "p95 120\n")
+        self.write(os.path.join(d, "raw", "r1.1.log"), "p95 118\n")
+        exp = {"dir": d, "rows": [{"run": "r1", "p95": 120, "log": "raw/r1.log"},
+                                  {"run": "r1", "p95": 118, "log": "raw/r1.1.log"}]}
+        self.assertEqual(tr._untraced(dict(CLAIM, statement="p95 fell to 118 ms"), [exp]),
+                         [])
+        self.assertEqual(tr._untraced(dict(CLAIM, statement="p95 fell to 120 ms"), [exp]),
+                         ["120"])
+
+    def test_a_falsifier_on_no_group_over_several_groups_is_not_evaluated(self):
+        """K6 X2 (5): `p95 > 100` with no `on <group>` was the mean over every arm,
+        the control's included - 105.5 here, so a supported claim was refused while
+        the cache arm sits at 90.5. Over several groups it is `falsifier-not-evaluable`;
+        over one group it is evaluated over every row as before."""
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)])
+        path = os.path.join(self.exp_dir(repo), "protocol.md")
+        self.write(path, read(path).replace("falsifier: p95 > 110 on cache",
+                                            "falsifier: p95 > 100"))
+        claim = dict(CLAIM, kind="evidence", proof="experiments/h1/results.jsonl",
+                     status="supported")
+        self.assertFalse(hit("while its falsifier fired",
+                             tr.claim_problems(claim, base, repo)))
+        self.claims(repo, claim)
+        extra = {}
+        errors, _ = bounded(tr.check_line, repo, "q", False, False, None, None, extra)
+        self.assertFalse(hit("while its falsifier fired", errors), errors)
+        self.assertIn("falsifier-not-evaluable", extra["certainty"]["c1"]["steps"], extra)
+        rows = [{"p95": 120}, {"p95": 121}]
+        self.assertEqual(tr.falsifier_fired({"fields": {"falsifier": ["p95 > 100"]},
+                                             "groups": {"all": rows}, "rows": rows}),
+                         ("p95 > 100", 120.5))
+
+    def test_concluded_line_needs_terminal_hypotheses(self):
+        state = {"hypotheses": [{"id": "H1", "text": "x", "status": "testing"},
+                                {"id": "H2", "text": "y", "status": "inconclusive"}]}
+        problems = tr.hypothesis_problems(state)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("H1 has no terminal status", problems[0])
+
+    def test_supersedes_the_report_names_is_not_warned(self):
+        parsed = [("C1", {"id": "C1"}), ("C3", {"id": "C3", "supersedes": "C1"})]
+        errors, warnings = [], []
+        tr._check_supersedes(parsed, errors, warnings, True, "- C3: high, supersedes C1\n")
+        self.assertEqual((errors, warnings), ([], []))
+        tr._check_supersedes(parsed, errors, warnings, False, "- C3: high\n")
+        self.assertTrue(hit("supersedes C1", warnings))
+
+    def test_patterns_source_on_a_continuation_line_counts(self):
+        errors, warnings = [], []
+        tr._check_patterns("## Patterns\n\n- the cache helps\n  (literature/a.md)\n"
+                           "- unsourced\n  still unsourced\n", errors, warnings, False, True)
+        self.assertTrue(hit("1 of 2 Patterns bullets name no source", warnings), warnings)
+
+    def test_a_rules7_line_reads_its_patterns_first_lines_only(self):
+        """Close review 4: the continuation join is a rules-8 reading. A rules-7 line
+        reads each bullet's first line only, as at 944de61 - 2 of these 2 bullets
+        name no source there, 1 of 2 on a rules-8 line."""
+        body = "".join("## %s\n\n%s\n" % (s, "- the cache helps\n  (literature/a.md)\n"
+                                          "- unsourced\n  still unsourced\n"
+                                          if s == "Patterns" else "x")
+                       for s in tr.FINDINGS_SECTIONS)
+        for rules, want in ((tr.EXPLORE_RULES, "2 of 2"), (tr.EVIDENCE_RULES, "1 of 2")):
+            repo = self.repo()
+            base = self.line(repo, rules=rules)
+            self.write(os.path.join(base, "findings.md"), body)
+            errors, warnings = [], []
+            tr._check_findings(base, errors, warnings, False)
+            self.assertTrue(hit("findings.md: %s Patterns bullets name no source" % want,
+                                warnings), (rules, warnings))
+
+    def test_budget_counts_index_rows_searches_and_engine_runs(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("cache", 90)])
+        line, over = tr.budget("q", base, {"tier": "quick"})
+        self.assertEqual(line, "budget q: sources 0/10 searches 0/10 runs 2/10")
+        self.assertEqual(over, [])
+
+
+class Rules8Numbers(Workspace):
+    """Rules 8 protocol numbers and arithmetic (plan 127, review round one G1): one
+    reader for `alpha:` `power:` `sesoi:` `mde:` (`.05`, `5%`, `1e-1`), an out-of-range
+    value is one refusal rather than a hang or a traceback, `derived_from` recomputes
+    in decimal, boolean outcomes count as 1/0, and every comparator spec 2.2 lists
+    is evaluated in the structured falsifier."""
+
+    rules8_line = Rules8Core.rules8_line
+    PLAN = "power: 0.8\nmde: 10\nn: 2\n"
+
+    def test_protocol_numbers_read_leading_dot_percent_and_exponent(self):
+        for text, want in ((".05", 0.05), ("5%", 0.05), ("80 %", 0.8), ("1e-1", 0.1),
+                           ("0.05 two-sided", 0.05), ("2", 2.0), ("none", None)):
+            self.assertEqual(tr._number(text), want, text)
+        self.assertEqual(tr.protocol_number("power", "80%"), (0.8, None))
+        self.assertEqual(tr.protocol_number("alpha", ""), (None, None))
+        for key, text, needle in (("alpha", "5", "alpha: 5 is not a number in (0, 1)"),
+                                  ("power", "80", "power: 80 is not a number in (0, 1)"),
+                                  ("alpha", "high", "alpha: high is not a number in (0, 1)"),
+                                  ("sesoi", "0", "sesoi: 0 is not a number above 0"),
+                                  ("mde", "-1", "mde: -1 is not a number above 0")):
+            value, problem = tr.protocol_number(key, text)
+            self.assertIsNone(value)
+            self.assertIn(needle, problem)
+
+    def test_out_of_range_alpha_or_power_is_one_refusal_not_a_hang(self):
+        rows = [("base", 120), ("base", 121), ("cache", 90), ("cache", 91)]
+        for extra, needle in (("alpha: 5\n" + self.PLAN, "alpha: 5 is not a number"),
+                              ("alpha: 0.05\npower: 80\nmde: 10\nn: 2\n",
+                               "power: 80 is not a number")):
+            repo = self.repo()
+            self.rules8_line(repo, rows, extra)
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+            self.assertEqual(len(named(errors, needle)), 1, errors)
+            self.assertFalse(hit("Traceback", errors))
+
+    def test_leading_dot_alpha_is_the_fraction(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                       ("cache", 91)], "alpha: .05\n" + self.PLAN)
+        exp = bounded(tr.experiment_record, base, "h1")
+        self.assertEqual(exp["alpha"], 0.05)
+        self.assertIsNotNone(exp["effect"]["ci"])
+
+    def test_leading_dot_sesoi_does_not_escape_tost(self):
+        repo = self.repo()
+        base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 120),
+                                       ("cache", 121)], "alpha: 0.05\nsesoi: .5\n" + self.PLAN)
+        claim = dict(CLAIM, effect="no-difference")
+        steps = tr._experiment_steps(claim, [tr.experiment_record(base, "h1")], "R6", True,
+                                     set())
+        self.assertIn("tost-not-passed", steps)
+
+    def test_instrument_mde_uses_the_same_reader(self):
+        import tezgah_research_evidence as ev
+        self.assertEqual(ev._mde("mde: .05\n"), 0.05)
+        self.assertEqual(ev._mde("mde: 10%\n"), 0.1)
+        self.assertIsNone(ev._mde("mde: 0\n"))
+
+    def test_boolean_outcomes_count_as_one_and_zero(self):
+        import tezgah_research_evidence as ev
+        self.assertEqual((ev._outcome({"outcome": True}), ev._outcome({"outcome": False})),
+                         (1, 0))
+        repo = self.repo()
+        base = self.rules8_line(repo, [("a", 1), ("a", 2)])
+        exp = tr.experiment_record(base, "h1")
+        for row, outcome in zip(exp["groups"]["a"], (True, False)):
+            row["outcome"] = outcome
+        lines = []
+        tr._check_experiment8(repo, "q", base, {}, exp, None, [], [], False, False, lines)
+        self.assertTrue(hit("stats q: h1 a n=2 k=1 ", lines), lines)
+
+    def test_ppi_line_with_one_gold_or_one_other_item_prints_ci_none(self):
+        import tezgah_research_evidence as ev
+        items = {i: {"outcome": o} for i, o in (("i1", 1), ("i2", 0), ("i3", 1))}
+        labels = {("j", "a", i): {"truth": 1, "output": items[i]["outcome"]}
+                  for i in items}
+        self.assertEqual(ev._ppi_line("q", "j", "a", {"items": ["i1"]}, labels, items),
+                         ["ppi q: j arm a lambda=0.0000 estimate=1.0000 ci=none"])
+        line = ev._ppi_line("q", "j", "a", {"items": ["i1", "i2"]}, labels, items)
+        self.assertTrue(line[0].endswith(" ci=none"), line)
+
+    def test_derived_mean_rounds_in_decimal_half_up_or_half_even(self):
+        cases = ((2.67, 2.68, {"2.68": True, "2.67": False}),
+                 (10.1, 10.2, {"10.2": True, "10.1": False}),
+                 (2, 3, {"3": True, "2": True, "2.4": False}))
+        for a, b, verdicts in cases:
+            repo = self.repo()
+            base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", a),
+                                           ("cache", b)])
+            for written, ok in verdicts.items():
+                claim = dict(CLAIM, derived_from={
+                    written: {"op": "mean", "of": ["h1/r3:p95", "h1/r4:p95"]}})
+                problems = tr.derived_problems("C1", claim, base)
+                self.assertEqual(problems == [], ok, (a, b, written, problems))
+
+    def test_falsifier_forms_the_comparator_list_names_are_evaluated(self):
+        rows = [{"arm": "cache", "p95": 90}, {"arm": "cache", "p95": 91}]
+
+        def fired(text):
+            return tr.falsifier_fired({"fields": {"falsifier": [text]},
+                                       "groups": {"cache": rows}, "rows": rows})
+        for text in ("p95 >= 90 on cache", "p95 ≥ 90 on cache", "p95 ≤ 91 on cache",
+                     "p95 at least 90 on cache", "p95 AT MOST 91 on cache",
+                     "p95 exceeds 90 on cache", "p95 exceed 90", "p95 over 90",
+                     "p95 above 90", "p95 more than 90", "p95 greater than 90",
+                     "p95 below 91", "p95 under 91", "p95 less than 91",
+                     "p95 fewer than 91"):
+            self.assertEqual(fired(text), (text, 90.5), text)
+        self.assertIsNone(fired("p95 ≥ 91 on cache"))
+        for text in ("p95 >= 90ms on cache", "p95 is at least 90 on cache",
+                     "p95 >= 90 on cache.", "p95 latency >= 90 on cache"):
+            self.assertIsNone(fired(text), text)
+
+    def test_alpha_that_leaves_a_quantile_at_one_is_one_refusal_not_a_traceback(self):
+        """Review round two R2-1 (claim 1): `alpha: 1e-20` lies in (0, 1), and
+        1 - alpha/2 is 1.0, so `check`, `claim` and `failing` refuse it naming the key
+        and the value instead of raising."""
+        for text in ("1e-20", "0.00000000000000000001"):
+            repo = self.repo()
+            base = self.rules8_line(repo, [("base", 120), ("base", 121), ("cache", 90),
+                                           ("cache", 91)], "alpha: %s\n" % text + self.PLAN)
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+            self.assertEqual(len(named(errors, "alpha: %s leaves" % text)), 1, errors)
+            bounded(tr.claim_problems, dict(CLAIM, proof="experiments/h1/results.jsonl"),
+                    base, repo)
+            self.assertTrue(hit("alpha: %s leaves" % text,
+                                [e for _, e in bounded(tr.failing, repo)]))
+            value, problem = tr.protocol_number("alpha", text)
+            self.assertIsNone(value)
+            self.assertIn("alpha: %s leaves a quantile at 0 or 1" % text, problem)
+
+    def test_a_statistics_error_is_one_refusal_naming_the_experiment(self):
+        """Review round two R2-1: a ValueError or ArithmeticError a statistics
+        computation raises is one refusal per experiment, never a traceback: 1e308 and
+        -1e308 overflow the Welch interval, and `claim` reads the same record."""
+        rows = [("base", 1e308), ("base", -1e308), ("cache", 90), ("cache", 91)]
+        repo = self.repo()
+        base = self.rules8_line(repo, rows, "alpha: 0.05\n" + self.PLAN)
+        errors, _ = bounded(tr.check_line, repo, "q", False)
+        found = named(errors, "experiment h1: statistics could not be computed: ")
+        self.assertEqual(len(found), 1, errors)
+        claim = dict(CLAIM, proof="experiments/h1/results.jsonl")
+        bounded(tr.claim_problems, claim, base, repo)
+        # every statistics call failing still makes one refusal for the experiment
+        repo = self.repo()
+        base = self.rules8_line(repo, rows[2:] + [("base", 120), ("base", 121)],
+                                "alpha: 0.05\n" + self.PLAN)
+        path = os.path.join(self.exp_dir(repo), "results.jsonl")
+        self.write(path, "".join(json.dumps(dict(json.loads(line), outcome=n % 2)) + "\n"
+                                 for n, line in enumerate(read(path).splitlines())))
+        import tezgah_research_stats as stats
+        from unittest import mock
+        with mock.patch.object(stats, "mean_diff", side_effect=ValueError("no mean")), \
+                mock.patch.object(stats, "wilson", side_effect=ZeroDivisionError("no k")):
+            errors, _ = bounded(tr.check_line, repo, "q", False)
+        self.assertEqual(named(errors, "statistics could not be computed"),
+                         ["experiment h1: statistics could not be computed: no mean"], errors)
 
 
 if __name__ == "__main__":
