@@ -6836,6 +6836,30 @@ class Rules8Core(Workspace):
         self.assertEqual(len(tr._groups([{"arm": "a", "p95": 1}, {"arm": "a", "p95": 1}])["a"]),
                          2)
 
+    def test_one_run_filed_per_arm_and_item_keeps_every_row(self):
+        """Close review round 2: deduplicating by `run` alone folded one orx run that
+        measured several arms and items (`source --run r1 --arm a --item i`, one row
+        each) into its last row - one arm vanished from the comparison. A row is a
+        refile only when it repeats the run, arm, item and instrument; and a refiled
+        row's old value no longer traces a claim's number."""
+        rows = [{"run": "r1", "arm": arm, "item": item, "instrument": "kw", "p95": v}
+                for arm, item, v in (("base", "i1", 120), ("base", "i2", 121),
+                                     ("cache", "i1", 90), ("cache", "i2", 91))]
+        self.assertEqual(tr._live(rows), rows)
+        self.assertEqual({g: len(r) for g, r in tr._groups(rows).items()},
+                         {"base": 2, "cache": 2})
+        refiled = rows + [dict(rows[0], p95=118)]
+        self.assertEqual([r["p95"] for r in tr._live(refiled)], [121, 90, 91, 118])
+        d = self.repo()
+        self.write(os.path.join(d, "raw", "r1.log"), "p95 120\n")
+        self.write(os.path.join(d, "raw", "r1.1.log"), "p95 118\n")
+        exp = {"dir": d, "rows": [{"run": "r1", "p95": 120, "log": "raw/r1.log"},
+                                  {"run": "r1", "p95": 118, "log": "raw/r1.1.log"}]}
+        self.assertEqual(tr._untraced(dict(CLAIM, statement="p95 fell to 118 ms"), [exp]),
+                         [])
+        self.assertEqual(tr._untraced(dict(CLAIM, statement="p95 fell to 120 ms"), [exp]),
+                         ["120"])
+
     def test_a_falsifier_on_no_group_over_several_groups_is_not_evaluated(self):
         """K6 X2 (5): `p95 > 100` with no `on <group>` was the mean over every arm,
         the control's included - 105.5 here, so a supported claim was refused while

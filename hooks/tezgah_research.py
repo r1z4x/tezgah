@@ -3754,12 +3754,14 @@ def _numeric(value):
 
 
 def _live(rows):
-    """Rows that count. A run counts once: a refile is a correction, so the latest row
-    filed for a `run` id stands for it, and a row with no `run` counts on its own.
-    An `aborted` or `failed` run stays a row and counts nowhere."""
-    last = {str(r["run"]): n for n, r in enumerate(rows) if r.get("run") is not None}
+    """Rows that count. A refile is a correction: the latest row filed for the same
+    `run`, `arm`, `item` and `instrument` stands for it, so one run measured over
+    several arms or items keeps a row for each; a row with no `run` counts on its
+    own. An `aborted` or `failed` run stays a row and counts nowhere."""
+    key = lambda r: tuple(str(r.get(k)) for k in ("run", "arm", "item", "instrument"))  # noqa: E731
+    last = {key(r): n for n, r in enumerate(rows) if r.get("run") is not None}
     return [r for n, r in enumerate(rows)
-            if (r.get("run") is None or last[str(r["run"])] == n)
+            if (r.get("run") is None or last[key(r)] == n)
             and r.get("status") not in DEAD_ROWS]
 
 
@@ -3988,7 +3990,7 @@ def _untraced(claim, cited):
         value = float(token)
         if not any(token in _log_tokens(exp, row, cache)
                    and any(_numeric(v) and float(v) == value for v in row.values())
-                   for exp in cited for row in exp["rows"]):
+                   for exp in cited for row in _live(exp["rows"])):
             out.append(token)
     return out
 

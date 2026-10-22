@@ -1098,9 +1098,10 @@ stored log exits 1 with
 reserved key (`source`, `log`, `run`, `instrument`, `arm`, `item`, `scope`,
 `fixture`, `status`, `command`) as `--value` exits 2. A second filing of one run
 writes `raw/<run>.<n>.log` and a second row. A refile is a correction. The latest
-row filed for a `run` stands for that run, and every count and statistic counts
-the run once (`hooks/tezgah_research.py::_live`). A row with no `run` counts on
-its own.
+row filed for the same `run`, arm, item and instrument stands for it
+(`hooks/tezgah_research.py::_live`). So a run filed once per arm or item keeps
+every row, and every count and statistic counts each such row once. A row with
+no `run` counts on its own.
 `check --orx` warns `orx run <id> has no results row` for an engine run that no
 row names. A row with status `aborted` or `failed` stays a row and counts in no
 group.
