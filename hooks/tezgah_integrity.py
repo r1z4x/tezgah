@@ -4778,7 +4778,7 @@ LOOP_NAME = re.compile(r"[a-z]")
 # operator form to anything it can read. `{-delete,-print}` is two words,
 # `${x:--delete}` an option, `$[x]`, `$((x))` and `${a[x]}` evaluate x as
 # arithmetic, which runs a `$( )` in its value. Read on `_shell_read`'s masks.
-BRACE_EXPANSION = re.compile(r"\{[^\s{};|&<>()]*(?:,|\.\.)[^\s{};|&<>()]*\}")
+BRACE_EXPANSION = re.compile(r"\{[^\s;|&<>()]*(?:,|\.\.)[^\s;|&<>()]*\}")
 PLAIN_DOLLAR = re.compile(r"\$(?:[A-Za-z_]\w*|\{(?:[A-Za-z_]\w*|[0-9@*#?$!-])\}|"
                           r"[0-9@*#?$!-]|(?![\[{(]))")
 # a function's arguments: values this reader never sees
@@ -4931,8 +4931,23 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     if effect:
         return False
     segs = _shell_segments(text)
-    unseen = loops and any("for" in w or any("$(" in a or POSITIONAL.search(a)
-                                             for a in w) for w in segs)
+    # a `$1` inside single quotes is the quoted program's text (`awk '{print $1}'`);
+    # an apostrophe inside double quotes or after a backslash opens nothing
+    unquoted, quote, escaped = [], None, False
+    for ch in raw:
+        if escaped:
+            escaped = False
+        elif ch == "\\" and quote != "'":
+            escaped = True
+        elif quote is None and ch in "'\"":
+            quote = ch
+        elif ch == quote:
+            quote = None
+        elif quote == "'":
+            continue
+        unquoted.append(ch)
+    unseen = loops and (POSITIONAL.search("".join(unquoted)) is not None
+                        or any("for" in w or any("$(" in a for a in w) for w in segs))
     for words in segs:
         i = 0
         while i < len(words) and (words[i] in GIT_WRAPPER

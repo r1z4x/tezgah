@@ -499,6 +499,29 @@ class BookkeepingCommand(unittest.TestCase):
         self.assertTrue(ti._bookkeeping_command("for f in a; do cat $f; done",
                                                 ti.GIT_READS, loops=True))
 
+    def test_a_brace_list_nesting_a_dollar_or_braces_is_not_a_read(self):
+        # review of plan 126: `{-delete,${x}-print}` expands to `-delete` in bash
+        # and zsh, and deleted files in a sandbox while it read as bookkeeping
+        for c in ("find . -name '*.pyc' {-delete,${x}}", "find . {-delete,{}}",
+                  "sort {-o,${x}src/app.py} src/app.py",
+                  "git diff {--output=src/app.py,${x}HEAD}", "rg --files {--pre=./x,${x}.}"):
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in ("git log @{u}..HEAD", "echo '{a,b}'", "jq '{a, b}' f"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
+    def test_a_quoted_dollar_one_is_not_a_positional_parameter(self):
+        # `$1` inside single quotes is awk's or grep's text, not a value the shell
+        # binds; an unquoted or double-quoted one still is
+        for c in ("if true; then awk '{print $1}' f; fi",
+                  "{ jq '.a' f; git show $x; } ; grep '$1' g"):
+            self.assertTrue(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+        for c in ("cat() { find . -name x $1; }; cat -delete",
+                  'if true; then find . "$1"; fi',
+                  'if true; then find . "don\'t" $1 \'x\'; fi',
+                  "if true; then find . \\' $1 \\'; fi"):
+            self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=True), c)
+
 
 class PipedCheck(unittest.TestCase):
     def test_a_check_piped_into_a_trimmer_is_refused_with_both_fixes(self):
