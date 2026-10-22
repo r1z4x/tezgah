@@ -352,12 +352,12 @@ def gold_ops(spec, instrument, arm, n, seed, outcomes, wrong=0):
     return drawn, labels
 
 
-def instrument_spec(per_arm, n, wrong, arms=("a", "b"), seed=5):
+def instrument_spec(per_arm, n, wrong, arms=("a", "b"), seed=5, mde="0.10"):
     """C0 plus a binary experiment h2 measured by instrument judge-x on arms a and b, and for
     each arm in `arms` a gold draw of n items with its labels (`wrong` of them flipped)."""
     spec = mixed_spec()
     outcomes = {arm: [k % 2 for k in range(per_arm)] for arm in ("a", "b")}
-    aux_experiment(spec, "h2", item_rows("judge-x", ("a", "b"), outcomes))
+    aux_experiment(spec, "h2", item_rows("judge-x", ("a", "b"), outcomes), mde=mde)
     spec["ops"].append((["instrument", "add", "q", "judge-x", "--kind", "measure",
                          "--rung", "R4", "--construct", "slow item"], None))
     spec["gold"] = {}
@@ -603,6 +603,8 @@ class Rules8(unittest.TestCase):
                     argv += ["--arm", r["arm"]]
                 if r.get("item"):
                     argv += ["--item", r["item"]]
+                if r.get("instrument"):
+                    argv += ["--instrument", r["instrument"]]
                 for key, value in r.get("values", {}).items():
                     argv += ["--value", "%s=%s" % (key, value)]
                 if r.get("fixture"):
@@ -712,11 +714,13 @@ class Probes(Rules8):
                                           'hallucinated citations"')
         self.refused(spec, "quote not in the captured source text")
 
-    def test_p4_two_records_of_one_provider_refused(self):
+    def test_p4_one_provider_agreeing_with_the_header_capped(self):
+        # K-2 (parent, round two): plan 0.1 said refused; one agreeing provider is a step.
         spec = mixed_spec()
         spec["index"][0]["verified"] = ["orx-discover:%s" % ARX, "orx-paper:%s" % ARX]
         del spec["map"][openalex_url(ARX)]
-        self.refused(spec, "receipts from fewer than 2 providers")
+        fx, out = self.capped(spec, "one-provider")
+        self.assertNotIn("receipts from fewer than 2 providers", out)
 
     def test_p5_citation_that_cannot_exist_refused(self):
         spec = mixed_spec()
@@ -758,10 +762,11 @@ class Probes(Rules8):
             row["values"].update(values)
         self.refused(spec, "neither reported nor marked not_reported")
 
-    def test_p8_falsifier_that_cannot_fail_refused(self):
+    def test_p8_falsifier_that_cannot_fail_capped(self):
+        # K-1 (parent, round two): plan 0.1 said refused; an unevaluable falsifier is a step.
         spec = mixed_spec()
         spec["protocol"]["h1"] = protocol(falsifier="results may vary between runs")
-        self.refused(spec, "falsifier holds no comparator and number")
+        self.capped(spec, "falsifier-not-evaluable")
 
     def p9_spec(self):
         spec = mixed_spec()
@@ -1378,12 +1383,14 @@ class CaptureIntegrity(Rules8):
         self.assertEqual(rc, 1, out)
         self.assertIn("capture exists", out)
 
-    def test_screening_row_naming_an_unreturned_id_refused(self):
+    def test_screening_row_naming_an_unreturned_id_capped(self):
+        # K-8: a hand-search screening row is a step, not a refusal.
         spec = literature_spec()
         spec["files"]["searches/screening.jsonl"] = json.dumps(
             {"search": 1, "id": "openalex:W1", "decision": "kept", "reason": "on topic",
              "screener": "rater one"}) + "\n"
-        self.refused(spec, "screens an id no captured search returned")
+        fx, out = self.capped(spec, "screened-outside-search")
+        self.assertNotIn("screens an id no captured search returned", out)
 
     def test_search_obligations_each_cap_their_own_step(self):
         def one_connector(s):
@@ -1677,6 +1684,379 @@ class RoutingAndReview(Rules8):
                           "--class", "R6", "--in", ITEM, "--out", "other changes"])
         self.assertEqual(rc, 0, out)
         self.assertRegex(out, r"(?m)^overlap: old/C1 refuted \d\.\d\d$")
+
+
+# ----------------------------------------------------------------- review rounds one and two
+def tz_git(fx, *argv, **extra_env):
+    """git in the fixture's `.tezgah` repository (where the line's commits live)."""
+    proc = subprocess.run(["git", "-C", os.path.join(fx.project, ".tezgah")] + list(argv),
+                          env=dict(fx.env, **extra_env), capture_output=True, text=True,
+                          timeout=60)
+    if proc.returncode:
+        raise RuntimeError("git %s: %s" % (" ".join(argv), proc.stderr))
+    return proc.stdout.strip()
+
+
+def ledger_rows(fx, rel):
+    with open(fx.path(rel), encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+def append_row(fx, rel, row):
+    with open(fx.path(rel), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+class RoundOne(Rules8):
+    def test_protocol_numbers_read_as_written(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = (protocol().replace("alpha: 0.05", "alpha: .05")
+                                  .replace("power: 0.8", "power: 80%")
+                                  .replace("mde: 10", "mde: 1e1"))
+        fx, out = self.build_check(spec)
+        self.assertNotIn("is not a number", out)
+        self.assertEqual(self.certainties(out), {"C1": "high", "C2": "moderate"}, out)
+        self.assertIn("effect q: h1 cache vs base on p95 effect=30.0000", out)
+
+    def test_protocol_number_outside_its_range_refused(self):
+        for old, new, text in (("alpha: 0.05", "alpha: 1.5", "is not a number in (0, 1)"),
+                               ("mde: 10", "mde: 0", "is not a number above 0")):
+            with self.subTest(value=new):
+                spec = mixed_spec()
+                spec["protocol"]["h1"] = protocol().replace(old, new)
+                self.refused(spec, text)
+
+    def test_ppi_with_one_gold_item_prints_no_interval(self):
+        spec = mixed_spec()
+        outcomes = {"a": [1, 0, 1, 1, 0, 1, 0, 0, 1, 1]}
+        aux_experiment(spec, "h2", item_rows("j3", ("a",), outcomes))
+        spec["ops"].append((["instrument", "add", "q", "j3", "--kind", "measure", "--rung",
+                             "R3", "--construct", "slow item"], None))
+        gold_ops(spec, "j3", "a", 1, 3, outcomes)
+        fx, out = self.build_check(spec)
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"(?m)^ppi q: j3 arm a lambda=\S+ estimate=\S+ ci=none$")
+
+    def test_derived_number_rounds_in_decimal(self):
+        for written, refused in (("2.675", False), ("2.68", False), ("2.67", True)):
+            with self.subTest(written=written):
+                spec = mixed_spec()
+                aux_experiment(spec, "h2", [
+                    {"run": "t%d" % n, "arm": "a", "v": v, "scope": "fixture",
+                     "fixture": "generated values", "source": "fixture.py t%d" % n}
+                    for n, v in ((1, 2.6), (2, 2.75))])
+                spec["claims"].append(evidence_claim(
+                    "C3", "the mean v of the two runs was %s" % written,
+                    proof=["experiments/h2/results.jsonl"], scope="fixture",
+                    derived_from={written: {"op": "mean", "of": ["h2/t1:v", "h2/t2:v"]}}))
+                if refused:
+                    self.refused(spec, "does not recompute")
+                else:
+                    fx, out = self.build_check(spec)
+                    self.assertNotIn("does not recompute", out)
+
+    def test_boolean_outcomes_count_as_one_and_zero(self):
+        spec = mixed_spec()
+        aux_experiment(spec, "h2", item_rows("counter", ("a", "b"),
+                                             {"a": [False] * 20, "b": [True] * 20}))
+        fx, out = self.build_check(spec)
+        self.assertIn("stats q: h2 a n=20 k=0 wilson=[0.0000, 0.1611] cp=[0.0000, 0.1684]", out)
+
+    def test_worded_comparator_is_evaluated(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(falsifier="p95 at least 110 on cache")
+        spec["runs"]["h1"] = runs(cache=(115, 116))
+        spec["claims"][0]["statement"] = "p95 latency went from 120 ms to 115 ms after caching"
+        spec["review"]["findings"][1]["quote"] = "p95 115"
+        self.refused(spec, "while its falsifier fired")
+
+    def test_ledger_rows_with_no_file_have_no_capture(self):
+        for kind, make, rel, row in (
+                ("sources", mixed_spec, "literature/.sources/SOURCES.jsonl",
+                 {"note": NOTE, "access": "full", "url": html_url(ARX), "sha256": None,
+                  "fetched_at": "2026-01-01T00:00:00Z"}),
+                ("searches", literature_spec, "searches/SEARCHES.jsonl",
+                 {"n": 3, "tag": "primary", "item": ITEM_L, "connector": "openalex",
+                  "query": "caching", "hits": 1, "ids": ["arXiv:%s" % ARX],
+                  "searched_at": "2026-01-01T00:00:00Z"})):
+            with self.subTest(ledger=kind):
+                fx = self.build(make())
+                append_row(fx, rel, row)
+                fx.must(["commit", "q", "a %s row with no file" % kind])
+                rc, out = fx.check()
+                self.assertEqual(rc, 1, out)
+                self.assertRegex(out, r"(?m)^FAIL q: .*names no file, so it has no capture")
+
+    def test_receipt_row_with_another_url_refused(self):
+        fx = self.build(mixed_spec())
+        real = next(r for r in ledger_rows(fx, "literature/.receipts/RECEIPTS.jsonl")
+                    if r.get("provider") == "arxiv" and r.get("resolved"))
+        append_row(fx, "literature/.receipts/RECEIPTS.jsonl",
+                   dict(real, url=arxiv_api("2401.00009")))
+        fx.must(["commit", "q", "a receipt row with another url"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*receipt URL")
+
+    def test_receipt_whose_bytes_name_another_id_refused(self):
+        fx = self.build(literature_spec())
+        other = next(r for r in ledger_rows(fx, "literature/.receipts/RECEIPTS.jsonl")
+                     if r.get("provider") == "arxiv" and r.get("resolved")
+                     and r.get("id") == "arXiv:%s" % ARX2)
+        append_row(fx, "literature/.receipts/RECEIPTS.jsonl",
+                   dict(other, id="arXiv:%s" % ARX, url=arxiv_api(ARX)))
+        fx.must(["commit", "q", "a receipt row over another id's bytes"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*not derived from its capture")
+
+    def test_online_compares_the_id(self):
+        fx = self.build(mixed_spec())
+        fx.set_map(arxiv_api(ARX), atom([("2401.00009", TITLE, 2024, "Ann Smith",
+                                          "We study caching.")]))
+        rc, out = fx.check("--online")
+        self.assertRegex(out, r"(?m)^online q: arXiv:%s arxiv id drifted" % re.escape(ARX))
+
+    def test_empty_formal_id_resolves_in_no_registry(self):
+        spec = mixed_spec()
+        spec["index"][0]["id"] = ""
+        self.refused(spec, "resolves in no registry")
+
+    def test_cited_note_with_trailing_punctuation_is_still_checked(self):
+        spec = mixed_spec()
+        spec["claims"][1]["statement"] = ('Smith et al. state that "retrieval eliminates '
+                                          'hallucinated citations"')
+        spec["claims"][1]["proof"] = ["literature/%s." % NOTE]
+        self.refused(spec, "quote not in the captured source text")
+
+    def test_quote_fragments_out_of_order_refused(self):
+        spec = mixed_spec()
+        spec["claims"][1]["quote"] = ("in every workload we measured ... caching lowers tail "
+                                      "latency")
+        self.refused(spec, "quote not in the captured source text")
+
+    def test_spaced_citation_marker_inside_html_is_dropped(self):
+        spec = mixed_spec()
+        spec["map"][html_url(ARX)] = html_body(
+            TITLE, 'caching lowers tail latency [<a href="#r12">12</a>] in every workload we '
+                   'measured')
+        fx, out = self.build_check(spec)
+        self.assertNotIn("quote not in the captured source text", out)
+        self.assertEqual(self.certainties(out).get("C2"), "moderate", out)
+
+    def test_gold_row_naming_another_instruments_file_refused(self):
+        fx = self.build(instrument_spec(80, 72, 0, arms=("a",)))
+        rel = "instruments/gold/judge-x-a-5.json"
+        with open(fx.path(rel), "rb") as fh:
+            digest = hashlib.sha256(fh.read()).hexdigest()
+        append_row(fx, "instruments/GOLD.jsonl",
+                   {"instrument": "judge-y", "arm": "a", "seed": 5, "n": 72, "file": rel,
+                    "sha256": digest, "drawn_at": "2026-01-01T00:00:00Z"})
+        fx.must(["commit", "q", "a gold row naming another instrument's file"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*differs from the seeded draw")
+
+    def test_label_row_without_an_output_is_no_label(self):
+        spec = instrument_spec(80, 72, 0, arms=("a",))
+        spec["ops"].append((["gold", "q", "judge-x", "--arm", "b", "--n", "72", "--seed", "5"],
+                            None))
+        fx = self.build(spec)
+        for item in seeded_draw(["i%03d" % k for k in range(1, 81)], 5, "b", 72):
+            append_row(fx, "instruments/labels.jsonl",
+                       {"instrument": "judge-x", "arm": "b", "item": item, "truth": 0})
+        fx.must(["commit", "q", "label rows with no output"])
+        rc, out = fx.check()
+        self.assertNotIn("label output differs", out)
+        self.assertRegex(out, r"(?m)^instrument q: judge-x unvalidated ")
+
+    def test_label_output_unlike_its_results_row_refused(self):
+        spec = instrument_spec(80, 72, 0, arms=("a",))
+        drawn, labels = spec["gold"]["a"]
+        fx = self.build(spec)
+        output = 1 - [k % 2 for k in range(80)][int(drawn[0][1:]) - 1]
+        append_row(fx, "instruments/labels.jsonl",
+                   {"instrument": "judge-x", "arm": "a", "item": drawn[0], "truth": output,
+                    "output": output, "rater": {"kind": "human", "name": "rater two",
+                                                "ack": "typed by hand"}})
+        fx.must(["commit", "q", "a label row with another output"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*label output differs from its results row")
+
+    def test_mde_above_one_leaves_a_measure_instrument_unvalidated(self):
+        fx, out = self.build_check(instrument_spec(80, 72, 0, mde="10"))
+        self.assertRegex(out, r"(?m)^instrument q: judge-x unvalidated ")
+
+
+class RoundTwo(Rules8):
+    def test_degenerate_alpha_is_refused_without_a_traceback(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol().replace("alpha: 0.05", "alpha: 1e-20")
+        fx, out = self.build_check(spec)
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*statistics could not be computed")
+
+    def test_long_s_comparator_is_no_operator(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(falsifier="p95 at mo\u017ft 95 on cache")
+        fx, out = self.build_check(spec)
+        self.assertNotIn("Traceback", out)
+        self.assertNotIn("while its falsifier fired", out)
+        self.assertIn("falsifier-not-evaluable", certainty_line(self, out, "C1"))
+
+    def test_ledger_row_dropped_from_the_branch_but_held_by_a_tag_refused(self):
+        fx = self.build(mixed_spec())
+        tz_git(fx, "tag", "keep")
+        rows = ledger_rows(fx, "literature/.receipts/RECEIPTS.jsonl")
+        _write(fx.path("literature/.receipts/RECEIPTS.jsonl"),
+               "".join(json.dumps(r) + "\n" for r in rows[1:]))
+        tz_git(fx, "add", "-A")
+        tree = tz_git(fx, "write-tree")
+        root = tz_git(fx, "commit-tree", tree, "-m", "history without the first receipt row")
+        tz_git(fx, "reset", "-q", "--hard", root)
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*went missing after its first commit")
+
+    def test_backdated_side_branch_does_not_satisfy_the_stopping_order(self):
+        spec = literature_spec()
+        del spec["state"]["stopping"]
+        fx = self.build(spec)
+        branch = tz_git(fx, "rev-parse", "--abbrev-ref", "HEAD")
+        rel = "research/open/q/state.json"
+        first = tz_git(fx, "log", "--diff-filter=A", "--format=%H", "--", rel).split()[-1]
+        stopping = {"rule": "pragmatic", "risk": "a paper outside both registries is missed"}
+        tz_git(fx, "checkout", "-q", "-b", "side", first)
+        with open(fx.path("state.json"), encoding="utf-8") as fh:
+            st = json.load(fh)
+        _write(fx.path("state.json"), json.dumps(dict(st, stopping=stopping), indent=2) + "\n")
+        old = "2000-01-01T00:00:00 +0000"
+        tz_git(fx, "commit", "-q", "-am", "stopping on a side branch",
+               GIT_AUTHOR_DATE=old, GIT_COMMITTER_DATE=old)
+        tz_git(fx, "checkout", "-q", branch)
+        with open(fx.path("state.json"), encoding="utf-8") as fh:
+            st = json.load(fh)
+        _write(fx.path("state.json"), json.dumps(dict(st, stopping=stopping), indent=2) + "\n")
+        fx.must(["commit", "q", "stopping after the searches"])
+        rc, out = fx.check()
+        self.assertRegex(out, r"(?m)^certainty q: .*\bno-stopping-rule\b", out)
+
+    def test_search_row_whose_file_lies_outside_searches_raw_has_no_capture(self):
+        fx = self.build(literature_spec())
+        first = ledger_rows(fx, "searches/SEARCHES.jsonl")[0]
+        receipt = next(r for r in ledger_rows(fx, "literature/.receipts/RECEIPTS.jsonl")
+                       if r.get("file"))
+        append_row(fx, "searches/SEARCHES.jsonl",
+                   dict(first, n=3, file=receipt["file"], sha256=receipt["sha256"]))
+        fx.must(["commit", "q", "a search row on a receipt file"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*has no capture")
+
+    def test_search_capture_backing_a_second_row_has_no_capture(self):
+        fx = self.build(literature_spec())
+        first = ledger_rows(fx, "searches/SEARCHES.jsonl")[0]
+        append_row(fx, "searches/SEARCHES.jsonl", dict(first, n=3, tag="counter"))
+        fx.must(["commit", "q", "a second search row on the same capture"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 1, out)
+        self.assertRegex(out, r"(?m)^FAIL q: .*has no capture")
+
+    def test_search_capture_that_does_not_parse_under_its_connector_does_not_count(self):
+        # R2-5: bytes under searches/raw/ that are not the row's connector output count for
+        # nothing, so a forged second connector leaves the one-connector step standing.
+        spec = literature_spec()
+        spec["searches"] = [{"tag": "counter", "item": ITEM_L, "argv": ["openalex"] + PRIMARY_Q}]
+        fx = self.build(spec)
+        first = ledger_rows(fx, "searches/SEARCHES.jsonl")[0]
+        body = b"<html><body>rate limited</body></html>\n"
+        sha = hashlib.sha256(body).hexdigest()
+        rel = "searches/raw/%s.raw" % sha
+        _write(fx.path(rel), body)
+        row = dict(first, n=2, tag="primary", connector="arxiv", query=" ".join(COUNTER_Q),
+                   file=rel, sha256=sha, hits=0, ids=[])
+        if "argv" in first:
+            row["argv"] = ["arxiv"] + COUNTER_Q
+        if "url" in first:
+            row["url"] = search_url("arxiv", COUNTER_Q)
+        append_row(fx, "searches/SEARCHES.jsonl", row)
+        fx.must(["commit", "q", "a second connector whose capture is not its output"])
+        rc, out = fx.check()
+        self.assertNotIn("Traceback", out)
+        self.assertRegex(out, r"(?m)^certainty q: .*\bone-connector\b")
+
+
+class FalseRefusalsTurnedIntoSteps(Rules8):
+    def test_receipt_for_an_id_no_index_row_holds_is_ignored(self):
+        fx = self.build(mixed_spec())
+        append_row(fx, "literature/.receipts/RECEIPTS.jsonl",
+                   {"id": "arXiv:2499.00001", "provider": "arxiv", "url": "https://example.org",
+                    "status": 200, "resolved": True, "file": None, "sha256": None,
+                    "fetched_at": "2026-01-01T00:00:00Z", "title": "an alias left behind",
+                    "first_author": None, "year": None, "abstract": None})
+        fx.must(["commit", "q", "a receipt for an id the index no longer holds"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 0, out)
+
+    def test_quotes_found_in_full_text_abstract_and_across_a_hyphen(self):
+        fx = self.build(mixed_spec())
+        for cid, quote in (("C3", "across the three services"), ("C4", "We study caching"),
+                           ("C5", "caching lowers tail-latency in every workload we measured")):
+            append_row(fx, "claims.jsonl", literature_claim(
+                cid, "Smith et al. report that caching lowers tail latency", [NOTE], quote))
+        fx.must(["commit", "q", "claims written after the capture"])
+        rc, out = fx.check()
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("quote not in the captured source text", out)
+
+    def test_bare_doi_is_read(self):
+        doi = "10.1145/3600006"
+        spec = mixed_spec()
+        spec["index"][0].update({"id": doi, "source": "https://doi.org/" + doi})
+        spec["map"] = {
+            "https://api.crossref.org/works/" + doi: json.dumps(
+                {"status": "ok", "message": {"DOI": doi, "title": [TITLE],
+                                             "author": [{"family": "Smith", "given": "Ann"}],
+                                             "issued": {"date-parts": [[2024]]}}}),
+            "https://api.openalex.org/works/doi:" + doi: json.dumps(
+                {"id": "https://openalex.org/W4390000009", "doi": "https://doi.org/" + doi,
+                 "title": TITLE, "display_name": TITLE, "publication_year": 2024,
+                 "authorships": [{"author": {"display_name": "Ann Smith"}}],
+                 "open_access": {"oa_url": None},
+                 "abstract_inverted_index": {"We": [0], "study": [1], "caching.": [2]}})}
+        fx, out = self.build_check(spec)
+        self.assertNotIn("resolves in no registry", out)
+        self.assertNotIn("fewer than 2 providers", out)
+        line = certainty_line(self, out, "C2")
+        self.assertNotIn("header-mismatch", line)
+        self.assertNotIn("one-provider", line)
+
+    def test_source_value_matches_a_logged_number_numerically(self):
+        spec = mixed_spec()
+        spec["orx_extra"] = {"r6": {"log": "run r6 arm cache\np95 91.50\n",
+                                    "status": "completed"}}
+        fx = self.build(spec)
+        rc, out = fx.run(["source", "q", "h1", "--run", "r6", "--arm", "cache", "--value",
+                          "p95=91.5", "--scope", "real"])
+        self.assertEqual(rc, 0, out)
+
+    def test_source_rows_can_carry_an_instrument_for_gold(self):
+        spec = mixed_spec()
+        aux_experiment(spec, "h2", [])
+        del spec["typed_rows"]["h2"]
+        spec["runs"]["h2"] = [
+            {"run": "s%d" % k, "arm": "a", "item": "i%03d" % k, "instrument": "judge-s",
+             "values": {"outcome": k % 2}, "scope": "fixture", "fixture": "generated items"}
+            for k in range(1, 5)]
+        spec["ops"] += [(["instrument", "add", "q", "judge-s", "--kind", "measure", "--rung",
+                          "R4", "--construct", "slow item"], None),
+                        (["gold", "q", "judge-s", "--arm", "a", "--n", "2", "--seed", "1"],
+                         None)]
+        fx = self.build(spec)
+        rows = ledger_rows(fx, "experiments/h2/results.jsonl")
+        self.assertEqual({r.get("instrument") for r in rows}, {"judge-s"})
+        self.assertTrue(os.path.isfile(fx.path("instruments/gold/judge-s-a-1.json")))
 
 
 if __name__ == "__main__":
