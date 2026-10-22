@@ -463,10 +463,12 @@ DESC_WEIGHT = 2
 
 
 def _rows(roots=None, cwd=None):
-    """[(skill, path, title, start, end, text, tier)] over every installed
-    skill's sections, and the entries a skill's INDEX.md routes to,
+    """[(skill, path, title, start, end, text, tier, project)] over every
+    installed skill's sections, and the entries a skill's INDEX.md routes to,
     deduplicated on the file's realpath so a skill five hosts link is one
-    entry, not five. `tier` is 1 for a root `_second_tier` names, else 0."""
+    entry, not five. `tier` is 1 for a root `_second_tier` names, else 0;
+    `project` is 1 for a row read under a project root (`_jails`), whatever
+    its file resolves to: a link inside the repository leaves that root."""
     out, seen = [], set()
     second, jails = _second_tier(cwd), _jails(cwd)
     for root in (skill_roots(cwd=cwd) if roots is None else roots):
@@ -475,9 +477,9 @@ def _rows(roots=None, cwd=None):
         except OSError:
             continue
         tier = 1 if os.path.realpath(root) in second else 0
+        jail = jails.get(os.path.realpath(root))
         for name in names:
-            for skill, raw in _entries(root, name,
-                                       jails.get(os.path.realpath(root))):
+            for skill, raw in _entries(root, name, jail):
                 path = os.path.realpath(raw)
                 if not os.path.isfile(path):
                     continue
@@ -501,7 +503,8 @@ def _rows(roots=None, cwd=None):
                     if desc:
                         text = "%s\n%s" % ("\n".join([desc] * DESC_WEIGHT), text)
                         desc = ""
-                    out.append((skill, path, title, start, end, text, tier))
+                    out.append((skill, path, title, start, end, text, tier,
+                                int(jail is not None)))
     return out
 
 
@@ -626,7 +629,7 @@ HINT_PROMPT_MAX = 600
 INDEX_CACHE = "skill-search.sqlite"
 # Bumped whenever the terms or the row text change: an index written by an
 # older build keeps its stat signature and would otherwise be read as current.
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 # Searched, never hinted: the long form of the contract every session already
 # carries (the always-on core and its armed paragraphs). Replayed over 1331 real
 # owner prompts with the entry-section fix above, it still took 76 of 123 hints,
@@ -719,12 +722,13 @@ def _build(path, sig, rows):
         con.executescript(
             "CREATE TABLE meta(sig TEXT);"
             "CREATE TABLE sec(id INTEGER PRIMARY KEY, skill TEXT, path TEXT,"
-            " title TEXT, start INTEGER, end INTEGER, len INTEGER, tier INTEGER);"
+            " title TEXT, start INTEGER, end INTEGER, len INTEGER, tier INTEGER,"
+            " proj INTEGER);"
             "CREATE TABLE post(term TEXT, sec INTEGER, n INTEGER,"
             " PRIMARY KEY(term, sec)) WITHOUT ROWID;")
         con.execute("INSERT INTO meta VALUES (?)", (sig,))
-        con.executemany("INSERT INTO sec VALUES (?,?,?,?,?,?,?,?)",
-                        [(i,) + tuple(r[:5]) + (lengths[i], r[6])
+        con.executemany("INSERT INTO sec VALUES (?,?,?,?,?,?,?,?,?)",
+                        [(i,) + tuple(r[:5]) + (lengths[i], r[6], r[7])
                          for i, r in enumerate(rows)])
         con.executemany("INSERT INTO post VALUES (?,?,?)",
                         ((t, i, n) for t, entries in posts.items()
@@ -769,9 +773,10 @@ def _clears(covered, known):
 
 
 def top_section(prompt, roots=None, cwd=None):
-    """((skill, path, title, start, end), covered, known) for the section that
-    answers `prompt`, or None: `covered` of the prompt's `known` content words
-    (stopwords out, present in that tier's corpus) occur in it. The first tier
+    """((skill, path, title, start, end, project), covered, known) for the
+    section that answers `prompt`, or None: `covered` of the prompt's `known`
+    content words (stopwords out, present in that tier's corpus) occur in it.
+    `project` is 1 for a project's own skill (`_rows`). The first tier
     (tezgah's and the project's skills) answers when its top section clears
     the bar; the other roots only when it does not, and when neither does, the
     first tier's top section is returned for the caller to refuse.
@@ -822,9 +827,9 @@ def top_section(prompt, roots=None, cwd=None):
         if found is None:
             return None
         i, covered, known = found
-        hit = (tuple(rows[i][:5]) if con is None else con.execute(
-            "SELECT skill, path, title, start, end FROM sec WHERE id=?",
-            (i,)).fetchone())
+        hit = (tuple(rows[i][:5]) + (rows[i][7],) if con is None else
+               con.execute("SELECT skill, path, title, start, end, proj"
+                           " FROM sec WHERE id=?", (i,)).fetchone())
     finally:
         if con is not None:
             con.close()
@@ -870,7 +875,7 @@ def section_hint(prompt, session_id="", host=None, roots=None, cwd=None):
         return ""
     if not found:
         return ""
-    (skill, path, title, start, end), covered, known = found
+    (skill, path, title, start, end, project), covered, known = found
     if not _clears(covered, known):
         return ""
     key = "%s:%d" % (path, start)
@@ -878,7 +883,6 @@ def section_hint(prompt, session_id="", host=None, roots=None, cwd=None):
     if key in shown:
         return ""
     _remember_shown(session_id, shown + [key])
-    project = any(path.startswith(r + os.sep) for r in _jails(cwd))
     skill, path, title = (re.sub(r'[<>"\r\n]', "", s)
                           for s in (skill, path, title[:60]))
     if project:

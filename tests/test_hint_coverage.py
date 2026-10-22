@@ -349,6 +349,11 @@ CORPUS = {
     "the form in the admin panel is confusing, fix it": {"product", "design"},
     "spacing and colors are inconsistent across pages": {"spec", "design"},
     "open the app and click through the screens, list problems": {"design"},
+    # a site's or an app's design is a UI ask too (round 2 of plan 126's
+    # review): the three armed only spec once the bare `tasarım` was narrowed
+    "sitenin tasarımını yenile": {"spec", "design"},
+    "mobil uygulamanın tasarımını yenile": {"spec", "design"},
+    "uygulamanın tasarımı kötü": {"spec", "design"},
     "API tasarla": set(),
     "inconsistent results from the parser": set(),
     # the generic craft words name a UI only beside a UI object (round 1 of
