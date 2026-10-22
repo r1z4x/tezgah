@@ -309,10 +309,10 @@ class ShippedHintPrecision(unittest.TestCase):
 
 
 class ShippedHintRecall(unittest.TestCase):
-    """The owner's run-the-app ask earns the analyze-app hint. S4 p03 covered 3
-    of the 6 words the shipped corpus knows (uygulama, ekran, tarayıcı) and the
-    bar asks for 4, so Claude, which lists the skill by name only, opened it on
-    0 of 3 runs (Z3ClaudeReach)."""
+    """The owner's S4 asks earn their skill's hint over the shipped skills
+    (Z3ClaudeReach). The run-the-app ask (p03) covered 3 of the 6 words the
+    corpus knew (uygulama, ekran, tarayıcı) where the bar asks for 4, so
+    Claude, which lists the skill by name only, opened it on 1 of 3 runs."""
 
     setUp = ShippedHintPrecision.setUp
 
@@ -321,6 +321,18 @@ class ShippedHintRecall(unittest.TestCase):
                   "tarayıcıda ne görünüyorsa, durumlarıyla birlikte onu incele.")
         line = sp.section_hint(prompt, "s1", roots=ShippedHintPrecision.ROOTS)
         self.assertIn("skill://analyze-app:", line)
+
+    def test_the_adhd_ask_carries_the_first_line_rule_on_every_host(self):
+        # S4 p14 / R1: the always-on rule was in force and the reply still
+        # opened on a diagnosis ("Kök sorun: ...") on 2 of 3 Claude runs and 3
+        # of 3 omp runs; the skill was never opened, so its hint says it
+        prompt = ("adhd mode: dashboard'u düzeltmek için ne yapmam lazım? "
+                  "Kısa ve uygulanabilir.")
+        for i, host in enumerate(("claude", "omp", None)):
+            line = sp.section_hint(prompt, "s%d" % i, host=host,
+                                   roots=ShippedHintPrecision.ROOTS)
+            self.assertIn("i-have-adhd", line)
+            self.assertIn("line 1 is step 1 itself", line)
 
 
 class CacheHome(FixtureTree):

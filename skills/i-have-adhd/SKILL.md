@@ -64,7 +64,13 @@ Bad: "Let's look at this. Your auth flow has a few moving pieces..."
 Good: "Run `npm install jsonwebtoken@9`, then edit `src/auth.ts:42`."
 
 If the answer is a decision, the decision is the first line, with the reasoning
-after it.
+after it. If the answer is steps, line 1 is step 1 itself - `1. <path or
+command>: <what to do>` - and nothing stands above the list. A diagnosis is
+context, not an action: the cause goes inside the step it explains.
+
+Bad: "Kök sorun: the dashboard has no loading state.", then the steps.
+Good: "1. `src/Dashboard.jsx:5`: add a loading state - the blank screen is why
+users leave."
 
 ### 2. Number multi-step work
 
