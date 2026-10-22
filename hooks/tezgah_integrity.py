@@ -4707,6 +4707,12 @@ GIT_BOOKKEEPING = frozenset((
 # is work - an unknown program owes the check, a known one never excuses a write.
 GIT_READS = GIT_BOOKKEEPING - {"add", "commit", "push", "fetch", "branch", "tag",
                                "remote"}
+# `set`'s flags that only change when the shell stops or what it traces: the
+# `set -o pipefail;` prefix the contract asks a check line for. Anything else
+# is no read: `-k` and `+o interactive-comments` change how the rest of the
+# line runs, a plain word sets the positional parameters.
+SET_FLAGS = re.compile(r"[-+][euxvo]+")
+SET_NAMES = frozenset(("pipefail", "errexit", "nounset", "xtrace", "verbose"))
 # ssh's options that take the next word, so the host is read after them
 SSH_VALUE_OPTS = frozenset(("-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
                             "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S",
@@ -4848,6 +4854,22 @@ def _shell_read(cmd, subst=False):
     return ">" in text or "<(" in text, "".join(out).replace("<", " ")
 
 
+def _set_options(args):
+    """True when `set`'s words are only SET_FLAGS, each `o` in them followed by
+    a SET_NAMES name or by nothing (`set -o` prints the options). A bare `set`
+    prints every variable, and stays work like any other unlisted shape."""
+    j = 0
+    while j < len(args):
+        if not SET_FLAGS.fullmatch(args[j]):
+            return False
+        for _ in range(args[j].count("o")):
+            j += 1
+            if j < len(args) and args[j] not in SET_NAMES:
+                return False
+        j += 1
+    return bool(args)
+
+
 def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     """True when every simple command of `cmd` reads, or runs a git subcommand
     in `git` (VCS bookkeeping that changes no working-tree file by default,
@@ -4859,7 +4881,8 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
     `codegraph` with a read verb (`SUBCOMMAND_READS`). `sqlite3` reads with a
     read-only open (the option, or `mode=ro` in the database URI) and no
     writing dot-command or stdin (`SQLITE_WRITE`), `ssh` with a remote command
-    that is itself one of these reads.
+    that is itself one of these reads, `set` with shell options only
+    (`_set_options`).
 
     `loops=True` (plan 126) also reads a `for NAME in WORDS` loop, the
     `if`/`while`/`{` openers and closers around reads, and an unquoted `$( )`
@@ -4908,6 +4931,10 @@ def _bookkeeping_command(cmd, git=GIT_BOOKKEEPING, loops=False):
         plain = [a for a in args if not a.startswith("-")]
         if program in SCRIPT_WRITE:
             if any(SCRIPT_WRITE[program].search(a) for a in plain):
+                return False
+            continue
+        if program == "set":
+            if not _set_options(args):
                 return False
             continue
         if program == "uniq":
