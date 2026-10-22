@@ -570,6 +570,16 @@ class Rules8(unittest.TestCase):
         _write(os.path.join(fx.project, ".gitignore"), "/.tezgah/\n")
         fx.git("add", "-A")
         fx.git("commit", "-q", "-m", "fixture project")
+        for files, date, message in spec.get("project_commits", ()):
+            for rel, body in files.items():
+                _write(os.path.join(fx.project, rel), body)
+            fx.git("add", "-A")
+            proc = subprocess.run(["git", "commit", "-q", "-m", message], cwd=fx.project,
+                                  env=dict(fx.env, GIT_AUTHOR_DATE=date,
+                                           GIT_COMMITTER_DATE=date),
+                                  capture_output=True, text=True, timeout=60)
+            if proc.returncode:
+                raise RuntimeError("git commit: %s" % proc.stderr)
         fx.env.update(spec["env"])
         orx = {"runs": {}, "papers": spec["orx_papers"]}
         for h, rows in spec["runs"].items():
@@ -2142,6 +2152,144 @@ class RoundThree(Rules8):
                 self.assertNotIn("resolves in no registry", out)
                 self.assertNotIn("fewer than 2 providers", out)
                 self.assertIn("one-provider", certainty_line(self, out, "C2"))
+
+
+def add_orx_run(fx, run, log):
+    """Add `run` to the fixture's stub orx after the build; `log` is what `orx logs` prints."""
+    path = os.path.join(fx.tmp, "orx.json")
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    data["runs"][run] = {"log": log, "status": "completed", "experiment": "exp-q"}
+    _write(path, json.dumps(data))
+
+
+def orx_summary(path, size, body):
+    """`orx logs` output for a long run (sample: /tmp/p127-orx-logs-sample.txt)."""
+    return ("This is the path to the full log file: %s\nIt is %d bytes.\n\n"
+            "Here are the last 500 characters of the log file:\n%s\n"
+            "Use targeted search on this path (for example `rg PATTERN` or an editor) to inspect "
+            "portions of the log. This preview is not proof of absence.\n"
+            "Avoid reading the entire log file at once into the context window; search it and "
+            "read only the relevant portions.\n" % (path, size, body[-500:]))
+
+
+def line_snapshot(fx):
+    """(HEAD, porcelain status, files) of the fixture's line: what a refused writer keeps."""
+    files = sorted(os.path.relpath(os.path.join(d, f), fx.base)
+                   for d, _, names in os.walk(fx.base) for f in names)
+    return tz_git(fx, "rev-parse", "HEAD"), tz_git(fx, "status", "--porcelain"), files
+
+
+class RoundFour(Rules8):
+    """What the second K6 pair found (spec section 6, F-1..F-8; review/round3.md)."""
+
+    def test_source_reads_the_full_log_the_orx_summary_points_at(self):
+        fx = self.build(mixed_spec())
+        # `requests` sits before the 500-character preview, `p95` inside it.
+        full = ("run r7 arm cache\nrequests 4096\n"
+                + "".join("warm-up pass over the lookup table, nothing measured\n"
+                          for _ in range(20)) + "p95 93.25\n")
+        logfile = os.path.join(fx.tmp, "run-logs", "r7.log")
+        _write(logfile, full)
+        size = len(full.encode("utf-8"))
+        argv = ["source", "q", "h1", "--run", "r7", "--arm", "cache", "--value", "p95=93.25",
+                "--scope", "real"]
+        with self.subTest(size="stated wrongly"):
+            add_orx_run(fx, "r7", orx_summary(logfile, size + 1, full))
+            before = line_snapshot(fx)
+            rc, out = fx.run(argv)
+            self.assertEqual(rc, 1, out)
+            self.assertEqual(line_snapshot(fx), before, "a log of the wrong size was captured")
+        with self.subTest(size="as stated"):
+            add_orx_run(fx, "r7", orx_summary(logfile, size, full))
+            rc, out = fx.run(argv[:-2] + ["--value", "requests=4096", "--scope", "real"])
+            self.assertEqual(rc, 0, out)
+            with open(fx.path("experiments/h1/raw/r7.log"), encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), full)
+
+    def test_one_log_number_reader(self):
+        fx = self.build(mixed_spec())
+        add_orx_run(fx, "r8", "run r8 arm cache\nrequests 12,345\nlatency 1.2e-3\n")
+        for value, accepted in (("requests=12345", True), ("requests=345", False),
+                                ("latency=1.2e-3", True), ("latency=0.0012", True)):
+            with self.subTest(value=value):
+                rc, out = fx.run(["source", "q", "h1", "--run", "r8", "--arm", "cache",
+                                  "--value", value, "--scope", "real"])
+                self.assertEqual(rc, 0 if accepted else 1, out)
+                if not accepted:
+                    self.assertIn("value not in the run log", out)
+
+    def test_source_refused_over_an_uncommitted_or_invalid_protocol(self):
+        spec = mixed_spec()
+        spec["orx_extra"] = {"r9": {"log": "run r9 arm cache\np95 90\n", "status": "completed"}}
+        fx = self.build(spec)
+        _write(fx.path("experiments/h4/protocol.md"),
+               protocol("h4").replace("alpha: 0.05", "alpha: 1.5"))
+        fx.must(["commit", "q", "an invalid protocol"])
+        _write(fx.path("experiments/h3/protocol.md"), protocol("h3"))
+        for h in ("h3", "h4"):
+            with self.subTest(experiment=h):
+                before = line_snapshot(fx)
+                rc, out = fx.run(["source", "q", h, "--run", "r9", "--arm", "cache", "--value",
+                                  "p95=90", "--scope", "real"])
+                self.assertEqual(rc, 1, out)
+                self.assertNotIn("Traceback", out)
+                self.assertEqual(line_snapshot(fx), before, "source wrote before its protocol")
+
+    def test_gold_refused_over_uncommitted_results_rows(self):
+        fx = self.build(instrument_spec(80, 72, 0, arms=("a",)))
+        rows = item_rows("judge-x", ("c",), {"c": [k % 2 for k in range(80)]})
+        for row in rows:
+            append_row(fx, "experiments/h2/results.jsonl", row)
+        argv = ["gold", "q", "judge-x", "--arm", "c", "--n", "72", "--seed", "5"]
+        before = line_snapshot(fx)
+        rc, out = fx.run(argv)
+        self.assertEqual(rc, 1, out)
+        self.assertEqual(line_snapshot(fx), before, "gold drew over uncommitted rows")
+        fx.must(["commit", "q", "arm c rows"])
+        fx.must(argv)
+
+    def test_bare_arxiv_ids_and_arxiv_urls_read_as_arxiv(self):
+        old = "hep-th/9901001"
+        for rid, aid in (("2401.00001", ARX), ("2401.00001v2", ARX),
+                         ("https://arxiv.org/abs/2401.00001v2", ARX),
+                         ("https://arxiv.org/pdf/2401.00001", ARX),
+                         ("https://arxiv.org/html/2401.00001", ARX), (old, old)):
+            with self.subTest(id=rid):
+                spec = mixed_spec()
+                spec["index"][0]["id"] = rid
+                if aid == old:
+                    spec["map"].update(paper_map(old, TITLE, "Ann Smith", QUOTE, "W4390000001"))
+                fx, out = self.build_check(spec)
+                self.assertNotIn("Traceback", out)
+                self.assertNotIn("resolves in no registry", out)
+                self.assertNotIn("receipts from fewer than 2 providers", out)
+
+    def test_metric_match_collapses_whitespace_in_the_report(self):
+        spec = mixed_spec()
+        spec["report"] = spec["report"].replace("p95 latency", "p95\n   latency", 1)
+        fx, out = self.build_check(spec)
+        self.assertNotIn("neither reported nor marked not_reported", out)
+
+    def test_project_evaluator_compared_with_its_version_at_the_lock(self):
+        first = ({"tools/eval.py": "print('p95')\n"}, "2020-01-01T00:00:00 +0000", "evaluator")
+        second = ({"tools/eval.py": "print('p95', 'ms')\n"}, "2021-01-01T00:00:00 +0000",
+                  "evaluator prints its unit")
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(extra="evaluator: tools/eval.py\n")
+        spec["project_commits"] = [first, second]
+        with self.subTest(after_lock="unchanged"):
+            fx, out = self.build_check(spec)
+            self.assertNotIn("evaluator file changed after lock", out)
+        with self.subTest(after_lock="edited"):
+            _write(os.path.join(fx.project, "tools", "eval.py"), "print('p95 minus ten')\n")
+            rc, out = fx.check()
+            self.assertRegex(out, r"(?m)^FAIL q: .*evaluator file changed after lock")
+
+    def test_falsifier_without_a_group_on_two_arms_is_not_evaluated(self):
+        spec = mixed_spec()
+        spec["protocol"]["h1"] = protocol(falsifier="p95 > 110")
+        self.capped(spec, "falsifier-not-evaluable")
 
 
 if __name__ == "__main__":
