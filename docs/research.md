@@ -1079,7 +1079,7 @@ The steps, by name as `check` prints them:
 | `known-item-missed` | -1 | a `state.known_items` id is in no captured search |
 | `screened-outside-search` | -1 | a screening row names an id that no captured search returned |
 | `one-provider` | -1 | one provider alone resolves the formal id, and its header agrees |
-| `falsifier-not-evaluable` | -1 | a measured protocol's falsifier holds no comparator and number |
+| `falsifier-not-evaluable` | -1 | a measured protocol's falsifier has neither a comparator with a number nor a named test with its alpha |
 | `fewer-than-two-rivals` | -1 | R5 or R6: fewer than two `rival:` lines |
 | `no-replication` | -1 | a group of a cited experiment holds fewer than two rows |
 | `no-power-plan` | -1 | a measured protocol lacks one of `alpha:`, `power:`, `mde:`, `n:` |
