@@ -437,6 +437,20 @@ class Generation(AgentsBase):
             body = " ".join(claude["tezgah-%s.md" % tier].split())
             self.assertIn("Never widen or narrow the brief's scope", body, tier)
 
+    def test_a_ui_build_goes_to_a_worker_that_loads_the_design_skills(self):
+        # S1 F3-F5: design prompts went to frontier, which never read the
+        # design skill; a UI build is routed to a worker whose brief loads it,
+        # while tezgah-ui stays the read-only auditor.
+        claude = self.user("claude")
+        for tier in ("cheap", "standard", "frontier"):
+            body = " ".join(claude["tezgah-%s.md" % tier].split())
+            for need in ("`design-contract`", "`design-library`", "tezgah-design"):
+                self.assertIn(need, body, (tier, need))
+        self.sync()
+        line = self.steer()
+        self.assertRegex(line, r"UI[^;]*build[^;]*-> tezgah-standard")
+        self.assertRegex(line, r"running-app UI or design analysis -> tezgah-ui")
+
     def omp(self):
         out, proc = run_json([support.PROBE_AGENTS], {"fn": "omp", "root": self.repo},
                              env=self.env())
