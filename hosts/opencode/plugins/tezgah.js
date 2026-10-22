@@ -330,6 +330,9 @@ const CONFIG_READ_SUBS = new Set(["get", "unset", "list", "edit",
 const ROUGH_WORDS = /[;&|()]+|[^\s;&|()<>]+/g
 // a redirection operator, or `&` in front of one: none of its words is an argument
 const REDIRECTION = /^(?=[&<>]*[<>])[&<>]+$/
+// an fd number glued to its redirection (`2>`, `1<&`): bash reads `1<` as fd 1
+// and `1 <` as the program `1`, and shellWords cannot tell them apart afterwards
+const FD_REDIRECT = /(?<![\w])(\d+)([<>])/g
 const GIT_WRAPPER = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec"])
 
@@ -451,16 +454,16 @@ function shellLines(text) {
 function shellCommands(cmd) {
   const out = []
   const text = blankHeredocs(String(cmd || ""))
-  for (const line of shellLines(text).map(forShlex)) {
+  for (const line0 of shellLines(text).map(forShlex)) {
+    const line = line0.replace(FD_REDIRECT, "$2")
     const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
-    // a redirection is not an argument and not a command: its words (the fd
-    // before, the `&` of `2>&1`/`&>`, the target after) are dropped
+    // a redirection is not an argument and not a command: its words (the `&` of
+    // `2>&1`/`&>`, the glued fd cut above, the target after) are dropped
     let cur = [], subs = [], afterRedir = false
     for (let i = 0; i < words.length; i++) {
       const word = words[i]
       if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
       if (REDIRECTION.test(word)) {
-        if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
         afterRedir = true
         continue
       }
