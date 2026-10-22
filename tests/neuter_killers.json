@@ -45,6 +45,7 @@
  "js-hooks-path": "test_opencode_plugin.OpenCodePlugin.test_hooks_path_redirect_matches_the_python_gate",
  "js-lines-comment-word-start": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-lines-continuation": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
+ "js-lines-dq-continuation": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-mask-continuation": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-mask-word-break": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-secret-carried": "test_opencode_plugin.OpenCodePlugin.test_secret_reads_an_env_prefix_as_the_python_gate_does",
