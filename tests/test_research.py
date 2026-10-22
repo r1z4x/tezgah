@@ -3190,8 +3190,9 @@ class SourceRun(Workspace):
         data, problem = tr._full_log(self.home, "r1", "x" * (tr.RUN_LOG_BOUND + 1))
         self.assertIsNone(data)
         self.assertEqual(problem, "orx logs r1 printed %d bytes, above the %d-byte bound a "
-                         "receipt is committed under" % (tr.RUN_LOG_BOUND + 1,
-                                                         tr.RUN_LOG_BOUND))
+                         "receipt is committed under - file it with --ack \"<the user's "
+                         "words>\" to keep it whole" % (tr.RUN_LOG_BOUND + 1,
+                                                        tr.RUN_LOG_BOUND))
         data, problem = tr._full_log(self.home, "r1", "x" * tr.RUN_LOG_BOUND)
         self.assertEqual((len(data), problem), (tr.RUN_LOG_BOUND, None))
 

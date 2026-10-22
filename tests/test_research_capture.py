@@ -416,7 +416,6 @@ class Captures(unittest.TestCase):
     def test_search_files_the_systematic_review_connectors(self):
         """The allowlist's exit (X6, row 7): PubMed, Scopus and ACM DL through the same
         command. Scopus needs a key, and says which variable when it has none."""
-        words = "caching tail"
         self.set_map({cap.SEARCH_URLS["pubmed"] % "caching+tail":
                       json.dumps({"esearchresult": {"idlist": ["42891471"]}}),
                       cap.SEARCH_URLS["acm"] % "caching+tail":
