@@ -820,19 +820,24 @@ class ProviderHealth(unittest.TestCase):
 
     def test_a_down_family_leaves_the_chain_until_its_reset(self):
         import time
-        self.assertEqual(tm.funded_families(),
-                         ["anthropic", "zai", "any", "experientiallabs"])
-        tm.write_health({"checked": time.time(), "down": {
-            "any": {"until": time.time() + 3600, "reason": "403 key limit"},
-            "zai": {"until": time.time() - 1, "reason": "reset passed"}}})
-        self.assertEqual(tm.funded_families(),
-                         ["anthropic", "zai", "experientiallabs"])
-        self.assertEqual(tm.funded_families(live=False),
-                         ["anthropic", "zai", "any", "experientiallabs"])
-        with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
-            self.assertEqual(tm._chain("anthropic", "standard", tm.funded_families()),
-                             ["anthropic/claude-opus-5-5:medium", "zai/glm-5.3",
-                              "experientiallabs/deepseek-v4.1-flash-uncensored:high"])
+        # the families the test names, not the machine's own: a runner holds no
+        # `experientiallabs` credential, a workstation does
+        with mock.patch.object(tm, "_omp_stored_providers",
+                               return_value={"anthropic", "zai", "experientiallabs"}):
+            self.assertEqual(tm.funded_families(),
+                             ["anthropic", "zai", "any", "experientiallabs"])
+            tm.write_health({"checked": time.time(), "down": {
+                "any": {"until": time.time() + 3600, "reason": "403 key limit"},
+                "zai": {"until": time.time() - 1, "reason": "reset passed"}}})
+            self.assertEqual(tm.funded_families(),
+                             ["anthropic", "zai", "experientiallabs"])
+            self.assertEqual(tm.funded_families(live=False),
+                             ["anthropic", "zai", "any", "experientiallabs"])
+            with mock.patch.object(tm.tp, "fallback_policy", return_value="any"):
+                self.assertEqual(tm._chain("anthropic", "standard",
+                                           tm.funded_families()),
+                                 ["anthropic/claude-opus-5-5:medium", "zai/glm-5.3",
+                                  "experientiallabs/deepseek-v4.1-flash-uncensored:high"])
 
     def test_the_probe_records_downs_and_lifts_them(self):
         answers = {"zai": (False, "429 Weekly/Monthly Limit Exhausted. Your limit "
@@ -844,17 +849,20 @@ class ProviderHealth(unittest.TestCase):
         def probe(family):
             asked.append(family)
             return answers[family]
-        data = tm.refresh_health("anthropic", probe=probe)
-        # the mode's own family is never probed
-        self.assertEqual(sorted(asked), ["any", "experientiallabs", "zai"])
-        self.assertEqual(set(data["down"]), {"zai"})
-        self.assertEqual(tm.funded_families(),
-                         ["anthropic", "any", "experientiallabs"])
-        answers["zai"] = (True, "answered")
-        answers["any"] = (None, "timed out")  # cannot tell: keeps its state
-        tm.refresh_health("anthropic", probe=probe)
-        self.assertEqual(tm.funded_families(),
-                         ["anthropic", "zai", "any", "experientiallabs"])
+        # again the test's own families, so the probe set is the same everywhere
+        with mock.patch.object(tm, "_omp_stored_providers",
+                               return_value={"anthropic", "zai", "experientiallabs"}):
+            data = tm.refresh_health("anthropic", probe=probe)
+            # the mode's own family is never probed
+            self.assertEqual(sorted(asked), ["any", "experientiallabs", "zai"])
+            self.assertEqual(set(data["down"]), {"zai"})
+            self.assertEqual(tm.funded_families(),
+                             ["anthropic", "any", "experientiallabs"])
+            answers["zai"] = (True, "answered")
+            answers["any"] = (None, "timed out")  # cannot tell: keeps its state
+            tm.refresh_health("anthropic", probe=probe)
+            self.assertEqual(tm.funded_families(),
+                             ["anthropic", "zai", "any", "experientiallabs"])
 
     def test_due_after_the_window_or_a_passed_reset_and_never_under_the_switch(self):
         now = 1_000_000.0
