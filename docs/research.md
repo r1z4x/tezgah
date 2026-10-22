@@ -68,8 +68,9 @@ are the standards rules. Rules 3 add the ask contract. Rules 4 add the protocol
 sections below. Rules 5 add the scope lock. Rules 6 add the selection warnings
 ("Held-out set, repeats and noise band" below). Rules 7 add the `exploratory`
 method ("Rules 7: exploratory lines" below). A bump never weakens an older set.
-Rules 8 (`EVIDENCE_RULES`) is the evidence rule set of plan 127: `check` reads a
-line that declares it, and `init` does not write it yet.
+Rules 8 (`EVIDENCE_RULES`) add captured evidence and a computed certainty per
+claim ("Rules 8: captured evidence and computed certainty" below). `init` writes 8
+now: `RULES` is `EVIDENCE_RULES` (`hooks/tezgah_research.py::EVIDENCE_RULES`).
 
 A `rules` above `EVIDENCE_RULES` means a later tezgah wrote the line. `check` then reports
 one error that names both numbers and reads nothing else. The writers refuse the
@@ -783,6 +784,444 @@ The consequences:
 
 Rules 1-6, `FROZEN_PATHS` and ADR 009 stay as they were. Predictions and
 components take nothing new. `research-off` covers this method too.
+
+## Rules 8: captured evidence and computed certainty
+
+A rules-7 line takes the session's word for three things. A cited paper exists, a
+quote stands in it, and a number came from a run. Rules 8 make the tool fetch
+and store those bytes. `check` then re-derives each claim's
+support from them and computes a certainty level per claim. No claim states its
+own level. The capture commands are `hooks/tezgah_research_capture.py::COMMANDS`.
+The instrument, release and calibration commands are
+`hooks/tezgah_research_evidence.py::COMMANDS`. The statistics in
+`hooks/tezgah_research_stats.py` use the standard library only.
+`_check_rules8` (`hooks/tezgah_research.py::_check_rules8`) runs the capture
+checks, the core checks and the certainty engine, in that order.
+
+A line whose `state.json` `rules` is below 8 keeps every rule it had, and nothing
+in this section reads it (`hooks/tezgah_research.py::_evidence`). It still gets
+the claim-number rule under `--strict` and the INDEX `verified` warning. A rules-8
+line gets `untraced-number` and the receipts instead. A missing obligation there
+lowers a level and never refuses, not even under `--strict`.
+
+### What `check` prints for a rules-8 line
+
+`check` keeps its `FAIL <slug>:` and `warn <slug>:` lines. A rules-8 line adds
+report lines after them, and they never count as problems: `certainty`, `stats`,
+`effect`, `instrument`, `ppi`, `stopping`, `online` and `budget`. Under
+`check --json` the line's row carries them as `report`. It also carries
+`certainty`, one `{level, start, steps}` object per claim id
+(`hooks/tezgah_research.py::check_line`). Every new command exits 0 when done. It
+exits 1 on a refusal, prints `FAIL <slug>: <reason>` and writes nothing. It exits
+2 on misuse.
+
+`TEZGAH_CAPTURE_MAP=<json file>` answers every HTTP call of the capture commands
+and of `check --online` from a map of URL to body file. Tests and offline runs use
+it (`hooks/tezgah_research_capture.py::fetch_url`). `TEZGAH_ORX_BIN` overrides
+the `orx` lookup.
+
+### The question class: `init --class`
+
+`init <slug> --ask "<the user's words>" --class R1..R12` writes `state.json`
+`question_class`. `--class R0` exits 1 with `R0 gets no line` before any other
+argument counts (`bin/tezgah-research::cmd_init`). An R0 question is factual or
+reference, and the reply answers it. With a class, `init` prints three more
+things:
+
+- `obligations: <step>, <step>, ...` lists every certainty step the class can
+  trigger (`hooks/tezgah_research.py::obligations`).
+- `budget <slug>: sources a/b searches c/d runs e/f` counts INDEX rows, SEARCHES
+  rows and `source: orx:` results rows against the tier's caps
+  (`hooks/tezgah_research.py::BUDGETS`). The caps are starting values: quick
+  10/10/10, study 30/40/40, program 100/150/200. `check` prints the same line and
+  warns `over budget` past any cap (`hooks/tezgah_research.py::budget`).
+- `overlap: <line>/<claim> <status> <similarity>` names each claim of a done line
+  whose similarity to the question reaches 0.5
+  (`hooks/tezgah_research.py::overlaps`).
+
+The class fixes the methods a line may take (`hooks/tezgah_research.py::CLASS_METHODS`)
+and adds its own steps (`hooks/tezgah_research.py::CLASS_STEPS`):
+
+| Class | Methods | Class steps (each -1 on every claim) |
+|---|---|---|
+| R1 | qualitative | none |
+| R2 | qualitative | `no-grey-quality`: a grey INDEX row without `quality` |
+| R3 | qualitative, measured | `no-population`: state lacks `population` or `n` |
+| R4 | measured | `no-confounders`: a protocol without `confounders:` |
+| R5 | measured | `fewer-than-two-rivals`, and `no-positive-control`: a measured protocol without `control:` |
+| R6 | measured | `fewer-than-two-rivals`: fewer than two `rival: <text> excludes: <text>` protocol lines |
+| R7 | qualitative | `no-dual-screening`: a screened record with fewer than two screeners, and `no-recall-stopping`: `stopping.rule` is not `hypergeometric` |
+| R8 | qualitative | `no-dual-screening`: under 20% of records dual-screened, or a dropped record screened once |
+| R9 | qualitative | `no-amstar`: an INDEX row without `amstar` |
+| R10 | qualitative | `no-codebook`: no `codebook.md` in the line |
+| R11 | exploratory | none |
+| R12 | qualitative, measured | `fewer-than-two-approaches`: fewer than two `state.approaches` entries with `biases` |
+
+Every class can also take `no-question-class` (no class at all), `class-unreviewed`
+(the review's `question_class` is absent or differs) and `method-not-allowed`
+(`hooks/tezgah_research.py::_routing_steps`). A search line is a line of class R1,
+R2 or R7 to R10, a `qualitative` line, or a line with no class.
+
+### Capture: `cite`, `fetch`, `search`, `source`
+
+The tool fetches what a line cites, never the session. Each capture command
+writes its files, appends its ledger rows and commits exactly those files as
+`capture: <command> <slug>` (`hooks/tezgah_research_capture.py::commit_capture`).
+The commit lands in the workspace's own repository, or in the project's when the
+project tracks the workspace.
+
+**`tezgah-research cite <slug>`** queries `arxiv`, `crossref`, `openalex` and
+`semanticscholar` (`hooks/tezgah_research_capture.py::PROVIDERS`) for every formal
+INDEX row whose `id` is an arXiv id or a DOI. Each answer becomes a row of
+`literature/.receipts/RECEIPTS.jsonl`, and its raw bytes go to
+`literature/.receipts/<sha256>.raw`. `cite` names and skips any other id. It exits 0
+even when nothing resolves, because judging the receipts is `check`'s job
+(`hooks/tezgah_research_capture.py::cmd_cite`). `check` reads them offline
+(`hooks/tezgah_research_capture.py::_check_receipts`):
+
+- `check` refuses a receipt row that a re-parse of its raw bytes contradicts:
+  `not derived from its capture`.
+- It refuses a formal row that no receipt resolves: `resolves in no registry`. A
+  row with `unindexed_reason` takes the step `unindexed-source` instead.
+- It refuses a row that one provider alone resolves:
+  `receipts from fewer than 2 providers`. An alphaXiv or `orx paper` record
+  counts as `arxiv`.
+- An INDEX `title`, `year` or `first_author` that agrees with no resolved
+  receipt takes `header-mismatch`. Titles agree at a word overlap of 0.5 or more
+  (`hooks/tezgah_research_capture.py::title_agrees`). Years agree within one, for
+  a preprint against its venue year.
+- `check --online` fetches up to ten receipts again. A changed id, title, author
+  or year prints `online <slug>: <id> <provider> <field> drifted` and takes
+  `online-drift`.
+
+**`tezgah-research fetch <slug> <note> [--file <path> --ack "<the user's words>" | --orx]`**
+stores the passages of a source around every quote the line makes of it. The URL
+always comes from a receipt. The first step that yields text decides the capture
+(`hooks/tezgah_research_capture.py::cmd_fetch`):
+
+| Step | Source | Access |
+|---|---|---|
+| 1 | `--file <path>` (needs `--ack "<the user's words>"`, else exit 2), or `--orx` | `user`, or `full` |
+| 2 | an arXiv id: `https://arxiv.org/html/<id>` answering 200 | `full` |
+| 3 | a DOI: the OpenAlex receipt's `open_access.oa_url` answering 200 with no PDF body | `full` |
+| 4 | `orx paper --full <id>`, when orx is installed and prints text | `full` |
+| 5 | the abstract of a resolved receipt | `abstract` |
+| 6 | nothing yielded text: the record names the reason, exit 0 | `none` |
+
+The quotes come from three places. One is a citing claim's `quote` field. Another
+is each double-quoted span of three or more words in its `statement`. The last is
+each `> "..."` blockquote of the note. A quote splits on `...`, `…` and `[...]`.
+Each fragment of three or more words has to appear in order. The record lands in
+`literature/.sources/<sha256>.json` with the 300 characters either side of each
+match, and `literature/.sources/SOURCES.jsonl` gets its row. The note's latest
+record decides what `check` does
+(`hooks/tezgah_research_capture.py::_check_sources`):
+
+- `full` or `user`: `check` refuses a quote missing from the stored passages with
+  `quote not in the captured source text`. Run `fetch` again when the claim came
+  after the capture.
+- `abstract`: claims citing the note take `abstract-only`.
+- `none`, or no capture: they take `source-not-captured`, a ceiling.
+- A concluded line with formal rows owes `closed-access: <k> of <n>` in its report.
+  It also owes `user-supplied: <k> of <n> sources` when a latest record is `user`.
+  Both rules are soft.
+
+**`tezgah-research search <slug> --tag primary|snowball|counter|known [--item "<scope.in item>"] -- <connector> <args...>`**
+stores a connector's raw output in `searches/raw/<sha256>.raw` and one row of
+`searches/SEARCHES.jsonl`. Its `hits` and `ids` come from the raw bytes
+(`hooks/tezgah_research_capture.py::cmd_search`). The allowlist is the four
+registries, `orx discover` and `orx paper`. Any other connector exits 1 with
+`connector not on the allowlist`. `--tag counter` without an `--item` equal to a
+`scope.in` entry exits 2. A search that does not answer 200 exits 1 and writes
+nothing. The session screens by hand, one row per decision in
+`searches/screening.jsonl`: `{"search", "id", "decision": "kept"|"dropped", "reason", "screener"}`.
+`check` refuses a SEARCHES row with no file (`has no capture`) and one whose
+`hits` or `ids` a re-parse contradicts (`not derived from its capture`). It also
+refuses a screening row whose id no captured search returned:
+`screens an id no captured search returned`.
+
+On a search line, claims that cite literature take these steps
+(`hooks/tezgah_research_capture.py::_check_searches`). `one-connector` means fewer
+than two connectors. `no-counter-search` means a `scope.in` item with no `counter`
+search. `known-item-missed` means a `state.known_items` id that no capture holds.
+The other two are `no-stopping-rule` and `stopping-not-met`. `state.stopping` names the stopping
+rule. It has to enter the history before the first search row, or the line takes
+`no-stopping-rule`:
+
+- `{"rule": "hypergeometric", "recall": t, "confidence": c}` runs buscarpy's
+  recall test (Callaghan and Müller-Hansen, 2020) over the screening order
+  (`hooks/tezgah_research_stats.py::hypergeometric_p`). It holds when p < 1 - c,
+  and `check` prints `stopping <slug>: hypergeometric p=<p> met|not met`.
+- `{"rule": "saturation", "run": R}` holds when the last R search rows add no new
+  record.
+- `{"rule": "pragmatic", "risk": "<text>"}` always holds and names the risk taken.
+
+**`tezgah-research source <slug> <h> --run <id> [--arm <a>] [--item <i>] [--value <field>=<number>]...`**
+writes its results row itself (`hooks/tezgah_research.py::source_run`). The row
+names `run`, the arm, the item and each value as a number. When the line names an
+orx project it also holds the engine's `status`. A value whose number is no token
+of the stored log exits 1 with `value not in the run log`. A reserved key
+(`source`, `log`, `run`, `arm`, `item`, `scope`, `fixture`, `status`, `command`)
+as `--value` exits 2. A second filing of one run writes `raw/<run>.<n>.log`.
+`check --orx` warns `orx run <id> has no results row` for an engine run that no
+row names. A row with status `aborted` or `failed` stays a row and counts in no
+group.
+
+**Write once.** The capture files live under `literature/.receipts/`,
+`literature/.sources/`, `searches/raw/`, `experiments/*/raw/` and
+`instruments/gold/`. A command whose target exists with other bytes exits 1 with
+`capture exists` (`hooks/tezgah_research_capture.py::write_captures`). The
+ledgers only grow. `check` refuses what changed anyway
+(`hooks/tezgah_research_capture.py::_check_write_once`,
+`hooks/tezgah_research_capture.py::_check_ledger_files`):
+
+- a capture file that differs from the blob its first commit added
+  (`changed after its first commit`)
+- a ledger row that a later commit changed or dropped
+- a ledger row whose file does not hash to its `sha256`: `hash mismatch`.
+
+These rules cannot see a capture that was false at its first write. `check
+--online` is the check for that case.
+
+### How a claim's certainty is computed
+
+The levels, low to high, are `very-low`, `low`, `moderate` and `high`. A claim
+below `moderate` is exploratory. Its start level is the highest over the parts
+its `proof` cites (`hooks/tezgah_research_evidence.py::start_level`):
+
+| Part the proof cites | Start |
+|---|---|
+| results of an experiment whose protocol says `design: experiment` (the default with a `change:` line) | `high` |
+| results of an experiment with `design: observational` (the default without `change:`) | `low` |
+| a literature note whose INDEX `class` is `formal` | `moderate` |
+| a `grey` note | `low` |
+| an `agent-report` note | `very-low` |
+| a claim of `kind: code` | `high` |
+| a claim of `kind: derivation` | `moderate` |
+
+Each step `check` finds for a claim either lowers the level by one or caps it at
+`low` (`hooks/tezgah_research_evidence.py::STEPS`). The decrements apply first,
+then the ceilings, and the floor is `very-low`. A step counts once per claim even
+when two parts trigger it (`hooks/tezgah_research_evidence.py::compute`). `check`
+prints one line per claim, in `claims.jsonl` order:
+
+    certainty <slug>: <id> <level> start=<level> steps=<step>,<step>|none
+
+A claim may declare `"certainty": "<level>"`. `check` refuses a declared level
+above the computed one: `claim <id> declares certainty <declared> above the computed
+<level> (<steps>)`. On a concluded line, `to_human/report.md` owes one line per
+claim that names its id and its computed level word. A claim below `moderate`
+also owes `exploratory` on that line. A missing line warns
+`report states no certainty for claim <id>`, and `--strict` refuses it.
+
+A narrowed claim, an `inconclusive` hypothesis and `close --limit` are normal
+outcomes of a rules-8 line. Lowering what a claim says is how a line meets a
+low level, not pushing harder for a bigger one.
+
+The steps, by name as `check` prints them:
+
+| Step | Effect | Trigger |
+|---|---|---|
+| `header-mismatch` | -1 | the INDEX header agrees with no resolved receipt |
+| `unindexed-source` | -1 | no receipt resolves the row, and it carries `unindexed_reason` |
+| `online-drift` | -1 | `check --online` saw a stable field change |
+| `abstract-only` | -1 | the note's latest capture has access `abstract` |
+| `source-not-captured` | ceiling | the note has no capture, or its latest has access `none` |
+| `one-connector` | -1 | search line: fewer than two connectors |
+| `no-counter-search` | -1 | search line: a `scope.in` item with no `counter` search |
+| `no-stopping-rule` | -1 | search line: `state.stopping` missing, invalid or committed after the first search |
+| `stopping-not-met` | -1 | the recomputed stopping rule does not hold |
+| `known-item-missed` | -1 | a `state.known_items` id is in no captured search |
+| `fewer-than-two-rivals` | -1 | R5 or R6: fewer than two `rival:` lines |
+| `no-replication` | -1 | a group of a cited experiment holds fewer than two rows |
+| `no-power-plan` | -1 | a measured protocol lacks one of `alpha:`, `power:`, `mde:`, `n:` |
+| `below-planned-n` | -1 | a `compare:` group holds fewer rows than `n:` |
+| `no-interval` | ceiling | a `compare:` group has fewer than two rows |
+| `interval-includes-zero` | ceiling | improvement claim: the interval's lower bound is 0 or less |
+| `below-achieved-mde` | ceiling | improvement claim: the effect is below the achieved MDE |
+| `no-multiplicity-correction` | -1 | more than two groups and no `correction:` |
+| `fails-multiplicity` | ceiling | the declared correction does not reject the experiment |
+| `no-sesoi` | ceiling | a no-difference claim whose protocol has no `sesoi:` |
+| `tost-not-passed` | ceiling | a no-difference claim whose TOST fails |
+| `untraced-number` | -1 | a number of an evidence claim that no cited row and log, and no `derived_from`, holds |
+| `instrument-unvalidated` | ceiling | a cited row names an `unvalidated` instrument |
+| `instrument-rejected` | ceiling | a cited row names a `rejected` instrument |
+| `judged-row-incomplete` | -1 | a cited row with `judge` lacks `generator` or `order` |
+| `uncalibrated-verifier` | ceiling | `verified_by` names an instrument that is not a validated verdict instrument |
+| `no-question-class` and the class steps | -1 | see "The question class" above |
+
+### Statistics on results rows
+
+A measured protocol plans its test with `alpha:`, `power:`, `mde:` and `n:`. It may
+add `compare: <T> vs <C> on <field>, lower|higher is better`, `sesoi:` and
+`correction: bh|holm|bonferroni|e-bh`. Rows group by `arm`, else by `phase`, else
+into one group `all` (`hooks/tezgah_research.py::experiment_record`).
+
+- A group whose rows all carry an `outcome` of 0 or 1 prints
+  `stats <slug>: <h> <group> n=<n> k=<k> wilson=[<lo>, <hi>] cp=[<lo>, <hi>]`, the
+  Wilson and Clopper-Pearson intervals at 1 - alpha.
+- `compare:` gives the mean difference in the better direction. The two groups
+  pair by `item` when they hold the same item set, else the test is Welch's
+  (`hooks/tezgah_research_stats.py::mean_diff`). The achieved MDE is
+  (z(1 - alpha/2) + z(power)) times the standard error
+  (`hooks/tezgah_research_stats.py::achieved_mde`). `check` prints
+  `effect <slug>: <h> <T> vs <C> on <field> effect=<e> ci=[<lo>, <hi>] mde=<m>`,
+  or `ci=none mde=none` when a group has fewer than two rows.
+- `check` corrects every experiment that declares a `correction:` together with
+  the others of the same method (`hooks/tezgah_research.py::_multiplicity`). `e-bh`
+  reads `e-value: <x>` from each `analysis.md`.
+- A claim citing the experiment is an improvement claim, unless it carries
+  `"effect": "no-difference"`. Then TOST has to place the 1 - 2 alpha interval
+  inside (-sesoi, +sesoi) (`hooks/tezgah_research_stats.py::tost`).
+
+### Hypotheses and falsifiers
+
+On a measured line, a falsifier needs a comparator and a number, or a named test
+with its alpha. `check` refuses anything else with
+`falsifier holds no comparator and number`
+(`hooks/tezgah_research.py::falsifier_testable`). The structured form
+`falsifier: <field> <op> <number> [on <group>]` is the one `check` evaluates. It
+fires when the mean of the field over the group's rows meets the comparison. A
+`supported` claim citing an experiment whose falsifier fired fails with
+`while its falsifier fired` (`hooks/tezgah_research.py::fired_problems`). A
+prediction equal to its falsifier still fails with `say the same thing`.
+
+`state.hypotheses[]` holds `{"id", "text", "status", "probability"}` entries. A
+concluded line ends each one as `supported`, `refuted`, `weakened`, `revised`,
+`untested` or `inconclusive`. `check` refuses an entry left open with
+`has no terminal status`, and `conclude` refuses it first
+(`hooks/tezgah_research.py::hypothesis_problems`).
+
+### The execution trail
+
+A number in an evidence claim's statement counts as traced when a cited row holds
+that value and the row's `log` file contains the token. The claim's `derived_from`
+can also name it (`hooks/tezgah_research.py::_untraced`). An untraced number costs
+the step `untraced-number`, and `check` never refuses it.
+
+`derived_from` maps each derived number, as written, to how it came about:
+`{"<number>": {"op": "mean|sum|min|max|diff|ratio|count", "of": ["<h>/<run>:<field>", "<h>/#<row>:<field>"]}}`.
+`diff` is the first minus the second, and `ratio` the first over the second.
+`check` recomputes the value and rounds it to the written decimals. It refuses a
+mismatch: `does not recompute` (`hooks/tezgah_research.py::derived_problems`).
+
+The protocol's other lines bind the analysis
+(`hooks/tezgah_research.py::_check_experiment8`):
+
+- Each metric of the comma-separated `metric:` list appears in `report.md`, or in a
+  `not_reported: <metric>: <reason>` line. Else: `neither reported nor marked not_reported`.
+- A `metric:` list must hold the locked metric. Else:
+  `metric other than the locked one`.
+- `evaluator: <path> [sha256:<hex>]` pins the scoring file to its bytes at the
+  protocol's first commit. Else: `evaluator file changed after lock`.
+- `select: min|max <field>` picks the group with the lowest or highest mean, and
+  `analysis.md` names it as `selected: <group>`. `check` refuses a different pick
+  with `select rule picks`. A missing `selected:` line warns
+  `analysis states no selected group`.
+
+### The instrument ledger
+
+An instrument is whatever turns an item into a number: a measure or an LLM
+judge. A results row names it in `instrument` (or `judge`). An instrument that
+`instruments/INSTRUMENTS.jsonl` does not hold counts as `unvalidated`. The
+commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
+
+- `tezgah-research instrument add <slug> <name> --kind measure|verdict --rung R1|R2|R3|R4 --construct "<text>"`
+  declares it.
+- `tezgah-research gold <slug> <instrument> --arm <a> --n N --seed S` draws the
+  gold sample. It sorts the arm's items by `sha256("<S>:<a>:<item>")` and keeps
+  the first N (`hooks/tezgah_research_evidence.py::seeded_draw`). The first draw
+  per instrument and arm is the one every rule reads. A draw once the arm has
+  labels exits 1 with `gold draw after labels`. `check` refuses a gold file that
+  is not its seed's draw: `differs from the seeded draw`.
+- `tezgah-research label <slug> <instrument> --arm <a> --human "<name>" --ack "<the user's words>"`
+  reads `{"item", "truth"}` rows on stdin. An item outside the gold sample exits 1
+  with `not in the gold sample`.
+- `tezgah-research label <slug> <instrument> --arm <a> --provider openrouter --model <m>`
+  asks the model once per gold item, at temperature 0. It needs
+  `OPENROUTER_API_KEY`, else it exits 2.
+- `tezgah-research switch <slug> <instrument> --to R1|R2|R3|R4|<method> --reason "<why>"`
+  records a move to another rung or method.
+  `switch <slug> <instrument> --narrow "<what the claims now say>" --reason "<why>"`
+  records a narrowing of the claims instead.
+
+A label's `output` is the results row's `outcome`, and an error is a truth that
+differs from it. The first label per item counts, and a later one warns. An arm
+counts as labelled when every item of its first draw has a label. Its error bound is the
+two-sided 95% Clopper-Pearson upper bound of errors over n
+(`hooks/tezgah_research_evidence.py::instrument_report`). The status follows
+(`hooks/tezgah_research_evidence.py::judge_status`):
+
+| Kind | Rejected when | Validated when |
+|---|---|---|
+| `measure` | the labelled arms' bounds sum to the smallest `mde:` of the experiments using it, or more | the sum stays below it and every arm with rows is labelled |
+| `verdict` | an arm's bound is above 0.10 | every arm's bound is 0.10 or less and every arm with rows is labelled |
+
+Anything else is `unvalidated`, and so is a measure with no `mde:` to compare
+against. With an MDE of 0.10 and two arms, 72 items per arm with no error
+validate (bound 0.0499). 71 do not. At 20 items and no error the bound is 0.1684.
+`check` prints `instrument <slug>: <name> arm <a> n=<n> errors=<k> upper=<u>` per
+labelled arm and `instrument <slug>: <name> <status> sum=|max=<x> threshold=<t>`.
+An R3 instrument also prints a PPI++ mean per labelled arm:
+`ppi <slug>: <name> arm <a> lambda=<l> estimate=<e> ci=[<lo>, <hi>]`
+(`hooks/tezgah_research_stats.py::ppi_mean`). It combines the gold truths with the
+arm's unlabelled outputs.
+
+`conclude` refuses a line with a `rejected` instrument and no `switch` row for it:
+`has no switch or narrowing row` (`hooks/tezgah_research_evidence.py::conclude_problems`).
+A concluded line with human labels owes `user-supplied: <k> of <n> labels` in its
+report.
+
+**Verifiers.** A claim's `verified_by: <instrument>` has to name a `verdict`
+instrument whose status is `validated`. Else the claim takes
+`uncalibrated-verifier`, a ceiling.
+
+### `release-check` and `calibration`
+
+`tezgah-research release-check [--fixtures <dir>]` measures whether the checks
+catch what they claim to catch. It needs no research line and runs from any
+directory (`hooks/tezgah_research_evidence.py::cmd_release_check`). Its default
+set, `tests/fixtures/rules8-known-truth/`, holds 38 defect and 18 sound cases of
+citations, quotes and instruments. The functions `check` uses score each case,
+with the set's `capture-map.json` as the capture map. It prints
+`misses: <k>/<n> upper=<u>` and `false alarms: <k>/<n> upper=<u>`. It exits 1 when
+the misses' Clopper-Pearson upper bound passes 0.10 or the false alarms' passes
+0.20. The CI workflow runs it on every pull request and push to `main`, and
+each release reuses that green run. On that fixture set it printed
+`misses: 0/38 upper=0.0925` and `false alarms: 0/18 upper=0.1853`.
+
+`tezgah-research calibration` scores every line's hypotheses that carry a
+`probability` and end `supported` or `refuted`. It prints
+`brier: <x> over <n> resolved hypotheses` and exits 0
+(`hooks/tezgah_research_evidence.py::cmd_calibration`).
+
+### Review, overlap and the smaller rules
+
+- `to_human/review.json` adds `producer_family`, `reviewer_family` and
+  `question_class`. One family on both sides warns `same-family review`. A
+  reviewer equal to the producer, ignoring case and spaces, fails with
+  `is the producer`. When the line holds an evidence claim, a finding has to
+  target a file under `experiments/*/raw/` or a code file. Else it warns
+  `review quotes no raw log or code` (`hooks/tezgah_research.py::_check_review8`).
+- `check` warns `overlaps refuted claim <line>/<claim>` for a refuted claim that
+  `init` reported as an overlap. A row of `related.jsonl`,
+  `{"line", "claim", "relation": "builds-on"|"dismissed", "reason"}`, answers it.
+- The overclaim lint warns in both modes: `claim <id> overclaims: "<word>"`. It
+  fires on a universal word (every, all, always, never, any) over fixture
+  evidence. It also fires on a causal word (cause, leads to, due to, because of)
+  over an observational or single-group experiment
+  (`hooks/tezgah_research.py::_overclaim`).
+- A variant whose `variants.jsonl` row entered the history after the first
+  `comparison.jsonl` cell is post-hoc. A `decision.md` that chooses it and never
+  says `post-hoc` or `post_hoc` fails with `without saying post-hoc`
+  (`hooks/tezgah_research.py::_post_hoc`).
+- The supersedes warning drops when a `report.md` line names both claim ids
+  (`hooks/tezgah_research.py::_check_supersedes`). Otherwise it stays soft, so
+  `--strict` refuses it.
+- A `Patterns` bullet in `findings.md` now runs over its indented continuation
+  lines, so a source on a wrapped line counts
+  (`hooks/tezgah_research.py::_check_patterns`). This reader fix applies to every
+  line.
 
 ## What `check` refuses, and what it only warns about
 
