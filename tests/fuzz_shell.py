@@ -96,10 +96,7 @@ STUBS = PROGRAMS + ("s1", "d1", "d2", "a1", "u1", "r1", "r2", "c1", "b1",
                     # logs, so it is not a name the oracle can compare; `tail` is
                     # a shortcut's trimmer and a stub, so an `&&` after it takes
                     # both branches instead of always failing on a missing PATH
-                    "git", "tail",
-                    # `=1` is no assignment to bash: it is the command word of a
-                    # line the comment's continuation left its `J` off
-                    "=1")
+                    "git", "tail")
 # the separators, also split by a continuation the way the shortcut rules'
 # tokens are (`|\<nl>|` is `||`), and a real newline after an escaped backslash
 SEPARATORS = ("; ", " && ", " || ", " | ", "\n", " & ",
