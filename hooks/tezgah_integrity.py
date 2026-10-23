@@ -51,7 +51,7 @@ VERIFY = re.compile(
     r"(?:^|[|;&(])\s*"
     r"(?:(?:sudo|env|time|nohup|command|exec)\s+(?:\w+=\S+\s+)*(?:-\S+\s+)*)?"
     r"(?:"    r"(?:python3?|uv run)\s+(?:-m\s+)?(?:pytest|unittest|mypy|ruff|flake8|compileall|"
-    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive|slop)|"
     r"(?:[\w./-]*/)?tests[/\\]impacted\.py)|"
     r"pytest|py\.test|"
     r"npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
@@ -67,7 +67,7 @@ VERIFY = re.compile(
     r"swift\s+test|golangci-lint|shellcheck|"
     r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
     r"axe-core|reg-suit|"
-    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive|slop)|"
     r"(?:[\w./-]*/)?tests[/\\]impacted\.py|"
     # a JS tool behind its runner is still the check, and the name it returns is
     # the tool's, not the runner's: `npx axe-core` matched as `axe-core` before
@@ -170,7 +170,8 @@ UI_TOOL_CMD = re.compile(
 # `tezgah-design check` is text ABOUT the checker. The interpreter prefix is the
 # one the module's own refusal text and the skill both print.
 DESIGN_CHECK = re.compile(
-    r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?tezgah-design\s+check\b",
+    r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?tezgah-design\s+"
+    r"(?:check|slop)\b",
     re.I | re.M)
 # A component, as opposed to the screen it sits on: a file under a
 # component/views/widgets directory, or a name that carries the convention on its

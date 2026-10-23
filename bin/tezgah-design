@@ -4,12 +4,19 @@ can fail.
 
   tezgah-design derive --repo DIR [--out FILE] [--json]
   tezgah-design check --contract FILE --measured FILE|- [--json]
+  tezgah-design slop --repo DIR [--url URL] [--render] [--out FILE] [--json]
 
 The contract is the floor a UI turn is judged against: the colour roles, the
 type scale, the spacing unit and the state set a repository already uses, plus
 the component inventory it owns. `derive` writes a first `.tezgah/design-contract.md`
 from the repository's own token source (CSS custom properties, a Tailwind config,
 a tokens/theme JSON) and exits 2 rather than invent a palette it did not find.
+`slop` runs Hallmark's own gate list (`skills/hallmark/scripts/sloplint.mjs`)
+over the repository or a running URL, writes the verdict to
+`.tezgah/design/slop.json` and exits 1 on any Floor FAIL. It is the Hallmark half
+of the UI floor; `check` is ours, and a contract's `precedence` says which of the
+two owns each key, so neither can quietly override the other. Exit 3 when Node or
+the vendored skill is missing: that is a check that did not run, never a pass.
 `check` compares a measurement - the per-component computed styles and observed
 states the analyze-app loop produces - against that file, prints every violation
 with its component and its rule, and exits non-zero when there is at least one.
@@ -29,6 +36,8 @@ import json
 import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -936,6 +945,8 @@ def parse(argv, names):
         arg = argv[i]
         if arg == "--json":
             out["json"] = True
+        elif arg == "--render":
+            out["render"] = True
         elif arg in names:
             if i + 1 >= len(argv):
                 raise Usage("%s wants a value" % arg)
@@ -1009,6 +1020,87 @@ def derive_cli(opts):
             "components, so the `component-inventory` rule is inert on this "
             "contract until the list is filled in\n")
     return 0
+
+
+SLOPLINT = os.path.join("skills", "hallmark", "scripts", "sloplint.mjs")
+
+
+def sloplint_path(root):
+    """The vendored linter's path, or "" when it is not installed beside us."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), SLOPLINT),
+        os.path.expanduser(os.path.join("~", ".config", "tezgah", SLOPLINT)),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return ""
+
+
+def slop_cli(opts):
+    """Hallmark's gate list, run over this repository, into one verdict.
+
+    The Floor is theirs and Ours is the contract's, so this verb is the one place
+    the two are merged: `sloplint --json` gives FAIL/REFLEX, and the contract's
+    `check` runs when a measurement is given. A merge that hides one side would
+    make a page pass here and fail in the Stop rule, so the verdict is the union
+    and it is written down (`.tezgah/design/slop.json`) for that rule to read."""
+    root = project_top(os.path.abspath(opts.get("repo") or ""))
+    if not os.path.isdir(root):
+        raise Usage("--repo must name a directory")
+    linter = sloplint_path(root)
+    if not linter:
+        sys.stderr.write("tezgah-design: hallmark is not installed beside tezgah "
+                         "(%s), so only the contract check can run - no static "
+                         "slop tier this time\n" % SLOPLINT)
+        return 3
+    if not shutil.which("node"):
+        sys.stderr.write("tezgah-design: node is not on PATH, so hallmark's "
+                         "sloplint cannot run - only the contract check can\n")
+        return 3
+    target = opts.get("url") or root
+    argv = [shutil.which("node"), linter, target, "--json"]
+    if opts.get("render"):
+        argv.append("--render")
+    if opts.get("genre"):
+        argv += ["--genre", opts["genre"]]
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise Usage("sloplint could not run: %s" % exc)
+    try:
+        report = json.loads(proc.stdout)
+    except ValueError:
+        raise Usage("sloplint printed no JSON (exit %d): %s"
+                    % (proc.returncode, (proc.stderr or "").strip()[:200]))
+    summary = report.get("summary") or {}
+    fails, reflex = int(summary.get("fails") or 0), int(summary.get("reflex") or 0)
+    verdict = {"version": 1, "tool": "tezgah-design slop",
+               "sloplint_exit": proc.returncode,
+               "render": "on" if opts.get("render") else "off",
+               "fails": fails, "reflex": reflex,
+               "waived": int(summary.get("waived") or 0),
+               "answered": int(summary.get("answered") or 0),
+               "clean": fails == 0,
+               "findings": [f for f in (report.get("findings") or [])
+                            if f.get("grade") in ("FAIL", "REFLEX")]}
+    ws = linked_main(root) or root
+    out = opts.get("out") or os.path.join(ws, ".tezgah", "design", "slop.json")
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(verdict, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+    except OSError as exc:
+        raise Usage("cannot write %s: %s" % (out, exc))
+    if opts.get("json"):
+        _print_json(verdict)
+    else:
+        sys.stdout.write("slop: %d FAIL, %d REFLEX over %s (render %s) -> %s\n"
+                         % (fails, reflex, target,
+                            verdict["render"],
+                            "clean" if verdict["clean"] else "not clean"))
+    return 0 if verdict["clean"] else 1
 
 
 def check_cli(opts):
@@ -1092,7 +1184,9 @@ def main(argv):
             return derive_cli(parse(rest, ("--repo", "--out")))
         if verb == "check":
             return check_cli(parse(rest, ("--contract", "--measured")))
-        raise Usage("unknown verb: %s (derive|check)" % verb)
+        if verb == "slop":
+            return slop_cli(parse(rest, ("--repo", "--url", "--out", "--genre")))
+        raise Usage("unknown verb: %s (derive|check|slop)" % verb)
     except Usage as exc:
         sys.stderr.write("tezgah-design: %s\n" % exc)
         return 2
