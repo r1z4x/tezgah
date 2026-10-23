@@ -9,7 +9,10 @@ rule, and a cached killer kills only when that very test fails."""
 import ast
 import os
 import re
+import shutil
+import tempfile
 import unittest
+from unittest import mock
 
 import neuter_matrix
 import support
@@ -148,6 +151,47 @@ class KillerCache(unittest.TestCase):
         (status, _last, killer), calls = self.verdict("test_gate.G.test_old", [])
         self.assertEqual((status, killer), (0, None))
         self.assertEqual(len(calls), 1 + len(neuter_matrix.MODULES))
+
+
+class CloneRetry(unittest.TestCase):
+    """Plan 132: a runner under load failed `git clone --shared` and the pool raised,
+    taking the matrix down with no reason. The clone retries, and one that keeps
+    failing is that mutant's error - never a survivor, never a crash."""
+
+    def run_prepare(self, codes, stderr="fatal: could not create work tree dir"):
+        calls = []
+
+        def fake(argv, **_kw):
+            calls.append(list(argv))
+            code = codes[min(len(calls) - 1, len(codes) - 1)]
+            return type("Proc", (), {"returncode": code, "stderr": stderr,
+                                     "stdout": ""})()
+        work = tempfile.mkdtemp(prefix="neuter-retry-")
+        self.addCleanup(shutil.rmtree, work, True)
+        with mock.patch.object(neuter_matrix.subprocess, "run", fake), \
+                mock.patch.object(neuter_matrix, "CLONE_WAIT", 0), \
+                mock.patch.object(neuter_matrix.os, "makedirs", lambda *a, **k: None):
+            tree, _env, error = neuter_matrix.prepare("m1", None, work)
+        return calls, tree, error
+
+    def test_a_clone_that_fails_once_is_retried(self):
+        calls, _tree, error = self.run_prepare([1, 0])
+        self.assertIsNone(error)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_clone_that_keeps_failing_is_the_mutants_error(self):
+        calls, _tree, error = self.run_prepare([1])
+        self.assertEqual(len(calls), neuter_matrix.CLONE_TRIES)
+        self.assertIn("clone:", error)
+        self.assertIn("could not create work tree dir", error)
+
+    def test_a_clone_error_is_status_two_with_the_reason(self):
+        work = tempfile.mkdtemp(prefix="neuter-retry-")
+        self.addCleanup(shutil.rmtree, work, True)
+        with mock.patch.object(neuter_matrix, "prepare",
+                               return_value=("tree", None, "clone: nope")):
+            name, status, last, killer = neuter_matrix.run("m1", ("f", None), {}, work)
+        self.assertEqual((name, status, last, killer), ("m1", 2, "clone: nope", None))
 
 
 if __name__ == "__main__":
