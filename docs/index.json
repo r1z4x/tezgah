@@ -317,7 +317,9 @@
         "how do I add a skill without breaking the router or the install report",
         "which skill designs a metric dashboard and where do its data-view rules live",
         "does the local skill search reach design-library's nested entries",
-        "which skill carries a new metric dashboard or feature from research to re-measure"
+        "which skill carries a new metric dashboard or feature from research to re-measure",
+        "which floor wins between a repository's design.md and the design contract",
+        "what does tezgah-design slop run and where does its verdict go"
       ],
       "answers_tr": [
         "burada beceri nedir ve bir hosta nasıl ulaşır",
@@ -325,18 +327,23 @@
         "yönlendiriciyi veya kurulum raporunu bozmadan nasıl beceri eklerim",
         "metrik dashboard tasarımını hangi beceri yapar ve veri görünümü kuralları nerede",
         "yerel beceri araması design-library'nin iç girdilerine ulaşır mı",
-        "yeni bir metrik dashboard'u veya özelliği araştırmadan yeniden ölçüme hangi beceri taşır"
+        "yeni bir metrik dashboard'u veya özelliği araştırmadan yeniden ölçüme hangi beceri taşır",
+        "bir deponun design.md dosyası ile tasarım sözleşmesi arasında hangi katman kazanır",
+        "tezgah-design slop neyi çalıştırır ve kararı nereye yazar"
       ],
       "sources": [
         "bin/tezgah-setup",
+        "bin/tezgah-design",
         "skills/",
         "skills/design-library/SOURCE",
+        "skills/hallmark/SOURCE",
         "tests/routing-fixtures.md",
         "commands/",
         "NOTICE",
         "tests/test_setup.py",
         "tests/test_skills.py",
         "hooks/tezgah_skill_pick.py",
+        "hooks/tezgah_integrity.py",
         "skills/design-contract/data-views.md",
         "skills/product-flow/SKILL.md"
       ]
