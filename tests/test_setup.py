@@ -2912,7 +2912,10 @@ class ContextBudget(SetupBase):
     # a `Use when` line of English and Turkish triggers within 160 characters,
     # the long text moving to each body's `## When to use`. Raised to 2930 when
     # design-contract named "design system" and pm-frameworks a PM ask (c5b0bdc).
-    BAND_BEFORE = 2930
+    # Raised to 3195 when `hallmark` joined SKILLS (plan 133): its upstream
+    # description is 252 characters by design and the router keeps its `Use when`
+    # sentence, so the always-on cost is 265 bytes of line.
+    BAND_BEFORE = 3195
 
     def test_the_new_library_costs_one_router_line_and_stays_inside_the_budget(self):
         """The always-on cost of a shipped name, in the installer's own formula:

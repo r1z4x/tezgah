@@ -188,7 +188,7 @@ LOCAL_BIN = os.path.join(HOME, ".local", "bin")
 SKILLS = ["harness", "tezgah-contract", "ponytail", "i-have-adhd", "no-ai-slop",
           "analyze-app", "plan-add", "plan-status", "plan-sync", "research",
           "product-analysis", "product-flow", "feature-audit", "design-contract",
-          "design-library", "pm-frameworks", "ai-research", "rl-env"]
+          "design-library", "hallmark", "pm-frameworks", "ai-research", "rl-env"]
 
 
 def skills_linked(base):

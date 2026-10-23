@@ -590,6 +590,49 @@ class TapTarget(unittest.TestCase):
             self.assertIn(needle, source, needle)
 
 
+class HallmarkVendor(unittest.TestCase):
+    """skills/hallmark: the whole upstream tree, byte-for-byte, held to its own
+    manifest. Nothing in tezgah lints it (its SKILL.md is upstream's workflow,
+    not ours), so a drifted reference, a lost theme picture or a file that
+    arrived unvetted would otherwise go unnoticed."""
+
+    ROOT = os.path.join(SKILLS, "hallmark")
+
+    @classmethod
+    def setUpClass(cls):
+        rows = re.findall(r"^\| `([^`]+)` \| `hallmark` \| `([0-9a-f]{64})` \|",
+                          read(os.path.join(cls.ROOT, "SOURCE")), re.M)
+        cls.rows = dict(rows)
+
+    def test_the_manifest_lists_every_file_and_only_files(self):
+        self.assertTrue(self.rows, "SOURCE records no file/hash pair")
+        found = set()
+        for dirpath, dirnames, files in os.walk(self.ROOT):
+            dirnames[:] = sorted(d for d in dirnames if d != ".git")
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), self.ROOT)
+                if rel != "SOURCE":
+                    found.add(rel)
+        self.assertEqual(sorted(self.rows), sorted(found),
+                         "SOURCE and the tree disagree about which files exist")
+
+    def test_every_listed_file_is_present_and_matches_its_hash(self):
+        for rel, want in sorted(self.rows.items()):
+            path = os.path.join(self.ROOT, rel)
+            self.assertTrue(os.path.isfile(path), "vendored file missing: %s" % rel)
+            with open(path, "rb") as fh:
+                digest = hashlib.sha256(fh.read()).hexdigest()
+            self.assertEqual(digest, want,
+                             "%s no longer matches the hash SOURCE records" % rel)
+
+    def test_the_shipped_tree_carries_its_upstream_licence(self):
+        licence = read(os.path.join(self.ROOT, "LICENSE"))
+        self.assertIn("MIT License", licence)
+        notice = read(os.path.join(support.REPO, "NOTICE"))
+        self.assertIn("skills/hallmark", notice)
+        self.assertIn("7ec868225c6caa040558c321ee0fefa0e73f83a8", notice)
+
+
 class DesignLibraryEvals(unittest.TestCase):
     """The library's own evals: three trap cases, each with a Must contain and a
     Must not, in the shape the vendored corpus ships. It is the only proposed
@@ -665,14 +708,23 @@ class Frontmatter(unittest.TestCase):
         cls.roots = sorted(os.path.dirname(source) for source in
                            glob.glob(os.path.join(SKILLS, "*", "SOURCE")))
         cls.exempt = vendored_skill_files()
+        # a tree that ships its own hash manifest is upstream's bytes: its entry
+        # point included, so the frontmatter lint and the routing fixture do not
+        # apply to it (hallmark's SKILL.md is the workflow we run, unedited)
+        cls.vendored = {os.path.dirname(root) + os.sep for root in cls.roots}
         cls.names = {d for d in os.listdir(SKILLS)
                      if os.path.isdir(os.path.join(SKILLS, d))}
+
+    def own_paths(self):
+        """The SKILL.md this class lints: the ones tezgah wrote."""
+        return [p for p in self.paths if not any(p.startswith(v) for v in self.vendored)]
 
     def test_the_lint_covers_every_body_and_exempts_only_the_libraries(self):
         # The exemption is the library roots, not a glob: a new body is linted
         # unless it arrives under a tree that ships its own hash manifest.
         self.assertEqual([os.path.basename(root) for root in self.roots],
-                         ["ai-research", "design-library", "pm-frameworks", "rl-env"],
+                         ["ai-research", "design-library", "hallmark",
+                          "pm-frameworks", "rl-env"],
                          "the vendored set changed: name it here, or lint it")
         for path in glob.glob(os.path.join(SKILLS, "**", "SKILL.md"), recursive=True):
             self.assertIn(path, self.paths,
@@ -699,7 +751,7 @@ class Frontmatter(unittest.TestCase):
                             "%s has no `Use when` sentence" % path)
 
     def test_every_description_stays_inside_the_metadata_cap(self):
-        for path in self.paths:
+        for path in self.own_paths():
             desc = frontmatter(read(path))[1]
             self.assertLessEqual(len(desc), DESCRIPTION_CAP,
                                  "%s: %d chars" % (path, len(desc)))
@@ -707,7 +759,7 @@ class Frontmatter(unittest.TestCase):
     def test_every_description_leads_with_its_trigger_and_routing_words(self):
         rows = FIXTURE_ROW.findall(
             read(os.path.join(support.REPO, "tests", "routing-fixtures.md")))
-        for path in self.paths:
+        for path in self.own_paths():
             name, desc, _ = frontmatter(read(path))
             self.assertTrue(desc.startswith("Use when"),
                             "%s: the description does not lead with `Use when`" % path)
