@@ -1481,9 +1481,9 @@ Anything else is `unvalidated`, and so is a measure with no `mde:` to compare
 against. A measure whose `mde:` is above 1 stays `unvalidated` too, because its
 threshold reads a difference of proportions
 (`hooks/tezgah_research_evidence.py::proportion_threshold`). So does a measure
-whose labelled sample is too small to decide. When even zero errors in every
-labelled arm leave bounds that sum to the `mde:` or more, `check` reports
-`unvalidated`, not `rejected` (`judge_status`'s `floor`). Its status line ends
+whose labelled sample is too small to decide. Say its zero-error bounds already
+sum to the `mde:` or more while its own lower bounds stay below it. Then `check`
+reports `unvalidated`, not `rejected` (`judge_status`'s `floor`). An `mde:` above 1 ends the status line
 `(mde above 1: the threshold reads a difference of proportions)`. With an MDE of
 0.10 and two arms, 72 items per arm with no error
 validate (bound 0.0499). 71 do not. At 20 items and no error the bound is 0.1684.
