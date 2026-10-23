@@ -1096,7 +1096,10 @@ class Instruments(Rules8):
         fx = self.build(self.instrument_line(80, 20, 0))
         rc, out = fx.check()
         self.assertIn("instrument q: judge-x arm a n=20 errors=0 upper=0.1684", out)
-        self.assertRegex(out, r"(?m)^instrument q: judge-x rejected ")
+        # plan 130 (K6 rater Y6): a sample too small to reach the threshold cannot decide,
+        # so the instrument reads unvalidated, not rejected - a 20-item arm's zero-error
+        # bounds already sum above the mde
+        self.assertRegex(out, r"(?m)^instrument q: judge-x unvalidated ")
 
     def test_one_error_needs_one_hundred_ten_items(self):
         fx = self.build(self.instrument_line(120, 110, 1))
