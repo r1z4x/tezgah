@@ -202,33 +202,51 @@ class CloneRetry(unittest.TestCase):
         self.assertEqual(neuter_matrix.default_workers(10), 5)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class Shard(unittest.TestCase):
-    """`--shard N/M`: CI runs the matrix as parallel jobs, so the rows have to
-    partition without a gap or an overlap - a missing row is a guard nobody
-    mutated, and a doubled one is a mutant paid for twice."""
+    """`--shard N/M`: CI runs the matrix as four parallel jobs, so the rows have
+    to partition without a gap or an overlap - a missing row is a guard nobody
+    mutated, and a doubled one is a mutant paid for twice. The rows counted here
+    are the whole matrix, generated ones included, which is what main() shards."""
 
-    def run_main(self, *argv):
-        with mock.patch("builtins.print") as shown:
-            code = neuter_matrix.main(list(argv))
-        return code, " ".join(" ".join(str(a) for a in c.args) for c in shown.call_args_list)
+    def full_rows(self):
+        with open(STOP, encoding="utf-8") as fh:
+            stop = fh.read()
+        return (neuter_matrix.MUTANTS + tuple(neuter_matrix.gate_mutants(gate_text()))
+                + tuple(neuter_matrix.stop_mutants(stop)))
 
     def test_the_shards_partition_the_rows(self):
-        total = len(neuter_matrix.MUTANTS)
+        rows = self.full_rows()
         seen = []
         for index in range(1, 5):
-            rows = [m for i, m in enumerate(neuter_matrix.MUTANTS)
-                    if i % 4 == index - 1]
-            seen += [m[0] for m in rows]
-            self.assertLessEqual(len(rows), total)
-        self.assertEqual(sorted(seen), sorted(m[0] for m in neuter_matrix.MUTANTS),
+            shard = neuter_matrix.shard_rows(rows, index, 4)
+            self.assertTrue(shard, "shard %d is empty" % index)
+            seen += [m[0] for m in shard]
+        self.assertEqual(sorted(seen), sorted(m[0] for m in rows),
                          "the four shards do not cover every row exactly once")
+        self.assertEqual(len(seen), len(set(seen)), "a row is in two shards")
 
     def test_a_malformed_shard_is_a_usage_error(self):
-        for spec in ("x", "0/4", "5/4"):
-            code, out = self.run_main("--shard", spec)
+        for spec in ("x", "0/4", "5/4", "2"):
+            with mock.patch("builtins.print") as shown:
+                code = neuter_matrix.main(["--shard", spec])
             self.assertEqual(code, 2, spec)
+            out = " ".join(" ".join(str(a) for a in c.args) for c in shown.call_args_list)
             self.assertIn("--shard", out, spec)
+
+    def test_only_outside_the_shard_is_refused(self):
+        # `--only b --shard 1/2` used to answer 0 over an empty set: a check that
+        # ran nothing reads exactly like one that passed
+        rows = self.full_rows()
+        first = {m[0] for m in neuter_matrix.shard_rows(rows, 1, 2)}
+        outside = next(m[0] for m in neuter_matrix.shard_rows(rows, 2, 2)
+                       if m[0] not in first)
+        with mock.patch("builtins.print") as shown:
+            code = neuter_matrix.main(["--shard", "1/2", "--only", outside])
+        self.assertEqual(code, 2, shown.call_args_list)
+
+
+
+
+
+if __name__ == "__main__":
+    unittest.main()

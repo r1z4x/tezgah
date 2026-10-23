@@ -507,12 +507,15 @@ MUTANTS = (
     ("backtick-cont-hash", INTEGRITY,
      anchored("            while text.startswith(CONTINUATION, j):\n                j += 2\n", ""),
      "a continuation between a backtick and a `#` still leaves the `#` mid-word"),
-    # No `backtick-hash` row: that escape in `_unquoted_backticks` is a second
-    # belt. Deleting it leaves `shell_control` naming the kill switch on
-    # `` `:`\\<nl>#;touch <switch> `` and on `` `x`#;touch <switch> `` exactly as
-    # before (measured 2026-10-24: mask, `_shell_segments` and `shell_control`
-    # identical, so no test can notice it), because `_shell_lines` already reads
-    # that `#` as mid-word. A mutant that cannot be killed is not a guard.
+    # The escape is load-bearing: `"\\#"` -> `"#"` leaves `shell_control` blind to
+    # `` `:`\\<nl>#;touch <switch> `` (measured 2026-10-24, and
+    # tests/test_integrity.py::ShortcutCommand fails on it). Deleting the whole
+    # statement instead - the first shape of this row - removes the `#` from the
+    # text the guard produces, so it cannot be noticed and proves nothing.
+    ("backtick-hash", INTEGRITY,
+     anchored('                out.append(";" + text[i + 1:j] + "\\\\#")\n',
+              '                out.append(";" + text[i + 1:j] + "#")\n'),
+     "a `#` after a backtick opens no comment in the gate's word reader"),
     ("gate-words-comment", GATE,
      anchored("        out.extend((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word)))\n"
               "                   for word in words)\n",
@@ -878,6 +881,15 @@ def default_workers(cpus):
     return max(2, (cpus or 2) // 2)
 
 
+def shard_rows(mutants, index, count):
+    """One shard's rows: index `index` of `count`, by row position.
+
+    The four jobs of `.github/workflows/neuter.yml` are this function four
+    times; their union is the matrix exactly once (tests/test_neuter_matrix.py
+    ::Shard holds that, over the generated rows too)."""
+    return tuple(m for i, m in enumerate(mutants) if i % count == index - 1)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if "--stop-generated" in argv:
@@ -908,15 +920,17 @@ def main(argv=None):
         if not (1 <= index <= count):
             print("--shard takes N/M with 1 <= N <= M")
             return 2
-        mutants = tuple(m for i, m in enumerate(mutants) if i % count == index - 1)
+        mutants = shard_rows(mutants, index, count)
         print("shard %d/%d: %d mutant(s)" % (index, count, len(mutants)))
     if "--only" in argv:
         # one mutant (a new deny rule's row) without the whole matrix; the
         # control still runs every module
         only = set(argv[argv.index("--only") + 1].split(",")) \
             if argv.index("--only") + 1 < len(argv) else set()
-        if not only or only - names:
-            print("--only: no mutant named %s" % ",".join(sorted(only - names) or ["(none)"]))
+        missing = only - {m[0] for m in mutants}
+        if not only or missing:
+            print("--only: no mutant named %s in this run"
+                  % ",".join(sorted(missing) or ["(none)"]))
             return 2
         mutants = tuple(m for m in mutants if m[0] in only)
     rows = [m for m in mutants if m[1] != PLUGIN or shutil.which("node")]
