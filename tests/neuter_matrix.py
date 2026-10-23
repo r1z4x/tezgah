@@ -507,9 +507,12 @@ MUTANTS = (
     ("backtick-cont-hash", INTEGRITY,
      anchored("            while text.startswith(CONTINUATION, j):\n                j += 2\n", ""),
      "a continuation between a backtick and a `#` still leaves the `#` mid-word"),
-    ("backtick-hash", INTEGRITY,
-     anchored('                out.append(";" + text[i + 1:j] + "\\\\#")\n', ''),
-     "a `#` after a backtick opens no comment in the gate's word reader"),
+    # No `backtick-hash` row: that escape in `_unquoted_backticks` is a second
+    # belt. Deleting it leaves `shell_control` naming the kill switch on
+    # `` `:`\\<nl>#;touch <switch> `` and on `` `x`#;touch <switch> `` exactly as
+    # before (measured 2026-10-24: mask, `_shell_segments` and `shell_control`
+    # identical, so no test can notice it), because `_shell_lines` already reads
+    # that `#` as mid-word. A mutant that cannot be killed is not a guard.
     ("gate-words-comment", GATE,
      anchored("        out.extend((word.translate(_UNESCAPE), bool(SHELL_OPS.match(word)))\n"
               "                   for word in words)\n",
