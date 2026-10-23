@@ -9,6 +9,7 @@
  "ask-advice-default": "test_gate.AskAdvice.test_a_question_without_a_recommended_option_is_warned_and_recorded",
  "ask-granted": "test_gate.AskAdvice.test_a_question_about_a_granted_push_is_named_as_granted",
  "backtick-cont-hash": "test_gate.ShellCommentRule.test_the_control_plane_reader_follows_the_rule",
+ "backtick-hash": "test_integrity.ShortcutCommand.test_a_kill_switch_after_a_backtick_hash_is_a_control_write",
  "bookkeeping": "test_integrity.BookkeepingCommand.test_a_redacted_detail_is_not_bookkeeping",
  "brace-expansion": "test_integrity.BookkeepingCommand.test_a_brace_list_or_an_operator_expansion_is_not_a_read",
  "comment-word-start": "test_integrity.BookkeepingCommand.test_an_escaped_boundary_or_a_line_continuation_hides_nothing",
