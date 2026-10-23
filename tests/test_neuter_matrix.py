@@ -204,3 +204,31 @@ class CloneRetry(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Shard(unittest.TestCase):
+    """`--shard N/M`: CI runs the matrix as parallel jobs, so the rows have to
+    partition without a gap or an overlap - a missing row is a guard nobody
+    mutated, and a doubled one is a mutant paid for twice."""
+
+    def run_main(self, *argv):
+        with mock.patch("builtins.print") as shown:
+            code = neuter_matrix.main(list(argv))
+        return code, " ".join(" ".join(str(a) for a in c.args) for c in shown.call_args_list)
+
+    def test_the_shards_partition_the_rows(self):
+        total = len(neuter_matrix.MUTANTS)
+        seen = []
+        for index in range(1, 5):
+            rows = [m for i, m in enumerate(neuter_matrix.MUTANTS)
+                    if i % 4 == index - 1]
+            seen += [m[0] for m in rows]
+            self.assertLessEqual(len(rows), total)
+        self.assertEqual(sorted(seen), sorted(m[0] for m in neuter_matrix.MUTANTS),
+                         "the four shards do not cover every row exactly once")
+
+    def test_a_malformed_shard_is_a_usage_error(self):
+        for spec in ("x", "0/4", "5/4"):
+            code, out = self.run_main("--shard", spec)
+            self.assertEqual(code, 2, spec)
+            self.assertIn("--shard", out, spec)

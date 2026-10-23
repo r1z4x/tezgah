@@ -10,6 +10,7 @@ decision d1, experiment E1).
 
     python3 tests/neuter_matrix.py            # exit 0 all killed, 1 a survivor or a red control
     python3 tests/neuter_matrix.py --only gate-task,no-verify   # those mutants (and the control)
+    python3 tests/neuter_matrix.py --shard 2/4  # one CI job's slice of the rows
 
 Each mutant first runs alone the test that killed it last run, cached in
 tests/neuter_killers.json; that test failing is the kill. When it passes or is
@@ -890,6 +891,22 @@ def main(argv=None):
     mutants = MUTANTS + tuple(gate_mutants(head(GATE))) \
         + tuple(stop_mutants(head(INTEGRITY)))
     names = {m[0] for m in mutants}
+    if "--shard" in argv:
+        # CI splits the matrix across parallel jobs: one job's slice of the rows,
+        # by index, so a 2-core runner finishes inside its timeout. The control
+        # runs in every shard (its verdict is discarded per job anyway), and the
+        # union of the shards is the whole matrix.
+        spec = argv[argv.index("--shard") + 1] if argv.index("--shard") + 1 < len(argv) else ""
+        try:
+            index, count = (int(part) for part in spec.split("/"))
+        except ValueError:
+            print("--shard takes N/M, such as 2/4")
+            return 2
+        if not (1 <= index <= count):
+            print("--shard takes N/M with 1 <= N <= M")
+            return 2
+        mutants = tuple(m for i, m in enumerate(mutants) if i % count == index - 1)
+        print("shard %d/%d: %d mutant(s)" % (index, count, len(mutants)))
     if "--only" in argv:
         # one mutant (a new deny rule's row) without the whole matrix; the
         # control still runs every module
