@@ -660,8 +660,8 @@ def cmd_cite(repo, args):
                                                     if parsed["resolved"] else "unresolved"))
     if not receipts:
         print("cite %s: %s" % (slug, "no registry answered 200, so nothing was written"
-                               if asked else "no formal row with an arXiv, DOI, OpenAlex "
-                               "or Semantic Scholar id to cite"))
+                               if asked else "no formal row with an arXiv, DOI, OpenAlex, "
+                               "Semantic Scholar or PubMed id to cite"))
         return 0
     return _store(repo, base, slug, "cite", files, RECEIPTS, receipts)
 

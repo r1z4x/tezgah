@@ -240,14 +240,16 @@ def proportion_threshold(threshold):
     return threshold is not None and threshold <= 1
 
 
-def judge_status(kind, uppers, threshold, floor=None):
+def judge_status(kind, uppers, threshold, floor=None, low=None):
     """(status or None, aggregate) from the labelled arms' uppers ({arm: upper}), per 3.1:
     rejected when the threshold fails over the labelled arms alone. A measure instrument
     with no `mde:`, or one above 1 (the threshold reads a difference of proportions), has no
     threshold, so it is never rejected and stays unvalidated; None leaves the choice between
     validated and unvalidated to the caller. `floor` is the smallest sum of uppers the
-    sample could give (every arm at 0 errors): when it is already at or above the threshold
-    the sample cannot decide, so the instrument is unvalidated, not rejected (K6 rater Y6)."""
+    sample could give (every arm at 0 errors) and `low` the sum of its lower bounds: when
+    the floor already reaches the threshold while the lower bounds still sit below it, the
+    sample cannot decide, so the instrument is unvalidated, not rejected (K6 rater Y6). A
+    sample whose lower bounds reach the threshold is rejected on its own evidence."""
     if kind == "verdict":
         agg = max(uppers.values()) if uppers else 0.0
         failed = any(u > VERDICT_BOUND for u in uppers.values())
@@ -255,7 +257,8 @@ def judge_status(kind, uppers, threshold, floor=None):
         agg = sum(uppers.values())
         if not proportion_threshold(threshold):
             return "unvalidated", agg
-        if floor is not None and uppers and floor >= threshold:
+        if (floor is not None and uppers and floor >= threshold
+                and (low is None or low < threshold)):
             return "unvalidated", agg
         failed = bool(uppers) and agg >= threshold
     return ("rejected" if failed else None), agg
@@ -281,7 +284,7 @@ def instrument_report(base, slug, failed=None):
         kind = spec.get("kind") if spec else "measure"
         mdes = [m for m in (_mde(_protocol(base, h)) for h in used.get(name, ())) if m is not None]
         threshold = VERDICT_BOUND if kind == "verdict" else (min(mdes) if mdes else None)
-        uppers, complete, sizes = {}, True, {}
+        uppers, complete, sizes, lows = {}, True, {}, {}
         for arm in sorted(items.get(name, {})):
             record = draws.get((name, arm))
             score = arm_score(record, labels, name, arm) if record else None
@@ -291,6 +294,7 @@ def instrument_report(base, slug, failed=None):
             n, errors = score
             sizes[arm] = n
             uppers[arm] = st.clopper_pearson(errors, n)[1]
+            lows[arm] = st.clopper_pearson(errors, n)[0]
             lines.append("instrument %s: %s arm %s n=%d errors=%d upper=%.4f"
                          % (slug, name, arm, n, errors, uppers[arm]))
             if spec and spec.get("rung") == "R3":
@@ -300,7 +304,10 @@ def instrument_report(base, slug, failed=None):
                     for label in (["experiment %s" % h for h in sorted(used.get(name, ()))]
                                   or ["instrument %s" % name]):
                         failed.setdefault(label, str(exc) or type(exc).__name__)
-        status, agg = judge_status(kind, uppers, threshold)
+        floor = (sum(st.clopper_pearson(0, n)[1] for n in sizes.values())
+                 if sizes else None)
+        low = sum(lows.values()) if lows else None
+        status, agg = judge_status(kind, uppers, threshold, floor, low)
         if status is None:
             status = "validated" if spec and uppers and complete else "unvalidated"
         statuses[name] = status
@@ -782,7 +789,9 @@ def case_flagged(case, root):
         upper = st.clopper_pearson(case["errors"], case["n"])[1]
         arms = {"all": upper} if ikind == "verdict" else {"a": upper, "b": upper}
         floor = (2 * st.clopper_pearson(0, case["n"])[1]) if ikind == "measure" else None
-        status, _ = judge_status(ikind, arms, mde, floor)
+        low = (2 * st.clopper_pearson(case["errors"], case["n"])[0]
+               if ikind == "measure" else None)
+        status, _ = judge_status(ikind, arms, mde, floor, low)
         return status in ("rejected", "unvalidated")
     raise ValueError("unknown case kind %r" % kind)
 
