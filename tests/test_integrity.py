@@ -129,6 +129,12 @@ class ShortcutCommand(unittest.TestCase):
         for c in ("true `:`\\\n#;touch x", "true `x`#;touch x"):
             self.assertIn("touch x", ti.mask(c), c)
 
+    def test_a_negated_command_keeps_the_arm_after_its_or(self):
+        # plan 129 review: `! true` exits 1, so `! true || consult ask x` reaches
+        # a model; the tier-read channel must see it in both readers
+        self.assertTrue(ti._tier_read("! true || consult ask x"))
+        self.assertFalse(ti._tier_read("true || consult ask x"))
+
     def test_a_kill_switch_after_a_backtick_hash_is_a_control_write(self):
         # plan 129: bash runs the `touch` after `` `:`\<nl># `` because that `#`
         # is mid-word, so the gate's control rule must see it
