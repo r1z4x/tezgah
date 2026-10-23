@@ -264,6 +264,7 @@ it (`tests/test_skills.py::SkillStandards`).
 | `feature-audit` | Audits ONE feature across every layer it is spread over - the surfaces a person uses (a control, a list or table, a detail view, a filter, a picker, a step flow, a notification), the route, the authorization, the service and the data - by filling the capability, field-contract, flow/step and interaction-dependency matrices, where a disagreement between layers is a finding and a fix needing an absent capability becomes a capability-change proposal; fires on an admin screen, CRUD, form, wizard, data table, filter or permission question about an existing feature, and in forward mode specifies a feature not built yet so the post-build audit diffs against it. |
 | `design-contract` | The artifact shape of the per-repo `.tezgah/design-contract.md` - colour roles, type scale, spacing unit and rhythm, the component inventory, the state set every interactive control and data view owes - the derivation rule that reads it out of the repository's own tokens, the rules `bin/tezgah-design check` fails on, and the data-view rules for dashboards (`skills/design-contract/data-views.md`); fires on a UI or component turn that needs a floor, a token, a state set, or the design check itself. |
 | `design-library` | The vendored MC Dean design/UX subset - 39 skills in the `cognitive-accessibility`, `adaptive-interfaces`, `inclusive-interaction`, `visual-critique` and `design-research` plugins - read one entry at a time through its own `INDEX.md`, never the tree; fires when a UI or product turn needs a cognitive-load, inclusive-interaction or visual-critique method tezgah has no counterpart for. |
+| `hallmark` | The vendored UI generator - one ask, then a whole page: 16 Floor rules, 48 themes, 20 macrostructures and its own `sloplint` gate list, with the material locked into a root `design.md`; fires when the turn builds a new page or theme rather than judging an existing one. |
 | `ai-research` | The vendored 98-skill library for AI/ML machinery - training and serving a model, benchmarks, interpretability, retrieval pipelines; read one entry, never the tree. |
 | `rl-env` | The vendored FineEnvs skill set for authoring an RL environment from a description - OpenEnv, OpenReward/ORS, Verifiers and NeMo Gym, plus the orchestrator that ports one description across all four; read one entry, never the tree. |
 
@@ -348,6 +349,45 @@ enforces - and `adaptive-personalisation/ENTRY.md` carried the sibling
 directory skips. `tests/test_skills.py` hashes every listed body, fails on an
 unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
 
+`skills/hallmark` is the generator, vendored whole: 178 upstream files at
+revision `7ec8682` (2026-10-22), MIT, with upstream's `LICENSE` beside its
+`SOURCE` ([skills/hallmark/SOURCE:1-19]). `SOURCE` carries a sha256 for every
+file and the checkout command for a re-vendor. `tests/test_skills.py::HallmarkVendor`
+fails on a drifted body, a missing listed file, and a file the table leaves out.
+Its `SKILL.md` is upstream's workflow and ships as upstream's bytes. `SOURCE`
+lists it too, because tezgah writes no entry point of its own for this tree.
+That listing is what exempts the file from the frontmatter lint
+(`tests/test_skills.py::Frontmatter`). The name sits in `SKILLS`
+(`bin/tezgah-setup::SKILLS`), so every host links it and the router lists it.
+
+## The design layer: two floors
+
+A UI turn answers to two floors. Hallmark's `design.md` owns the material:
+genre, shape, theme, the OKLCH palette, the font roles and the motion character.
+The contract owns the state set, the component inventory, the measured evidence
+and the facts. Neither floor may overrule the other by silence.
+
+`derive` reads a root `design.md` or `DESIGN.md` before any token file, writes
+its palette as hex and stamps `source: design-md`
+(`bin/tezgah-design::design_md_tokens`). The contract's `precedence` block is
+the only tie-break, and the code reads it rather than a session. `ours` keeps
+states, components, evidence and facts. `theirs` hands material and motion
+character to Hallmark. `shared` covers contrast, focus-visible, reduced motion
+and the tap target, where both sides want the same thing and the numbers stay
+ours.
+
+`precedence_problem` refuses an ambiguous table with exit 2. It refuses a key
+named twice, `facts` handed to a waiver or to the user's words, and a `verbatim`
+value other than `style` (`bin/tezgah-design::precedence_problem`).
+`tezgah-design slop` is the verb that merges both verdicts. It runs Hallmark's
+vendored gate list and then the contract check over the same tree. It writes
+`.tezgah/design/slop.json` and stays not clean when either floor fails, when the
+render tier never ran, or when no measurement judged a component
+(`bin/tezgah-design::slop_cli`). The Stop rule reads that file as UI evidence
+beside `measurement.json` (`hooks/tezgah_integrity.py::DESIGN_SLOP`). The long
+form, the state set and the rest of the contract shape live in the skill
+(`skills/design-contract/SKILL.md:103-130`).
+
 ## Adding a skill
 
 1. Write `skills/<name>/SKILL.md` with frontmatter carrying `name` and a
@@ -393,6 +433,15 @@ unlisted directory, and fails on a body that pairs 44x44 with Level AA again.
   its index and its three trap cases
 - `skills/rl-env/SOURCE` - the vendored FineEnvs environment-authoring set, its
   upstream revision and the per-file sha256
+- `skills/hallmark/SOURCE` - the vendored generator, its revision and a sha256
+  per file
+- `bin/tezgah-design` and its `.py` twin - `derive`, `design_md_tokens`,
+  `precedence_problem`, `check` and `slop_cli`: the two floors and the one verb
+  that merges them
+- `skills/design-contract/SKILL.md` - the contract shape, the state set and the
+  precedence classes
+- `hooks/tezgah_integrity.py` - `DESIGN_SLOP`, the Stop rule's reader of
+  `.tezgah/design/slop.json`
 - `bin/tezgah-skill` - the section search CLI over every installed skill root;
   `hooks/tezgah_skill_pick.py` - `sections`, `search`, `skill_roots`,
   `section_of`, the hint that carries the address
