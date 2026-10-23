@@ -8,6 +8,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The ledger reads a window, not only a lifetime.** `tezgah-status --rates
+  --since DATE --until DATE` folds every real ledger's rows in that span. The
+  fold runs per window and per calendar day. It carries turns, `claim` rows and
+  the Stop classes that blocked them. It also carries the shape flags of each
+  judged reply, and denies by rule (`rates`, `hooks/tezgah_integrity.py`). The
+  rates are blocks per 100 turns and denies per 100 sessions. They also carry
+  the claim block and Stop shape shares, and blocked claims per 100 sessions by
+  class. `--until` is exclusive, so two adjacent windows partition the span. A
+  repeated `--since`/`--until` pair prints the pp delta between adjacent
+  windows. `counters_all()` keeps answering exactly what it answered on the
+  same ledger: the window lives in the new reader. `--json` prints
+  `{"windows": [...]}`, and `docs/status-line.md` carries the reading.
+
 - **Hallmark ships as tezgah's UI generator.** `skills/hallmark` ships whole at revision `7ec8682`. It brings 48 themes, each with a picture, and 20 macrostructures. It also brings 98 reference pages and the zero-dependency `sloplint`. Every file is upstream's bytes, hashed in its own `SOURCE`. Upstream's `LICENSE` sits beside it. `tezgah-design slop --repo . [--render]` runs its gate list and writes `.tezgah/design/slop.json`. It exits 1 on a Floor FAIL. It exits 3 when Node or the skill is missing, which is a check that did not run. The Stop rule counts that verdict where it counts `tezgah-design check`. The UI floor is the union of both.
 
 - **A contract reads Hallmark's locked `design.md`, and one precedence table decides the floor.** A `design.md` or `DESIGN.md` at the repository root now feeds `derive`. It gives the palette and font roles, with `source: design-md`. The palette converts from OKLCH to the hex `check` compares. A token file beside it no longer competes. The contract gains a `precedence` block. It names `ours` (states, components, evidence, facts) and `theirs` (material, motion character). It names `shared` (contrast, focus-visible, reduced-motion, tap-target) and `verbatim: style`. `check` refuses with exit 2 a key named by two classes. It also refuses `facts` handed to a theme or to the user's own words.

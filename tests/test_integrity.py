@@ -5497,6 +5497,180 @@ class DriftSeries(unittest.TestCase):
         self.assertEqual(ti.drift_series(ti._counts([self.claim(0)]))["rows"], [])
 
 
+class Rates(TempHome):
+    """Plan 134: the windowed reader over the ledger, the one plan 066's 056 and
+    051 rows can run on their own dates instead of a lifetime total."""
+
+    def setUp(self):
+        super().setUp()
+        self.evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        os.makedirs(self.evidence)
+        self.envv = self.env()
+        # `tests/support.py` fixes this process's cache at import, so an
+        # in-process reader is pointed at this test's temp cache the way the
+        # CLI tests point the child at it through the environment
+        self.addCleanup(setattr, ti, "cache_dir", ti.cache_dir)
+        ti.cache_dir = lambda: os.path.join(self.home, ".cache", "tezgah")
+
+    def ledger(self, name, rows):
+        """Rows written as they are: the window is the reader's, so a test picks
+        each row's `ts` rather than the clock."""
+        support.seed_ledger(os.path.join(self.evidence, name),
+                            [dict(row, v=ti.ROW_VERSION) for row in rows])
+
+    def at(self, day, hour=12):
+        """An epoch second inside the local calendar day `day`."""
+        return ti.day_start(day) + hour * 3600
+
+    def test_rates_two_adjacent_windows_are_a_partition_of_the_span(self):
+        # the acceptance's shape, a partition and not an approximation: `until`
+        # is exclusive, so the row stamped exactly at the seam belongs to the
+        # second window and to neither window twice, and the two windows' counts
+        # add up to the single span's.
+        self.ledger("a.jsonl", [
+            {"kind": "turn", "ts": self.at("2026-09-23", 0)},
+            {"kind": "turn", "ts": self.at("2026-09-30")},
+            {"kind": "claim", "ts": self.at("2026-09-30"),
+             "detail": "blocked: no verify_ok"},
+            {"kind": "deny", "ts": self.at("2026-09-30"),
+             "detail": "drift: long turn"},
+            {"kind": "shape", "ts": self.at("2026-09-30"),
+             "detail": "table,recap-close"},
+            {"kind": "turn", "ts": self.at("2026-10-07", 0)},
+            {"kind": "claim", "ts": self.at("2026-10-08"), "detail": "ok"},
+            {"kind": "claim", "ts": self.at("2026-10-08"),
+             "detail": "blocked: evidence tampered"},
+            {"kind": "shape", "ts": self.at("2026-10-08"), "detail": "ok"},
+        ])
+        self.ledger("b.jsonl", [{"kind": "deny", "ts": self.at("2026-09-25"),
+                                 "detail": "shortcut: rewrote the check"}])
+        first = ti.rates("2026-09-23", "2026-10-07")
+        second = ti.rates("2026-10-07", "2026-10-21")
+        span = ti.rates("2026-09-23", "2026-10-21")
+        for key in ("events", "turns", "claims", "replies", "shape_flagged",
+                    "shape_blocked", "false_completion", "days"):
+            self.assertEqual(first[key] + second[key], span[key], key)
+        for key in ("blocked_claims", "shapes", "denies"):
+            merged = dict(first[key])
+            for name, n in second[key].items():
+                merged[name] = merged.get(name, 0) + n
+            self.assertEqual(merged, span[key], key)
+        self.assertEqual((span["days"], first["days"], second["days"]),
+                         (28, 14, 14))
+        self.assertEqual(span["events"], 10)
+        # a ledger count is a distinct count, so at the seam it is a set union
+        # and not a sum: `a` has rows in both windows and is one session in the
+        # span, which is why 2 + 1 here is 2 and not 3
+        self.assertEqual((first["sessions"], second["sessions"],
+                          span["sessions"]), (2, 1, 2))
+
+    def test_rates_a_window_reads_the_rows_it_owns(self):
+        self.ledger("a.jsonl", [
+            {"kind": "turn", "ts": self.at("2026-10-01")},
+            {"kind": "turn", "ts": self.at("2026-10-01", 13)},
+            {"kind": "claim", "ts": self.at("2026-10-01"), "detail": "ok"},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: evidence tampered"},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: no verify_ok"},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: list cap"},
+            {"kind": "shape", "ts": self.at("2026-10-01"), "detail": "ok"},
+            {"kind": "shape", "ts": self.at("2026-10-01"),
+             "detail": "table,recap-close"},
+            {"kind": "shape", "ts": self.at("2026-10-01"), "detail": "recap-close"},
+            {"kind": "deny", "ts": self.at("2026-10-01"),
+             "detail": "drift: long turn"},
+            {"kind": "deny", "ts": self.at("2026-10-01"),
+             "detail": "shortcut: rewrote the check"},
+            {"kind": "run", "ts": self.at("2026-10-02"), "detail": "ls", "exit": 0},
+            {"kind": "claim", "ts": self.at("2026-10-22"), "detail": "ok"},
+        ])
+        found = ti.rates("2026-09-30", "2026-10-14")
+        self.assertEqual(found["sessions"], 1)
+        self.assertEqual((found["turns"], found["claims"], found["replies"]),
+                         (2, 4, 3))
+        # the shape-blocked claim sits in `shape_blocked`, not in the classes
+        # counters calls blocked claims
+        self.assertEqual(found["blocked_claims"],
+                         {"evidence tampered": 1, "no verify_ok": 1})
+        self.assertEqual(found["shape_blocked"], 1)
+        self.assertEqual(found["shapes"],
+                         {"ok": 1, "table": 1, "recap-close": 2})
+        self.assertEqual(found["denies"], {"drift": 1, "shortcut": 1})
+        self.assertEqual(found["events"], 12)
+        rates = found["rates"]
+        self.assertEqual(rates["blocks_per_100_turns"], 100.0)
+        self.assertEqual(rates["denies_per_100_sessions"], 200.0)
+        self.assertEqual(rates["claim_block_rate"], 0.5)
+        self.assertEqual(rates["stop_shape_rate"], 0.6667)
+        self.assertEqual(rates["blocked_claims_per_100_sessions"],
+                         {"evidence tampered": 100.0, "no verify_ok": 100.0})
+        self.assertEqual([d["day"] for d in found["by_day"]],
+                         ["2026-10-01", "2026-10-02"])
+
+    def test_rates_a_row_with_no_timestamp_falls_outside_every_window(self):
+        # a `ledger_damage` row stands in for bytes that could not be parsed and
+        # carries no `ts`, so no window can place it; the date reader refuses a
+        # window it cannot read instead of answering an empty one
+        self.ledger("a.jsonl", [{"kind": "run", "detail": "ls"},
+                                {"kind": "turn", "ts": self.at("2026-10-01")}])
+        self.assertEqual(ti.rates("2026-09-30", "2026-10-14")["events"], 1)
+        for since, until in (("2026-09-30", "2026-09-30"),
+                             ("2026-10-14", "2026-09-30"),
+                             ("2026-13-01", "2026-10-14"),
+                             ("2026-02-30", "2026-10-14"),
+                             ("", "2026-10-14")):
+            with self.assertRaises(ValueError, msg=(since, until)):
+                ti.rates(since, until)
+
+    def test_rates_leave_counters_all_byte_identical_on_the_same_ledger(self):
+        # the acceptance's second item: the window filter is the new reader's,
+        # and the lifetime fold answers the same dict it answered before. The
+        # rows carry every class the shared classifier reads, so a moved branch
+        # shows here and not only in a rate.
+        self.ledger("a.jsonl", [
+            {"kind": "turn", "ts": self.at("2026-10-01")},
+            {"kind": "claim", "ts": self.at("2026-10-01"), "detail": "ok"},
+            {"kind": "claim", "ts": self.at("2026-10-01"), "detail": "blocked: list cap"},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: no verify_ok"},
+            {"kind": "deny", "ts": self.at("2026-10-01"), "detail": "drift: long turn"},
+            {"kind": "run", "ts": self.at("2026-10-01"), "detail": "ls", "exit": 0},
+        ])
+        self.assertEqual(ti.counters_all(), {
+            "events": 6,
+            "denies": {"drift": 1},
+            "denies_reissued": {"drift": 0},
+            "nudges": 0,
+            "kinds": {"turn": 1, "claim": 3, "deny": 1, "run": 1},
+            "consult": 0,
+            "codegen": 0,
+            "codegen_failed": 0,
+            "judge": 0,
+            "shape": 0,
+            "replies": 0,
+            "shape_blocked": 1,
+            "fanout": 0,
+            "steps": 1,
+            "tool_error_rate": 0.0,
+            "claims": 3,
+            "false_completion": 1,
+            "blocked_claims": {"no verify_ok": 1},
+            "refusals": 0,
+            "orphans": 0,
+            "subagent_results": 0,
+            "subagent_bytes_p50": None,
+            "subagent_bytes_max": None,
+            "compactions": 0,
+            "compact_chars": None,
+            "compact_constraint_rate": None,
+            "unanswered": 0,
+            "ledgers": 1,
+            "fixtures": 0,
+        })
+
+
 class ToolFirings(TempHome):
     """Which tool a call was, and which shipped program ran.
 

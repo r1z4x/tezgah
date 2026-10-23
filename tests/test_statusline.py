@@ -12,6 +12,7 @@ from support import TempHome, run
 
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
 import tezgah_context as tc  # noqa: E402
+import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 
 SEGMENT = ("pony\u25cb exec\u2713 adhd\u25cb  \u00b7  consult\u25cb research\u2717 graph\u25cb"
@@ -445,6 +446,70 @@ class SkillRecording(TempHome):
         tc.record("s1", "skill:design-contract")
         rows = tc.skill_fitness()
         self.assertEqual([s["name"] for s in rows["skills"]], ["design-contract"])
+
+
+class RatesCli(TempHome):
+    """Plan 134: `--rates` prints the windowed table and carries its fold on
+    `--json`; the pp delta between adjacent windows is plan 066's 056 reading."""
+
+    def setUp(self):
+        super().setUp()
+        self.evidence = os.path.join(self.home, ".cache", "tezgah", "evidence")
+        os.makedirs(self.evidence)
+        self.cli = os.path.join(support.REPO, "bin", "tezgah-status")
+        self.envv = self.env()
+
+    def at(self, day, hour=12):
+        return ti.day_start(day) + hour * 3600
+
+    def ledger(self, name, rows):
+        support.seed_ledger(os.path.join(self.evidence, name),
+                            [dict(row, v=ti.ROW_VERSION) for row in rows])
+
+    def test_rates_the_table_and_the_json_read_two_windows_and_their_delta(self):
+        self.ledger("a.jsonl", [
+            {"kind": "turn", "ts": self.at("2026-09-30")},
+            {"kind": "claim", "ts": self.at("2026-09-30"),
+             "detail": "blocked: no verify_ok"},
+            {"kind": "shape", "ts": self.at("2026-09-30"), "detail": "table"},
+            {"kind": "deny", "ts": self.at("2026-09-30"),
+             "detail": "drift: long turn"},
+            {"kind": "turn", "ts": self.at("2026-10-08")},
+            {"kind": "claim", "ts": self.at("2026-10-08"), "detail": "ok"},
+            {"kind": "shape", "ts": self.at("2026-10-08"), "detail": "ok"},
+        ])
+        args = [self.cli, "--rates",
+                "--since", "2026-09-23", "--until", "2026-10-07",
+                "--since", "2026-10-07", "--until", "2026-10-21"]
+        proc = run(args, env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("window 2026-09-23..2026-10-07: 14 days, 1 sessions", proc.stdout)
+        self.assertIn("blocked_claims  no verify_ok=1", proc.stdout)
+        self.assertIn("stop shapes     table=1", proc.stdout)
+        self.assertIn("delta 2026-09-23..2026-10-07 -> 2026-10-07..2026-10-21",
+                      proc.stdout)
+        self.assertIn("claim block -100.00 pp, stop shape -100.00 pp", proc.stdout)
+        self.assertIn("056 bar (+2 pp): holds", proc.stdout)
+        found, proc = support.run_json(args + ["--json"], env=self.envv)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        first, second = found["windows"]
+        self.assertEqual((first["sessions"], second["sessions"]), (1, 1))
+        self.assertEqual(first["rates"]["claim_block_rate"], 1.0)
+        self.assertEqual(second["rates"]["claim_block_rate"], 0.0)
+        self.assertEqual(first["by_day"][0]["day"], "2026-09-30")
+
+    def test_rates_a_half_window_and_a_bad_date_are_refused(self):
+        # a flag without its partner is not a window, and a mistyped date must
+        # say so rather than print an empty window that reads as a measurement
+        for extra in (["--rates", "--since", "2026-09-23"],
+                      ["--rates"],
+                      ["--since", "2026-09-23", "--until", "2026-10-07"],
+                      ["--rates", "--since", "2026-09-23", "--until", "2026-10-07",
+                       "--since", "2026-10-01"],
+                      ["--rates", "--since", "2026-13-01", "--until", "2026-10-07"]):
+            proc = run([self.cli] + extra, env=self.envv)
+            self.assertEqual(proc.returncode, 2, extra)
+            self.assertIn("tezgah-status:", proc.stderr)
 
 
 if __name__ == "__main__":
