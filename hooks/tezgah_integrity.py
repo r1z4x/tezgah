@@ -1502,6 +1502,23 @@ def _week(ts):
     return (int(ts or 0) - MONDAY) // WEEK * WEEK + MONDAY
 
 
+def day_start(text):
+    """The epoch second a `YYYY-MM-DD` date starts at, in this machine's time
+    zone, or None when the text is not that date. Whole calendar days are what
+    a reader types and what a person reads on a calendar, so the window edges
+    are local midnights; one format, never a guess at a date that was mistyped."""
+    try:
+        return int(time.mktime(time.strptime(str(text), "%Y-%m-%d")))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _day(ts):
+    """The calendar day a row's `ts` falls on, as `YYYY-MM-DD` (local, the same
+    edges `day_start` reads)."""
+    return time.strftime("%Y-%m-%d", time.localtime(int(ts)))
+
+
 _CATALOG = {}
 
 
@@ -1770,6 +1787,18 @@ def _reissued(rows):
     return out
 
 
+def _claim_class(detail):
+    """How a `claim` row's detail classifies: `(class, verdict)` where verdict is
+    `ok` (nothing was refused), `shape` (the class in `SHAPE_BLOCKS` refuses the
+    reply's form, not its claim) or `blocked` (the class refuses the claim).
+    One reader for `_counts` and `rates`, so a corpus total and a window cannot
+    disagree about what a `list cap` row is."""
+    if not str(detail).startswith("blocked"):
+        return None, "ok"
+    cls = str(detail)[len("blocked: "):]
+    return cls, ("shape" if cls in SHAPE_BLOCKS else "blocked")
+
+
 def _counts(rows, weeks=False, tools=False):
     """`counters`' arithmetic over rows already read: the one implementation
     both readers fold with, so a total and the sessions it sums cannot drift
@@ -1850,19 +1879,18 @@ def _counts(rows, weeks=False, tools=False):
         elif kind == "claim":
             out["claims"] += 1
             refused = False
-            if detail.startswith("blocked"):
+            cls, verdict = _claim_class(detail)
+            if verdict == "shape":
                 # a reply blocked for its shape made no false claim: the rate
                 # the module calls its effect must not count a list cap
-                if detail[len("blocked: "):] in SHAPE_BLOCKS:
-                    out["shape_blocked"] += 1
-                else:
-                    # split by the Stop class: which check refused, as a number
-                    cls = detail[len("blocked: "):]
-                    out["blocked_claims"][cls] = \
-                        out["blocked_claims"].get(cls, 0) + 1
-                    if cls not in LIST_BLOCKS:
-                        out["false_completion"] += 1
-                        refused = True
+                out["shape_blocked"] += 1
+            elif verdict == "blocked":
+                # split by the Stop class: which check refused, as a number
+                out["blocked_claims"][cls] = \
+                    out["blocked_claims"].get(cls, 0) + 1
+                if cls not in LIST_BLOCKS:
+                    out["false_completion"] += 1
+                    refused = True
             if weeks:
                 # the same bucket this row's events went into, so a claim cannot
                 # sit in a week's total and outside its ratio
@@ -1925,6 +1953,121 @@ def _counts(rows, weeks=False, tools=False):
     out["fanout"] = sum(out["kinds"].get(k, 0)
                         for k in ("orch", "task", "agent", "subagent"))
     return out
+
+
+# The windowed rates reader (plan 134). One bucket is filled once for the window
+# and once for each of its calendar days from the same rows, so a day and the
+# window it sits in cannot disagree, and two adjacent windows partition the span
+# because the filter is `[start, end)` on the row's own `ts`.
+def _rate_bucket():
+    """An empty rates bucket: the counts the observation rows read, and the two
+    histograms they split them by."""
+    return {"events": 0, "turns": 0, "claims": 0, "replies": 0,
+            "blocked_claims": {}, "shape_blocked": 0, "false_completion": 0,
+            "shape_flagged": 0, "shapes": {}, "denies": {}}
+
+
+def _rate_row(bucket, entry):
+    """One ledger row into a rates bucket: the classification `_counts` makes,
+    and only the rows these rates read."""
+    kind = str(entry.get("kind") or "")
+    detail = str(entry.get("detail") or "")
+    bucket["events"] += 1
+    if kind == TURN_KIND:
+        bucket["turns"] += 1
+    elif kind == "deny":
+        rule = _deny_rule(detail)
+        bucket["denies"][rule] = bucket["denies"].get(rule, 0) + 1
+    elif kind == "claim":
+        bucket["claims"] += 1
+        cls, verdict = _claim_class(detail)
+        if verdict == "shape":
+            bucket["shape_blocked"] += 1
+        elif verdict == "blocked":
+            bucket["blocked_claims"][cls] = \
+                bucket["blocked_claims"].get(cls, 0) + 1
+            if cls not in LIST_BLOCKS:
+                bucket["false_completion"] += 1
+    elif kind == "shape":
+        # one row per judged reply, its detail the flag list (`ok` when none):
+        # `shape_flagged` is the reply count the rate needs, `shapes` the class
+        # split - a count of flags, so a reply carrying two moves both
+        bucket["replies"] += 1
+        if detail and detail != "ok":
+            bucket["shape_flagged"] += 1
+        for flag in (f.strip() for f in detail.split(",")):
+            if flag:
+                bucket["shapes"][flag] = bucket["shapes"].get(flag, 0) + 1
+
+
+def _per_scale(scale, numerator, denominator):
+    """`scale * n / d`, or None with no denominator: a window with no turn or no
+    session has no rate, and a 0.0 there would read as a measured zero."""
+    return round(scale * numerator / denominator, 4) if denominator else None
+
+
+def _window_rates(bucket, sessions):
+    """The rates plan 066's rows read, off a filled bucket."""
+    blocked = sum(bucket["blocked_claims"].values())
+    return {
+        # plan 134's pair: what a block and a deny cost per unit of use
+        "blocks_per_100_turns": _per_scale(100, blocked, bucket["turns"]),
+        "denies_per_100_sessions": _per_scale(
+            100, sum(bucket["denies"].values()), sessions),
+        # 056's bar compares these two across adjacent windows, in pp: the share
+        # of claims a Stop class refused, and the share of judged replies that
+        # carried a report-only shape flag
+        "claim_block_rate": _per_scale(1, blocked, bucket["claims"]),
+        "stop_shape_rate": _per_scale(1, bucket["shape_flagged"],
+                                      bucket["replies"]),
+        # 051's bar is per class against live sessions: 1 per 500 reads 0.2 here
+        "blocked_claims_per_100_sessions": {
+            cls: _per_scale(100, n, sessions)
+            for cls, n in bucket["blocked_claims"].items()},
+    }
+
+
+def rates(since, until):
+    """Every real-session ledger's rows stamped in `[since, until)`, folded per
+    window and per calendar day: turns, `claim` rows and the Stop classes that
+    blocked them, the shape flags every judged reply carried, denies by rule,
+    and the rates plan 066's observation rows read (plan 134).
+
+    The window is this reader's; `counters_all` still folds a lifetime, because
+    a total that contradicted the sessions it sums would be the wrong answer to
+    its own question. `until` is exclusive, so two adjacent windows are a
+    partition of the span and not an approximation of one - no row is counted
+    twice or dropped at the seam. A row with no `ts` (a `ledger_damage` row
+    stands in for bytes that could not be parsed) falls outside every window: it
+    carries no time to place it in. `sessions` counts the real ledgers with at
+    least one row in the window, the denominator 051's "live sessions" names;
+    `days` is the window's own length and `by_day` holds only the days that saw
+    a row. Both dates are `YYYY-MM-DD` local calendar days; a malformed or
+    reversed pair is ValueError, never a silently empty window."""
+    start, end = day_start(since), day_start(until)
+    if start is None or end is None:
+        raise ValueError("rates wants --since and --until as YYYY-MM-DD")
+    if end <= start:
+        raise ValueError("rates wants --until after --since")
+    total = _rate_bucket()
+    days, sessions = {}, 0
+    for path in ledgers():
+        rows = _foreign_rows(path)
+        if fixture_ledger(rows):
+            continue
+        rows = [r for r in rows if isinstance(r.get("ts"), (int, float))
+                and start <= r["ts"] < end]
+        if not rows:
+            continue
+        sessions += 1
+        for entry in rows:
+            _rate_row(total, entry)
+            _rate_row(days.setdefault(_day(entry["ts"]), _rate_bucket()), entry)
+    return dict(total, since=str(since), until=str(until), sessions=sessions,
+                days=int(round((end - start) / 86400.0)),
+                by_day=[dict(bucket, day=day)
+                        for day, bucket in sorted(days.items())],
+                rates=_window_rates(total, sessions))
 
 
 def _check_runs(cmd, cwd=None):

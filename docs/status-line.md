@@ -321,6 +321,7 @@ see a line by hand:
 tezgah-status /path/to/repo <session-id>     # the line for one repo and session
 tezgah-status /path/to/repo <id> --json      # segments: key/state/glyph/text/group
 tezgah-status /path/to/repo <id> --counters  # the evidence ledger's counters
+tezgah-status --rates --since A --until B    # the ledger folded between two dates
 tezgah-status --legend                       # what each mark means
 tezgah-status --rule-yield                   # live gate rules that stopped firing
 tezgah-status --enforcers                    # what enforces each always-on rule
@@ -352,6 +353,22 @@ repo (`bin/tezgah-setup::main`). A wrong or missing line usually ends in one of
 three places: no session id (used marks stay `○`), a surface that passed
 `--observable=` and so renders dim where you expected a state, or a store a
 sandboxed host could not write (`hooks/tezgah_paths.py::cache_dir`).
+
+`--rates --since DATE --until DATE` is the windowed reader over the same
+ledgers (`rates`, `hooks/tezgah_integrity.py::rates`). It folds the rows stamped
+in `[since, until)` per window and per calendar day. The fold carries turns,
+`claim` rows and the Stop classes that blocked them. It also carries the shape
+flags of each judged reply, and denies by rule. The rates are blocks per 100
+turns and denies per 100 sessions. They also carry the claim block and Stop
+shape shares, and blocked claims per 100 sessions by class. `counters_all` still
+totals a lifetime on purpose, and the window is this reader's, so the two cannot
+disagree about a row. The dates are local calendar days. `until` is exclusive,
+which makes two adjacent windows a partition of the span rather than an
+approximation of one. A repeated `--since`/`--until` pair prints one block per
+window. It also prints the pp delta between adjacent windows, the unit the
+observation rows in `.tezgah/plans` state their bars in. `--json` prints
+`{"windows": [...]}` - one shape for one window and for many. A window that
+cannot be read, or `--since`/`--until` without `--rates`, exits 2.
 
 `--rule-yield` is a corpus report, not a mark: every live gate rule - the labels
 `hooks/tezgah_gate.py` passes to `_deny`, read from the code with `ast`, so a
