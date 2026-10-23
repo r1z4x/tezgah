@@ -289,6 +289,58 @@ class Slop(DesignCase):
         self.assertFalse(verdict["clean"])
         self.assertFalse(verdict["contract"]["judged"])
 
+    def with_contract(self, measurement):
+        self.copy_fixture("tailwind-pass")
+        self.contract({"version": 1, "source": "css-custom-properties",
+                       "tokens": {"colors": {"ink": "#111111"},
+                                  "contrast": {"normal": 4.5, "large": 3.0}},
+                       "states": {"interactive": list(INTERACTIVE),
+                                  "data": list(DATA)},
+                       "components": [{"name": "Button", "kind": "interactive"}]})
+        os.makedirs(self.path(".tezgah"), exist_ok=True)
+        os.replace(self.path("contract.md"),
+                   self.path(".tezgah", "design-contract.md"))
+        return self.write(".tezgah/design/measurement.json", json.dumps(measurement))
+
+    def measurement(self, color):
+        return {"components": [{"name": "Button", "kind": "interactive",
+                                "states": ["default", "hover", "focus", "active",
+                                           "disabled", "loading", "error"],
+                                "styles": {"color": color, "font-size": "16px",
+                                           "padding": "8px", "contrast": 7.0},
+                                "focus": "drawn", "motion": "none"}]}
+
+    def test_a_clean_measurement_makes_the_union_pass(self):
+        self.with_contract(self.measurement("#111111"))
+        proc = self.slop()
+        verdict = json.loads(proc.stdout)
+        self.assertEqual(verdict["contract"]["violations"], [], verdict)
+        self.assertTrue(verdict["contract"]["judged"])
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertTrue(verdict["clean"])
+
+    def test_a_contract_violation_is_not_clean(self):
+        # the union is a verdict, not two prints: a palette violation has to reach
+        # `clean`, or the Stop rule would accept a page our floor refused
+        self.with_contract(self.measurement("#ff0000"))
+        proc = self.slop()
+        verdict = json.loads(proc.stdout)
+        self.assertTrue(verdict["contract"]["violations"], verdict)
+        self.assertFalse(verdict["clean"], verdict)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("palette", json.dumps(verdict["contract"]["violations"]))
+
+    def test_a_measurement_given_as_a_bare_list_is_read(self):
+        self.with_contract([{"name": "Button", "kind": "interactive",
+                             "states": ["default", "hover", "focus", "active",
+                                        "disabled", "loading", "error"],
+                             "styles": {"color": "#111111", "font-size": "16px",
+                                        "padding": "8px", "contrast": 7.0},
+                             "focus": "drawn", "motion": "none"}])
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["contract"]["judged"])
+
     def test_render_that_did_not_run_is_never_clean(self):
         # no puppeteer-core on this machine: sloplint answers `not run: …`, and
         # every Floor/R gate is unjudged, so the verdict may not say clean

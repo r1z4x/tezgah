@@ -1088,7 +1088,7 @@ def slop_cli(opts):
     unjudged = rendered.startswith("not run")
     verdict = {"version": 1, "tool": "tezgah-design slop",
                "sloplint_exit": proc.returncode,
-               "target": os.path.abspath(target),
+               "target": target if opts.get("url") else os.path.abspath(target),
                "render": rendered,
                "render_unjudged": unjudged,
                "fails": fails, "reflex": reflex,
@@ -1123,11 +1123,13 @@ def slop_cli(opts):
                 got = json.loads(raw)
             except ValueError:
                 raise Usage("the measurement is not JSON: %s" % measured_path)
+            if isinstance(got, list):
+                got = {"components": got}   # the shape check_cli also accepts
             violations, unjudged, judged = check(data, got)
             contract.update(judged=judged > 0, unjudged=unjudged,
-                            violations=[str(v) for v in violations])
+                            violations=list(violations))
     verdict["contract"] = contract
-    if contract["present"] and not contract["judged"]:
+    if contract["present"] and (not contract["judged"] or contract["violations"]):
         verdict["clean"] = False
     out = opts.get("out") or os.path.join(ws, ".tezgah", "design", "slop.json")
     try:
