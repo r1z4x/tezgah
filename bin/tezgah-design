@@ -536,7 +536,7 @@ def _oklch_to_hex(value):
         return None
     try:
         light = parts[0]
-        l = float(light[:-1]) / 100.0 if light.endswith("%") else float(light)
+        lum = float(light[:-1]) / 100.0 if light.endswith("%") else float(light)
         c = float(parts[1])
         hue = parts[2]
         h = float(hue[:-3]) if hue.endswith("deg") else float(hue)
@@ -544,9 +544,9 @@ def _oklch_to_hex(value):
         return None
     rad = math.radians(h)
     a_, b_ = c * math.cos(rad), c * math.sin(rad)
-    l_ = (l + 0.3963377774 * a_ + 0.2158037573 * b_) ** 3
-    m_ = (l - 0.1055613458 * a_ - 0.0638541728 * b_) ** 3
-    s_ = (l - 0.0894841775 * a_ - 1.2914855480 * b_) ** 3
+    l_ = (lum + 0.3963377774 * a_ + 0.2158037573 * b_) ** 3
+    m_ = (lum - 0.1055613458 * a_ - 0.0638541728 * b_) ** 3
+    s_ = (lum - 0.0894841775 * a_ - 1.2914855480 * b_) ** 3
     r = 4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_
     g = -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_
     bl = -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076147010 * s_
