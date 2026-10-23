@@ -86,6 +86,7 @@
  "needless-process": "test_integrity.AskPolicy.test_a_spend_is_never_default_only_over_the_cap",
  "needless-wired": "test_integrity.StopHook.test_a_process_question_at_the_end_is_refused_once",
  "negated": "test_integrity.ResidualWork.test_a_failed_screen_check_is_the_attempt_the_screen_class_asks_for",
+ "negated-arm": "test_integrity.ShortcutCommand.test_a_negated_command_keeps_the_arm_after_its_or",
  "neuter": "test_integrity.ShortcutCommand.test_neutered_check_denied",
  "no-verify": "test_integrity.ShortcutCommand.test_an_unterminated_heredoc_stays_visible",
  "operator-expansion": "test_integrity.BookkeepingCommand.test_a_brace_list_or_an_operator_expansion_is_not_a_read",
