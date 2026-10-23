@@ -146,13 +146,20 @@ def gold_record(base, row):
 
 
 def first_draws(base):
-    """{(instrument, arm): gold record} of the first GOLD row per pair whose file reads and
-    agrees with it, keyed on the file's own instrument and arm."""
-    out = {}
+    """{(instrument, arm): gold record} of the draw every rule reads: the latest GOLD row
+    the owner recorded as a redraw for that pair (a redraw is a correction), else the
+    first row, whose file reads and agrees with it."""
+    out, redrawn = {}, set()
     for row in _rows(base, GOLD):
         record, mismatch = gold_record(base, row)
-        if record is not None and not mismatch and isinstance(record.get("items"), list):
-            out.setdefault((record.get("instrument"), str(record.get("arm"))), record)
+        if record is None or mismatch or not isinstance(record.get("items"), list):
+            continue
+        key = (record.get("instrument"), str(record.get("arm")))
+        if record.get("redraw") is True:
+            out[key] = record
+            redrawn.add(key)
+        elif key not in redrawn:
+            out.setdefault(key, record)
     return out
 
 
@@ -233,18 +240,22 @@ def proportion_threshold(threshold):
     return threshold is not None and threshold <= 1
 
 
-def judge_status(kind, uppers, threshold):
+def judge_status(kind, uppers, threshold, floor=None):
     """(status or None, aggregate) from the labelled arms' uppers ({arm: upper}), per 3.1:
     rejected when the threshold fails over the labelled arms alone. A measure instrument
     with no `mde:`, or one above 1 (the threshold reads a difference of proportions), has no
     threshold, so it is never rejected and stays unvalidated; None leaves the choice between
-    validated and unvalidated to the caller."""
+    validated and unvalidated to the caller. `floor` is the smallest sum of uppers the
+    sample could give (every arm at 0 errors): when it is already at or above the threshold
+    the sample cannot decide, so the instrument is unvalidated, not rejected (K6 rater Y6)."""
     if kind == "verdict":
         agg = max(uppers.values()) if uppers else 0.0
         failed = any(u > VERDICT_BOUND for u in uppers.values())
     else:
         agg = sum(uppers.values())
         if not proportion_threshold(threshold):
+            return "unvalidated", agg
+        if floor is not None and uppers and floor >= threshold:
             return "unvalidated", agg
         failed = bool(uppers) and agg >= threshold
     return ("rejected" if failed else None), agg
@@ -270,7 +281,7 @@ def instrument_report(base, slug, failed=None):
         kind = spec.get("kind") if spec else "measure"
         mdes = [m for m in (_mde(_protocol(base, h)) for h in used.get(name, ())) if m is not None]
         threshold = VERDICT_BOUND if kind == "verdict" else (min(mdes) if mdes else None)
-        uppers, complete = {}, True
+        uppers, complete, sizes = {}, True, {}
         for arm in sorted(items.get(name, {})):
             record = draws.get((name, arm))
             score = arm_score(record, labels, name, arm) if record else None
@@ -278,6 +289,7 @@ def instrument_report(base, slug, failed=None):
                 complete = False
                 continue
             n, errors = score
+            sizes[arm] = n
             uppers[arm] = st.clopper_pearson(errors, n)[1]
             lines.append("instrument %s: %s arm %s n=%d errors=%d upper=%.4f"
                          % (slug, name, arm, n, errors, uppers[arm]))
@@ -575,7 +587,15 @@ def cmd_instrument(repo, args):
 
 
 def cmd_gold(repo, args):
-    usage = "gold <slug> <instrument> --arm <a> --n N --seed S"
+    usage = ("gold <slug> <instrument> --arm <a> --n N --seed S "
+             '[--redraw --ack "<the user\'s words>"]')
+    redraw, ack = "--redraw" in args, ""
+    if redraw:
+        args = [a for a in args if a != "--redraw"]
+    if "--ack" in args:
+        i = args.index("--ack")
+        ack = args[i + 1] if i + 1 < len(args) else ""
+        args = args[:i] + args[i + 2:]
     if len(args) < 2:
         return _misuse(usage)
     slug, name = args[0], args[1]
@@ -589,13 +609,19 @@ def cmd_gold(repo, args):
         return _misuse(usage)
     if n < 1:
         return _misuse(usage)
+    if redraw and not ack.strip():
+        return _misuse('gold --redraw needs --ack "<the user\'s words>"')
+    if ack and not redraw:
+        return _misuse(usage)
     base, code = _line(repo, slug)
     if code is not None:
         return code
     if any(r.get("instrument") == name and str(r.get("arm")) == arm
-           for r in _rows(base, LABELS)):
+           for r in _rows(base, LABELS)) and not redraw:
         return _fail(slug, "gold draw after labels: %s arm %s already has labels, so its first "
-                     "draw stays the one every rule reads" % (name, arm))
+                     "draw stays the one every rule reads; the owner may record a redraw "
+                     "(`gold ... --redraw --ack \"<the user's words>\"`), and the labels of "
+                     "items the new draw drops then read stale" % (name, arm))
     items = instrument_items(base).get(name, {}).get(arm, {})
     if len(items) < n:
         return _fail(slug, "%s arm %s has %d items, fewer than --n %d" % (name, arm, len(items), n))
@@ -612,14 +638,24 @@ def cmd_gold(repo, args):
                      "nothing was written" % (name, arm, slug))
     record = {"instrument": name, "arm": arm, "seed": seed, "n": n,
               "items": seeded_draw(items, seed, arm, n)}
+    if redraw:
+        record["redraw"] = True
+        record["ack"] = ack.strip()
     data = (json.dumps(record, indent=2) + "\n").encode("utf-8")
     rel = "instruments/gold/%s-%s-%d.json" % (name, arm, seed)
     import tezgah_research_capture as cap
     problem = cap.write_capture(base, rel, data)
+    if problem and redraw and "capture exists" in problem:
+        # a redraw with another seed is a new file; the same seed may not be rewritten, so
+        # the owner picks a seed the arm has not drawn, or the draw stands
+        return _fail(slug, problem)
     if problem:
         return _fail(slug, problem)
-    _append(base, GOLD, [{"instrument": name, "arm": arm, "seed": seed, "n": n, "file": rel,
-                          "sha256": hashlib.sha256(data).hexdigest(), "drawn_at": _now()}])
+    row = {"instrument": name, "arm": arm, "seed": seed, "n": n, "file": rel,
+           "sha256": hashlib.sha256(data).hexdigest(), "drawn_at": _now()}
+    if redraw:
+        row.update(redraw=True, ack=ack.strip())
+    _append(base, GOLD, [row])
     print("gold %s: %d items of %s arm %s" % (rel, n, name, arm))
     return _commit(repo, base, [rel, GOLD], "gold", slug)
 
@@ -745,7 +781,8 @@ def case_flagged(case, root):
         mde = case.get("mde") if ikind == "measure" else VERDICT_BOUND
         upper = st.clopper_pearson(case["errors"], case["n"])[1]
         arms = {"all": upper} if ikind == "verdict" else {"a": upper, "b": upper}
-        status, _ = judge_status(ikind, arms, mde)
+        floor = (2 * st.clopper_pearson(0, case["n"])[1]) if ikind == "measure" else None
+        status, _ = judge_status(ikind, arms, mde, floor)
         return status in ("rejected", "unvalidated")
     raise ValueError("unknown case kind %r" % kind)
 

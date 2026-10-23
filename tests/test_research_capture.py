@@ -94,6 +94,43 @@ class Pure(unittest.TestCase):
         self.assertFalse(cap.header_agrees({"title": TITLE, "year": 2024,
                                             "first_author": "Jones"}, rec))
 
+    def test_a_word_extraction_split_in_two_still_cites(self):
+        """K6 rater Y6's probe: pdftotext wrote `human-inthe-loop` for the PDF's
+        `human-in-the-loop`, and the verbatim quote was refused. Only the source's
+        spacing is missing, so the fragment still sits there; a missing letter is
+        still a miss."""
+        text = ("The paper argues for a human-inthe-loop evaluation harness across "
+                "all ten tasks.")
+        self.assertIsNone(cap.quote_problem(
+            "argues for a human-in-the-loop evaluation harness", text))
+        self.assertEqual(cap.quote_problem(
+            "argues for a human-inloop evaluation harness", text), cap.NOT_IN_SOURCE)
+        # the exact text is still the first reading, and order still holds
+        self.assertIsNone(cap.quote_problem(
+            "human-inthe-loop evaluation harness ... across all ten tasks", text))
+        self.assertEqual(cap.quote_problem(
+            "across all ten tasks ... human-inthe-loop evaluation harness", text),
+            cap.NOT_IN_SOURCE)
+
+    def test_the_systematic_review_connectors_parse(self):
+        """K6 rater X6, row 7: PubMed, Scopus and ACM DL are standard for a systematic
+        review and were refused as not on the allowlist. Each parses under its own
+        answer and yields registry ids: PubMed its PMIDs, Scopus and ACM their DOIs."""
+        pm = json.dumps({"esearchresult": {"idlist": ["42891471", "42872930"]}}).encode()
+        self.assertTrue(cap.schema_ok("pubmed", pm))
+        self.assertEqual(cap.search_records("pubmed", pm),
+                         [["pubmed:42891471"], ["pubmed:42872930"]])
+        self.assertFalse(cap.schema_ok("pubmed", b'{"error": {}}'))
+        sc = json.dumps({"search-results": {"entry": [
+            {"prism:doi": "10.1145/A"}, {"eid": "2-s2.0-1"}]}}).encode()
+        self.assertTrue(cap.schema_ok("scopus", sc))
+        self.assertEqual(cap.search_records("scopus", sc), [["doi:10.1145/a"]])
+        self.assertFalse(cap.schema_ok("scopus", b'{"service-error": {}}'))
+        acm = json.dumps({"message": {"items": [{"DOI": "10.1145/B"}]}}).encode()
+        self.assertTrue(cap.schema_ok("acm", acm))
+        self.assertEqual(cap.search_records("acm", acm), [["doi:10.1145/b"]])
+        self.assertFalse(cap.schema_ok("acm", b"<html></html>"))
+
     def test_each_provider_parses_by_the_field_table(self):
         rid = "arXiv:" + ARX
         got = cap.parse_receipt("arxiv", rid, 200, atom([(ARX, TITLE, "We study.", 2024,
@@ -222,7 +259,8 @@ class Captures(unittest.TestCase):
         with open(orx, "w") as fh:
             fh.write("#!%s\nimport json, sys\nd = json.load(open(%r))\na = sys.argv[1:]\n"
                      "if a[:1] == ['logs']:\n    sys.stdout.write(d['logs'][a[1]])\n"
-                     "elif a[:1] == ['runs']:\n    print(json.dumps(d['runs']))\n"
+                     "elif a[:1] == ['runs']:\n    v = d['runs']\n"
+                     "    sys.stdout.write(v if isinstance(v, str) else json.dumps(v))\n"
                      "elif a[:2] == ['paper', '--full'] and a[2] in d.get('papers', {}):\n"
                      "    sys.stdout.write(d['papers'][a[2]])\n"
                      "else:\n    sys.exit(1)\n" % (sys.executable, self.orx_data))
@@ -375,6 +413,32 @@ class Captures(unittest.TestCase):
             self.base, {"searches/raw/y.raw": b"b", "searches/raw/x.raw": b"c"}))
         self.assertFalse(os.path.exists(self.at("searches/raw/y.raw")))
 
+    def test_search_files_the_systematic_review_connectors(self):
+        """The allowlist's exit (X6, row 7): PubMed, Scopus and ACM DL through the same
+        command. Scopus needs a key, and says which variable when it has none."""
+        self.set_map({cap.SEARCH_URLS["pubmed"] % "caching+tail":
+                      json.dumps({"esearchresult": {"idlist": ["42891471"]}}),
+                      cap.SEARCH_URLS["acm"] % "caching+tail":
+                      json.dumps({"message": {"items": [{"DOI": "10.1145/B"}]}})})
+        code, out = self.run_cmd("search", "q", "--tag", "primary", "--", "pubmed",
+                                 "caching", "tail")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.rows(cap.SEARCHES)[-1]["connector"], "pubmed")
+        self.assertEqual(self.rows(cap.SEARCHES)[-1]["ids"], ["pubmed:42891471"])
+        self.assertEqual(self.run_cmd("search", "q", "--tag", "primary", "--", "scopus",
+                                      "caching", "tail")[0], 2)
+        os.environ["TEZGAH_SCOPUS_KEY"] = "k"
+        self.set_map({cap.SEARCH_URLS["scopus"] % "caching+tail": json.dumps(
+            {"search-results": {"entry": [{"prism:doi": "10.1145/A"}]}})})
+        code, out = self.run_cmd("search", "q", "--tag", "primary", "--", "scopus",
+                                 "caching", "tail")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.rows(cap.SEARCHES)[-1]["ids"], ["doi:10.1145/a"])
+        code, out = self.run_cmd("search", "q", "--tag", "primary", "--", "acm",
+                                 "caching", "tail")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.rows(cap.SEARCHES)[-1]["ids"], ["doi:10.1145/b"])
+
     def test_search_rows_screening_and_steps(self):
         code, out = self.run_cmd("search", "q", "--tag", "primary", "--", "curl", "x")
         self.assertEqual(code, 1)
@@ -423,6 +487,42 @@ class Captures(unittest.TestCase):
         self.assertFalse([e for e in errors if "registry" in e or "providers" in e], errors)
         self.assertIn("header-mismatch", steps["C1"])
 
+    def test_orx_runs_its_table_answer_reads_as_runs(self):
+        """K6 rater Y5: orx 0.2.20's `orx runs` has no `--json` and prints a table, so
+        the run census reported `did not print JSON`. The table's rows are the runs; an
+        answer that is neither JSON nor that table still says so."""
+        self.orx({"logs": {"r1": "run r1\n"}, "runs":
+                  "ID                                    STATUS  EXPERIMENT  COMMIT  "
+                  "DURATION  UPDATED\n"
+                  "────────────────────────────────────  ──────  ──────────  ──────  "
+                  "────────  ───────\n"
+                  "38645db6-07c3-4098-a81b-069245bc4cef  done    join        0eb3669  6s   "
+                  "     5h ago\n"})
+        runs, err = cap.engine_runs({"orx_project": "p"})
+        self.assertIsNone(err)
+        self.assertEqual([(cap.run_id(r), r.get("status")) for r in runs],
+                         [("38645db6-07c3-4098-a81b-069245bc4cef", "done")])
+        self.orx({"logs": {"r1": "x"}, "runs": "no such project\n"})
+        self.assertEqual(cap.engine_runs({"orx_project": "p"}),
+                         (None, "orx runs p printed neither JSON nor a run table"))
+
+    def test_a_receipt_recorded_from_a_429_never_drifts(self):
+        """Plan 128 C10, confirmed here: `cite` writes no receipt for an answer other
+        than 200, and `check --online` drifts only a receipt recorded from a 200, so an
+        older 429 row is not read as drift when the provider answers."""
+        row = {"id": "arXiv:" + ARX, "provider": "arxiv", "url": ARXIV_API, "file": None,
+               "sha256": None, "fetched_at": "2026-01-01T00:00:00Z", "parser": cap.PARSER,
+               "title": None, "first_author": None, "year": None, "abstract": None}
+        self.set_map({ARXIV_API: atom([(ARX, "A different title", "x", 2024, "A B")])})
+        self.append(cap.RECEIPTS, dict(row, status=429))
+        _e, _w, steps = self.check({"online": True})
+        self.assertFalse([line for line in steps["#report"] if "drifted" in line],
+                         steps["#report"])
+        # the same row at 200 is the one the rule reads
+        self.write(self.at(cap.RECEIPTS), json.dumps(dict(row, status=200)) + "\n")
+        _e, _w, steps = self.check({"online": True})
+        self.assertIn("online q: arXiv:%s arxiv title drifted" % ARX, steps["#report"])
+
     def test_online_drift_and_abstract_only(self):
         self.map[HTML] = {"status": 404}
         self.write(self.map_path, json.dumps(self.map))
@@ -450,8 +550,31 @@ class Captures(unittest.TestCase):
         self.assertTrue(all(p["found"] for p in record["passages"]))
         self.map[HTML] = {"status": 404}
         self.write(self.map_path, json.dumps(self.map))
-        self.orx({"logs": {}, "runs": [], "papers": {ARX: "it says %s" % QUOTE}})
+        body = " ".join(
+            "Measure %d: the cache lowered tail latency in every workload we measured." % i
+            for i in range(120))
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: body}})
         self.run_cmd("fetch", "q", NOTE)
+        self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
+
+    def test_orx_metadata_and_abstract_read_as_abstract(self):
+        """K6 raters Y5 and Y6: `orx paper --full` answers with metadata and an abstract
+        for a paper it cannot read whole, and that was labelled `full`, so a verbatim body
+        quote was refused. The same body test the open-access page gets applies; a short
+        text that holds a quote still backs it, so it stays full."""
+        self.run_cmd("cite", "q")
+        self.map[HTML] = {"status": 404}
+        self.write(self.map_path, json.dumps(self.map))
+        stub = ("Title. Ann Smith. 2024. Abstract: we study caching in three services.")
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: stub}})
+        self.assertEqual(self.run_cmd("fetch", "q", NOTE)[0], 0)
+        row = self.rows(cap.SOURCES)[-1]
+        self.assertEqual(row["access"], "abstract")
+        with open(self.at(row["file"])) as fh:
+            record = json.load(fh)
+        self.assertIn("not full text", record["reason"])
+        self.orx({"logs": {}, "runs": [], "papers": {ARX: "Abstract only. %s." % QUOTE}})
+        self.assertEqual(self.run_cmd("fetch", "q", NOTE)[0], 0)
         self.assertEqual(self.rows(cap.SOURCES)[-1]["access"], "full")
 
     def test_quote_absent_from_the_capture_is_refused(self):
@@ -663,6 +786,9 @@ class Captures(unittest.TestCase):
         errors, _w, _s = self.check()
         self.assertFalse([e for e in errors if cap.NOT_IN_SOURCE in e], errors)
         self.assertEqual(cap.normalise("latency [ 12 ] in [3 , 4]"), "latency in")
+        # an editorial change keeps its letter and loses only its brackets (Y6's probe)
+        self.assertEqual(cap.normalise("[T]he thing"), cap.normalise("the thing"))
+        self.assertEqual(cap.normalise("the [T]hing"), "the thing")
 
     def test_formal_row_with_an_empty_id_resolves_in_no_registry(self):
         # D2-6

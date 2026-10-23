@@ -261,6 +261,39 @@ class Instruments(Line):
         code, _ = self.run_cmd("gold", ["nope", "j", "--arm", "a", "--n", "1", "--seed", "1"])
         self.assertEqual(code, 2)
 
+    def test_the_owner_may_record_a_redraw_after_labels(self):
+        """K6 rater X6: `gold draw after labels` was permanent for that instrument and
+        arm, so a sample drawn over a small item set could never grow. The owner records a
+        redraw with their words; the latest redraw is the draw every rule reads."""
+        self.run_cmd("instrument", ["add", "q", "j", "--kind", "measure", "--rung", "R4",
+                                    "--construct", "slow"])
+        self.items("j", {"a": [0] * 10})
+        self.gold_and_label("j", "a", 5, 1)
+        code, out = self.run_cmd("gold", ["q", "j", "--arm", "a", "--n", "6", "--seed", "2",
+                                          "--redraw"])
+        self.assertEqual(code, 2, out)
+        code, out = self.run_cmd("gold", ["q", "j", "--arm", "a", "--n", "6", "--seed", "2",
+                                          "--redraw", "--ack", "the sample was too small"])
+        self.assertEqual(code, 0, out)
+        draws = ev.first_draws(self.base)
+        self.assertEqual(len(draws[("j", "a")]["items"]), 6)
+        self.assertTrue(draws[("j", "a")].get("redraw"))
+
+    def test_a_sample_too_small_to_reach_the_threshold_leaves_the_instrument_unvalidated(self):
+        """K6 rater Y6: 12 gold items with no error read `rejected` against an mde of 0.2,
+        and `conclude` then held the line. The sample cannot decide - even 0 errors leaves
+        a sum of uppers above the threshold - so the instrument is unvalidated, not
+        rejected."""
+        upper = ev.st.clopper_pearson(0, 12)[1]
+        arms = {"a": upper, "b": upper}
+        self.assertGreaterEqual(2 * upper, 0.2)
+        self.assertEqual(ev.judge_status("measure", arms, 0.2)[0], "rejected")
+        self.assertEqual(ev.judge_status("measure", arms, 0.2, 2 * upper)[0], "unvalidated")
+        # a sample big enough to decide still rejects on its own uppers
+        big = ev.st.clopper_pearson(0, 72)[1]
+        self.assertEqual(ev.judge_status("measure", {"a": big, "b": big}, 0.2,
+                                         2 * big)[0], None)
+
     def test_gold_and_label_read_the_rows_source_writes(self):
         """Review round two K-7: rows `source` files with `--instrument`, `--arm` and
         `--item` are instrument items, so `gold` draws them and `label` reads them."""
