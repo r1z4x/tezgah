@@ -825,6 +825,9 @@ class UsedToolKind(unittest.TestCase):
         # the `&&` after a skipped `||` arm still runs: the list succeeded
         self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true", "j3"])
         self.assertEqual(programs("true x || cat && ls"), ["true", "ls"])
+        # a line that ends on a skipped arm's close starts over: the `false`d
+        # arm's `)` is no newline, but the line's own end is
+        self.assertEqual(programs("true x || (g1)\ncat"), ["true", "cat"])
         self.assertEqual(programs("SKIP=1 true || x; cat"), ["true", "cat"])
         self.assertEqual(programs("p0 || ls"), ["p0", "ls"])
         self.assertEqual(programs("true x || p1 || curl"), ["true"])

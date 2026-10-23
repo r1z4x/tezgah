@@ -508,6 +508,7 @@ function shellCommands(cmd) {
     }
     for (const seg of [cur, ...subs.reverse().filter((s) => s.length < 3).map((s) => s[0])]) {
       if (seg.length) out.push([seg, "\n"])
+      else if (out.length) out[out.length - 1][1] += "\n" // a close ended the line
     }
   }
   if (out.length && out[out.length - 1][1] === "\n") out[out.length - 1][1] = ""

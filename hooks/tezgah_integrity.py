@@ -2563,6 +2563,8 @@ def _shell_commands(cmd):
         for seg in [cur] + [sub[0] for sub in reversed(subs) if len(sub) < 3]:
             if seg:
                 out.append([seg, "\n"])
+            elif out:  # the line ended on a close: its newline is still a break
+                out[-1][1] += "\n"
     if out and out[-1][1] == "\n":
         out[-1][1] = ""
     return out
