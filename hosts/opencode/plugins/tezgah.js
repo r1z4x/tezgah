@@ -472,6 +472,14 @@ function shellCommands(cmd) {
         afterRedir = false
         continue
       }
+      // `$(( ))` is arithmetic: its own words are no commands, though a `$( )`
+      // inside one still is and is entered below
+      if (word.startsWith("((") && cur.length && cur[cur.length - 1].endsWith("$")) {
+        cur[cur.length - 1] += "()"
+        subs.push([cur, 1, true])
+        cur = []
+        continue
+      }
       if (!(word && ";&|()".includes(word[0]))) { cur.push(word); continue }
       for (const piece of word.match(/[()]|[;&|]+/g) || []) {
         if (piece === "(" && cur.length && cur[cur.length - 1].endsWith("$")) {
@@ -480,21 +488,25 @@ function shellCommands(cmd) {
           cur = []
           continue
         }
-        if (subs.length && piece === "(") subs[subs.length - 1][1] += 1
-        else if (subs.length && piece === ")") {
+        if (subs.length && piece === "(") {
+          subs[subs.length - 1][1] += 1
+          if (subs[subs.length - 1].length > 2) { cur = []; continue } // grouping
+        } else if (subs.length && piece === ")") {
           if (!subs[subs.length - 1][1]) {
-            if (cur.length) out.push([cur, "$)"])
+            const arith = subs[subs.length - 1].length > 2
+            if (cur.length && !arith) out.push([cur, "$)"])
             cur = subs.pop()[0]
             continue
           }
           subs[subs.length - 1][1] -= 1
+          if (subs[subs.length - 1].length > 2) { cur = []; continue }
         }
         if (cur.length) out.push([cur, piece])
         else if (out.length) out[out.length - 1][1] += piece
         cur = []
       }
     }
-    for (const seg of [cur, ...subs.reverse().map((s) => s[0])]) {
+    for (const seg of [cur, ...subs.reverse().filter((s) => s.length < 3).map((s) => s[0])]) {
       if (seg.length) out.push([seg, "\n"])
     }
   }

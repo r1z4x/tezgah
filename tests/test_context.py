@@ -803,6 +803,14 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(programs("2>f pytest >/dev/null"), ["pytest"])
         self.assertEqual(programs("12 < f cat"), ["12"])
 
+    def test_an_arithmetic_word_is_no_program(self):
+        # plan 129, fuzzer seed 1: bash runs nothing for a `$(( ))` body, while
+        # a `$( )` inside one does run
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("cat $((1))"), ["cat"])
+        self.assertEqual(programs("echo $(( $(p) + 1 ))#;ls"),
+                         ["p", "echo", "ls"])
+
     def test_an_or_arm_behind_a_true_never_runs(self):
         # plan 129, fuzzer seed 1: bash's `true` (and `:`) cannot fail, so the
         # `||` arm after one runs in neither of the oracle's two runs; a stub

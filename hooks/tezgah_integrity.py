@@ -2521,6 +2521,13 @@ def _shell_commands(cmd):
                     continue  # `>&2`: the `&` belongs to the operator
                 after_redir = False
                 continue
+            if word.startswith("((") and cur and cur[-1].endswith("$"):
+                # `$(( ))` is arithmetic: its own words are no commands, though
+                # a `$( )` inside one still is and is entered below
+                cur[-1] += "()"
+                subs.append([cur, 1, True])
+                cur = []
+                continue
             if not (word and word[0] in ";&|()"):
                 cur.append(word)
                 continue
@@ -2532,19 +2539,28 @@ def _shell_commands(cmd):
                     continue
                 if subs and piece == "(":
                     subs[-1][1] += 1
+                    if len(subs[-1]) > 2:  # a grouping paren inside arithmetic
+                        cur = []
+                        continue
                 elif subs and piece == ")":
                     if not subs[-1][1]:
-                        if cur:
+                        arith = len(subs[-1]) > 2
+                        if cur and not arith:
                             out.append([cur, "$)"])
                         cur = subs.pop()[0]
                         continue
                     subs[-1][1] -= 1
+                    if len(subs[-1]) > 2:  # still the arithmetic's own paren
+                        cur = []
+                        continue
                 if cur:
                     out.append([cur, piece])
                 elif out:
                     out[-1][1] += piece
                 cur = []
-        for seg in [cur] + [outer for outer, _open in reversed(subs)]:
+        # an arithmetic sub holds no command of its own, only any `$( )` in it,
+        # which was emitted when it closed
+        for seg in [cur] + [sub[0] for sub in reversed(subs) if len(sub) < 3]:
             if seg:
                 out.append([seg, "\n"])
     if out and out[-1][1] == "\n":
