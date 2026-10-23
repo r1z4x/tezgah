@@ -194,5 +194,13 @@ class CloneRetry(unittest.TestCase):
         self.assertEqual((name, status, last, killer), ("m1", 2, "clone: nope", None))
 
 
+    def test_the_matrix_never_runs_in_one_lane(self):
+        """Plan 132: on a 2-core runner `cpu // 2` is 1, and 147 mutants in one lane
+        ran past the job's 120-minute timeout (run 39922402672). Two lanes is the floor."""
+        self.assertEqual(neuter_matrix.default_workers(2), 2)
+        self.assertEqual(neuter_matrix.default_workers(None), 2)
+        self.assertEqual(neuter_matrix.default_workers(10), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

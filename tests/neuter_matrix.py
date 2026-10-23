@@ -866,6 +866,14 @@ def updated(killers, results, names):
     return out
 
 
+def default_workers(cpus):
+    """Half the cores, and never one: on a 2-core runner half is 1, and 147
+    mutants plus the controls in one lane ran past the job's 120-minute timeout
+    (run 39922402672, cancelled at 2h0m29s on 2026-10-23). Two lanes halve that
+    and still leave a core for each forked unittest process."""
+    return max(2, (cpus or 2) // 2)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if "--stop-generated" in argv:
@@ -906,7 +914,7 @@ def main(argv=None):
         # Half the cores: every worker forks a unittest process of its own,
         # and cpu_count workers ran the cached matrix slower (304 s against
         # 240 s, one session on 10 cores, 2026-10-13)
-        workers = max(1, (os.cpu_count() or 2) // 2)
+        workers = default_workers(os.cpu_count())
         alone = sorted({killers[m[0]] for m in rows if m[0] in killers})
         checks = [(m, None) for m in MODULES] + [(t.split(".")[0] + ".py", t) for t in alone]
         with concurrent.futures.ThreadPoolExecutor(workers) as pool:
