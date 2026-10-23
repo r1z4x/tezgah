@@ -2454,6 +2454,8 @@ function shellPrograms(command, depth = 0) {
     if (sep.includes("||")) {
       alive = !safe
       safe = true
+    } else if (sep.includes("&&")) {
+      alive = true // the list may still succeed, so its next link may run
     } else if (sep.includes(";") || sep.includes("\n") || sep === "&" || sep === "") {
       alive = true
       safe = true

@@ -2558,6 +2558,8 @@ def shell_programs(command, _depth=0):
         # the separator decides the NEXT command, so it is read after this one
         if "||" in sep:
             alive, safe = not safe, True
+        elif "&&" in sep:
+            alive = True  # the list may still succeed, so its next link may run
         elif ";" in sep or "\n" in sep or sep == "&" or sep == "":
             alive, safe = True, True
     return out

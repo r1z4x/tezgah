@@ -98,8 +98,10 @@ STUBS = PROGRAMS + ("s1", "d1", "d2", "a1", "u1", "r1", "r2", "c1", "b1",
                     # both branches instead of always failing on a missing PATH
                     "git", "tail",
                     # `=1` is no assignment to bash: it is the command word of a
-                    # line the comment's continuation left its `J` off
-                    "=1")
+                    # line the comment's continuation left its `J` off; `y` is
+                    # the word after a real newline's continuation, and `1` a
+                    # digit word a spaced `<` makes a program
+                    "=1", "y", "1")
 # the separators, also split by a continuation the way the shortcut rules'
 # tokens are (`|\<nl>|` is `||`), and a real newline after an escaped backslash
 SEPARATORS = ("; ", " && ", " || ", " | ", "\n", " & ",

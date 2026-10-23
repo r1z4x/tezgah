@@ -809,7 +809,9 @@ class UsedToolKind(unittest.TestCase):
         # left side can fail, so its arm stays
         programs = self.tc.shell_programs
         self.assertEqual(programs("pytest |\\\n| true || p1"), ["pytest", "true"])
-        self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true"])
+        # the `&&` after a skipped `||` arm still runs: the list succeeded
+        self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true", "j3"])
+        self.assertEqual(programs("true x || cat && ls"), ["true", "ls"])
         self.assertEqual(programs("SKIP=1 true || x; cat"), ["true", "cat"])
         self.assertEqual(programs("p0 || ls"), ["p0", "ls"])
         self.assertEqual(programs("true x || p1 || curl"), ["true"])
