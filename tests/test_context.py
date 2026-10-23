@@ -803,6 +803,22 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(programs("2>f pytest >/dev/null"), ["pytest"])
         self.assertEqual(programs("12 < f cat"), ["12"])
 
+    def test_an_or_arm_behind_a_true_never_runs(self):
+        # plan 129, fuzzer seed 1: bash's `true` (and `:`) cannot fail, so the
+        # `||` arm after one runs in neither of the oracle's two runs; a stub
+        # left side can fail, so its arm stays
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("pytest |\\\n| true || p1"), ["pytest", "true"])
+        self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true"])
+        self.assertEqual(programs("SKIP=1 true || x; cat"), ["true", "cat"])
+        self.assertEqual(programs("p0 || ls"), ["p0", "ls"])
+        self.assertEqual(programs("true x || p1 || curl"), ["true"])
+        # when the `&&` arm itself never ran, the pipeline's status is the
+        # failed list's, so the `||` arm after it does run
+        self.assertEqual(programs("j\
+2 && pytest | true || cat"),
+                         ["j2", "pytest", "true", "cat"])
+
     def test_the_fuzzers_three_program_classes_are_closed(self):
         # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a
         # `$( )` or backtick close stay its command's arguments, and an unquoted

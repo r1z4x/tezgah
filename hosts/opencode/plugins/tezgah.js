@@ -2407,7 +2407,10 @@ function substitutions(text, start, end) {
 
 // Every word a shell line would run as a program, in order
 // (hooks/tezgah_context.shell_programs): a closed heredoc body is data - a
-// quoted tag's whole, an unquoted tag's all but its substitutions.
+// quoted tag's whole, an unquoted tag's all but its substitutions. A `||` arm
+// behind a pipeline that cannot fail (`true`, `:` in its last stage) never
+// runs, so its words go until the next `;`, newline, `&` or substitution close.
+const NO_FAIL = new Set(["true", ":"])
 function shellPrograms(command, depth = 0) {
   const s = String(command || "")
   const text = s.split("")
@@ -2423,8 +2426,39 @@ function shellPrograms(command, depth = 0) {
       if (text[k] !== "\n" && !keep.has(k)) text[k] = " "
     }
   }
+  // `ok` is the whole `&&`/`||` list's failability so far, not one stage's:
+  // `a && b || c` runs `c` when `a` fails, so a `||` arm is dead only when
+  // every link before it cannot fail. A builder (`|`, not `||`) hands the
+  // list its last stage's status, as bash's exit is the pipeline's last.
   const out = []
-  for (const words of shellSegments(text.join(""))) out.push(...commandWords(words, depth))
+  let alive = true
+  let safe = true
+  let pipe = false
+  for (const [words, sep] of shellCommands(text.join(""))) {
+    let progs = null
+    if (alive) {
+      progs = commandWords(words, depth)
+      out.push(...progs)
+    }
+    // a pipeline stage's own status is overwritten by the stage after it, so
+    // only the stage that ends the pipeline folds into `safe`; a stage that
+    // was skipped leaves the list's own status standing (a skipped `&&` arm
+    // is why `a && b | true || c` still runs `c` when `a` fails)
+    if (sep.includes("|") && !sep.includes("||")) {
+      pipe = true
+      continue
+    }
+    if (alive) safe = safe && progs.length > 0 && NO_FAIL.has(progs[0])
+    pipe = false
+    // the separator decides the NEXT command, so it is read after this one
+    if (sep.includes("||")) {
+      alive = !safe
+      safe = true
+    } else if (sep.includes(";") || sep.includes("\n") || sep === "&" || sep === "") {
+      alive = true
+      safe = true
+    }
+  }
   return out
 }
 

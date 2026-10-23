@@ -69,6 +69,10 @@ ARGS = (
     ("cont-squote", "'q s2\\\n s3'"),
     ("cont-word", "x\\\ny"),
     ("escaped-backslash", "x\\\\"),
+    # after an escaped backslash the newline is real, so a `#` on the next
+    # line opens a comment and its command does not run
+    ("escaped-backslash-hash", "x\\\\\n#;e4"),
+    ("cont-squote-hash", "'q s4\\\n#;s5'"),
     # a `#` mid-word opens no comment, so the command after it runs: after a
     # substitution's `)`, a backtick (a continuation between them too) and an
     # escaped boundary (round 3i of plan 126's review)
@@ -79,15 +83,34 @@ ARGS = (
     ("hash-escaped", "x\\ #;e1"),
     ("hash-escaped", "x\\;#;e2"),
     ("hash-cont", "x\\\n#;e3"),
+    ("hash-procsub", "<(echo k2)#;k3"),
+    ("hash-array", "A=(q)#;c5"),
 )
 STUBS = PROGRAMS + ("s1", "d1", "d2", "a1", "u1", "r1", "r2", "c1", "b1",
                     "m1", "h1", "h2", "h3", "h4", "d3", "d4", "s2", "s3", "c2",
-                    "c3", "c4", "b2", "b3", "b4", "b5", "e1", "e2", "e3", "j1",
-                    "j2", "g1", "m2", "c5", "k1")
+                    "c3", "c4", "b2", "b3", "b4", "b5", "e1", "e2", "e3", "e4",
+                    "s4", "s5", "j1", "j2", "g1", "m2", "c5", "k1", "k2", "k3",
+                    # `git` is a shortcut's own word, and a stub alternates
+                    # its exit, so `SKIP=1 git ... && x` takes both branches;
+                    # `true` needs no stub - bash's builtin shadows it and never
+                    # logs, so it is not a name the oracle can compare; `tail` is
+                    # a shortcut's trimmer and a stub, so an `&&` after it takes
+                    # both branches instead of always failing on a missing PATH
+                    "git", "tail",
+                    # `=1` is no assignment to bash: it is the command word of a
+                    # line the comment's continuation left its `J` off
+                    "=1")
 # the separators, also split by a continuation the way the shortcut rules'
 # tokens are (`|\<nl>|` is `||`), and a real newline after an escaped backslash
 SEPARATORS = ("; ", " && ", " || ", " | ", "\n", " & ",
-              " |\\\n| ", " &\\\n& ", " ;\\\n", " |\\\n ", " \\\\\n")
+              " |\\\n| ", " &\\\n& ", " ;\\\n", " |\\\n ", " \\\\\n",
+              " |\\\n& ", " \\\n")
+# the shortcut rules' tokens with a continuation inside them (bash deletes the
+# pair, so `--no-ver\<nl>ify` is `--no-verify` and `|\<nl>|` is `||`)
+SHORTCUTS = ("pytest |\\\n| true", "pytest ;\\\ntrue x",
+             "SK\\\nIP=1 git co\\\nmmit -m m",
+             "SKIP=1 git comm\\\nit --no-ver\\\nify -m m",
+             "pytest |\\\n tail -1", "pytest | tr\\\nue")
 
 
 def bash():
@@ -112,6 +135,8 @@ def _command(rnd):
         # a continuation inside an assignment and a program name (`SK\<nl>IP=`,
         # `tr\<nl>ue`): bash joins both
         return "J\\\n=1 j\\\n2"
+    if roll < 0.18:
+        return rnd.choice(SHORTCUTS)
     words = ["X=1"] if roll < 0.25 else []
     words.append("j\\\n1" if rnd.random() < 0.05 else rnd.choice(PROGRAMS))
     words += [rnd.choice(ARGS)[1] for _ in range(rnd.randint(0, 3))]
