@@ -462,7 +462,7 @@ class OpenCodePlugin(TempHome):
         review = ["pytest |\\\n| true || p1", "p0 | true || j2 && j3",
                   "SKIP=1 true || x; cat", "p0 || ls",
                   "j\\\n2 && pytest | true || cat", "true x || p1 || curl",
-                  "true x || cat && ls"]
+                  "true x || cat && ls", "cat $((1))#;ls"]
         for line, js in zip(review, self.js_readers(review)):
             self.assertEqual(js["programs"], tc.shell_programs(line), repr(line))
         self.assertEqual(tc.shell_programs("pytest |\\\n| true || p1"),
