@@ -245,6 +245,79 @@ class Derive(DesignCase):
         self.assertTrue(os.path.isfile(self.path(".tezgah", "design-contract.md")))
 
 
+class DesignMd(DesignCase):
+    """A repository with Hallmark's locked `design.md`: the palette the build was
+    made in is the floor, and it wins over a second derivation beside it (plan
+    133). The file states OKLCH; the contract compares hex."""
+
+    DESIGN_MD = """# Design: Closewise
+
+## System
+- Genre: modern-minimal
+- Theme: Dusk
+
+## Tokens
+`tokens.css` is the source of truth. The roles:
+```css
+:root {
+  --color-paper: oklch(96% 0.01 80);  --color-ink: oklch(20% 0.01 260);
+  --color-accent: oklch(0.62 0.19 40);  --font-display: "Söhne", sans-serif;
+}
+```
+"""
+
+    def contract_json(self, out):
+        return json.loads(re.search(r"```json\n(.*?)\n```", self.read(out), re.S).group(1))
+
+    def test_a_design_md_names_the_floor_and_beats_a_second_derivation(self):
+        self.write("design.md", self.DESIGN_MD)
+        # a token file beside it must not win: two floors is the drift
+        self.write("app/tokens.css", TOKENS_CSS)
+        proc = self.run_cli("derive", "--repo", self.dir, "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["source"], "design-md")
+        data = self.contract_json(self.path(".tezgah", "design-contract.md"))
+        self.assertEqual(data["source"], "design-md")
+        self.assertEqual(data["tokens"]["colors"]["paper"], "#f5f1ea")
+        self.assertEqual(data["tokens"]["colors"]["ink"], "#13161b")
+        self.assertEqual(data["tokens"]["colors"]["accent"], "#df500c")
+        # ours never come from the file: the state set and the WCAG floors
+        self.assertEqual(len(data["tokens"]["type_scale"]), 0)
+        self.assertEqual(data["tokens"]["tap_target"], 24)
+        self.assertIn("focus", data["states"]["interactive"])
+
+    def test_the_precedence_table_is_written_and_ours_owns_the_facts(self):
+        self.write("design.md", self.DESIGN_MD)
+        self.assertEqual(self.run_cli("derive", "--repo", self.dir).returncode, 0)
+        data = self.contract_json(self.path(".tezgah", "design-contract.md"))
+        table = data["precedence"]
+        self.assertEqual(table["verbatim"], "style")
+        self.assertIn("facts", table["ours"])
+        self.assertNotIn("facts", table["theirs"])
+
+    def test_a_contract_that_hands_facts_to_the_user_is_refused(self):
+        data = {"version": 1, "source": "design-md",
+                "tokens": {"colors": {"ink": "#111111"}},
+                "precedence": {"ours": ["states"], "theirs": ["material", "facts"],
+                               "shared": [], "verbatim": "facts"}}
+        self.contract(data)
+        proc = self.run_cli("check", "--contract", self.path("contract.md"),
+                            "--measured", "-")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("facts", proc.stderr)
+
+    def test_a_key_named_by_two_sources_is_refused(self):
+        data = {"version": 1, "source": "design-md",
+                "tokens": {"colors": {"ink": "#111111"}},
+                "precedence": {"ours": ["contrast"], "theirs": ["material"],
+                               "shared": ["contrast"]}}
+        self.contract(data)
+        proc = self.run_cli("check", "--contract", self.path("contract.md"),
+                            "--measured", "-")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("twice", proc.stderr)
+
+
 class Check(DesignCase):
     """`check` compares a measurement - the per-component styles and states the
     analyze-app loop produces - against the contract, and every disagreement is
