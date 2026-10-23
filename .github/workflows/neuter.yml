@@ -37,7 +37,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     # a hung mutant must not hold a runner for GitHub's 6-hour default
-    timeout-minutes: 120
+    # 147 mutants and their controls on a 2-core runner: two lanes did not
+    # finish inside 120 minutes (runs 39922402672 and 39937529792,
+    # 2026-10-23), so the job gets four hours of headroom
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
