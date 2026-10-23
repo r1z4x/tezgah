@@ -38,9 +38,15 @@ jobs:
     runs-on: ubuntu-latest
     # a hung mutant must not hold a runner for GitHub's 6-hour default
     # 147 mutants and their controls on a 2-core runner: two lanes did not
-    # finish inside 120 minutes (runs 39922402672 and 39937529792,
-    # 2026-10-23), so the job gets four hours of headroom
+    # finish inside 120 minutes (runs 39922402672 and 39937529792) and one job
+    # was cancelled at the four-hour cap (run 39950528409), so the matrix runs
+    # as four parallel shards of its rows - the union is the whole matrix - and
+    # each shard keeps four hours of headroom for a hung mutant.
     timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -52,7 +58,7 @@ jobs:
         with:
           node-version: "20"
       - name: Every anti-shortcut guard is load-bearing
-        run: TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py
+        run: TEZGAH_E2E_STRICT=1 python3 tests/neuter_matrix.py --shard ${{ matrix.shard }}/4
 
   # The shell readers against bash 5.x (macOS ships 3.2, where the fuzzer was
   # first run): any disagreement class, core or opencode port, fails the leg.
