@@ -330,6 +330,9 @@ const CONFIG_READ_SUBS = new Set(["get", "unset", "list", "edit",
 const ROUGH_WORDS = /[;&|()]+|[^\s;&|()<>]+/g
 // a redirection operator, or `&` in front of one: none of its words is an argument
 const REDIRECTION = /^(?=[&<>]*[<>])[&<>]+$/
+// an fd number glued to its redirection (`2>`, `1<&`): bash reads `1<` as fd 1
+// and `1 <` as the program `1`, and shellWords cannot tell them apart afterwards
+const FD_REDIRECT = /(?<![\w])(\d+)([<>])/g
 const GIT_WRAPPER = new Set(["sudo", "env", "nohup", "time", "timeout",
   "command", "exec"])
 
@@ -380,6 +383,15 @@ function heredocBytes(text) {
 const WORD_BREAKS = " \t\n;&|()<>"
 const CONTINUATION = "\\\n"
 function opensComment(prev) { return !prev || WORD_BREAKS.includes(prev) }
+// hooks/tezgah_integrity WORD_PARENS and _kept: a `)` closing a `(` opened right
+// after `$`, `<`, `>` or `=` (a substitution, an arithmetic expansion, an array)
+// ends no word, so `$(:)#x` is one word; a subshell's `)` is a break
+const WORD_PARENS = "$<>="
+function kept(ch, before, parens) {
+  if (ch === "(") parens.push(Boolean(before) && WORD_PARENS.includes(before))
+  else if (ch === ")" && parens.length && parens.pop()) return "_"
+  return ch
+}
 
 // The newlines that end a command (hooks/tezgah_integrity._shell_lines): none
 // inside quotes, each one in a heredoc body, every one inside a double-quoted
@@ -389,6 +401,7 @@ function opensComment(prev) { return !prev || WORD_BREAKS.includes(prev) }
 function shellLines(text) {
   const body = heredocBytes(text)
   let lines = [], cur = "", quote = null, prev = "", i = 0, opened = 0, runs = false
+  const parens = []
   let dollar = false  // the character before i was a `$` bash read unescaped
   const n = text.length
   while (i < n) {
@@ -422,7 +435,7 @@ function shellLines(text) {
       quote = ch === "'" && dollar ? "$'" : ch
       opened = lines.length
     }
-    prev = quote || ch === "'" || ch === '"' ? "_" : ch
+    prev = quote || ch === "'" || ch === '"' ? "_" : kept(ch, prev, parens)
     dollar = !quote && ch === "$"
     cur += ch
     i += 1
@@ -441,22 +454,30 @@ function shellLines(text) {
 function shellCommands(cmd) {
   const out = []
   const text = blankHeredocs(String(cmd || ""))
-  for (const line of shellLines(text).map(forShlex)) {
+  for (const line0 of shellLines(text).map(forShlex)) {
+    const line = line0.replace(FD_REDIRECT, "$2")
     const words = shellWords(line) || (line.replace(/['"`]/g, "").match(ROUGH_WORDS) || [])
-    // a redirection is not an argument and not a command: its words (the fd
-    // before, the `&` of `2>&1`/`&>`, the target after) are dropped
+    // a redirection is not an argument and not a command: its words (the `&` of
+    // `2>&1`/`&>`, the glued fd cut above, the target after) are dropped
     let cur = [], subs = [], afterRedir = false
     for (let i = 0; i < words.length; i++) {
       const word = words[i]
       if (word === "&" && i + 1 < words.length && REDIRECTION.test(words[i + 1])) continue
       if (REDIRECTION.test(word)) {
-        if (cur.length && /^\d+$/.test(cur[cur.length - 1])) cur.pop()
         afterRedir = true
         continue
       }
       if (afterRedir) {
         if (word === "&") continue
         afterRedir = false
+        continue
+      }
+      // `$(( ))` is arithmetic: its own words are no commands, though a `$( )`
+      // inside one still is and is entered below
+      if (word.startsWith("((") && cur.length && cur[cur.length - 1].endsWith("$")) {
+        cur[cur.length - 1] += "()"
+        subs.push([cur, 1, true])
+        cur = []
         continue
       }
       if (!(word && ";&|()".includes(word[0]))) { cur.push(word); continue }
@@ -467,22 +488,27 @@ function shellCommands(cmd) {
           cur = []
           continue
         }
-        if (subs.length && piece === "(") subs[subs.length - 1][1] += 1
-        else if (subs.length && piece === ")") {
+        if (subs.length && piece === "(") {
+          subs[subs.length - 1][1] += 1
+          if (subs[subs.length - 1].length > 2) { cur = []; continue } // grouping
+        } else if (subs.length && piece === ")") {
           if (!subs[subs.length - 1][1]) {
-            if (cur.length) out.push([cur, "$)"])
+            const arith = subs[subs.length - 1].length > 2
+            if (cur.length && !arith) out.push([cur, "$)"])
             cur = subs.pop()[0]
             continue
           }
           subs[subs.length - 1][1] -= 1
+          if (subs[subs.length - 1].length > 2) { cur = []; continue }
         }
         if (cur.length) out.push([cur, piece])
         else if (out.length) out[out.length - 1][1] += piece
         cur = []
       }
     }
-    for (const seg of [cur, ...subs.reverse().map((s) => s[0])]) {
+    for (const seg of [cur, ...subs.reverse().filter((s) => s.length < 3).map((s) => s[0])]) {
       if (seg.length) out.push([seg, "\n"])
+      else if (out.length) out[out.length - 1][1] += "\n" // a close ended the line
     }
   }
   if (out.length && out[out.length - 1][1] === "\n") out[out.length - 1][1] = ""
@@ -697,6 +723,7 @@ function closes(cmd, pos, tag, strip, message) {
 function heredocs(cmd) {
   const n = cmd.length, found = []
   let pending = [], i = 0, quote = null, depth = 0, sure = true, lineStart = 0, last = ""
+  const parens = []
   while (i < n) {
     const ch = cmd[i]
     // `last` is the character bash kept before `ch` (_heredocs)
@@ -774,7 +801,7 @@ function heredocs(cmd) {
     if (riskAt(cmd, i)) sure = false
     if ("([{".includes(ch)) depth++
     else if (")]}".includes(ch)) depth--
-    last = ch
+    last = kept(ch, before, parens)
     i++
   }
   for (const [s, e, t, q] of pending) found.push([s, e, t, q, n, null, false])
@@ -803,35 +830,66 @@ function maskSource(text) {
 // them (hooks/tezgah_integrity.mask): `'...'` takes no escape, `$'...'` (an
 // unescaped `$` only) and `"..."` do, a `\` outside quotes escapes one
 // character, `#` is a comment only at the start of a word, a heredoc body is
-// data, and a quote left open blanks from itself to the end.
+// data, and a quote left open blanks from itself to the end. A CONTINUATION
+// bash deletes (outside single quotes, `$'...'` and comments) is moved to its
+// word's start as two spaces, so a rule reads the token bash joins at the
+// offsets joinedText keeps.
 function maskText(raw) {
-  const text = blankHeredocs(String(raw || ""))
+  return maskRead(String(raw || ""))[0]
+}
+
+// the raw text with each CONTINUATION moved as maskText moves it: what a rule
+// slices at a masked match's offsets (hooks/tezgah_integrity.joined)
+function joinedText(raw) {
+  const text = String(raw || "")
+  return moved(text.split(""), maskRead(text)[1])
+}
+
+function moved(out, cuts) {
+  for (const [word, at] of cuts) {
+    out.splice(word + 2, at - word, ...out.slice(word, at))
+    out[word] = " "; out[word + 1] = " "
+  }
+  return out.join("")
+}
+
+function maskRead(raw) {
+  const text = blankHeredocs(raw)
   const body = heredocBytes(text)
   const out = text.split("")
   const n = text.length
-  let i = 0, start = true, prev = ""
+  const parens = [], cuts = []
+  let i = 0, start = true, prev = "", word = 0
   while (i < n) {
     const ch = text[i]
     let end
-    if (body[i]) { i += 1; start = true; prev = ""; continue }
+    if (body[i]) { i += 1; start = true; prev = ""; word = i; continue }
     if (ch === "\\") {
       // a CONTINUATION is no character: the word state before it goes on
-      if (!text.startsWith(CONTINUATION, i)) { start = false; prev = "" }
+      if (text.startsWith(CONTINUATION, i)) cuts.push([word, i])
+      else { start = false; prev = "" }
       i += 2
       continue
     }
     if (ch === "'" || ch === '"') {
       const escapes = ch === '"' || prev === "$"
       end = i + 1
-      while (end < n && text[end] !== ch) end += escapes && text[end] === "\\" ? 2 : 1
+      while (end < n && text[end] !== ch) {
+        if (escapes && text[end] === "\\") {
+          if (ch === '"' && text.startsWith(CONTINUATION, end)) cuts.push([word, end])
+          end += 1
+        }
+        end += 1
+      }
       end = Math.min(end + 1, n)
     } else if (ch === "#" && start) {
       end = text.indexOf("\n", i)
       if (end < 0) end = n
     } else {
-      start = opensComment(ch)
+      start = opensComment(kept(ch, prev, parens))
       prev = ch
       i += 1
+      if (ch === " " || ch === "\t" || ch === "\n") word = i
       continue
     }
     for (let k = i; k < end; k++) if (out[k] !== "\n") out[k] = " "
@@ -839,7 +897,7 @@ function maskText(raw) {
     start = false
     prev = ""
   }
-  return out.join("")
+  return [moved(out, cuts), cuts]
 }
 
 // mirrors hooks/tezgah_integrity INFO_ARGS / INFO_SUBCOMMAND / FORMAT_WRITE: an
@@ -1067,7 +1125,7 @@ function shellTarget(command) {
   // of `m[0]` - no index lookup that a target named after a flag letter
   // (`| tee e`) could fool.
   const token = m[1] || m[2]
-  return c.slice(m.index + m[0].length - token.length, m.index + m[0].length)
+  return joinedText(c).slice(m.index + m[0].length - token.length, m.index + m[0].length)
     .replace(/^['"]|['"]$/g, "")
 }
 
@@ -2043,14 +2101,14 @@ function realPath(p) {
 function secretCommand(command) {
   const c = String(command || "")
   if (!c || !SECRET_TOKEN.test(c)) return null
-  const masked = maskText(c)
+  const masked = maskText(c), raw = joinedText(c)
   const relax = !(SECRET_ENVIRON.test(c) || SECRET_STARTUP.test(c)
                   || SECRET_FUNCTION.test(masked) || SECRET_TRACE.test(masked))
   let start = 0
   const carried = new Set()
   const ends = [...masked.matchAll(SEGMENT)].map((m) => m.index)
   for (const end of ends.concat(c.length)) {
-    const text = c.slice(start, end)
+    const text = raw.slice(start, end)
     if (SECRET_SINK.test(masked.slice(start, end))) {
       if (SECRET_TOKEN.test(text) && !(relax && envPrefixOnly(text))) return SECRET_DENY
       if ([...text.matchAll(SECRET_VAR)].some((v) => carried.has(v[1] || v[2]))
@@ -2362,7 +2420,10 @@ function substitutions(text, start, end) {
 
 // Every word a shell line would run as a program, in order
 // (hooks/tezgah_context.shell_programs): a closed heredoc body is data - a
-// quoted tag's whole, an unquoted tag's all but its substitutions.
+// quoted tag's whole, an unquoted tag's all but its substitutions. A `||` arm
+// behind a pipeline that cannot fail (`true`, `:` in its last stage) never
+// runs, so its words go until the next `;`, newline, `&` or substitution close.
+const NO_FAIL = new Set(["true", ":"])
 function shellPrograms(command, depth = 0) {
   const s = String(command || "")
   const text = s.split("")
@@ -2378,8 +2439,44 @@ function shellPrograms(command, depth = 0) {
       if (text[k] !== "\n" && !keep.has(k)) text[k] = " "
     }
   }
+  // `ok` is the whole `&&`/`||` list's failability so far, not one stage's:
+  // `a && b || c` runs `c` when `a` fails, so a `||` arm is dead only when
+  // every link before it cannot fail. A builder (`|`, not `||`) hands the
+  // list its last stage's status, as bash's exit is the pipeline's last.
   const out = []
-  for (const words of shellSegments(text.join(""))) out.push(...commandWords(words, depth))
+  let alive = true
+  let safe = true
+  let pipe = false
+  for (const [words, sep] of shellCommands(text.join(""))) {
+    let progs = null
+    if (alive) {
+      progs = commandWords(words, depth)
+      out.push(...progs)
+    }
+    // a pipeline stage's own status is overwritten by the stage after it, so
+    // only the stage that ends the pipeline folds into `safe`; a stage that
+    // was skipped leaves the list's own status standing (a skipped `&&` arm
+    // is why `a && b | true || c` still runs `c` when `a` fails)
+    if (sep.includes("|") && !sep.includes("||")) {
+      pipe = true
+      continue
+    }
+    // `! cmd` inverts the status, so the arm after a `||` still runs: a negated
+    // command is never "safe" (`! true || p1` runs `p1`)
+    const negated = words.length > 0 && words[0] === "!"
+    if (alive) safe = safe && !negated && progs.length > 0 && NO_FAIL.has(progs[0])
+    pipe = false
+    // the separator decides the NEXT command, so it is read after this one
+    if (sep.includes("||")) {
+      alive = !safe
+      safe = true
+    } else if (sep.includes("&&")) {
+      alive = true // the list may still succeed, so its next link may run
+    } else if (sep.includes(";") || sep.includes("\n") || sep === "&" || sep === "") {
+      alive = true
+      safe = true
+    }
+  }
   return out
 }
 

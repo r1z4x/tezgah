@@ -794,6 +794,49 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
                          ["pytest", "tail"])
 
+    def test_a_negated_command_does_not_kill_the_arm_after_it(self):
+        # plan 129 review: `! true` exits 1, so bash runs `p1` in `! true || p1`
+        self.assertEqual(self.tc.shell_programs("! true || p1"), ["true", "p1"])
+        self.assertEqual(self.tc.shell_programs("true || p1"), ["true"])
+
+    def test_a_digit_word_before_a_spaced_redirect_is_a_program(self):
+        # plan 129, fuzzer seed 1: bash reads `1 < /dev/null` as the command `1`
+        # with stdin redirected (a space before `<` ends the fd number) and runs
+        # a URL after it as an argument; only `1<` is an fd
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("1 < /dev/null https://example.com/u1"), ["1"])
+        self.assertEqual(programs("2>f pytest >/dev/null"), ["pytest"])
+        self.assertEqual(programs("12 < f cat"), ["12"])
+
+    def test_an_arithmetic_word_is_no_program(self):
+        # plan 129, fuzzer seed 1: bash runs nothing for a `$(( ))` body, while
+        # a `$( )` inside one does run
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("cat $((1))"), ["cat"])
+        self.assertEqual(programs("echo $(( $(p) + 1 ))#;ls"),
+                         ["p", "echo", "ls"])
+
+    def test_an_or_arm_behind_a_true_never_runs(self):
+        # plan 129, fuzzer seed 1: bash's `true` (and `:`) cannot fail, so the
+        # `||` arm after one runs in neither of the oracle's two runs; a stub
+        # left side can fail, so its arm stays
+        programs = self.tc.shell_programs
+        self.assertEqual(programs("pytest |\\\n| true || p1"), ["pytest", "true"])
+        # the `&&` after a skipped `||` arm still runs: the list succeeded
+        self.assertEqual(programs("p0 | true || j2 && j3"), ["p0", "true", "j3"])
+        self.assertEqual(programs("true x || cat && ls"), ["true", "ls"])
+        # a line that ends on a skipped arm's close starts over: the `false`d
+        # arm's `)` is no newline, but the line's own end is
+        self.assertEqual(programs("true x || (g1)\ncat"), ["true", "cat"])
+        self.assertEqual(programs("SKIP=1 true || x; cat"), ["true", "cat"])
+        self.assertEqual(programs("p0 || ls"), ["p0", "ls"])
+        self.assertEqual(programs("true x || p1 || curl"), ["true"])
+        # when the `&&` arm itself never ran, the pipeline's status is the
+        # failed list's, so the `||` arm after it does run
+        self.assertEqual(programs("j\
+2 && pytest | true || cat"),
+                         ["j2", "pytest", "true", "cat"])
+
     def test_the_fuzzers_three_program_classes_are_closed(self):
         # tests/fuzz_shell.py, seed 1: `$'...'` is one word, the words after a
         # `$( )` or backtick close stay its command's arguments, and an unquoted

@@ -27,6 +27,7 @@ from test_gate import SECRET_PREFIX_DENIES, SECRET_PREFIX_PASSES
 # The Python half writes the same ledger; importing its id function is what makes
 # a separator or a canonical-form drift between the two halves fail here.
 sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+import tezgah_context as tc  # noqa: E402
 import tezgah_integrity as ti  # noqa: E402
 import tezgah_paths as tp  # noqa: E402
 # The attribution patterns, read from the Python half rather than retyped here:
@@ -44,11 +45,11 @@ JS_READERS = """
 import { readFileSync } from "node:fs"
 const spec = JSON.parse(readFileSync(0, "utf8"))
 const src = readFileSync(spec.plugin, "utf8") +
-  "\\nexport { heredocs, shellLines, maskText, shellSegments }\\n"
+  "\\nexport { heredocs, shellLines, maskText, shellSegments, shellPrograms }\\n"
 const m = await import("data:text/javascript;base64," + Buffer.from(src).toString("base64"))
 process.stdout.write(JSON.stringify(spec.lines.map((t) => ({
   heredocs: m.heredocs(t).length, lines: m.shellLines(t), mask: m.maskText(t),
-  segments: m.shellSegments(t) }))))
+  segments: m.shellSegments(t), programs: m.shellPrograms(t) }))))
 """
 # The marker the detector must catch, assembled at runtime: the gate denies a
 # file that adds the literal marker, so the test source must not carry it whole.
@@ -449,11 +450,35 @@ class OpenCodePlugin(TempHome):
             self.assertEqual(js["segments"], ti._shell_segments(line), repr(line))
             self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
             self.assertEqual(js["mask"], ti.mask(line), repr(line))
+        # round 3i's: a `#` after a substitution's `)`, a joined token
+        review = (bash_vectors.SUBSTITUTION_LINES + bash_vectors.SHORTCUT_LINES
+                  + bash_vectors.PIPED_LINES)
+        for line, js in zip(review, self.js_readers(list(review))):
+            self.assertEqual(js["lines"], ti._shell_lines(line), repr(line))
+            self.assertEqual(js["heredocs"], len(ti._heredocs(line)), repr(line))
+            self.assertEqual(js["mask"], ti.mask(line), repr(line))
+        # plan 129: a `||` arm behind `true` runs in neither oracle run, and
+        # both sides drop it
+        review = ["pytest |\\\n| true || p1", "p0 | true || j2 && j3",
+                  "SKIP=1 true || x; cat", "p0 || ls",
+                  "j\\\n2 && pytest | true || cat", "true x || p1 || curl",
+                  "true x || cat && ls", "cat $((1))#;ls"]
+        for line, js in zip(review, self.js_readers(review)):
+            self.assertEqual(js["programs"], tc.shell_programs(line), repr(line))
+        self.assertEqual(tc.shell_programs("pytest |\\\n| true || p1"),
+                         ["pytest", "true"])
         for line in ("true x\r#;git commit --no-verify -m m",
                      "true x\xa0#;git commit --no-verify -m m",
-                     "git -c core.hooksPath=/x com\\\nmit -m x"):
+                     "git -c core.hooksPath=/x com\\\nmit -m x",
+                     *bash_vectors.SHORTCUT_LINES):
             self.assertIsNotNone(ti.shortcut_command(line), repr(line))
             self.denied(self.before("bash", {"command": line}))
+        # the piped rule is the core's (piped_check), asked through its gate
+        self.gate_bin()
+        for line in bash_vectors.PIPED_LINES:
+            expected = self.gate("bash", {"command": line})
+            self.assertIn("Piped check", expected, repr(line))
+            self.assertEqual(self.denied(self.before("bash", {"command": line})), expected)
 
     def test_the_reviews_hook_skip_shapes_match_the_python_gate(self):
         # review F4 (`-S`/`-u` take no separate word), F10 (bash options before

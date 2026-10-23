@@ -123,6 +123,25 @@ class ShortcutCommand(unittest.TestCase):
                   "echo $'it\\'s pytest || true'", "ls # pytest || true",
                   "git commit -m 'a\npytest || true'"):
             self.assertNotIn("pytest", ti.mask(c), c)
+        # a `#` right after a backtick close, continuations aside, is mid-word:
+        # `true \`:\`\<nl>#;touch ~/.config/tezgah/exec-mode.off` writes the
+        # switch in bash, so the masked text keeps what follows it (plan 129)
+        for c in ("true `:`\\\n#;touch x", "true `x`#;touch x"):
+            self.assertIn("touch x", ti.mask(c), c)
+
+    def test_a_negated_command_keeps_the_arm_after_its_or(self):
+        # plan 129 review: `! true` exits 1, so `! true || consult ask x` reaches
+        # a model; the tier-read channel must see it in both readers
+        self.assertTrue(ti._tier_read("! true || consult ask x"))
+        self.assertFalse(ti._tier_read("true || consult ask x"))
+
+    def test_a_kill_switch_after_a_backtick_hash_is_a_control_write(self):
+        # plan 129: bash runs the `touch` after `` `:`\<nl># `` because that `#`
+        # is mid-word, so the gate's control rule must see it
+        switch = os.path.expanduser("~/.config/tezgah/exec-mode.off")
+        for c in ("true `:`\\\n#;touch %s" % switch,
+                  "true `x`#;touch %s" % switch):
+            self.assertIn("kill switch", tg.shell_control(c, "/tmp") or "", c)
 
     # The review's cases, shared with the opencode mirror's test.
     STUCK_AND_WRAPPED = (
@@ -565,6 +584,23 @@ class BookkeepingCommand(unittest.TestCase):
         for c in ("true x\r#;git commit --no-verify -m m",
                   "true x\xa0#;git commit --no-verify -m m"):
             self.assertIsNotNone(ti.shortcut_command(c), repr(c))
+
+    def test_a_substitution_close_and_a_joined_token_hide_nothing(self):
+        # review of plan 126, round 3i: a `#` after the `)` of a `$( )`, `<( )`,
+        # `$(( ))` or `x=( )` is mid-word, so the command after it runs; and a
+        # continuation inside a shortcut rule's token (`|\<nl>|`, `tr\<nl>ue`,
+        # `SK\<nl>IP=`) is deleted by bash before any rule could read it
+        for c in bash_vectors.SUBSTITUTION_LINES:
+            for loops in (False, True):
+                self.assertFalse(ti._bookkeeping_command(c, ti.GIT_READS, loops=loops), c)
+        for c in bash_vectors.SHORTCUT_LINES:
+            self.assertIsNotNone(ti.shortcut_command(c), repr(c))
+        for c in bash_vectors.PIPED_LINES:
+            self.assertIn("`pytest` is piped into `tail`", ti.piped_check(c) or "", repr(c))
+        # the masked text keeps its length, and the joined word is whole in it
+        for c in ("pytest; tr\\\nue", "SK\\\nIP=all git commit -m m"):
+            self.assertEqual(len(ti.mask(c)), len(c))
+        self.assertIn("true", ti.mask("pytest; tr\\\nue").split())
 
 
 class PipedCheck(unittest.TestCase):

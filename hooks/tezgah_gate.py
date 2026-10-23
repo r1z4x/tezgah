@@ -108,7 +108,7 @@ from tezgah_integrity import (BASH_TOOLS, BEGAN_KIND, ENV_WORD, GIT_VALUE_OPTS,
                               _shell_commands, _shell_lines, _shell_segments,
                               _turn_start,
                               _unquoted_backticks, call_id, cut, events,
-                              heredoc_bodies, mask, mcp_class, mcp_text, note,
+                              heredoc_bodies, joined, mask, mcp_class, mcp_text, note,
                               prior_calls, scratch_target, shortcut_command,
                               shortcut_edit, turn_rows, verify_command,
                               write_texts)
@@ -854,12 +854,12 @@ def secret_command(command):
         return SECRET_ADD_DENY % added
     if not c or not SECRET_TOKEN.search(c):
         return None
-    masked = mask(c)
+    masked, raw = mask(c), joined(c)
     relax = not (SECRET_ENVIRON.search(c) or SECRET_STARTUP.search(c)
                  or SECRET_FUNCTION.search(masked) or SECRET_TRACE.search(masked))
     start, carried = 0, set()
     for end in [m.start() for m in SEGMENT.finditer(masked)] + [len(c)]:
-        text = c[start:end]
+        text = raw[start:end]
         if SECRET_SINK.search(masked[start:end]):
             if SECRET_TOKEN.search(text) and not (relax and _env_prefix_only(text)):
                 return SECRET_DENY
@@ -2189,12 +2189,12 @@ def shell_target(command):
     if not SHELL_WRITE.search(masked):
         return ""
     m = SHELL_TARGET.search(masked)
-    return _target_slice(c, m) if m else ""
+    return _target_slice(joined(c), m) if m else ""
 
 
 def _target_slice(c, m):
     """The target one SHELL_TARGET match `m` (over the masked text) names in the
-    raw command `c`."""
+    raw command `c`, continuations moved as `mask` moves them (`joined`)."""
     start, end = m.span(1) if m.group(1) else m.span(2)
     raw = c[start:end]
     # `\S+` runs to the next whitespace, so the separator of a chained command
@@ -2212,8 +2212,8 @@ def shell_targets(command):
     `> /dev/null` aside - the per-target reading the task rules need where
     `shell_target` gives the first one only."""
     c = str(command or "")
-    masked = mask(c)
-    return [t for t in (_target_slice(c, m) for m in SHELL_TARGET.finditer(masked))
+    masked, raw = mask(c), joined(c)
+    return [t for t in (_target_slice(raw, m) for m in SHELL_TARGET.finditer(masked))
             if t and t != "/dev/null"]
 
 
