@@ -632,6 +632,9 @@ def contract_data(tokens, source):
             "colors": tokens.get("colors") or {},
             "tap_target": TAP_TARGET,
             "contrast": {"normal": CONTRAST_NORMAL, "large": CONTRAST_LARGE},
+            # Hallmark's design.md states the font roles; nothing else does, so
+            # they ride the tokens when it is the source (audit of plan 133)
+            **({"fonts": tokens["fonts"]} if tokens.get("fonts") else {}),
         },
         "states": {"interactive": list(STATES_INTERACTIVE),
                    "data": list(STATES_DATA)},
@@ -1028,9 +1031,14 @@ SLOPLINT = os.path.join("skills", "hallmark", "scripts", "sloplint.mjs")
 
 def sloplint_path(root):
     """The vendored linter's path, or "" when it is not installed beside us."""
+    # `HERE` is the realpath of this script's checkout: `abspath(__file__)` is
+    # the symlink in `~/.config/tezgah/bin` under an install, so the linter was
+    # looked for in `~/.config/tezgah/skills/...`, which no install writes
+    # (audit of plan 133). `root`'s own copy comes first for a vendored checkout.
     candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), SLOPLINT),
-        os.path.expanduser(os.path.join("~", ".config", "tezgah", SLOPLINT)),
+        os.path.join(root, SLOPLINT),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(root))), SLOPLINT),
+        os.path.join(HERE, SLOPLINT),
     ]
     for path in candidates:
         if os.path.isfile(path):
