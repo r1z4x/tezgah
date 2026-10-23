@@ -20,7 +20,7 @@ import tezgah_research
 import tezgah_store
 from tezgah_guard import import_crash_key
 from tezgah_integrity import (GRANT_KIND, STEP_KINDS, _heredocs, _path as _ledger_path,
-                              _shell_commands, _shell_segments, bind_session,
+                              _shell_commands, bind_session,
                               changed_files, cut, last_check, note,
                               note_compaction, note_turn, outward_classes, redact,
                               scratch_evidence, UNTRUSTED_CHANNEL)
@@ -2540,7 +2540,7 @@ def shell_programs(command, _depth=0):
     # `a && b || c` runs `c` when `a` fails, so a `||` arm is dead only when
     # every link before it cannot fail. A builder (`|`, not `||`) hands the
     # list its last stage's status, as bash's exit is the pipeline's last.
-    out, alive, safe, pipe = [], True, True, False
+    out, alive, safe = [], True, True
     for words, sep in _shell_commands("".join(text)):
         if alive:
             progs = _command_words(words, _depth)
@@ -2550,11 +2550,9 @@ def shell_programs(command, _depth=0):
         # that was skipped leaves the list's own status standing (a skipped
         # `&&` arm is why `a && b | true || c` still runs `c` when `a` fails)
         if "|" in sep and "||" not in sep:
-            pipe = True
             continue
         if alive:
             safe = safe and bool(progs) and progs[0] in NO_FAIL
-        pipe = False
         # the separator decides the NEXT command, so it is read after this one
         if "||" in sep:
             alive, safe = not safe, True
