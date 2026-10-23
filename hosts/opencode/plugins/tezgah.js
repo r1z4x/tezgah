@@ -2460,7 +2460,10 @@ function shellPrograms(command, depth = 0) {
       pipe = true
       continue
     }
-    if (alive) safe = safe && progs.length > 0 && NO_FAIL.has(progs[0])
+    // `! cmd` inverts the status, so the arm after a `||` still runs: a negated
+    // command is never "safe" (`! true || p1` runs `p1`)
+    const negated = words.length > 0 && words[0] === "!"
+    if (alive) safe = safe && !negated && progs.length > 0 && NO_FAIL.has(progs[0])
     pipe = false
     // the separator decides the NEXT command, so it is read after this one
     if (sep.includes("||")) {

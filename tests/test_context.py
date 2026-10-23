@@ -794,6 +794,11 @@ class UsedToolKind(unittest.TestCase):
         self.assertEqual(self.tc.shell_programs("pytest > log; tail log"),
                          ["pytest", "tail"])
 
+    def test_a_negated_command_does_not_kill_the_arm_after_it(self):
+        # plan 129 review: `! true` exits 1, so bash runs `p1` in `! true || p1`
+        self.assertEqual(self.tc.shell_programs("! true || p1"), ["true", "p1"])
+        self.assertEqual(self.tc.shell_programs("true || p1"), ["true"])
+
     def test_a_digit_word_before_a_spaced_redirect_is_a_program(self):
         # plan 129, fuzzer seed 1: bash reads `1 < /dev/null` as the command `1`
         # with stdin redirected (a space before `<` ends the fd number) and runs

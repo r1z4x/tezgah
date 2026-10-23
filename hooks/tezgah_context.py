@@ -2552,7 +2552,10 @@ def shell_programs(command, _depth=0):
         if "|" in sep and "||" not in sep:
             continue
         if alive:
-            safe = safe and bool(progs) and progs[0] in NO_FAIL
+            # `! cmd` inverts the status, so the arm after a `||` still runs:
+            # a negated command is never "safe" (`! true || p1` runs `p1`)
+            negated = bool(words) and words[0] == "!"
+            safe = safe and not negated and bool(progs) and progs[0] in NO_FAIL
         # the separator decides the NEXT command, so it is read after this one
         if "||" in sep:
             alive, safe = not safe, True

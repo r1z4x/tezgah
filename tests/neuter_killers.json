@@ -42,6 +42,7 @@
  "heredoc-continuation": "test_gate.ShellCommentRule.test_every_reader_opens_a_comment_where_bash_does",
  "hooks-path": "test_integrity.ShortcutCommand.test_hooks_path_redirect_beside_a_commit_denied",
  "idle-claim": "test_integrity.StopHook.test_a_claim_after_a_session_whose_newest_check_failed_is_refused",
+ "js-arith-word": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-heredoc-comment-word-start": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-heredoc-continuation": "test_opencode_plugin.OpenCodePlugin.test_one_comment_and_continuation_rule_on_both_sides",
  "js-hooks-path": "test_opencode_plugin.OpenCodePlugin.test_hooks_path_redirect_matches_the_python_gate",
