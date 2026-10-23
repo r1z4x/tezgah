@@ -59,7 +59,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
+CLONE_TRIES = 3
+CLONE_WAIT = 0.5
 HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 INTEGRITY = "hooks/tezgah_integrity.py"
 GATE = "hooks/tezgah_gate.py"
@@ -787,9 +790,25 @@ def prepare(name, edit, work):
     """(tree, env, error) for one clone of HEAD mutated by `edit` ((file, apply)
     or None); error is the reason when the edit cannot apply."""
     tree = os.path.join(work, name)
+    error = None
     # --shared borrows HEAD's objects instead of copying them: the clone only
-    # reads them, and nothing collects garbage in HERE while the matrix runs
-    subprocess.run(["git", "clone", "-q", "--shared", HERE, tree], check=True)
+    # reads them, and nothing collects garbage in HERE while the matrix runs.
+    # A runner under load can still fail the clone (it did on 2026-10-23:
+    # `git clone --shared` returned non-zero and the pool raised, taking the
+    # whole matrix down with no reason), so it is retried, and a clone that keeps
+    # failing is this mutant's error - never a survivor and never a crash.
+    for attempt in range(CLONE_TRIES):
+        proc = subprocess.run(["git", "clone", "-q", "--shared", HERE, tree],
+                              capture_output=True, text=True, check=False)
+        if proc.returncode == 0:
+            error = None
+            break
+        error = "clone: %s" % ((proc.stderr or proc.stdout or "git clone failed")
+                               .strip().splitlines() or ["git clone failed"])[-1]
+        shutil.rmtree(tree, ignore_errors=True)
+        time.sleep(CLONE_WAIT * (attempt + 1))
+    if error:
+        return tree, None, error
     if edit:
         path = os.path.join(tree, edit[0])
         with open(path, encoding="utf-8") as fh:
@@ -819,7 +838,9 @@ def control(name, module, test, work, runner=subprocess_runner):
     on the unmutated tree leans on an earlier test and proves nothing on a
     mutant. Each module and each killer is its own clone and pool task: run in
     one clone in order, the control was the matrix's critical path."""
-    tree, env, _error = prepare(name, None, work)
+    tree, env, error = prepare(name, None, work)
+    if error:
+        return error
     # with `test`, the very command a mutant's cached run is
     proc = runner(unittest_argv(module, *((test,) if test else ())), tree, env)
     if test:
