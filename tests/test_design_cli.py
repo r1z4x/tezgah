@@ -245,6 +245,70 @@ class Derive(DesignCase):
         self.assertTrue(os.path.isfile(self.path(".tezgah", "design-contract.md")))
 
 
+class Slop(DesignCase):
+    """`slop` is Hallmark's gate list over this repository, and the union with
+    the contract's own check (plan 133). Its verdict is what the Stop rule
+    counts, so the exit code has to mean "both floors hold"."""
+
+    def slop(self, *extra):
+        return self.run_cli("slop", "--repo", self.dir, "--json", *extra)
+
+    def copy_fixture(self, name):
+        src = os.path.join(REPO, "skills", "hallmark", "scripts", "fixtures", name)
+        for entry in sorted(os.listdir(src)):
+            self.write(entry, open(os.path.join(src, entry), encoding="utf-8").read())
+
+    def test_a_clean_tree_with_no_contract_is_clean(self):
+        self.copy_fixture("tailwind-pass")   # Hallmark ships it as passing
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["clean"])
+        self.assertTrue(os.path.isfile(self.path(".tezgah", "design", "slop.json")))
+
+    def test_a_floor_fail_exits_one_and_names_the_gate(self):
+        self.copy_fixture("tailwind-fail")
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        verdict = json.loads(proc.stdout)
+        self.assertGreater(verdict["fails"], 0)
+        self.assertFalse(verdict["clean"])
+        self.assertTrue(any("gradient" in f.get("evidence", "")
+                            for f in verdict["findings"]))
+
+    def test_a_contract_with_no_measurement_is_unjudged_not_clean(self):
+        self.copy_fixture("tailwind-pass")
+        self.contract({"version": 1, "source": "css-custom-properties",
+                       "tokens": {"colors": {"ink": "#111111"}},
+                       "components": [{"name": "Button", "kind": "interactive"}]})
+        os.makedirs(self.path(".tezgah"), exist_ok=True)
+        os.replace(self.path("contract.md"),
+                   self.path(".tezgah", "design-contract.md"))
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        verdict = json.loads(proc.stdout)
+        self.assertFalse(verdict["clean"])
+        self.assertFalse(verdict["contract"]["judged"])
+
+    def test_render_that_did_not_run_is_never_clean(self):
+        # no puppeteer-core on this machine: sloplint answers `not run: …`, and
+        # every Floor/R gate is unjudged, so the verdict may not say clean
+        self.copy_fixture("tailwind-pass")
+        proc = self.slop("--render")
+        verdict = json.loads(proc.stdout)
+        if verdict["render"].startswith("not run"):
+            self.assertFalse(verdict["clean"])
+            self.assertEqual(proc.returncode, 1, proc.stdout)
+            self.assertTrue(verdict["render_unjudged"])
+        else:
+            self.assertTrue(verdict["clean"], proc.stdout)
+
+    def test_render_belongs_to_slop_only(self):
+        for verb in ("derive", "check"):
+            proc = self.run_cli(verb, "--repo", self.dir, "--render")
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertIn("--render belongs to `slop`", proc.stderr)
+
+
 class DesignMd(DesignCase):
     """A repository with Hallmark's locked `design.md`: the palette the build was
     made in is the floor, and it wins over a second derivation beside it (plan

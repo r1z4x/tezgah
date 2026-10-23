@@ -122,10 +122,13 @@ ambiguous one (exit 2) rather than let a reader decide:
 - `verbatim: "style"` - the user's own words excuse a style gate and never a
   fabricated fact.
 
-The Hallmark half of the check is `tezgah-design slop --repo . [--render]`: it
-runs the vendored gate list, writes `.tezgah/design/slop.json` and exits 1 on a
-Floor FAIL. The Stop rule counts that verdict where it counts `check`: the UI
-floor is the union, and one side alone is not evidence.
+The Hallmark half of the check is `tezgah-design slop --repo . [--render]
+[--measured FILE]`. It runs the vendored gate list and writes
+`.tezgah/design/slop.json`. It exits 1 on a Floor FAIL, and it exits 1 when a
+contract exists but no measurement judged a component, because then our half is
+unjudged. It reports `render: not run: …` when the render tier could not start,
+and that is never clean: the render-only gates stay unjudged. The union lives in
+that verb, so the Stop rule counts one verdict that covers both floors.
 
 ## The state set
 

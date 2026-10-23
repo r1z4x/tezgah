@@ -4,7 +4,8 @@ can fail.
 
   tezgah-design derive --repo DIR [--out FILE] [--json]
   tezgah-design check --contract FILE --measured FILE|- [--json]
-  tezgah-design slop --repo DIR [--url URL] [--render] [--out FILE] [--json]
+  tezgah-design slop --repo DIR [--url URL] [--render] [--measured FILE]
+                        [--out FILE] [--json]
 
 The contract is the floor a UI turn is judged against: the colour roles, the
 type scale, the spacing unit and the state set a repository already uses, plus
@@ -1059,7 +1060,11 @@ def slop_cli(opts):
                          "sloplint cannot run - only the contract check can\n")
         return 3
     target = opts.get("url") or root
-    argv = [shutil.which("node"), linter, target, "--json"]
+    argv = [shutil.which("node"), linter, "--json"]
+    if opts.get("url"):
+        argv += ["--url", opts["url"]]   # a URL is an address, never a path
+    else:
+        argv.append(root)
     if opts.get("render"):
         argv.append("--render")
     if opts.get("genre"):
@@ -1075,16 +1080,55 @@ def slop_cli(opts):
                     % (proc.returncode, (proc.stderr or "").strip()[:200]))
     summary = report.get("summary") or {}
     fails, reflex = int(summary.get("fails") or 0), int(summary.get("reflex") or 0)
+    # What the render tier actually did, never what the flag asked for: without
+    # puppeteer-core sloplint answers `not run: …` and every Floor/R and M/R gate
+    # stays unjudged, so a `clean` there would excuse a page nobody measured
+    # (review of plan 133 finding 2).
+    rendered = str(summary.get("render") or "off")
+    unjudged = rendered.startswith("not run")
     verdict = {"version": 1, "tool": "tezgah-design slop",
                "sloplint_exit": proc.returncode,
-               "render": "on" if opts.get("render") else "off",
+               "target": os.path.abspath(target),
+               "render": rendered,
+               "render_unjudged": unjudged,
                "fails": fails, "reflex": reflex,
                "waived": int(summary.get("waived") or 0),
                "answered": int(summary.get("answered") or 0),
-               "clean": fails == 0,
+               "clean": fails == 0 and reflex == 0 and not unjudged,
                "findings": [f for f in (report.get("findings") or [])
                             if f.get("grade") in ("FAIL", "REFLEX")]}
     ws = linked_main(root) or root
+    # The union, enforced here rather than in the Stop rule (review of plan 133
+    # finding 3): a component's UI floor is Hallmark's gate list AND this
+    # repository's contract, so `slop` reads the contract half too. No contract,
+    # no obligation. A contract with no measurement is unjudged, never clean.
+    contract_path = os.path.join(ws, ".tezgah", "design-contract.md")
+    contract = {"present": os.path.isfile(contract_path), "judged": False,
+                "violations": [], "unjudged": 0}
+    if contract["present"]:
+        data, reason = read_contract(contract_path)
+        if data is None:
+            raise Usage(reason)
+        problem = precedence_problem(data.get("precedence"))
+        if problem:
+            raise Usage(problem)
+        raw = ""
+        measured_path = opts.get("measured") or os.path.join(
+            ws, ".tezgah", "design", "measurement.json")
+        if os.path.isfile(measured_path):
+            with open(measured_path, encoding="utf-8") as fh:
+                raw = fh.read()
+        if raw.strip():
+            try:
+                got = json.loads(raw)
+            except ValueError:
+                raise Usage("the measurement is not JSON: %s" % measured_path)
+            violations, unjudged, judged = check(data, got)
+            contract.update(judged=judged > 0, unjudged=unjudged,
+                            violations=[str(v) for v in violations])
+    verdict["contract"] = contract
+    if contract["present"] and not contract["judged"]:
+        verdict["clean"] = False
     out = opts.get("out") or os.path.join(ws, ".tezgah", "design", "slop.json")
     try:
         os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -1097,10 +1141,13 @@ def slop_cli(opts):
         _print_json(verdict)
     else:
         sys.stdout.write("slop: %d FAIL, %d REFLEX over %s (render %s) -> %s\n"
-                         % (fails, reflex, target,
-                            verdict["render"],
+                         % (fails, reflex, target, rendered,
                             "clean" if verdict["clean"] else "not clean"))
-    return 0 if verdict["clean"] else 1
+    if contract["present"] and not contract["judged"]:
+        sys.stderr.write("tezgah-design: the contract exists but no measurement "
+                         "judged a component, so the design half is unjudged - "
+                         "run the analyze-app loop and pass --measured\n")
+    return 0 if verdict["clean"] and not contract["violations"] else 1
 
 
 def check_cli(opts):
@@ -1179,13 +1226,16 @@ def main(argv):
         sys.stdout.write(__doc__)
         return 0 if argv else 2
     verb, rest = argv[0], argv[1:]
+    if verb in ("derive", "check") and "--render" in rest:
+        sys.stderr.write("tezgah-design: --render belongs to `slop`, not %s\n" % verb)
+        return 2
     try:
         if verb == "derive":
             return derive_cli(parse(rest, ("--repo", "--out")))
         if verb == "check":
             return check_cli(parse(rest, ("--contract", "--measured")))
         if verb == "slop":
-            return slop_cli(parse(rest, ("--repo", "--url", "--out", "--genre")))
+            return slop_cli(parse(rest, ("--repo", "--url", "--out", "--genre", "--measured")))
         raise Usage("unknown verb: %s (derive|check|slop)" % verb)
     except Usage as exc:
         sys.stderr.write("tezgah-design: %s\n" % exc)

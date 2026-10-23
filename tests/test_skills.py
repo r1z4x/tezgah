@@ -708,16 +708,20 @@ class Frontmatter(unittest.TestCase):
         cls.roots = sorted(os.path.dirname(source) for source in
                            glob.glob(os.path.join(SKILLS, "*", "SOURCE")))
         cls.exempt = vendored_skill_files()
-        # a tree that ships its own hash manifest is upstream's bytes: its entry
-        # point included, so the frontmatter lint and the routing fixture do not
-        # apply to it (hallmark's SKILL.md is the workflow we run, unedited)
-        cls.vendored = {os.path.dirname(root) + os.sep for root in cls.roots}
+        # A tree whose manifest lists its own SKILL.md ships that file as
+        # upstream's bytes, so the frontmatter lint and the routing fixture do
+        # not apply to it. Only the listed ENTRY POINT is exempt: every other
+        # skill's description stays judged (an earlier version exempted a prefix
+        # and emptied both tests, review of plan 133 finding 1).
+        cls.vendored = {
+            os.path.join(root, "SKILL.md") for root in cls.roots
+            if re.search(r"^\| `SKILL\.md` \|", read(os.path.join(root, "SOURCE")), re.M)}
         cls.names = {d for d in os.listdir(SKILLS)
                      if os.path.isdir(os.path.join(SKILLS, d))}
 
     def own_paths(self):
         """The SKILL.md this class lints: the ones tezgah wrote."""
-        return [p for p in self.paths if not any(p.startswith(v) for v in self.vendored)]
+        return [p for p in self.paths if p not in self.vendored]
 
     def test_the_lint_covers_every_body_and_exempts_only_the_libraries(self):
         # The exemption is the library roots, not a glob: a new body is linted
