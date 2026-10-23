@@ -1434,7 +1434,10 @@ commands (`hooks/tezgah_research_evidence.py::COMMANDS`):
   gold sample. It sorts the arm's items by `sha256("<S>:<a>:<item>")` and keeps
   the first N (`hooks/tezgah_research_evidence.py::seeded_draw`). The first draw
   per instrument and arm is the one every rule reads. A draw once the arm has
-  labels exits 1 with `gold draw after labels`. A draw over results or verdict
+  labels exits 1 with `gold draw after labels` unless the owner records a
+  redraw, `gold ... --redraw --ack "<the user's words>"`, which the refusal
+  names: the latest redraw is the draw every rule reads, and the labels of items
+  the new draw drops read stale. A draw over results or verdict
   rows that are not committed exits 1 with
   `has results or verdict rows that are not committed`, names
   `tezgah-research commit` and writes nothing
@@ -1477,7 +1480,10 @@ two-sided 95% Clopper-Pearson upper bound of errors over n
 Anything else is `unvalidated`, and so is a measure with no `mde:` to compare
 against. A measure whose `mde:` is above 1 stays `unvalidated` too, because its
 threshold reads a difference of proportions
-(`hooks/tezgah_research_evidence.py::proportion_threshold`). Its status line ends
+(`hooks/tezgah_research_evidence.py::proportion_threshold`). So does a measure
+whose labelled sample is too small to decide: when even zero errors in every
+labelled arm leave bounds that sum to the `mde:` or more, `check` reports
+`unvalidated`, not `rejected` (`judge_status`'s `floor`). Its status line ends
 `(mde above 1: the threshold reads a difference of proportions)`. With an MDE of
 0.10 and two arms, 72 items per arm with no error
 validate (bound 0.0499). 71 do not. At 20 items and no error the bound is 0.1684.
