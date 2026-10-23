@@ -354,6 +354,20 @@ class Slop(DesignCase):
         else:
             self.assertTrue(verdict["clean"], proc.stdout)
 
+    def test_a_symlinked_cli_still_finds_the_linter(self):
+        # the install puts a symlink in ~/.config/tezgah/bin, and every command
+        # the rule names to the model is that symlink: resolving the script path
+        # with abspath found no skills/hallmark and `slop` answered exit 3 on a
+        # real install (audit of plan 133)
+        link = self.path("tezgah-design")
+        os.symlink(CLI, link)
+        self.copy_fixture("tailwind-fail")
+        proc = subprocess.run([sys.executable, link, "slop", "--repo", self.dir,
+                               "--json"], capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 3, proc.stderr)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertGreater(json.loads(proc.stdout)["fails"], 0)
+
     def test_render_belongs_to_slop_only(self):
         for verb in ("derive", "check"):
             proc = self.run_cli(verb, "--repo", self.dir, "--render")
@@ -397,6 +411,8 @@ class DesignMd(DesignCase):
         self.assertEqual(data["tokens"]["colors"]["paper"], "#f5f1ea")
         self.assertEqual(data["tokens"]["colors"]["ink"], "#13161b")
         self.assertEqual(data["tokens"]["colors"]["accent"], "#df500c")
+        # the font roles are the file's, and nothing else states them
+        self.assertEqual(data["tokens"]["fonts"]["display"], '"Söhne", sans-serif')
         # ours never come from the file: the state set and the WCAG floors
         self.assertEqual(len(data["tokens"]["type_scale"]), 0)
         self.assertEqual(data["tokens"]["tap_target"], 24)
