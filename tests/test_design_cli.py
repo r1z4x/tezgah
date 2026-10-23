@@ -245,6 +245,195 @@ class Derive(DesignCase):
         self.assertTrue(os.path.isfile(self.path(".tezgah", "design-contract.md")))
 
 
+class Slop(DesignCase):
+    """`slop` is Hallmark's gate list over this repository, and the union with
+    the contract's own check (plan 133). Its verdict is what the Stop rule
+    counts, so the exit code has to mean "both floors hold"."""
+
+    def slop(self, *extra):
+        return self.run_cli("slop", "--repo", self.dir, "--json", *extra)
+
+    def copy_fixture(self, name):
+        src = os.path.join(REPO, "skills", "hallmark", "scripts", "fixtures", name)
+        for entry in sorted(os.listdir(src)):
+            self.write(entry, open(os.path.join(src, entry), encoding="utf-8").read())
+
+    def test_a_clean_tree_with_no_contract_is_clean(self):
+        self.copy_fixture("tailwind-pass")   # Hallmark ships it as passing
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["clean"])
+        self.assertTrue(os.path.isfile(self.path(".tezgah", "design", "slop.json")))
+
+    def test_a_floor_fail_exits_one_and_names_the_gate(self):
+        self.copy_fixture("tailwind-fail")
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        verdict = json.loads(proc.stdout)
+        self.assertGreater(verdict["fails"], 0)
+        self.assertFalse(verdict["clean"])
+        self.assertTrue(any("gradient" in f.get("evidence", "")
+                            for f in verdict["findings"]))
+
+    def test_a_contract_with_no_measurement_is_unjudged_not_clean(self):
+        self.copy_fixture("tailwind-pass")
+        self.contract({"version": 1, "source": "css-custom-properties",
+                       "tokens": {"colors": {"ink": "#111111"}},
+                       "components": [{"name": "Button", "kind": "interactive"}]})
+        os.makedirs(self.path(".tezgah"), exist_ok=True)
+        os.replace(self.path("contract.md"),
+                   self.path(".tezgah", "design-contract.md"))
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        verdict = json.loads(proc.stdout)
+        self.assertFalse(verdict["clean"])
+        self.assertFalse(verdict["contract"]["judged"])
+
+    def with_contract(self, measurement):
+        self.copy_fixture("tailwind-pass")
+        self.contract({"version": 1, "source": "css-custom-properties",
+                       "tokens": {"colors": {"ink": "#111111"},
+                                  "contrast": {"normal": 4.5, "large": 3.0}},
+                       "states": {"interactive": list(INTERACTIVE),
+                                  "data": list(DATA)},
+                       "components": [{"name": "Button", "kind": "interactive"}]})
+        os.makedirs(self.path(".tezgah"), exist_ok=True)
+        os.replace(self.path("contract.md"),
+                   self.path(".tezgah", "design-contract.md"))
+        return self.write(".tezgah/design/measurement.json", json.dumps(measurement))
+
+    def measurement(self, color):
+        return {"components": [{"name": "Button", "kind": "interactive",
+                                "states": ["default", "hover", "focus", "active",
+                                           "disabled", "loading", "error"],
+                                "styles": {"color": color, "font-size": "16px",
+                                           "padding": "8px", "contrast": 7.0},
+                                "focus": "drawn", "motion": "none"}]}
+
+    def test_a_clean_measurement_makes_the_union_pass(self):
+        self.with_contract(self.measurement("#111111"))
+        proc = self.slop()
+        verdict = json.loads(proc.stdout)
+        self.assertEqual(verdict["contract"]["violations"], [], verdict)
+        self.assertTrue(verdict["contract"]["judged"])
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        self.assertTrue(verdict["clean"])
+
+    def test_a_contract_violation_is_not_clean(self):
+        # the union is a verdict, not two prints: a palette violation has to reach
+        # `clean`, or the Stop rule would accept a page our floor refused
+        self.with_contract(self.measurement("#ff0000"))
+        proc = self.slop()
+        verdict = json.loads(proc.stdout)
+        self.assertTrue(verdict["contract"]["violations"], verdict)
+        self.assertFalse(verdict["clean"], verdict)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("palette", json.dumps(verdict["contract"]["violations"]))
+
+    def test_a_measurement_given_as_a_bare_list_is_read(self):
+        self.with_contract([{"name": "Button", "kind": "interactive",
+                             "states": ["default", "hover", "focus", "active",
+                                        "disabled", "loading", "error"],
+                             "styles": {"color": "#111111", "font-size": "16px",
+                                        "padding": "8px", "contrast": 7.0},
+                             "focus": "drawn", "motion": "none"}])
+        proc = self.slop()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(json.loads(proc.stdout)["contract"]["judged"])
+
+    def test_render_that_did_not_run_is_never_clean(self):
+        # no puppeteer-core on this machine: sloplint answers `not run: …`, and
+        # every Floor/R gate is unjudged, so the verdict may not say clean
+        self.copy_fixture("tailwind-pass")
+        proc = self.slop("--render")
+        verdict = json.loads(proc.stdout)
+        if verdict["render"].startswith("not run"):
+            self.assertFalse(verdict["clean"])
+            self.assertEqual(proc.returncode, 1, proc.stdout)
+            self.assertTrue(verdict["render_unjudged"])
+        else:
+            self.assertTrue(verdict["clean"], proc.stdout)
+
+    def test_render_belongs_to_slop_only(self):
+        for verb in ("derive", "check"):
+            proc = self.run_cli(verb, "--repo", self.dir, "--render")
+            self.assertEqual(proc.returncode, 2, proc.stdout)
+            self.assertIn("--render belongs to `slop`", proc.stderr)
+
+
+class DesignMd(DesignCase):
+    """A repository with Hallmark's locked `design.md`: the palette the build was
+    made in is the floor, and it wins over a second derivation beside it (plan
+    133). The file states OKLCH; the contract compares hex."""
+
+    DESIGN_MD = """# Design: Closewise
+
+## System
+- Genre: modern-minimal
+- Theme: Dusk
+
+## Tokens
+`tokens.css` is the source of truth. The roles:
+```css
+:root {
+  --color-paper: oklch(96% 0.01 80);  --color-ink: oklch(20% 0.01 260);
+  --color-accent: oklch(0.62 0.19 40);  --font-display: "Söhne", sans-serif;
+}
+```
+"""
+
+    def contract_json(self, out):
+        return json.loads(re.search(r"```json\n(.*?)\n```", self.read(out), re.S).group(1))
+
+    def test_a_design_md_names_the_floor_and_beats_a_second_derivation(self):
+        self.write("design.md", self.DESIGN_MD)
+        # a token file beside it must not win: two floors is the drift
+        self.write("app/tokens.css", TOKENS_CSS)
+        proc = self.run_cli("derive", "--repo", self.dir, "--json")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout)["source"], "design-md")
+        data = self.contract_json(self.path(".tezgah", "design-contract.md"))
+        self.assertEqual(data["source"], "design-md")
+        self.assertEqual(data["tokens"]["colors"]["paper"], "#f5f1ea")
+        self.assertEqual(data["tokens"]["colors"]["ink"], "#13161b")
+        self.assertEqual(data["tokens"]["colors"]["accent"], "#df500c")
+        # ours never come from the file: the state set and the WCAG floors
+        self.assertEqual(len(data["tokens"]["type_scale"]), 0)
+        self.assertEqual(data["tokens"]["tap_target"], 24)
+        self.assertIn("focus", data["states"]["interactive"])
+
+    def test_the_precedence_table_is_written_and_ours_owns_the_facts(self):
+        self.write("design.md", self.DESIGN_MD)
+        self.assertEqual(self.run_cli("derive", "--repo", self.dir).returncode, 0)
+        data = self.contract_json(self.path(".tezgah", "design-contract.md"))
+        table = data["precedence"]
+        self.assertEqual(table["verbatim"], "style")
+        self.assertIn("facts", table["ours"])
+        self.assertNotIn("facts", table["theirs"])
+
+    def test_a_contract_that_hands_facts_to_the_user_is_refused(self):
+        data = {"version": 1, "source": "design-md",
+                "tokens": {"colors": {"ink": "#111111"}},
+                "precedence": {"ours": ["states"], "theirs": ["material", "facts"],
+                               "shared": [], "verbatim": "facts"}}
+        self.contract(data)
+        proc = self.run_cli("check", "--contract", self.path("contract.md"),
+                            "--measured", "-")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("facts", proc.stderr)
+
+    def test_a_key_named_by_two_sources_is_refused(self):
+        data = {"version": 1, "source": "design-md",
+                "tokens": {"colors": {"ink": "#111111"}},
+                "precedence": {"ours": ["contrast"], "theirs": ["material"],
+                               "shared": ["contrast"]}}
+        self.contract(data)
+        proc = self.run_cli("check", "--contract", self.path("contract.md"),
+                            "--measured", "-")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("twice", proc.stderr)
+
+
 class Check(DesignCase):
     """`check` compares a measurement - the per-component styles and states the
     analyze-app loop produces - against the contract, and every disagreement is

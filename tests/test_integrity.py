@@ -2587,6 +2587,17 @@ class DesignContractEvidence(unittest.TestCase):
         self.assertTrue(ti.verify_command(self.CHECK).endswith(
             "tezgah-design check"))
 
+    def test_the_slop_verb_satisfies_the_design_half_of_the_ui_rule(self):
+        # plan 133: Hallmark's gate list is the other half of the floor, so its
+        # verdict counts where `check` does - and nothing else about the rule moves
+        self.edit(self.component)
+        self.screen_read()
+        cmd = "tezgah-design slop --repo . --render"
+        ti.note_tool("s", "Bash", {"command": cmd}, failed=False, out_bytes=80)
+        self.assertEqual(ti.events("s")[-1]["kind"], "verify_ok")
+        self.assertTrue(ti.DESIGN_CHECK.search(cmd))
+        self.assertIsNone(ti.stop_reason("Done. All tests pass and the floor holds.", "s"))
+
     def test_a_design_check_on_a_later_line_of_the_call_is_a_check(self):
         # a call is often multi-line; the readers matched `^` and `[|;&(]`, so
         # the same checker on the call's own second line was invisible to the

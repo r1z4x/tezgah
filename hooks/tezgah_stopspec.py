@@ -207,7 +207,14 @@ class Trace:
         if name == "Dc":
             return self.col("U")[i] and bool(ti.DESIGN_COMPONENT.search(self.masked(i)))
         if name == "Dk":
-            return self.col("P")[i] and bool(ti.DESIGN_CHECK.search(self.masked(i)))
+            # a `slop` verdict only counts for the repository it scanned (review
+            # of plan 133, finding 5): a scan of some other tree proves nothing
+            # about this one
+            detail = self.masked(i)
+            if not (self.col("P")[i] and ti.DESIGN_CHECK.search(detail)):
+                return False
+            return (not ti.DESIGN_SLOP.search(detail)
+                    or ti._slop_row_holds(row, None))
         if name == "X":
             return (self.external is not None
                     and kind in ("run", "verify", "verify_ok", "verify_fail")

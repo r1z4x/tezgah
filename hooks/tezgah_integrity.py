@@ -51,7 +51,7 @@ VERIFY = re.compile(
     r"(?:^|[|;&(])\s*"
     r"(?:(?:sudo|env|time|nohup|command|exec)\s+(?:\w+=\S+\s+)*(?:-\S+\s+)*)?"
     r"(?:"    r"(?:python3?|uv run)\s+(?:-m\s+)?(?:pytest|unittest|mypy|ruff|flake8|compileall|"
-    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive|slop)|"
     r"(?:[\w./-]*/)?tests[/\\]impacted\.py)|"
     r"pytest|py\.test|"
     r"npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
@@ -67,7 +67,7 @@ VERIFY = re.compile(
     r"swift\s+test|golangci-lint|shellcheck|"
     r"playwright|cypress|storybook|chromatic|percy|lighthouse|pa11y|backstop|"
     r"axe-core|reg-suit|"
-    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive)|"
+    r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive|slop)|"
     r"(?:[\w./-]*/)?tests[/\\]impacted\.py|"
     # a JS tool behind its runner is still the check, and the name it returns is
     # the tool's, not the runner's: `npx axe-core` matched as `axe-core` before
@@ -169,8 +169,14 @@ UI_TOOL_CMD = re.compile(
 # is read at a command position for `UI_CHECK`'s reason - a grep whose pattern is
 # `tezgah-design check` is text ABOUT the checker. The interpreter prefix is the
 # one the module's own refusal text and the skill both print.
+DESIGN_SLOP = re.compile(r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?"
+                          r"tezgah-design\s+slop\b", re.I | re.M)
+# `slop --repo <path>`: the tree a verdict scanned
+SLOP_REPO = re.compile(r"tezgah-design\s+slop\b[^|;&]*?--repo\s+([^\s|;&]+)",
+                       re.I)
 DESIGN_CHECK = re.compile(
-    r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?tezgah-design\s+check\b",
+    r"(?:^|[|;&(])\s*(?:python3?\s+|uv\s+run\s+)?(?:\S*/)?tezgah-design\s+"
+    r"(?:check|slop)\b",
     re.I | re.M)
 # A component, as opposed to the screen it sits on: a file under a
 # component/views/widgets directory, or a name that carries the convention on its
@@ -4194,7 +4200,26 @@ def _ui_evidence(rows):
     return write, proof
 
 
-def _design_evidence(rows):
+def _slop_row_holds(row, cwd):
+    """True when a `tezgah-design slop` row is evidence for THIS repository.
+
+    The verdict is a file, so the command alone is not enough: a scan pointed at
+    another tree (`--repo <fixture>`) would pass a component edit it never looked
+    at (review of plan 133, finding 5). The repo the row names, or the row's own
+    cwd when it names none, has to be the session's repository."""
+    detail = mask(str(row.get("detail") or ""))
+    named = SLOP_REPO.search(detail)
+    target = named.group(1).strip("'\"") if named else ""
+    base = os.path.realpath(os.path.abspath(cwd or os.getcwd()))
+    root = _toplevel(base) or base
+    want = os.path.realpath(root)
+    if not target or target in (".", "./"):
+        return True
+    path = os.path.realpath(os.path.join(root, os.path.expanduser(target)))
+    return path == want or path.startswith(want + os.sep)
+
+
+def _design_evidence(rows, cwd=None):
     """(component, check) as row indices for the design-contract half of the UI
     rule, -1 for either when the row is not there.
 
@@ -4211,6 +4236,8 @@ def _design_evidence(rows):
         if _ui_write(row) and DESIGN_COMPONENT.search(detail):
             component = i
         if passing_check(row) and DESIGN_CHECK.search(detail):
+            if DESIGN_SLOP.search(detail) and not _slop_row_holds(row, cwd):
+                continue
             check = i
     return component, check
 

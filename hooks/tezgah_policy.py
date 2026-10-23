@@ -1049,8 +1049,11 @@ skill first: `{DESIGN_BIN} derive` writes `.tezgah/design-contract.md` from the
 repo's own tokens and `{DESIGN_BIN} check` measures the change against it.
 `design-library` holds the critique methods (cognitive load, visual hierarchy,
 accessibility); `analyze-app` reads the running UI, the only evidence for a UI
-claim; `feature-audit` covers a form, CRUD or admin flow across its layers. UI
-build work goes to a worker whose brief loads `design-contract`. Off: `design-off`.
+claim; `feature-audit` covers a form, CRUD or admin flow across its layers; the
+`hallmark` skill builds a new page or restyles one (its own gate list plus
+`{DESIGN_BIN} slop --render` for the machine-made tells). The contract's
+`precedence` block decides which floor owns each key, and ours owns the facts.
+UI build work goes to a worker whose brief loads `design-contract`. Off: `design-off`.
 
 **No AI attribution, ever, on any host.** Nothing persisted or published may
 name the assistant, model, vendor or "AI" as author/co-author/generator/helper:

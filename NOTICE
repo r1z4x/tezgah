@@ -58,6 +58,23 @@ skills/ai-research - MIT, Orchestra Research. VENDORED from the same library at
                      skills/ai-research/SOURCE. `bin/tezgah-import-ai-research
                      --check` verifies the tree against its manifest.
 
+skills/hallmark - MIT, Hallmark contributors, made by Together AI,
+                     https://github.com/Nutlope/hallmark. VENDORED at revision
+                     7ec868225c6caa040558c321ee0fefa0e73f83a8 (2026-10-22): the
+                     whole `skills/hallmark/` tree - one `SKILL.md` (the workflow
+                     itself, listed in its manifest because tezgah ships no entry
+                     point of its own for it), 98 reference pages including 48
+                     themes with their pictures and 20 macrostructures, and 10
+                     zero-dependency Node scripts. Byte-for-byte upstream;
+                     nothing is adapted, and upstream's own LICENSE sits at
+                     `skills/hallmark/LICENSE`. `skills/hallmark/SOURCE` holds
+                     the sha256 of every file and the checkout command; its own
+                     test (`tests/test_skills.py::HallmarkVendor`) fails on a
+                     body that drifted, a listed file that is missing, or a file
+                     beside them the table does not list.
+                     The tier map `scripts/sloplint.mjs` grades by is
+                     `references/gates.md` itself, which wins on disagreement.
+
 skills/design-library (inclusive-design-skills) - MIT, MC Dean,
                      https://github.com/Owl-Listener/inclusive-design-skills.
                      VENDORED at revision

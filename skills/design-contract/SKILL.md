@@ -100,6 +100,36 @@ opens. Field names and prose stay English.
 }
 ```
 
+## Hallmark's `design.md`, and which floor wins
+
+`hallmark` (vendored, see its `SKILL.md`) builds new pages and locks its system
+into a root `design.md`: genre, shape, theme, a `:root` token block in OKLCH,
+controls and motion. That file is a second floor, so the contract reads it first:
+when `design.md` or `DESIGN.md` sits at the repository root, `derive` takes its
+palette (converted to the hex `check` compares) and the font roles, stamps
+`source: design-md`, and ignores a token file beside it. The state set, the
+component inventory, the WCAG floors and the evidence requirement are never
+Hallmark's: they are ours.
+
+The contract's `precedence` block is the only tie-break, and `check` refuses an
+ambiguous one (exit 2) rather than let a reader decide:
+
+- `ours` - states, components, evidence, facts. A Hallmark waiver, a `copy:
+  verbatim` stamp or a theme cannot relax them.
+- `theirs` - material and motion character, which this contract does not judge.
+- `shared` - contrast, focus-visible, reduced-motion, tap-target: the same intent
+  on both sides, our numbers and their shapes, so no tie-break is needed.
+- `verbatim: "style"` - the user's own words excuse a style gate and never a
+  fabricated fact.
+
+The Hallmark half of the check is `tezgah-design slop --repo . [--render]
+[--measured FILE]`. It runs the vendored gate list and writes
+`.tezgah/design/slop.json`. It exits 1 on a Floor FAIL, and it exits 1 when a
+contract exists but no measurement judged a component, because then our half is
+unjudged. It reports `render: not run: …` when the render tier could not start,
+and that is never clean: the render-only gates stay unjudged. The union lives in
+that verb, so the Stop rule counts one verdict that covers both floors.
+
 ## The state set
 
 Every interactive control owes all of `states.interactive`; every data view owes
