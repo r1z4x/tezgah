@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-23
+
 ### Added
 
 - **A window names the row contract it read.** `tezgah-status --rates` now
