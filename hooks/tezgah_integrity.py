@@ -50,12 +50,17 @@ import tezgah_store as ts
 VERIFY = re.compile(
     r"(?:^|[|;&(])\s*"
     r"(?:(?:sudo|env|time|nohup|command|exec)\s+(?:\w+=\S+\s+)*(?:-\S+\s+)*)?"
-    r"(?:"    r"(?:python3?|uv run)\s+(?:-m\s+)?(?:pytest|unittest|mypy|ruff|flake8|compileall|"
+    r"(?:"    r"(?:python3?|uv run)\s+(?:(?:--project|--with|--python|--extra|--group|-p|-w)\s+\S+\s+|-\S+\s+)*(?:python3?\s+-m\s+)?(?:pytest|unittest|mypy|ruff|flake8|compileall|"
     r"(?:[\w./-]*/)?tezgah-design\s+(?:check|derive|slop)|"
     r"(?:[\w./-]*/)?tests[/\\]impacted\.py)|"
     r"pytest|py\.test|"
-    r"npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
-    r"(?:yarn|pnpm|bun)\s+(?:test|run\s+\S*(?:test|lint|build|check))|"
+    # A runner may carry a flag (and its value) before its task: a monorepo's
+    # `pnpm --filter mobile test` was read as a plain command, so the check it
+    # ran recorded as `run` and the Stop rule refused the claim it supported
+    # (plan 135: 11 of the post-2026-10-07 window's blocked claims, 2 before).
+    r"(?:npm|yarn|pnpm|bun)\s+(?:(?:--filter|--prefix|--workspace|-C|-w)\s+\S+\s+|-\S+\s+)*"
+    r"(?:test\b|t\b|run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
+    r"workspace\s+\S+\s+(?:test\b|t\b|run\s+\S*(?:test|lint|typecheck|check|build|ci)))|"
     r"ruff|flake8|mypy|pyright|tsc|eslint|prettier|"
     r"vitest|jest|ava|mocha|"
     r"go\s+(?:test|vet)|"
@@ -72,7 +77,7 @@ VERIFY = re.compile(
     # a JS tool behind its runner is still the check, and the name it returns is
     # the tool's, not the runner's: `npx axe-core` matched as `axe-core` before
     # the anchor was tightened, so the runner is outside the name group here
-    r"(?:npx|npm(?:\s+run)?|pnpm(?:\s+(?:exec|dlx|run))?|yarn|bunx?|uvx)"
+    r"(?:npx|npm(?:\s+run)?|pnpm(?:\s+(?:(?:--filter|--prefix|--workspace|-C|-w)\s+\S+\s+|-\S+\s+)*(?:exec|dlx|run))?|yarn|bunx?|uvx)"
     r"\s+(?:-\S+\s+)*(?P<js>playwright|cypress|storybook|chromatic|percy|"
     r"lighthouse|pa11y|axe-core|backstop|reg-suit|vitest|jest|ava|mocha|eslint|"
     r"prettier|tsc|pyright)"
@@ -1964,7 +1969,13 @@ def _rate_bucket():
     histograms they split them by."""
     return {"events": 0, "turns": 0, "claims": 0, "replies": 0,
             "blocked_claims": {}, "shape_blocked": 0, "false_completion": 0,
-            "shape_flagged": 0, "shapes": {}, "denies": {}}
+            "shape_flagged": 0, "shapes": {}, "denies": {}, "row_versions": {}}
+
+
+# A row's contract version as the rates name it, the label `failure_shapes`
+# already prints: `v1`, or `unversioned` for a row the writer stamped nothing on.
+def _contract(value):
+    return "unversioned" if value is None else "v%s" % value
 
 
 def _rate_row(bucket, entry):
@@ -1973,6 +1984,8 @@ def _rate_row(bucket, entry):
     kind = str(entry.get("kind") or "")
     detail = str(entry.get("detail") or "")
     bucket["events"] += 1
+    bucket["row_versions"][_contract(entry.get("v"))] = \
+        bucket["row_versions"].get(_contract(entry.get("v")), 0) + 1
     if kind == TURN_KIND:
         bucket["turns"] += 1
     elif kind == "deny":

@@ -1311,6 +1311,28 @@ class ScratchEvidenceReader(unittest.TestCase):
                         "cd /tmp && pytest -q", "time pytest -q"):
             self.assertIsNotNone(ti.verify_command(command), command)
 
+    def test_a_runner_flag_between_the_name_and_its_task_is_still_a_check(self):
+        # plan 135: a monorepo's check arrives as `pnpm --filter mobile test`,
+        # and the vocabulary's `runner\s+task` read it as a plain command, so the
+        # row was `run` and the Stop rule refused the claim it supported (11 of
+        # the post-2026-10-07 window's blocked claims; 2 before it)
+        for command in ("pnpm --filter mobile test",
+                        "pnpm --filter @servistek/api test",
+                        "pnpm -C apps/api test",
+                        "npm --prefix packages/api test",
+                        "yarn workspace api test",
+                        "bun --filter x test",
+                        "pnpm --silent test",
+                        "pnpm --filter mobile exec vitest run",
+                        "uv run --project api pytest",
+                        "uv run python -m pytest -q"):
+            self.assertIsNotNone(ti.verify_command(command), command)
+        # a flag form is what it is: the formatter's write mode is a change, and
+        # an information form still checks nothing
+        self.assertTrue(ti.format_write("pnpm exec prettier --write x.ts"))
+        self.assertIsNone(ti.verify_command("pnpm --filter mobile install"))
+        self.assertIsNone(ti.verify_command("npm --version"))
+
     def test_the_gate_reads_a_large_command_in_linear_time(self):
         # audit H-3: the secret pattern rescanned from every start position, so
         # 100 KB took 174 s and the 5 s hook budget expired before the deny. The
@@ -5608,6 +5630,22 @@ class Rates(TempHome):
                          {"evidence tampered": 100.0, "no verify_ok": 100.0})
         self.assertEqual([d["day"] for d in found["by_day"]],
                          ["2026-10-01", "2026-10-02"])
+
+    def test_rates_names_the_row_contracts_a_window_read(self):
+        # plan 135: `claims` stopped meaning "every judged reply" when ROW_VERSION
+        # 3 wrote a reply that claimed nothing as a `refusal` row instead, so a
+        # window's claim-block share is comparable with another window's only
+        # when the two read the same contract. The window says which it read.
+        support.seed_ledger(os.path.join(self.evidence, "a.jsonl"), [
+            {"kind": "turn", "ts": self.at("2026-10-01"), "v": 3},
+            {"kind": "claim", "ts": self.at("2026-10-01"), "detail": "ok", "v": 3},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: no verify_ok", "v": 2},
+            {"kind": "run", "ts": self.at("2026-10-01"), "detail": "ls"},
+        ])
+        found = ti.rates("2026-09-30", "2026-10-14")
+        self.assertEqual(found["row_versions"],
+                         {"v3": 2, "v2": 1, "unversioned": 1})
 
     def test_rates_a_row_with_no_timestamp_falls_outside_every_window(self):
         # a `ledger_damage` row stands in for bytes that could not be parsed and

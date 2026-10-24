@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A window names the row contract it read.** `tezgah-status --rates` now
+  counts each row's `v` per window. A window that read two contracts prints the
+  split, and a delta whose two windows lean on different contracts says so. The
+  reason is that `claims` is one quantity under `v2` and another under `v3`
+  (plan 135). A `v2` writer recorded every judged reply as a `claim` row. A `v3`
+  writer records a reply that claimed nothing as a `refusal` row. A share
+  compared across that seam is not one number, and the report no longer presents
+  it as one (`rates`, `hooks/tezgah_integrity.py`, `bin/tezgah-status`).
+
 - **The ledger reads a window, not only a lifetime.** `tezgah-status --rates
   --since DATE --until DATE` folds every real ledger's rows in that span. The
   fold runs per window and per calendar day. It carries turns, `claim` rows and
@@ -31,6 +40,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Skills reach the session on every armed host.** A UI ask arms a new conditional rule that names `design-contract`, `design-library`, `analyze-app` and `feature-audit`. `design-off` turns it off. The product rule also names `pm-frameworks`. A repeat match keeps the rule's action and its skill names (`ARMED_ACTIONS`), not a bare "Armed again". Every tezgah CLI in the injected text renders as its installed absolute path (`BIN_TOOLS`). Under a tight budget the skill hint now outlives the per-turn lessons and the index line. Shipped skill descriptions open with `Use when`, carry English and Turkish triggers and stay within 160 characters. Their longer text moved to a `## When to use` section, which the collision table now reads. Skill bodies call `~/.config/tezgah/bin/<cmd>`. The local skill hint ranks tezgah's and the project's skills before the hosts' global corpora. It folds Turkish letters, indexes five-letter prefixes and keeps one index per project that ships skills. The 144 vendored library entries are `ENTRY.md`, so codex and Cursor no longer list them as skills. `tezgah-skill` and `codegen` run through their `~/.config/tezgah/bin` symlink. `codegen --help` and `tezgah-research init --help` print their usage and exit zero. Cursor's per-turn text is cut to its 10000-unit hook limit, counted in UTF-16 units as Cursor counts, so Cursor no longer drops it whole. On opencode 2 the installer skips `tui.json` and `compaction.prune`, and the status line is a `cli.json` plugin. `--install --hosts X` keeps the hosts already recorded, and a partial uninstall takes its hosts off the record. A skill the repository ships reaches the hint by its path, marked as repository-provided data and read bounded. A UI build goes to `tezgah-standard`, whose brief loads `design-contract`. Agent briefs and the gate and Stop refusals name the installed CLI path too (plan 126).
 
 ### Fixed
+
+- **A runner's flag does not hide its check.** `pnpm --filter mobile test` was
+  read as a plain command. The same held for `npm`, `yarn` and `bun`. A check the
+  turn really ran recorded as `run`. The Stop rule then refused the claim it
+  supported (`no verify_ok`). `VERIFY` now reads a run of flags before the task.
+  It reads the value a flag takes too: `--filter <name>`, `--prefix <dir>`,
+  `-C <dir>` and `--workspace <name>`. `uv run --project <dir> pytest` and
+  `uv run python -m pytest` join the table. So does
+  `pnpm --filter <name> exec <tool>`, which reaches the JS tool entry the same
+  way. A formatter's write mode is still a change. An information form still
+  checks nothing (`hooks/tezgah_integrity.py`, `tests/test_integrity.py`).
 
 - **A turn of reads owes no check, and the shell readers agree with bash**. The Stop rule refused an advice turn of reads in a `for` loop or a `$( )`. The model then answered in self-defence rather than acting. Such a turn now ends without a check. An edit, or a done/tested claim, is still refused. The readers that decide what a command runs now follow bash on these shapes. Both readers delete a backslash-newline exactly where bash deletes it. A `)` closing a substitution is part of the word. A `#` after a backtick, an escaped boundary or a `)` is mid-word. An fd number glued to its redirect is no program word, while `1 <` stays a program. An arm after a negated command stays alive. A `printf -v` or a `set -o` is no read. The opencode port answers the same, and `tests/fuzz_shell.py` draws these shapes so real bash checks the readers.
 

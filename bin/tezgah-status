@@ -39,7 +39,10 @@ their status line; this CLI is how every host (and a human) gets it:
                            per 100 sessions by class). A repeated `--since`/
                            `--until` pair prints one block each and the pp delta
                            between adjacent windows - the unit plan 066's 056 row
-                           states its bar in. `--json` prints `{"windows": [...]}`.
+                           states its bar in. A window that read more than one
+                           row contract prints the split, and a delta across two
+                           contracts says so (plan 135). `--json` prints
+                           `{"windows": [...]}`.
                            `--until` is exclusive, so adjacent windows partition
                            their span.
   tezgah-status --skill-fitness
@@ -327,6 +330,16 @@ def share(value, numerator, denominator):
             else "%.2f%% (%d/%d)" % (100 * value, numerator, denominator))
 
 
+def dominant_contract(window):
+    """The row contract that wrote most of a window's rows, or `-` for a window
+    that read none. `claims` is one quantity under a contract and another across
+    a change to it (plan 135), so the delta line names both sides' contract."""
+    counts = window.get("row_versions") or {}
+    if not counts:
+        return "-"
+    return max(sorted(counts), key=lambda name: counts[name])
+
+
 def print_rates(found):
     """The windowed rates, for `--rates`: one block per window, then the pp delta
     between each adjacent pair - the unit plan 066's rows state their bars in."""
@@ -353,6 +366,13 @@ def print_rates(found):
             "%s=%.4f" % kv for kv in
             sorted(rates["blocked_claims_per_100_sessions"].items()))
             or "none"))
+        # Which row contract wrote the rows, printed only when a window mixes
+        # two: `claims` means "every judged reply" before ROW_VERSION 3 and "a
+        # reply that claimed" after it, so a share read off a mixed or shifted
+        # window is not the same quantity as its neighbour's (plan 135).
+        if len(w["row_versions"]) > 1:
+            print("  %-15s %s" % ("contracts", ", ".join(
+                "%s=%d" % kv for kv in sorted(w["row_versions"].items()))))
     for before, after in zip(found, found[1:]):
         parts, unknown, over = [], False, False
         for key, label in (("claim_block_rate", "claim block"),
@@ -364,11 +384,16 @@ def print_rates(found):
                 continue
             parts.append("%s %+.2f pp" % (label, 100 * (b - a)))
             over = over or round(b - a, 4) > 0.02
-        print("delta %s..%s -> %s..%s: %s; 056 bar (+2 pp): %s" % (
+        shift = dominant_contract(before) != dominant_contract(after)
+        print("delta %s..%s -> %s..%s: %s; 056 bar (+2 pp): %s%s" % (
             before["since"], before["until"], after["since"], after["until"],
             ", ".join(parts),
             "unreadable (no denominator in a window)" if unknown
-            else "FAILS" if over else "holds"))
+            else "FAILS" if over else "holds",
+            "; the two windows' rows come from different contracts (%s vs %s), "
+            "so the shares are not one quantity" % (
+                dominant_contract(before), dominant_contract(after))
+            if shift else ""))
 
 
 def main():

@@ -366,7 +366,10 @@ disagree about a row. The dates are local calendar days. `until` is exclusive,
 which makes two adjacent windows a partition of the span rather than an
 approximation of one. A repeated `--since`/`--until` pair prints one block per
 window. It also prints the pp delta between adjacent windows, the unit the
-observation rows in `.tezgah/plans` state their bars in. `--json` prints
+observation rows in `.tezgah/plans` state their bars in. A window that read more
+than one row contract prints the split. A delta whose two windows lean on
+different contracts says so. There, `claims` is every judged reply under `v2`
+and only a reply that claimed under `v3` (plan 135). `--json` prints
 `{"windows": [...]}` - one shape for one window and for many. A window that
 cannot be read, or `--since`/`--until` without `--rates`, exits 2.
 
