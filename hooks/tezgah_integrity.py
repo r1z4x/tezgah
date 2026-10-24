@@ -58,8 +58,8 @@ VERIFY = re.compile(
     # `pnpm --filter mobile test` was read as a plain command, so the check it
     # ran recorded as `run` and the Stop rule refused the claim it supported
     # (plan 135: 11 of the post-2026-10-07 window's blocked claims, 2 before).
-    r"(?:npm|yarn|pnpm|bun)\s+(?:(?:--filter|--prefix|--workspace|-C|-w)\s+\S+\s+|-\S+\s+)*"
-    r"(?:test\b|t\b|run\s+\S*(?:test|lint|typecheck|check|build|ci)|"
+    r"(?:npm|yarn|pnpm|bun)\s+(?:(?:--filter|--prefix|--workspace|--cwd|--dir|-C|-w)\s+\S+\s+|-\S+\s+)*"
+    r"(?:test\b|t\b|run\s+(?:-\S+\s+)*\S*(?:test|lint|typecheck|check|build|ci)|"
     r"workspace\s+\S+\s+(?:test\b|t\b|run\s+\S*(?:test|lint|typecheck|check|build|ci)))|"
     r"ruff|flake8|mypy|pyright|tsc|eslint|prettier|"
     r"vitest|jest|ava|mocha|"
@@ -2096,7 +2096,10 @@ def _check_runs(cmd, cwd=None):
         tool = name.split()[-1].lower()
         args = COMMAND_END.split(text[m.end():], 1)[0]
         sub = INFO_SUBCOMMAND.get(tool)
-        if INFO_ARGS.search(args) or (sub and sub.match(args)):
+        # the info flag may sit among the runner's own flags
+        # (`npm --help test` runs nothing), so the whole match is read too
+        if INFO_ARGS.search(m.group(0)) or INFO_ARGS.search(args) \
+                or (sub and sub.match(args)):
             yield name, "info"
         elif tool in FORMAT_WRITE and FORMAT_WRITE[tool].search(args):
             yield name, "write"

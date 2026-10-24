@@ -45,11 +45,12 @@ JS_READERS = """
 import { readFileSync } from "node:fs"
 const spec = JSON.parse(readFileSync(0, "utf8"))
 const src = readFileSync(spec.plugin, "utf8") +
-  "\\nexport { heredocs, shellLines, maskText, shellSegments, shellPrograms }\\n"
+  "\\nexport { heredocs, shellLines, maskText, shellSegments, shellPrograms, verifyCommand }\\n"
 const m = await import("data:text/javascript;base64," + Buffer.from(src).toString("base64"))
 process.stdout.write(JSON.stringify(spec.lines.map((t) => ({
   heredocs: m.heredocs(t).length, lines: m.shellLines(t), mask: m.maskText(t),
-  segments: m.shellSegments(t), programs: m.shellPrograms(t) }))))
+  segments: m.shellSegments(t), programs: m.shellPrograms(t),
+  verify: m.verifyCommand(t) }))))
 """
 # The marker the detector must catch, assembled at runtime: the gate denies a
 # file that adds the literal marker, so the test source must not carry it whole.
@@ -2647,3 +2648,31 @@ class ScratchOnLinux(TempHome):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyParity(TempHome):
+    """`verifyCommand` in the plugin must answer what `verify_command` answers:
+    the plugin denies a shortcut on a check, so a line one side reads as a check
+    and the other does not is a session where the same command is refused in one
+    host and allowed in another (review of plan 135, finding 3)."""
+
+    LINES = ("npm test", "pnpm --filter mobile test", "yarn --cwd web test",
+             "pnpm --dir web test", "npm run --silent test", "npm run build",
+             "npm --help test", "npm --version test", "pnpm --help test",
+             "uv run --help pytest", "make help", "pytest -q", "pytest --version",
+             "pnpm --filter mobile install", "pnpm --filter mobile test || true")
+
+    def test_the_two_readers_agree_on_what_is_a_check(self):
+        if not NODE:
+            self.skipTest("node not installed")
+        plugin = os.path.join(support.REPO, "hosts", "opencode", "plugins", "tezgah.js")
+        spec = json.dumps({"plugin": plugin, "lines": list(self.LINES)})
+        proc = subprocess.run([NODE, "--input-type=module", "-e", JS_READERS],
+                              input=spec, capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        js = json.loads(proc.stdout)
+        sys.path.insert(0, os.path.join(support.REPO, "hooks"))
+        import tezgah_integrity as ti
+        for line, row in zip(self.LINES, js):
+            py = ti.verify_command(line) is not None
+            self.assertEqual(py, row["verify"] is not None, line)

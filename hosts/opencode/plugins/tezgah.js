@@ -309,8 +309,24 @@ const LEDGER_TAIL = 200
 // Anti-shortcut: a check neutered so it cannot fail, or a test disabled so a
 // failure disappears. Ported from hooks/tezgah_integrity.py so opencode denies
 // the same shapes from the same patterns.
-const VERIFY =
-  /(?:^|[|;&(]\s*|\s)(?:(?:python3?|uv run)\s+-m\s+(?:pytest|unittest|mypy|ruff|flake8|compileall)|pytest|py\.test|npm\s+(?:test|t\b)|npm\s+run\s+\S*(?:test|lint|typecheck|check|build|ci)|(?:yarn|pnpm|bun)\s+(?:test|run\s+\S*(?:test|lint|build|check))|ruff|flake8|mypy|pyright|tsc|eslint|prettier|vitest|jest|ava|mocha|go\s+(?:test|vet)|cargo\s+(?:test|clippy|check|build)|tox|nox|pre-commit|(?:^|\s)(?:make|just)\b|\.\/\S*(?:test|check|lint)\S*|(?:\.\/)?(?:gradlew|mvn)\s+\S*(?:test|check)|dotnet\s+(?:test|build)|swift\s+test|golangci-lint|shellcheck)\b/i
+// A runner may carry a flag (and its value) before its task, so a monorepo's
+// `pnpm --filter mobile test` is the check it runs (plan 135, the same port of
+// hooks/tezgah_integrity.VERIFY).
+const RUNNER_FLAGS =
+  "(?:(?:--filter|--prefix|--workspace|--cwd|--dir|-C|-w)\\s+\\S+\\s+|-\\S+\\s+)*"
+const VERIFY = new RegExp(
+  "(?:^|[|;&(]\\s*|\\s)(?:" +
+  "(?:python3?|uv run)\\s+(?:(?:--project|--with|--python|--extra|--group|-p|-w)" +
+  "\\s+\\S+\\s+|-\\S+\\s+)*(?:python3?\\s+-m\\s+)?" +
+  "(?:pytest|unittest|mypy|ruff|flake8|compileall)|" +
+  "pytest|py\\.test|" +
+  "(?:npm|yarn|pnpm|bun)\\s+" + RUNNER_FLAGS +
+  "(?:test\\b|t\\b|run\\s+(?:-\\S+\\s+)*\\S*(?:test|lint|typecheck|check|build|ci))|" +
+  "ruff|flake8|mypy|pyright|tsc|eslint|prettier|vitest|jest|ava|mocha|" +
+  "go\\s+(?:test|vet)|cargo\\s+(?:test|clippy|check|build)|tox|nox|pre-commit|" +
+  "(?:^|\\s)(?:make|just)\\b|\\./\\S*(?:test|check|lint)\\S*|" +
+  "(?:\\./)?(?:gradlew|mvn)\\s+\\S*(?:test|check)|dotnet\\s+(?:test|build)|" +
+  "swift\\s+test|golangci-lint|shellcheck)\\b", "i")
 const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
@@ -922,7 +938,9 @@ function verifyCommand(cmd) {
     const tool = words[words.length - 1].toLowerCase()
     const args = text.slice(m.index + m[0].length).split(/[;&|\n)]/)[0]
     const sub = INFO_SUBCOMMAND[tool]
-    if (INFO_ARGS.test(args) || (sub && sub.test(args))) continue
+    // the info flag may sit among the runner's own flags (`npm --help test`
+    // runs nothing), so the whole match is read too (plan 135 review)
+    if (INFO_ARGS.test(m[0]) || INFO_ARGS.test(args) || (sub && sub.test(args))) continue
     if (FORMAT_WRITE[tool] && FORMAT_WRITE[tool].test(args)) continue
     return m[0]
   }

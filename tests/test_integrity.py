@@ -1332,6 +1332,15 @@ class ScratchEvidenceReader(unittest.TestCase):
         self.assertTrue(ti.format_write("pnpm exec prettier --write x.ts"))
         self.assertIsNone(ti.verify_command("pnpm --filter mobile install"))
         self.assertIsNone(ti.verify_command("npm --version"))
+        # an info flag may sit among the runner's own flags: it runs nothing, so
+        # it is no check (review of plan 135 - this was a false verify_ok)
+        for command in ("npm --help test", "npm --version test", "pnpm --help test",
+                        "uv run --help pytest", "python3 --help pytest"):
+            self.assertIsNone(ti.verify_command(command), command)
+        # and the flag may sit after `run`, or name the directory
+        for command in ("npm run --silent test", "yarn --cwd web test",
+                        "pnpm --dir web test"):
+            self.assertIsNotNone(ti.verify_command(command), command)
 
     def test_the_gate_reads_a_large_command_in_linear_time(self):
         # audit H-3: the secret pattern rescanned from every start position, so
