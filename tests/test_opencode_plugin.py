@@ -2656,7 +2656,9 @@ class VerifyParity(TempHome):
     and the other does not is a session where the same command is refused in one
     host and allowed in another (review of plan 135, finding 3)."""
 
-    LINES = ("npm test", "pnpm --filter mobile test", "yarn --cwd web test",
+    LINES = ("npm test", "echo pytest", "cat pytest.ini", "npm --help pytest",
+             "rg tox", "cat jest.config.js", "sudo pytest", "env X=1 pytest",
+             "npx jest", "pnpm --filter mobile test", "yarn --cwd web test",
              "pnpm --dir web test", "npm run --silent test", "npm run build",
              "npm --help test", "npm --version test", "pnpm --help test",
              "uv run --help pytest", "make help", "pytest -q", "pytest --version",

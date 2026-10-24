@@ -315,7 +315,11 @@ const LEDGER_TAIL = 200
 const RUNNER_FLAGS =
   "(?:(?:--filter|--prefix|--workspace|--cwd|--dir|-C|-w)\\s+\\S+\\s+|-\\S+\\s+)*"
 const VERIFY = new RegExp(
-  "(?:^|[|;&(]\\s*|\\s)(?:" +
+  // command position only: `echo pytest` is not a check, and a `\\s` prefix made
+  // the port read one where hooks/tezgah_integrity.VERIFY does not (review of
+  // plan 135) - the wrapper set keeps `sudo pytest` and `env X=1 pytest`
+  "(?:^|[|;&(\\n])\\s*(?:(?:sudo|env|time|nohup|command|exec)\\s+" +
+  "(?:\\w+=\\S+\\s+)*(?:-\\S+\\s+)*)?(?:" +
   "(?:python3?|uv run)\\s+(?:(?:--project|--with|--python|--extra|--group|-p|-w)" +
   "\\s+\\S+\\s+|-\\S+\\s+)*(?:python3?\\s+-m\\s+)?" +
   "(?:pytest|unittest|mypy|ruff|flake8|compileall)|" +
@@ -326,7 +330,13 @@ const VERIFY = new RegExp(
   "go\\s+(?:test|vet)|cargo\\s+(?:test|clippy|check|build)|tox|nox|pre-commit|" +
   "(?:^|\\s)(?:make|just)\\b|\\./\\S*(?:test|check|lint)\\S*|" +
   "(?:\\./)?(?:gradlew|mvn)\\s+\\S*(?:test|check)|dotnet\\s+(?:test|build)|" +
-  "swift\\s+test|golangci-lint|shellcheck)\\b", "i")
+  "swift\\s+test|golangci-lint|shellcheck|" +
+  // a JS tool behind its runner is still the check, the way the Python source
+  // reads it (its `js` group)
+  "(?:npx|npm(?:\\s+run)?|pnpm(?:\\s+" + RUNNER_FLAGS + "(?:exec|dlx|run))?|yarn|" +
+  "bunx?|uvx)\\s+(?:-\\S+\\s+)*(?:playwright|cypress|storybook|chromatic|percy|" +
+  "lighthouse|pa11y|axe-core|backstop|reg-suit|vitest|jest|ava|mocha|eslint|" +
+  "prettier|tsc|pyright))\\b", "i")
 const NEUTER = /\|\|\s*(?:true|:|exit\s+0)(?:\s|$|[|;&])|;\s*true\s*(?:$|[|;&])/
 const SKIP_ENV = /\b(?:SKIP|HUSKY_SKIP_HOOKS)\s*=|\bHUSKY=0\b/
 const NO_VERIFY = /--no-verify\b/
