@@ -32,6 +32,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A runner's flag does not hide its check.** `pnpm --filter mobile test` was
+  read as a plain command. The same held for `npm`, `yarn` and `bun`. A check the
+  turn really ran recorded as `run`. The Stop rule then refused the claim it
+  supported (`no verify_ok`). `VERIFY` now reads a run of flags before the task.
+  It reads the value a flag takes too: `--filter <name>`, `--prefix <dir>`,
+  `-C <dir>` and `--workspace <name>`. `uv run --project <dir> pytest` and
+  `uv run python -m pytest` join the table. So does
+  `pnpm --filter <name> exec <tool>`, which reaches the JS tool entry the same
+  way. A formatter's write mode is still a change. An information form still
+  checks nothing (`hooks/tezgah_integrity.py`, `tests/test_integrity.py`).
+
 - **A turn of reads owes no check, and the shell readers agree with bash**. The Stop rule refused an advice turn of reads in a `for` loop or a `$( )`. The model then answered in self-defence rather than acting. Such a turn now ends without a check. An edit, or a done/tested claim, is still refused. The readers that decide what a command runs now follow bash on these shapes. Both readers delete a backslash-newline exactly where bash deletes it. A `)` closing a substitution is part of the word. A `#` after a backtick, an escaped boundary or a `)` is mid-word. An fd number glued to its redirect is no program word, while `1 <` stays a program. An arm after a negated command stays alive. A `printf -v` or a `set -o` is no read. The opencode port answers the same, and `tests/fuzz_shell.py` draws these shapes so real bash checks the readers.
 
 - **More rules-8 refusals give way.** A registered metric that rewords the lock (`read-path p95 latency` for `p95 latency of the read path`) matches it. A run log above 16 MiB files whole with `source --ack "<the user's words>"`, which the refusal now names. A draw after labels is a `gold ... --redraw --ack "<the user's words>"`, which `check` reads as the draw every rule uses. A gold sample too small to reach the `mde` leaves the instrument `unvalidated`, not `rejected`. `search` takes PubMed, Scopus and ACM DL. Scopus needs `TEZGAH_SCOPUS_KEY`. ACM DL reads through Crossref's ACM member, because its site answers a browser check. `orx runs`'s table is read as runs for the census, since orx 0.2.20 has no `--json`. A quote still matches where an extraction dropped a space (`human-inthe-loop`).

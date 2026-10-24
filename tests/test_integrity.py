@@ -1311,6 +1311,28 @@ class ScratchEvidenceReader(unittest.TestCase):
                         "cd /tmp && pytest -q", "time pytest -q"):
             self.assertIsNotNone(ti.verify_command(command), command)
 
+    def test_a_runner_flag_between_the_name_and_its_task_is_still_a_check(self):
+        # plan 135: a monorepo's check arrives as `pnpm --filter mobile test`,
+        # and the vocabulary's `runner\s+task` read it as a plain command, so the
+        # row was `run` and the Stop rule refused the claim it supported (11 of
+        # the post-2026-10-07 window's blocked claims; 2 before it)
+        for command in ("pnpm --filter mobile test",
+                        "pnpm --filter @servistek/api test",
+                        "pnpm -C apps/api test",
+                        "npm --prefix packages/api test",
+                        "yarn workspace api test",
+                        "bun --filter x test",
+                        "pnpm --silent test",
+                        "pnpm --filter mobile exec vitest run",
+                        "uv run --project api pytest",
+                        "uv run python -m pytest -q"):
+            self.assertIsNotNone(ti.verify_command(command), command)
+        # a flag form is what it is: the formatter's write mode is a change, and
+        # an information form still checks nothing
+        self.assertTrue(ti.format_write("pnpm exec prettier --write x.ts"))
+        self.assertIsNone(ti.verify_command("pnpm --filter mobile install"))
+        self.assertIsNone(ti.verify_command("npm --version"))
+
     def test_the_gate_reads_a_large_command_in_linear_time(self):
         # audit H-3: the secret pattern rescanned from every start position, so
         # 100 KB took 174 s and the 5 s hook budget expired before the deny. The
