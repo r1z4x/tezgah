@@ -7,10 +7,14 @@ __pycache__/
 # local research notes: kept out of the public repo, never published
 /docs/research/
 
-# tezgah: generated agents (managed; removed by tezgah-setup --uninstall)
-/.claude/agents/
-/.codex/agents/
-/.opencode/agents/
+# host state and generated agents (managed; removed by tezgah-setup --uninstall):
+# the whole directory, because a host writes more there than its `agents/` set,
+# and none of it is repository content
+/.claude/
+/.codex/
+/.cursor/
+/.omp/
+/.opencode/
 # tezgah: end generated agents
 
 # local state: the lessons ledger, the research lines, and the local plugin
@@ -20,6 +24,7 @@ __pycache__/
 # its implementation phase began with a `checkpoint: pending` that only a commit
 # adding the link to the repository could clear (plan 108).
 /.tezgah
+/.tezgah-cyber
 /.claude-plugin/
 
 # codegraph index (an internal spike; the directory carries its own .gitignore that
