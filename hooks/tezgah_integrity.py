@@ -1969,7 +1969,13 @@ def _rate_bucket():
     histograms they split them by."""
     return {"events": 0, "turns": 0, "claims": 0, "replies": 0,
             "blocked_claims": {}, "shape_blocked": 0, "false_completion": 0,
-            "shape_flagged": 0, "shapes": {}, "denies": {}}
+            "shape_flagged": 0, "shapes": {}, "denies": {}, "row_versions": {}}
+
+
+# A row's contract version as the rates name it, the label `failure_shapes`
+# already prints: `v1`, or `unversioned` for a row the writer stamped nothing on.
+def _contract(value):
+    return "unversioned" if value is None else "v%s" % value
 
 
 def _rate_row(bucket, entry):
@@ -1978,6 +1984,8 @@ def _rate_row(bucket, entry):
     kind = str(entry.get("kind") or "")
     detail = str(entry.get("detail") or "")
     bucket["events"] += 1
+    bucket["row_versions"][_contract(entry.get("v"))] = \
+        bucket["row_versions"].get(_contract(entry.get("v")), 0) + 1
     if kind == TURN_KIND:
         bucket["turns"] += 1
     elif kind == "deny":

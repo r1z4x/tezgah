@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A window names the row contract it read.** `tezgah-status --rates` now
+  counts each row's `v` per window. A window that read two contracts prints the
+  split, and a delta whose two windows lean on different contracts says so. The
+  reason is that `claims` is one quantity under `v2` and another under `v3`
+  (plan 135). A `v2` writer recorded every judged reply as a `claim` row. A `v3`
+  writer records a reply that claimed nothing as a `refusal` row. A share
+  compared across that seam is not one number, and the report no longer presents
+  it as one (`rates`, `hooks/tezgah_integrity.py`, `bin/tezgah-status`).
+
 - **The ledger reads a window, not only a lifetime.** `tezgah-status --rates
   --since DATE --until DATE` folds every real ledger's rows in that span. The
   fold runs per window and per calendar day. It carries turns, `claim` rows and

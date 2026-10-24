@@ -5631,6 +5631,22 @@ class Rates(TempHome):
         self.assertEqual([d["day"] for d in found["by_day"]],
                          ["2026-10-01", "2026-10-02"])
 
+    def test_rates_names_the_row_contracts_a_window_read(self):
+        # plan 135: `claims` stopped meaning "every judged reply" when ROW_VERSION
+        # 3 wrote a reply that claimed nothing as a `refusal` row instead, so a
+        # window's claim-block share is comparable with another window's only
+        # when the two read the same contract. The window says which it read.
+        support.seed_ledger(os.path.join(self.evidence, "a.jsonl"), [
+            {"kind": "turn", "ts": self.at("2026-10-01"), "v": 3},
+            {"kind": "claim", "ts": self.at("2026-10-01"), "detail": "ok", "v": 3},
+            {"kind": "claim", "ts": self.at("2026-10-01"),
+             "detail": "blocked: no verify_ok", "v": 2},
+            {"kind": "run", "ts": self.at("2026-10-01"), "detail": "ls"},
+        ])
+        found = ti.rates("2026-09-30", "2026-10-14")
+        self.assertEqual(found["row_versions"],
+                         {"v3": 2, "v2": 1, "unversioned": 1})
+
     def test_rates_a_row_with_no_timestamp_falls_outside_every_window(self):
         # a `ledger_damage` row stands in for bytes that could not be parsed and
         # carries no `ts`, so no window can place it; the date reader refuses a
