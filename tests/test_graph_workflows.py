@@ -88,6 +88,16 @@ class GraphReview(unittest.TestCase):
         self.assertEqual(["off by one"], [f["title"] for f in res["refuted"]])
         self.assertEqual([], res["unknown"])
 
+    def test_same_key_findings_merge_keeping_the_higher_severity(self):
+        low = dict(FINDING, title="Off By One ", severity="low")
+        res = run(REVIEW, "main", {"scope": SCOPE, "review:": {"findings": []},
+                                   "review:correctness": {"findings": [low]},
+                                   "review:tests": {"findings": [FINDING]}})
+        self.assertEqual(["off by one"], [f["title"] for f in res["unverified"]])
+        self.assertEqual("high", res["unverified"][0]["severity"])
+        self.assertEqual(["correctness", "tests"], res["unverified"][0]["dimensions"])
+        self.assertEqual(1, res["caps"]["deduplicated"])
+
 
 @unittest.skipUnless(HAVE_NODE, "node missing")
 class GraphImpact(unittest.TestCase):
