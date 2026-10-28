@@ -9,8 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **An owner-only choice waits for the owner.** Class F now names three more
-  steps: picking a variant a research, analysis or review recommends, a way
-  around a tezgah refusal, and deciding about another session's work. The core
+  steps. One is picking a variant a research, analysis or review recommends.
+  The others are a way around a tezgah refusal and deciding about another
+  session's work. The core
   Ask policy, the per-turn reminder and the ask warning carry them too. The Stop
   rule's `needless ask` lets a question that asks the owner to pick between
   options through (`OWNER_CHOICE`, `hooks/tezgah_integrity.py`). A worker returns
