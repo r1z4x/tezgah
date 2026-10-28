@@ -79,6 +79,7 @@ class Import(Workspace):
         self.assertEqual(imported, [])
         self.assertIn("mine", problem)
         self.assertIn("--allow-open", problem)
+        self.assertIn(tr.OWNER_ASK, problem)
         self.assertEqual(tr.slugs(dst), ["mine"])
         proc = self.cli(dst, "import", src, "other")
         self.assertEqual(proc.returncode, 1, proc.stdout)

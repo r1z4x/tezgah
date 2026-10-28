@@ -69,13 +69,15 @@ sections below. Rules 5 add the scope lock. Rules 6 add the selection warnings
 ("Held-out set, repeats and noise band" below). Rules 7 add the `exploratory`
 method ("Rules 7: exploratory lines" below). A bump never weakens an older set.
 Rules 8 (`EVIDENCE_RULES`) add captured evidence and a computed certainty per
-claim ("Rules 8: captured evidence and computed certainty" below). `init` writes 8
-now: `RULES` is `EVIDENCE_RULES` (`hooks/tezgah_research.py::EVIDENCE_RULES`).
+claim ("Rules 8: captured evidence and computed certainty" below). Rules 9
+(`OWNER_CHOICE_RULES`) split a decision's pick: the line writes `recommended:`,
+and `chosen:` is the owner's ("Variants of the deliverable" below). `init` writes 9
+now: `RULES` is `OWNER_CHOICE_RULES` (`hooks/tezgah_research.py::OWNER_CHOICE_RULES`).
 
-A `rules` above `EVIDENCE_RULES` means a later tezgah wrote the line. `check` then reports
+A `rules` above `RULES` means a later tezgah wrote the line. `check` then reports
 one error that names both numbers and reads nothing else. The writers refuse the
 line too: `claim`, `predict`, `compare`, `source --run`, `verdict`, `conclude`,
-`close` and `migrate` (`newer_rules`). Upgrade tezgah to work on such a line.
+`close`, `choose` and `migrate` (`newer_rules`). Upgrade tezgah to work on such a line.
 
 ## Protocol sections (rules 4)
 
@@ -170,7 +172,7 @@ One comparison lives in `decisions/<id>/`, and one loader reads its files
 | `criteria.json` | `criteria`: a list of `{id, kind, direction}`, with `kind` `measured` or `judged` and `direction` `max`, `min` or `pass`. `baseline_variant`: the id of the status-quo variant in `variants.jsonl` |
 | `variants.jsonl` | one `{id, status}` row per variant. A `produced` variant names its `artifact`: a file in the line or the repository, `git:<rev>` or `orx:<id>`. A `dropped` one gives `drop_reason` |
 | `comparison.jsonl` | one cell per variant and criterion, written by `compare` |
-| `decision.md` | the choice and why the others lost |
+| `decision.md` | the line's pick (`recommended:`), the owner's (`chosen:` with `owner:`) and why the others lost |
 
 Write and commit `criteria.json` and `variants.jsonl` before the first cell. Then
 record each cell with `tezgah-research compare <slug> <decision>`, one JSON object
@@ -190,12 +192,23 @@ this same rule.
 - A judged cell with fewer than two distinct raters warns.
 - The criteria have to enter the history before the first cell, and
   `comparison.jsonl` only grows.
-- `decision.md` names a produced variant on a `chosen: <id>` line.
+- `decision.md` names a produced variant on a `chosen: <id>` line, else on a
+  `recommended: <id>` line (`hooks/tezgah_research.py::decision_pick`).
+- On a rules-9 line the line writes its own pick as `recommended:`. A `chosen:`
+  line with no `owner:` line fails with `names no owner choice`. Choosing a
+  variant or option a research, analysis or review recommends is the owner's
+  call. `tezgah-research choose <slug> <decision> <variant> --ack
+  "<the owner's words>"` writes `chosen:` and `owner: <date> "<words>"` and one
+  `log.md` line (`hooks/tezgah_research.py::choose_line`). It works on a done
+  line too: the order seal hashes the experiments alone. A rules-8 line's
+  `chosen:` is read as before.
+- `conclude` prints `report to the owner: <id> is recommended, not chosen` for
+  each decision still waiting (`hooks/tezgah_research.py::owner_waits`).
 - Each other produced variant shares a line of `decision.md` with a criterion id
   that ruled it out. Else: `rejects <id> on no criterion`.
 - `decision.md` has a `flip:` line, the result that would reverse the choice.
 - When every criterion is `max` or `min` and scored, no produced variant may
-  dominate the chosen one. A dominating variant is at least as good on every
+  dominate the picked one. A dominating variant is at least as good on every
   criterion and better on one (`hooks/tezgah_research.py::dominated_by`).
 
 ## One line, one directory
@@ -263,7 +276,15 @@ rule names the open lines with their reason counts on every research turn
 "<reason>"`, which writes the reason into the new line's `log.md` - an explicit
 decision on the record instead of a silent second line - and which is itself
 refused while any open line has `check` errors (`broken_open_lines`): a hatch past
-broken lines is how they stayed broken. What is left of a line that will not be
+broken lines is how they stayed broken. A success criterion whose verdict is
+still `pending` is a line in flight, not a broken one. That error alone does not
+block the hatch, and any other error does. A line another session is running is
+not this session's to fix or close. Both refusals say so
+(`hooks/tezgah_research.py::OWNER_ASK`). The session stops and asks the owner,
+never a way around a tezgah refusal (another folder, a hidden dir). A hidden dir
+under `research/`, `research/open/` or `research/done/` holds no line `check` can
+see. The no-slug `check` and `status` fail it by its path
+(`hooks/tezgah_research.py::stray_dirs`). What is left of a line that will not be
 finished is recorded with `tezgah-research close <slug> --limit "<reason>"`
 (`close_line`), which concludes it and writes the reasons it was still open into
 `state.json` `closed` and `log.md` and seals it ("the order seal", below). Such
@@ -292,7 +313,7 @@ through its seal.
 | `tezgah-research init <slug> [--question "..."] [--class R1..R12] [--allow-open "<reason>"] [--supersedes <slug>]` | scaffolds the line and makes sure `.tezgah/` is ignored by the project and has its own git repository (`tezgah_paths.ensure_workspace`). It refuses while another line is still open (see below), names each open line and its reasons one per line, and `--allow-open "<reason>"` is the way past unless an open line has `check` errors: the reason lands in the new line's `log.md` as its first entry, and an empty reason is misuse. A `--question` another line already asks is refused unless `--supersedes <that line>` says the new line is its next version (`serial_twins`). `--class` writes `state.question_class` and prints `obligations: <step>, ...` (`obligations`), the tier's `budget <slug>: sources a/b searches c/d runs e/f` (`budget`) and `overlap: <line>/<claim> <status> <similarity>` for each done claim close to the question (`overlaps`); `--class R0` exits 1 (`R0 gets no line`) before any other argument is read. Its next-step message names the commit loop: `tezgah-research commit` for the protocol, then again for the results in a later commit (`cmd_init`, `bin/tezgah-research`) | 0, 1 refused, 2 misuse |
 | `tezgah-research commit <slug> "<message>"` | stages and commits only that line's path in `.tezgah`'s private repository - the commit the order rule reads (`cmd_commit`, `bin/tezgah-research`). With nothing left to commit it prints `nothing to commit: <paths> is already committed in <workspace>` and exits 0 | 0 (also with nothing to commit), 1 not a work tree or git failed, 2 misuse |
 | `tezgah-research check [<slug>] [--json] [--strict] [--orx] [--online] [--all-lines] [-- <slug>]` | the discipline checks below. With no slug it checks the open lines in full and a line under `done/` by its order seal alone (`done_seal`, `hooks/tezgah_research.py::done_seal`), naming it only when the seal fails or its `state.json` or seal cannot be read, then prints `research: <n> done line(s): <s> checked by their seal, <u> unsealed (not checked); ...`; `--all-lines` checks every line in full, and `check <slug>` always checks that line in full (ADR 015). `--json` prints the report (no-slug default: the open lines and any done line whose seal read fails), `--strict` turns the unverifiable class into a refusal, `--orx` adds the registry check that asks `orx project view` for this repository (`check_orx`, `hooks/tezgah_research.py::check_orx`) and, on a rules-8 line, the run census; `--online` re-fetches a rules-8 line's citation receipts; a slug after `--` is never read as a flag, which is how the MCP tool `tezgah_research_check` passes its validated `slug`. A rules-8 line (`_check_rules8`) also prints report lines that are never counted - `certainty`, `stats`, `effect`, `instrument`, `ppi`, `stopping`, `online`, `budget` - and `--json` adds its per-claim `certainty` | 0 clean, 1 a line failed a rule or names no line |
-| `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4) | 0 |
+| `tezgah-research status` | one line per line: an open line `ok` or a problem count, a line under `done/` read by its seal like the no-slug `check` - `done, seal ok`, `done, <n> seal problem(s)` or `done, unsealed (not checked)` (`summary`, `hooks/tezgah_research.py::summary`, plan 058 part 4); then one `FAIL` line per hidden dir under `research/` (`stray_dirs`) | 0 |
 | `tezgah-research --all` | every checkout of this repository (the main checkout and each linked `git worktree`, `tezgah_paths.worktrees`), one header per checkout, then `  <slug>: <phase>` per line with the reasons it is still open; a checkout with none says `no research line`. Read-only: each checkout keeps its own `.tezgah`, locks and private repository, and nothing here writes to any of them (`across`, `hooks/tezgah_research.py::across`) | 0, 2 misuse |
 | `tezgah-research claim <slug>` | reads one claim from stdin and either appends it under an exclusive lock or refuses it, printing one reason per problem | 0, 1 refused, 2 misuse |
 | `tezgah-research predict <slug>` | reads one prediction row from stdin and either appends it under the same lock or refuses it with one reason per problem; a row whose `commit` git cannot place is appended with the warning printed, which is the fail-open `check` uses, and a row written now has to name at least one component the manifest defines (`append_prediction`, `hooks/tezgah_research.py::append_prediction`) | 0, 1 refused, 2 misuse |
@@ -302,7 +323,8 @@ through its seal.
 | `tezgah-research compare <slug> <decision>` | reads one variants x criteria cell from stdin and appends it to `decisions/<decision>/comparison.jsonl` under the lock, or refuses it by the rule `check` applies (`append_comparison` and `comparison_problems`, `hooks/tezgah_research.py`); it notes when `criteria.json` is not committed yet | 0, 1 refused, 2 misuse |
 | `tezgah-research close <slug> --limit "<reason>"` | concludes the line as a deliberate limit, writing the reasons it was still open into `state.json` `closed` and `log.md`, and seals it (`close_line`) | 0, 1 unreadable state, 2 misuse |
 | `tezgah-research verdict <slug> <id> met\|not-met\|unanswerable --evidence "<ref>"` | records one success criterion's verdict and the evidence it rests on in the line's `state.json`, or refuses it with one `FAIL verdict:` line per problem (`verdict_problems`, `hooks/tezgah_research.py::verdict_problems`) | 0, 1 refused or unreadable state, 2 misuse |
-| `tezgah-research conclude <slug>` | concludes a line once every success criterion carries a verdict, seals it and moves it to `done/` (`conclude_line`, `hooks/tezgah_research.py::conclude_line`) | 0, 1 refused, 2 misuse |
+| `tezgah-research conclude <slug>` | concludes a line once every success criterion carries a verdict, seals it and moves it to `done/` (`conclude_line`, `hooks/tezgah_research.py::conclude_line`); then prints `report to the owner: <id> is recommended, not chosen; ...` for each decision with no owner choice (`owner_waits`) | 0, 1 refused, 2 misuse |
+| `tezgah-research choose <slug> <decision> <variant> --ack "<the owner's words>"` | records the owner's pick: `chosen:` and `owner: <date> "<words>"` in the decision's `decision.md`, one `log.md` line; refuses empty `--ack`, a missing decision and a variant the decision did not produce, on an open or a done line (`choose_line`, `hooks/tezgah_research.py::choose_line`) | 0, 1 refused, 2 misuse |
 | `tezgah-research migrate-layout` | moves flat `research/<slug>` directories into `open/` or `done/` by each line's state, and is idempotent (`migrate_layout`, `hooks/tezgah_research.py::migrate_layout`) | 0, 2 misuse |
 | `tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"` | seals a line under `done/` that was concluded before seals existed: plainly, as `conclude` would, when every experiment's order still checks; with `--history-lost`, with that verdict for every experiment whose order the lost history left undecidable. Refuses a line with a real order violation, a plain seal on any order finding, and a `history-lost` seal with nothing lost (`retro_seal`, `hooks/tezgah_research.py::retro_seal`) | 0, 1 refused, 2 misuse |
 | `tezgah-research import <checkout> [<slug>] [--allow-open "<reason>"]` | brings a line - or every line this checkout lacks - from another checkout's `.tezgah` repository with its history; an open line arrives beside open ones only with `--allow-open` (`import_line`, `hooks/tezgah_research.py::import_line`) | 0, 1 refused, 2 misuse |

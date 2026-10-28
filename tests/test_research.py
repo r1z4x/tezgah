@@ -184,7 +184,7 @@ class Workspace(TempHome):
         on a concluded line, `deepen` otherwise - unless `direction` names one.
 
         Pinned to rules 7 (`EXPLORE_RULES`) unless `rules` names another: `init`
-        writes rules 8 since plan 127, and these cases are about the rules-7
+        writes rules 9 since plan 136, and these cases are about the rules-7
         reading every sealed line up to rules 7 is still checked by - a rules-8
         case opts in with `rules=tr.EVIDENCE_RULES`."""
         tr.init(repo, slug, question=question, created="2026-01-01")
@@ -417,6 +417,7 @@ class Unfinished(Workspace):
         self.assertIn("alpha: ", proc.stdout)
         self.assertIn("phase inner", proc.stdout)
         self.assertIn('--allow-open "<reason>"', proc.stdout)
+        self.assertIn(tr.OWNER_ASK, proc.stdout)
         self.assertEqual(tr.slugs(repo), ["alpha"])
 
     def test_allow_open_scaffolds_and_records_the_reason(self):
@@ -1182,14 +1183,14 @@ class RulesVersion(Workspace):
             state = json.loads(read(os.path.join(tr.line_dir(repo, slug),
                                                  "state.json")))
             self.assertEqual(state["rules"], tr.RULES)
-        # plan 127's last wave moved `RULES` to the evidence rules: `init` writes 8
-        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
+        # plan 136 moved `RULES` to the owner-choice rules: `init` writes 9
+        self.assertEqual(tr.RULES, tr.OWNER_CHOICE_RULES)
 
     def test_a_newer_rules_version_is_refused_by_every_reader_and_writer(self):
         repo = self.repo()
-        base = self.line(repo, rules=tr.EVIDENCE_RULES + 1)
+        base = self.line(repo, rules=tr.RULES + 1)
         needle = "rules %d is newer than the rules this tezgah implements" % (
-            tr.EVIDENCE_RULES + 1)
+            tr.RULES + 1)
         errors = self.errors(repo)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn(needle, errors[0])
@@ -5566,6 +5567,7 @@ class Standards(Workspace):
         proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?", "--allow-open", "because X")
         self.assertEqual(proc.returncode, 1, proc.stdout)
         self.assertIn("alpha:", proc.stdout)
+        self.assertIn(tr.OWNER_ASK, proc.stdout)
         self.assertEqual(tr.slugs(repo), ["alpha"])
         proc = self.cli(repo, "close", "alpha", "--limit", "order unprovable")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
@@ -5573,6 +5575,98 @@ class Standards(Workspace):
         log = read(os.path.join(tr.line_dir(repo, "alpha"), "log.md"))
         self.assertIn("order unprovable", log)
         self.assertEqual(self.cli(repo, "init", "beta", "--ask", "is beta worth it?").returncode, 0)
+
+    def test_allow_open_opens_beside_a_line_whose_only_error_is_a_pending_verdict(self):
+        repo = self.repo()
+        self.line(repo, "alpha", phase="inner")
+        self.state(repo, "alpha", ask="does alpha help?",
+                   success=[{"id": "S1", "criterion": "p95 drops", "verdict": "pending"}])
+        self.assertEqual(self.errors(repo, "alpha"), [tr._verdict_error("S1", "pending")])
+        self.assertEqual(tr.broken_open_lines(repo), [])
+        proc = self.cli(repo, "init", "beta", "--ask", "is beta worth it?",
+                        "--allow-open", "alpha is another session's")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        # any other error still blocks the hatch, and the refusal sends it to the owner
+        self.state(repo, "alpha", success=[{"id": "S1", "criterion": "p95 drops",
+                                            "verdict": "maybe"}])
+        proc = self.cli(repo, "init", "gamma", "--ask", "is gamma worth it?",
+                        "--allow-open", "because X")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn("alpha: 1 error(s)", proc.stdout)
+        self.assertIn(tr.OWNER_ASK, proc.stdout)
+
+    def test_a_hidden_dir_under_research_is_an_error_in_check_and_status(self):
+        repo = self.repo()
+        self.write(os.path.join(tr.root(repo), ".staging", "q", "state.json"), "{}")
+        self.assertEqual(tr.slugs(repo), [])
+        needle = ".tezgah/research/.staging is not a research line"
+        self.assertTrue(hit(needle, tr.check(repo)[".tezgah/research/.staging"]["errors"]))
+        self.assertNotIn(".tezgah/research/.staging", tr.check(repo, "nope"))
+        proc = self.cli(repo, "check")
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn(needle, proc.stdout)
+        self.assertIn(needle, self.cli(repo, "status").stdout)
+        self.line(repo, "alpha")
+        os.makedirs(os.path.join(tr.root(repo), "open", ".inbox"))
+        self.assertTrue(hit(".tezgah/research/open/.inbox is not a research line",
+                            [e for _s, e in tr.failing(repo)]))
+
+    # --- the owner's choice (rules 9) -------------------------------------------
+
+    def owner_line(self, repo, rules):
+        ddir = self.designed(repo)
+        self.state(repo, rules=rules)
+        self.cells(ddir, {"V0": (120, 5), "V1": (90, 4), "V2": (95, 6)})
+        return ddir
+
+    def test_a_rules_9_chosen_needs_the_owner_and_recommended_alone_passes(self):
+        needle = "decision.md chosen V1 names no owner choice"
+        repo = self.repo()
+        ddir = self.owner_line(repo, tr.OWNER_CHOICE_RULES)
+        self.decide(ddir)
+        self.assertTrue(hit(needle, self.errors(repo)), self.errors(repo))
+        self.write(os.path.join(ddir, "decision.md"),
+                   "recommended: V1\n\n- V0 rejected on K1\n- V2 rejected on K2\n"
+                   "flip: a K1 regression above 5%\n")
+        self.assertFalse(hit("decisions/", self.errors(repo)), self.errors(repo))
+        # a rules-8 line's `chosen:` is read as before
+        repo = self.repo("old")
+        self.decide(self.owner_line(repo, tr.EVIDENCE_RULES))
+        self.assertFalse(hit("names no owner choice", self.errors(repo)))
+
+    def test_choose_records_the_owners_words_and_refuses_without_them(self):
+        repo = self.repo()
+        ddir = self.owner_line(repo, tr.OWNER_CHOICE_RULES)
+        self.write(os.path.join(ddir, "decision.md"),
+                   "recommended: V1\n\n- V0 rejected on K1\n- V1 leads on K1 and K2\n"
+                   "- V2 rejected on K2\nflip: a K1 regression above 5%\n")
+        for args, needle in ((("d1", "V1", "--ack", "  "), "needs --ack"),
+                             (("d1", "V9", "--ack", "take V9"), "V9 is not produced"),
+                             (("d9", "V1", "--ack", "V1"), "decisions/d9 has no decision.md")):
+            proc = self.cli(repo, "choose", "q", *args)
+            self.assertEqual(proc.returncode, 1, proc.stdout)
+            self.assertIn(needle, proc.stdout)
+        proc = self.cli(repo, "choose", "q", "d1", "V0", "--ack", 'go with "V0"')
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        body = read(os.path.join(ddir, "decision.md"))
+        self.assertIn("chosen: V0\n", body)
+        self.assertRegex(body, r"owner: \d{4}-\d\d-\d\d \"go with 'V0'\"")
+        self.assertIn("owner chose V0 in decisions/d1",
+                      read(os.path.join(tr.line_dir(repo, "q"), "log.md")))
+        self.assertFalse(hit("names no owner choice", self.errors(repo)))
+        self.assertEqual(tr.owner_waits(repo, "q"), [])
+
+    def test_conclude_names_a_recommendation_still_waiting_for_the_owner(self):
+        repo = self.repo()
+        ddir = self.designed(repo)
+        self.write(os.path.join(ddir, "decision.md"), "recommended: V1\n")
+        self.state(repo, ask="which layout?", success=[
+            {"id": "S1", "criterion": "a layout", "verdict": "met", "evidence": "d1"}])
+        proc = self.cli(repo, "conclude", "q")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("report to the owner: V1 is recommended, not chosen; building it "
+                      "waits for the owner's answer (tezgah-research choose q d1 V1 "
+                      "--ack \"<their words>\")", proc.stdout)
 
 
 class NoHistoryBridge(Workspace):
@@ -6513,7 +6607,7 @@ class Exploratory(Workspace):
         and the order holds."""
         repo = self.repo()
         base = self.campaign(repo, evaluator=False, commit=False, rules=None)
-        self.assertEqual(tr._state(base).get("rules"), tr.EVIDENCE_RULES)
+        self.assertTrue(tr._evidence(tr._state(base)))
         d = os.path.join(base, "experiments", "h1")
         self.write(os.path.join(d, "protocol.md"),
                    "idea: I1\nkill: %s\nprediction: it scores\nfalsifier: %s\n"
@@ -6544,8 +6638,8 @@ class Exploratory(Workspace):
         base = self.campaign(repo, rules=None)
         state = tr.line_state(repo, "camp")
         self.assertEqual(state["rules"], tr.RULES)
-        # plan 127's flip: `init` writes rules 8, and the arena stays locked on it
-        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
+        # `init` writes the newest rules, and the arena stays locked on it
+        self.assertEqual(tr.RULES, tr.OWNER_CHOICE_RULES)
         self.assertEqual(state["arena"]["evaluator_sha256"],
                          tr._digest(os.path.join(repo, "eval", "score.py")))
         self.assertEqual(tr.scope_problems(state), [])
@@ -6929,19 +7023,20 @@ class OrxModuleNames(unittest.TestCase):
 
 
 class EvidenceRulesBound(unittest.TestCase):
-    """Rules 8 (plan 127) is the rules `init` writes: a line declaring it is read
-    as current, rules 9 is still refused, and a rules-7 line (every sealed line
-    up to the flip) is not held to the evidence rules."""
+    """Rules 9 (plan 136) is the rules `init` writes: rules 8 and 9 are read as
+    current and held to the evidence rules, rules 10 is refused, and a rules-7
+    line (every sealed line up to plan 127's flip) is not held to them."""
 
-    def test_rules_8_is_read_and_rules_9_is_refused(self):
+    def test_rules_9_is_read_and_rules_10_is_refused(self):
         self.assertEqual(tr.EVIDENCE_RULES, 8)
-        # the flip: `RULES` was `EXPLORE_RULES` (7) until plan 127's last wave
-        self.assertEqual(tr.RULES, tr.EVIDENCE_RULES)
-        self.assertIsNone(tr.newer_rules({"rules": tr.EVIDENCE_RULES}))
-        self.assertTrue(tr._evidence({"rules": tr.EVIDENCE_RULES}))
+        self.assertEqual(tr.RULES, tr.OWNER_CHOICE_RULES)
+        self.assertEqual(tr.OWNER_CHOICE_RULES, 9)
+        for rules in (tr.EVIDENCE_RULES, tr.OWNER_CHOICE_RULES):
+            self.assertIsNone(tr.newer_rules({"rules": rules}))
+            self.assertTrue(tr._evidence({"rules": rules}))
         self.assertFalse(tr._evidence({"rules": tr.EXPLORE_RULES}))
-        refusal = tr.newer_rules({"rules": 9})
-        self.assertIn("rules 9 is newer than the rules this tezgah implements (8)",
+        refusal = tr.newer_rules({"rules": 10})
+        self.assertIn("rules 10 is newer than the rules this tezgah implements (9)",
                       refusal)
 
 

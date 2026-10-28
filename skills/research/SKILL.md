@@ -653,18 +653,27 @@ opened under):
 | `criteria.json` | `question`, `baseline_variant` (V0, the status quo or current design) and `criteria[]`, each with `id` (`K1`), `name`, `kind` (`measured` or `judged`), `direction` (`max`, `min` or `pass`), optional `threshold` and `guardrail` |
 | `variants.jsonl` | one row per variant: `id`, `title`, `artifact` (a path in the line or the repository, `git:<branch>` or `orx:<expId>`), `status` (`produced` or `dropped` with `drop_reason`), and `line` when it is an older line's deliverable |
 | `comparison.jsonl` | one row per cell: `variant`, `criterion`, `value` with its `source`, or `not_checked` with the reason; `rater` on a judged cell. Append with `~/.config/tezgah/bin/tezgah-research compare <slug> <id>` (one JSON object on stdin), which refuses what `check` refuses |
-| `decision.md` | `chosen: V2`, one line per rejected id naming the criterion id that ruled it out, and `flip:` - the result that would reverse the choice |
+| `decision.md` | `recommended: V2` (the line's pick), one line per rejected id naming the criterion id that ruled it out, and `flip:` - the result that would reverse the choice; `chosen:` and `owner:` only once the owner picks |
 
 `check` refuses: fewer produced variants than the deliverable takes; two produced
 files with the same content (a renamed copy is not an alternative); `criteria.json`
 not committed before the first `comparison.jsonl` commit; a comparison row changed
 after it was committed; a missing cell once `decision.md` exists or the line is
-delivering; a `chosen` that is not a produced variant, a rejected variant with no
-criterion, no `flip:`; and a chosen variant another one beats or ties on every
-numeric criterion. A judged cell with fewer than two raters warns (`--strict`
-refuses). A design or plan (and an analysis on a line before rules 5) with no
-`decisions/` warns while the line runs, is refused once it delivers, and keeps
-the line open.
+delivering; a pick (`chosen:`, else `recommended:`) that is not a produced
+variant, a rejected variant with no criterion, no `flip:`; and a picked variant
+another one beats or ties on every numeric criterion. A judged cell with fewer
+than two raters warns (`--strict` refuses). A design or plan (and an analysis on
+a line before rules 5) with no `decisions/` warns while the line runs, is refused
+once it delivers, and keeps the line open.
+
+The line recommends; the owner chooses. Choosing a variant or option a research,
+analysis or review recommends is the owner's call, so a rules-9 line writes
+`recommended:` and never `chosen:` itself - a `chosen:` with no `owner:` line
+fails `check`. Report the recommendation and wait for the answer; building it
+waits too. When the owner answers, record their words:
+`~/.config/tezgah/bin/tezgah-research choose <slug> <decision> <variant> --ack
+"<the owner's words>"` writes `chosen:` and `owner:`, on an open or a done line.
+`conclude` names each recommendation still waiting for the owner.
 
 When the variants are code or config, they are sibling orx nodes under one head
 node (orx cardinal rule 4: fan within a round, then descend onto the winner), and
@@ -681,8 +690,12 @@ into `state.json` `closed` and `log.md`, seals its experiments' file hashes
 way, and an edit after the seal fails `check`. The no-slug `check` reads a done
 line by its seal alone and counts it on one line; its other errors show in
 `check <slug>` and `check --all-lines`. `init --allow-open` is refused
-while an open line has `check` errors. A line moves to another checkout with
-`import`, never as a copy: a copy loses the order proof.
+while an open line has `check` errors, other than a criterion whose verdict is
+still `pending` (a line in flight). A line another session is running is not this
+session's to fix or close: when a refusal names one, stop and ask the owner -
+never a way around a tezgah refusal (another folder, a hidden dir). A hidden dir
+under `research/` is not a line: `check` and `status` fail it. A line moves to
+another checkout with `import`, never as a copy: a copy loses the order proof.
 
 Finally, a `## Patterns` bullet names what it generalises from - a claim id, a
 `literature/` note or a run - because a pattern is the one finding a reader carries
