@@ -516,15 +516,20 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    (`hooks/tezgah_integrity.py::QUESTION_END`). Its paragraph names no recommended default, and
    it names no step the ask policy keeps from a default (`hooks/tezgah_integrity.py::never_default`).
    Such steps are a force push, a delete, production, a credential, a third party, or a spend
-   over `spend_cap`. The class then refuses a process question: the packs' `ask.process`
+   over `spend_cap`. Building a plan the reply wrote is one too
+   (`hooks/tezgah_integrity.py::PLAN_BUILD`). So is a last line that asks the owner to pick a
+   variant ("V4 mü V1 mi?"), to take a way around a tezgah refusal, or to decide about another
+   session's work (`hooks/tezgah_integrity.py::OWNER_CHOICE`, plan 136). The
+   class then refuses a process question: the packs' `ask.process`
    shapes, such as "Başlayayım mı?", "shall I proceed?" and "which first?"
    (`hooks/tezgah_integrity.py::PROCESS_ASK`). It also refuses a question about an outward
    step the user granted this session (`hooks/tezgah_integrity.py::grants_in_force`). A question
    about an outward step the user has not granted is the one the policy asks, so it passes. The
-   refusal says to take the step, or to move it into the approval batch with a default. Under
+   refusal says to take the step, or to move a taste or intent fork into the approval batch
+   with a default. A class-F step waits for the answer. Under
    `tr` it opens with "Bu soruyu sorma". `_residual_block` asks it after `residual work` and
    before `ready steps` (`hooks/tezgah_integrity.py::needless_ask`). Unlike those two, it needs
-   no work in the turn, because a plan proposal that ends "Başlayayım mı?" is its measured case.
+   no work in the turn, because a reply that ends on a bare "Başlayayım mı?" is its measured case.
    The research line counted 33 process questions among 48 question endings in the owner's omp
    transcripts. It refuses once per turn and counts like `residual work`
    (`hooks/tezgah_integrity.py::LIST_BLOCKS`).

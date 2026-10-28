@@ -6378,6 +6378,10 @@ NEVER_DEFAULT = re.compile(alts("ask", "never_default"), re.I)
 # A reply that names a plan it wrote, or asks to build one: building a plan the
 # turn wrote is class F (plan 105), so asking it is the policy, not a needless ask
 PLAN_BUILD = re.compile(alts("ask", "plan_build"), re.I)
+# A last line asking the owner to pick a variant or option a research, analysis
+# or review recommends, to take a way around a tezgah refusal, or to decide
+# about another session's work (its line, plan or branch): class F (plan 136)
+OWNER_CHOICE = re.compile(alts("ask", "owner_choice"), re.I)
 SPEND = re.compile(alts("ask", "spend"), re.I)
 AMOUNT = re.compile(r"\$\s?(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?(?:\$|usd\b|dolar)", re.I)
 DEFAULT_MARK = re.compile(alts("ask", "default_mark"), re.I)
@@ -6398,10 +6402,12 @@ NEEDLESS_ASK = (
     "merge, a run parameter within the standing spend cap - are taken and "
     "stated in one line, and an outward step the user granted this session is "
     "taken, not asked again. An outward step the user has not granted waits "
-    "for the answer and never proceeds on a default, and so does building a "
-    "plan this turn wrote. Do it now, or, when only "
-    "the user can decide it, put it under a \"{APPROVAL_HEADING}\" heading with "
-    "a \"{RECOMMENDED}:\" default and proceed on that default.")
+    "for the answer and never proceeds on a default, and so do building a "
+    "plan this turn wrote, choosing a variant or option a research, analysis "
+    "or review recommends, a way around a tezgah refusal and deciding about "
+    "another session's work. Do it now, or, when it is a taste or intent fork "
+    "only the user can decide, put it under a \"{APPROVAL_HEADING}\" heading "
+    "with a \"{RECOMMENDED}:\" default and proceed on that default.")
 
 
 def outward_classes(text):
@@ -6449,7 +6455,9 @@ def needless_ask(text, granted=frozenset):
     """The question the reply ends on when the agent can decide it, else None.
 
     The last line asks (QUESTION_END), its paragraph carries no recommended
-    default (DEFAULT_MARK) and it names no class-F step (`never_default`); it
+    default (DEFAULT_MARK) and it names no class-F step (`never_default`, or
+    OWNER_CHOICE: a variant or option to pick, a way around a refusal, another
+    session's work); it
     is then needless when it names an outward step (OUTWARD) the user granted
     this session, every one it names (`granted()`, called only then, so a reply
     that ends on no question reads no ledger), or, naming none, when it asks a
@@ -6460,7 +6468,8 @@ def needless_ask(text, granted=frozenset):
     if not lines or not QUESTION_END.search(lines[-1]):
         return None
     last = lines[-1]
-    if (never_default(last) or PLAN_BUILD.search(_tr_lower(t))
+    if (never_default(last) or OWNER_CHOICE.search(_tr_lower(last))
+            or PLAN_BUILD.search(_tr_lower(t))
             or DEFAULT_MARK.search(_tr_lower(re.split(r"\n\s*\n", t)[-1]))):
         return None
     low = _tr_lower(last)

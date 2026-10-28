@@ -102,7 +102,10 @@ If something is left that only the reader can do - a decision, a credential or
 grant, consent for a step that cannot be undone - name that ONE step, small
 enough to start now. Several such decisions go in one numbered approval batch,
 each with a recommended default, and the work proceeds on the defaults (the
-tezgah contract's Ask policy). A step you can take yourself is not a next step:
+tezgah contract's Ask policy) - except a class-F item (choosing a variant or
+option a research, analysis or review recommends, a way around a tezgah
+refusal, deciding about another session's work), which waits for the answer.
+A step you can take yourself is not a next step:
 take it, and never end on asking whether to. When nothing is left, end on what
 now works.
 

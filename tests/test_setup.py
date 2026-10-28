@@ -3327,7 +3327,12 @@ class VersionPrefixIsNotContract(SetupBase):
         # 1: building it waits for the answer, in the Ask policy too (+56 B).
         # Re-pinned 2026-10-22 (plan 126): measured unrendered, so the absolute
         # CLI paths the render now writes do not tie the pin to one HOME.
-        self.assertEqual(13160, band, "the always-on band moved")
+        # Re-pinned 2026-10-28 (plan 136): the Ask policy names three more
+        # never-default items in short form - a recommended variant, a way
+        # around a tezgah refusal, another session's work - and the fork clause
+        # no longer covers them (+116 B; the long form pushed the worktree
+        # fixture's session_start over its 16000 B budget).
+        self.assertEqual(13276, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
     def test_the_rendered_always_on_band_is_unchanged(self):
@@ -3349,8 +3354,9 @@ class VersionPrefixIsNotContract(SetupBase):
                               capture_output=True, text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # Pinned 2026-10-22 (plan 126 review round 1): rendered under
-        # HOME=/tezgah-band-pin, language `tr`.
-        self.assertEqual(13409, int(proc.stdout), "the rendered band moved")
+        # HOME=/tezgah-band-pin, language `tr`. Re-pinned 2026-10-28 (plan 136,
+        # +116 B, see the unrendered pin).
+        self.assertEqual(13525, int(proc.stdout), "the rendered band moved")
 
 
 if __name__ == "__main__":

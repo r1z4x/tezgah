@@ -224,6 +224,9 @@
   "plan_build": [
    "\\bplans?\\b[^.?!\\n]{0,40}\\b(?:is ready|ready|written|drafted)\\b|\\b(?:wrote|opened|drafted|added|created) (?:the |a |this )?plans?\\b|\\b(?:build|implement|execute|start on|start) (?:the |this |that )?plans?\\b"
   ],
+  "owner_choice": [
+   "\\bwhich (?:variant|option|approach|design)s?\\b|\\b(?:v\\d+|option [a-h1-9]|variant [a-z0-9]+|[a-h]),? or (?:v\\d+|option [a-h1-9]|variant [a-z0-9]+|[a-h])\\b|\\b(?:another|other|the other) session\\w*|\\bsession'?s (?:line|plan|branch)\\b|\\bresearch line\\b|--allow-open|--limit\\b|\\.staging\\b|\\bhidden (?:dir|directory|folder)\\b|\\b(?:another|a different) (?:folder|dir|directory)\\b|\\bwork ?around\\b"
+  ],
   "spend": [
    "spend\\w*|\\bpaid\\b|billing|\\bcost\\w*|\\bbudget\\w*|\\busd\\b|\\$\\s?\\d"
   ],
