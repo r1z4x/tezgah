@@ -411,6 +411,16 @@ class Generation(AgentsBase):
             self.assertIn("its rule text is the checklist for those files", flat, host)
             self.assertIn("OCR output is input, never a verdict", flat, host)
 
+    def test_the_reviewer_has_a_plan_readiness_mode(self):
+        # plan 137: a plan is reviewed before implementation for open choices
+        # and sections the reviewer cannot restate
+        flat = " ".join(tezgah_agents._reviewer_body("claude").split())
+        for rule in ("`.tezgah/plans/open/NNN-*.md`",
+                     "restate each section's intent in one sentence",
+                     "a choice left to the implementer is a major finding",
+                     "A file the plan will create is not a missing reference"):
+            self.assertIn(rule, flat)
+
     def test_the_contract_policy_and_plan_sync_say_the_reviewers_budget(self):
         # four hand-kept copies of one rule drift apart one at a time: the agent
         # text looped while the CLI printed two rounds
