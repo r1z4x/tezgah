@@ -25,6 +25,8 @@
   tezgah-research verdict <slug> <id> met|not-met|unanswerable --evidence "<ref>"
                                                    record one success criterion's verdict
   tezgah-research conclude <slug>                  conclude a line whose criteria all carry a verdict
+  tezgah-research choose <slug> <decision> <variant> --ack "<the owner's words>"
+                                                   record the owner's pick of a recommended variant
   tezgah-research migrate-layout                   move flat research/<slug> into open/ or done/
   tezgah-research close <slug> --limit "<reason>"  conclude a line as a deliberate limit
   tezgah-research seal <slug> [--history-lost] --ack "<owner decision>"
@@ -121,14 +123,20 @@ no status, a design/plan/analysis/code deliverable with no decision comparing it
 variants - printing every open slug with its reasons. `--allow-open "<reason>"`
 opens the new line anyway and writes the reason into its `log.md` as the first
 entry; an empty reason is misuse, and the hatch is refused while any open line has
-`check` errors. `close <slug> --limit "<reason>"` concludes a line on purpose,
+`check` errors other than a criterion whose verdict is still `pending` (a line in
+flight). Both refusals say that a line another session is running goes to the
+owner, not to this session. `close <slug> --limit "<reason>"` concludes a line on purpose,
 writing the reasons it was still open into `state.json` `closed` and `log.md`.
 `--supersedes <old>` opens a new version of an existing line, which then carries
 the old deliverable as a variant; a line asking an existing line's exact question
 without it is refused. `compare` appends one cell to
 `decisions/<decision>/comparison.jsonl` under the rule `check` applies to it.
+A rules-9 decision.md writes the line's pick as `recommended:`; `choose` records
+the owner's `chosen:` with an `owner:` line holding their words, and `conclude`
+names each recommendation still waiting for it.
 `check` prints the same list of open lines after the per-line report, and so does
-`status`, so neither state has to be discovered by being refused.
+`status`, so neither state has to be discovered by being refused. Both also fail
+a hidden dir under `research/`, which no line may live in.
 
 `init --method exploratory` (rules 7) opens a campaign instead of a question:
 `--arena` and `--budget` (and, for a measurable arena, `--evaluator` with its
@@ -286,6 +294,7 @@ def cmd_init(args):
             print("  %s: %s" % (name, "; ".join(reasons)))
         print('to open %s anyway, say why: tezgah-research init %s '
               '--allow-open "<reason>"' % (slug, slug))
+        print(tr.OWNER_ASK)
         return 1
     broken = tr.broken_open_lines(repo) if unfinished else []
     if broken:
@@ -297,6 +306,7 @@ def cmd_init(args):
             print("  %s: %d error(s), first: %s" % (name, len(errors), errors[0]))
         print('fix them, or record what is left: tezgah-research close <slug> '
               '--limit "<reason>"')
+        print(tr.OWNER_ASK)
         return 1
     twins = [t for t in tr.serial_twins(repo, slug, {"question": question})
              if t != supersedes]
@@ -490,7 +500,7 @@ def cmd_check(args):
         return 1
     problems = 0
     report = {}
-    if known:
+    if known or tr.stray_dirs(repo):
         report = tr.check(repo, rest[0] if rest else None, strict=strict,
                           all_lines=all_lines, code=checkout_root(os.getcwd()),
                           flags={"online": online, "orx": ask_orx})
@@ -1067,6 +1077,28 @@ def cmd_conclude(args):
             print("FAIL conclude: %s" % problem)
         return 1
     print("concluded %s; it moved to research/done/%s" % (slug, slug))
+    for decision, variant in tr.owner_waits(repo, slug):
+        print("report to the owner: %s is recommended, not chosen; building it waits "
+              "for the owner's answer (tezgah-research choose %s %s %s --ack "
+              "\"<their words>\")" % (variant, slug, decision, variant))
+    return 0
+
+
+def cmd_choose(args):
+    """Record the owner's pick among a decision's produced variants."""
+    usage = 'choose <slug> <decision> <variant> --ack "<the owner\'s words>"'
+    if len(args) != 5 or args[3] != "--ack":
+        return misuse(usage)
+    slug, decision, variant, _flag, ack = args
+    repo = repo_root(os.getcwd())
+    if slug not in tr.slugs(repo):
+        return misuse("no such research line: %s" % slug)
+    problem = tr.choose_line(repo, slug, decision, variant, ack,
+                             time.strftime("%Y-%m-%d"))
+    if problem:
+        print("FAIL choose: %s" % problem)
+        return 1
+    print("decisions/%s: the owner chose %s" % (decision, variant))
     return 0
 
 
@@ -1212,6 +1244,8 @@ def main(argv):
         return cmd_verdict(rest)
     if cmd == "conclude":
         return cmd_conclude(rest)
+    if cmd == "choose":
+        return cmd_choose(rest)
     if cmd == "migrate-layout":
         return cmd_migrate_layout(rest)
     if cmd == "close":
@@ -1237,7 +1271,8 @@ def main(argv):
         if cmd in commands:
             return commands[cmd](repo_root(os.getcwd()), rest)
     return misuse("unknown command %r (init, commit, check, status, --all, claim, predict, "
-                  "components, migrate, source, compare, verdict, conclude, migrate-layout, "
+                  "components, migrate, source, compare, verdict, conclude, choose, "
+                  "migrate-layout, "
                   "close, seal, import, next, idea, stage, match, board, dedup, yield, cite, "
                   "fetch, search, instrument, gold, label, switch, release-check, "
                   "calibration)" % cmd)

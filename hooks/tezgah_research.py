@@ -143,7 +143,7 @@ SOURCE_CLASSES = ("formal", "grey", "agent-report")
 # that owes no variants), 6 the selection warnings (`_check_selection`: the
 # held-out set, repeats per arm, the noise band), 7 the exploratory method (an
 # arena locked before the first idea, the idea/stage/tournament rows and their
-# rules, `_check_exploratory`). A `rules` above `EVIDENCE_RULES` is
+# rules, `_check_exploratory`). A `rules` above `RULES` is
 # a line a later tezgah wrote, and every reader and writer here refuses it by name
 # (`newer_rules`) rather than judging it by rules it does not know.
 STANDARDS_RULES = 2
@@ -152,10 +152,13 @@ SCOPE_RULES = 5
 HOLDOUT_RULES = 6
 EXPLORE_RULES = 7
 # Rules 8 (plan 127): evidence captured by the tool and claims narrowed rather
-# than lines refused. `init` writes it since the plan's last wave moved `RULES`
-# here.
+# than lines refused.
 EVIDENCE_RULES = 8
-RULES = EVIDENCE_RULES
+# Rules 9 (plan 136): a decision.md writes the line's own pick as `recommended:`;
+# `chosen:` is the owner's, recorded by `choose` with an `owner:` line carrying
+# the owner's words. `init` writes 9.
+OWNER_CHOICE_RULES = 9
+RULES = OWNER_CHOICE_RULES
 # How a rules-5 line answers its question. `qualitative` is a source or
 # reference review and owes no metric; `measured` runs experiments and locks
 # one. The question picks it, not the tooling: a qualitative ask answered with a
@@ -360,6 +363,27 @@ def slugs(repo):
             if os.path.isdir(os.path.join(folder, name)):
                 seen.setdefault(name, folder)
     return sorted(seen)
+
+
+def stray_dirs(repo):
+    """[(path, error)] for the hidden dirs under research/, its open/ or its done/:
+    `slugs` skips them, so a line written into one (a `.staging` beside a refusal)
+    is invisible to every check. `status` and the no-slug `check` report each."""
+    out = []
+    for folder in layout_roots(repo):
+        try:
+            names = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            if name.startswith(".") and os.path.isdir(path):
+                rel = os.path.relpath(path, repo)
+                out.append((rel, "%s is not a research line: a line lives under "
+                                 "research/open or research/done; import it with "
+                                 "`tezgah-research init` then move its files, or "
+                                 "delete it" % rel))
+    return out
 
 
 def line_dir(repo, slug):
@@ -971,6 +995,13 @@ def _check_state(base, errors, warnings, strict):
     _check_derived_phase(base, state.get("phase"), state.get("direction"), warnings)
 
 
+def _verdict_error(sid, verdict):
+    """The error a verdict outside `VERDICTS` gets; `broken_open_lines` builds the
+    same text for a `pending` one, so an in-flight line is told from a broken one."""
+    return "success criterion %s: verdict %r is not one of %s" % (
+        sid, verdict, ", ".join(VERDICTS))
+
+
 def _check_success(state, errors, warnings, strict):
     """The ask contract, on a line that states an ask (rules 3 onward).
 
@@ -1002,8 +1033,7 @@ def _check_success(state, errors, warnings, strict):
         if not sid or not criterion:
             errors.append("a success criterion carries no id or no text")
         if verdict and verdict not in VERDICTS:
-            errors.append("success criterion %s: verdict %r is not one of %s"
-                          % (sid, verdict, ", ".join(VERDICTS)))
+            errors.append(_verdict_error(sid, verdict))
         if verdict in VERDICTS and not evidence:
             errors.append("success criterion %s: a verdict with no evidence "
                           "pointer is an opinion" % sid)
@@ -2828,16 +2858,16 @@ def _state(base):
 def newer_rules(state):
     """The refusal for a line a later tezgah wrote, or None.
 
-    A `rules` above `EVIDENCE_RULES` names rules this code does not implement.
+    A `rules` above `RULES` names rules this code does not implement.
     Reading the line by the rules it does know would pass what the later set
     refuses, and a writer would append rows judged by the older set. So the line
     is refused by name, before any rule reads it."""
     found = _rules(state)
-    if found <= EVIDENCE_RULES:
+    if found <= RULES:
         return None
     return ("state.json rules %d is newer than the rules this tezgah implements (%d): "
             "a later tezgah wrote this line, so it is refused rather than read as if "
-            "current - upgrade tezgah to read or write it" % (found, EVIDENCE_RULES))
+            "current - upgrade tezgah to read or write it" % (found, RULES))
 
 
 def _concluding(base, state):
@@ -3244,6 +3274,22 @@ def _mentions(token, text):
     return re.search(r"(?<![\w.-])%s(?![\w.-])" % re.escape(token), text) is not None
 
 
+# A decision.md's pick: `chosen:` is the owner's, `recommended:` the line's own
+# (rules 9); every reader takes `chosen:` when present, else `recommended:`.
+PICK = r"(?im)^\W*%s\W*:\s*`?([\w.-]+)"
+# The `owner:` line `choose` writes: a date and the owner's words, quoted.
+OWNER_WORDS = re.compile(r'(?im)^\W*owner\W*:[^\n]*"[^"\n]*\S[^"\n]*"')
+
+
+def decision_pick(body):
+    """(variant, "chosen" or "recommended") for a decision.md body, else (None, None)."""
+    for field in ("chosen", "recommended"):
+        found = re.search(PICK % field, body)
+        if found:
+            return found.group(1), field
+    return None, None
+
+
 def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
                     concluding):
     label = "decisions/%s" % name
@@ -3327,11 +3373,15 @@ def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
               "says what ruled it out" % label)
         return
     body = _note_text(os.path.join(ddir, "decision.md"))
-    found = re.search(r"(?im)^\W*chosen\W*:\s*`?([\w.-]+)", body)
-    chosen = found.group(1) if found else None
+    chosen, field = decision_pick(body)
     if chosen not in produced:
         errors.append("%s: decision.md chosen %r is not a produced variant"
                       % (label, chosen))
+    if field == "chosen" and _rules(_state(base)) >= OWNER_CHOICE_RULES \
+            and not OWNER_WORDS.search(body):
+        errors.append("%s: decision.md chosen %s names no owner choice: the line "
+                      "writes recommended:, and the owner's pick is recorded with "
+                      "tezgah-research choose" % (label, chosen))
     for vid in produced:
         if vid == chosen:
             continue
@@ -4534,12 +4584,12 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps, 
     if git:
         for name, ddir in _decision_dirs(base):
             body = _note_text(os.path.join(ddir, "decision.md"))
-            found = re.search(r"(?im)^\W*chosen\W*:\s*`?([\w.-]+)", body)
-            if found and found.group(1) in _post_hoc(repo, ddir) \
+            picked, _field = decision_pick(body)
+            if picked and picked in _post_hoc(repo, ddir) \
                     and "post-hoc" not in body and "post_hoc" not in body:
                 errors.append("decisions/%s: decision.md chooses %s, a variant first "
                               "committed after the first comparison cell, without saying "
-                              "post-hoc" % (name, found.group(1)))
+                              "post-hoc" % (name, picked))
         related = {(str(r.get("line")), str(r.get("claim")))
                    for r in _row_objects(os.path.join(base, "related.jsonl"))
                    if r.get("relation") in ("builds-on", "dismissed")}
@@ -4734,8 +4784,11 @@ def check(repo, slug=None, git=True, strict=False, all_lines=True, code=None, fl
     With `all_lines=False` and no slug, a line under `done/` is read by its order
     seal alone (`done_seal`), not re-checked, and appears only when that read
     fails: the default no-slug `check` and the session note report the open
-    lines, and `check --all-lines` re-runs the closed ones (ADR 015)."""
-    out = {}
+    lines, and `check --all-lines` re-runs the closed ones (ADR 015). With no
+    slug, each hidden dir under research/ (`stray_dirs`) is a row of its own,
+    keyed by its path."""
+    out = {} if slug else {path: {"errors": [error], "warnings": []}
+                           for path, error in stray_dirs(repo)}
     for name in ([slug] if slug else slugs(repo)):
         if not slug and not all_lines and sealed(repo, name):
             errors = done_seal(repo, name)[0]
@@ -5044,14 +5097,14 @@ def import_line(repo, source, slug=None, allow_open=None, date=""):
     unfinished = open_lines(repo) if arriving else []
     if (unfinished or len(arriving) > 1) and allow_open is None:
         return [], ("%s would open beside unfinished line(s) %s; say why with "
-                    "--allow-open \"<reason>\"" % (
+                    "--allow-open \"<reason>\"; %s" % (
                         ", ".join(arriving),
                         "; ".join("%s (%s)" % (n, "; ".join(r)) for n, r in unfinished)
-                        or ", ".join(arriving)))
+                        or ", ".join(arriving), OWNER_ASK))
     broken = broken_open_lines(repo) if unfinished else []
     if broken:
         return [], ("--allow-open does not open a line beside an open line check "
-                    "refuses: %s" % ", ".join(n for n, _e in broken))
+                    "refuses: %s; %s" % (", ".join(n for n, _e in broken), OWNER_ASK))
     if fresh:
         done = tp.ws_git(repo, "commit", "-q", "--allow-empty", "-m",
                          "research: workspace root")
@@ -5179,10 +5232,16 @@ def _variants_owed(base, state):
 def broken_open_lines(repo):
     """[(slug, errors)] for the open lines `check` refuses: what `init
     --allow-open` will not open a new line beside, because a hatch past broken
-    lines is how they stayed broken."""
+    lines is how they stayed broken. A criterion whose verdict is still
+    `pending` is a line in flight, not a broken one, so that error alone does
+    not block: another session may be running the line."""
     out = []
     for slug, _reasons in open_lines(repo):
         errors, _ = check_line(repo, slug)
+        pending = {_verdict_error(sid, verdict) for sid, _c, verdict, _e
+                   in success_rows(line_state(repo, slug).get("success"))
+                   if verdict == "pending"}
+        errors = [e for e in errors if e not in pending]
         if errors:
             out.append((slug, errors))
     return out
@@ -5295,6 +5354,62 @@ def conclude_line(repo, slug, date=""):
     return ([problem] if problem else []), state
 
 
+# The line every refusal over open lines carries (`init`, `import`): deciding
+# about another session's work (its line, plan or branch) is the owner's.
+OWNER_ASK = ("a line another session is running is not this session's to fix or "
+             "close: stop and ask the owner (a decision only the owner makes), never "
+             "a way around a tezgah refusal (another folder, a hidden dir)")
+
+
+def choose_line(repo, slug, decision, variant, ack, date=""):
+    """The problem that stopped the owner's choice being written, or None.
+
+    A line recommends; the owner chooses (rules 9). `chosen: <variant>` and
+    `owner: <date> "<words>"` replace any earlier pair in the decision's
+    decision.md, and log.md gets one line. A done line takes it too: its order
+    seal hashes the experiments alone, so the decision note stays writable."""
+    words = " ".join(str(ack or "").replace('"', "'").split())
+    if not words:
+        return ("choose needs --ack \"<the owner's words>\": choosing a variant or "
+                "option a research, analysis or review recommends is the owner's call")
+    base = line_dir(repo, slug)
+    newer = newer_rules(_state(base))
+    if newer:
+        return newer
+    ddir = dict(_decision_dirs(base)).get(decision)
+    path = os.path.join(ddir or "", "decision.md")
+    if not ddir or not os.path.isfile(path):
+        return "decisions/%s has no decision.md in %s" % (decision, slug)
+    _criteria, variants, _problems = load_decision(ddir)
+    produced = sorted(v for v, row in variants.items() if row.get("status") == "produced")
+    if variant not in produced:
+        return "variant %s is not produced in decisions/%s (produced: %s)" % (
+            variant, decision, ", ".join(produced) or "none")
+    kept = [line for line in _note_text(path).splitlines()
+            if not re.match(r"(?i)\W*(chosen|owner)\W*:", line)]
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(kept + ["chosen: %s" % variant,
+                                       'owner: %s "%s"' % (date, words)]) + "\n")
+        with open(os.path.join(base, "log.md"), "a", encoding="utf-8") as fh:
+            fh.write('- %s owner chose %s in decisions/%s: "%s"\n'
+                     % (date, variant, decision, words))
+    except OSError as exc:
+        return str(exc)
+    return None
+
+
+def owner_waits(repo, slug):
+    """[(decision, variant)] for each decision.md that recommends a variant and
+    records no owner choice: what `conclude` tells the session to report."""
+    out = []
+    for name, ddir in _decision_dirs(line_dir(repo, slug)):
+        picked, field = decision_pick(_note_text(os.path.join(ddir, "decision.md")))
+        if field == "recommended":
+            out.append((name, picked))
+    return out
+
+
 def open_lines(repo):
     """[(slug, [reason, ...])] for every line that is not finished, for `init`.
 
@@ -5353,6 +5468,7 @@ def summary(repo):
         if fixtures:
             note += ", %d fixture-scoped claim(s): %s" % (len(fixtures), ", ".join(fixtures))
         out.append("%s: %s" % (slug, note))
+    out.extend("FAIL %s" % error for _path, error in stray_dirs(repo))
     unfinished = open_note(repo)
     if unfinished:
         out.append(unfinished)
