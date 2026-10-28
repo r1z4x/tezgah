@@ -200,10 +200,14 @@ this same rule.
   call. `tezgah-research choose <slug> <decision> <variant> --ack
   "<the owner's words>"` writes `chosen:` and `owner: <date> "<words>"` and one
   `log.md` line (`hooks/tezgah_research.py::choose_line`). It works on a done
-  line too: the order seal hashes the experiments alone. A rules-8 line's
-  `chosen:` is read as before.
+  line too: the order seal hashes the experiments alone. It keeps the line's
+  own pick. A pick a rules-8 line wrote as `chosen:` becomes `recommended:`. A
+  rules-8 line's `chosen:` is read as before.
 - `conclude` prints `report to the owner: <id> is recommended, not chosen` for
   each decision still waiting (`hooks/tezgah_research.py::owner_waits`).
+- The three rules below judge the line's own pick, never the owner's
+  (`hooks/tezgah_research.py::line_pick`). An owner may take a dominated
+  variant, and that is no error of the line.
 - Each other produced variant shares a line of `decision.md` with a criterion id
   that ruled it out. Else: `rejects <id> on no criterion`.
 - `decision.md` has a `flip:` line, the result that would reverse the choice.

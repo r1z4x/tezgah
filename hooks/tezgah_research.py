@@ -3395,8 +3395,9 @@ def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
                       "writes recommended:, and the owner's pick is recorded with "
                       "tezgah-research choose" % (label, chosen))
     pick = line_pick(body)
+    owned = chosen if field == "chosen" and OWNER_WORDS.search(body) else None
     for vid in produced:
-        if vid == pick:
+        if vid in (pick, owned):
             continue
         lines = [line for line in body.splitlines() if _mentions(vid, line)]
         if not any(_mentions(cid, line) for line in lines for cid in criteria):
@@ -5379,8 +5380,10 @@ def choose_line(repo, slug, decision, variant, ack, date=""):
 
     A line recommends; the owner chooses (rules 9). `chosen: <variant>` and
     `owner: <date> "<words>"` replace any earlier pair in the decision's
-    decision.md, and log.md gets one line. A done line takes it too: its order
-    seal hashes the experiments alone, so the decision note stays writable."""
+    decision.md; the line's own pick stays as written, and a pick a rules-8 line
+    wrote as `chosen:` is renamed `recommended:`. log.md gets one line. A done
+    line takes it too: its order seal hashes the experiments alone, so the
+    decision note stays writable."""
     words = " ".join(str(ack or "").replace('"', "'").split())
     if not words:
         return ("choose needs --ack \"<the owner's words>\": choosing a variant or "
@@ -5399,12 +5402,18 @@ def choose_line(repo, slug, decision, variant, ack, date=""):
         return "variant %s is not produced in decisions/%s (produced: %s)" % (
             variant, decision, ", ".join(produced) or "none")
     body = _note_text(path)
-    pick = line_pick(body)
-    kept = [line for line in body.splitlines()
-            if not re.match(r"(?i)\W*(chosen|owner|recommended)\W*:", line)]
-    # the line's own pick survives the owner's choice as `recommended:`, so the
-    # line's rules still judge what the line chose, not what the owner did
-    kept += ["recommended: %s" % pick] if pick else []
+    replace = OWNER_WORDS.search(body) or re.search(PICK % "recommended", body)
+    kept = []
+    for line in body.splitlines():
+        if re.match(r"(?i)\W*owner\W*:", line):
+            continue
+        if re.match(r"(?i)\W*chosen\W*:", line):
+            if replace:
+                continue
+            # the line wrote its own pick as `chosen:` (rules 8): it stays the
+            # line's pick, for the line's rules to judge
+            line = re.sub(r"(?i)chosen", "recommended", line, count=1)
+        kept.append(line)
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept + ["chosen: %s" % variant,

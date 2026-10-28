@@ -5667,6 +5667,20 @@ class Standards(Workspace):
         body = read(os.path.join(ddir, "decision.md"))
         self.assertIn("recommended: V1\n", body)
         self.assertIn("chosen: V0\n", body)
+        # the line's own pick keeps its reason, and a line with no pick of its own
+        # is not asked to reject the variant the owner took
+        for text, take in (("recommended: V1 - V0 loses on K1\n- V2 rejected on K2\n"
+                            "flip: a K1 regression above 5%\n", "V1"),
+                           ("- V0 rejected on K1\n- V2 rejected on K2\n"
+                            "flip: a K1 regression above 5%\n", "V1")):
+            repo = self.repo("r%d" % len(text))
+            ddir = self.owner_line(repo, tr.OWNER_CHOICE_RULES)
+            self.write(os.path.join(ddir, "decision.md"), text)
+            self.assertEqual(self.cli(repo, "choose", "q", "d1", take, "--ack", "ok").returncode, 0)
+            self.assertFalse(hit("decisions/", self.errors(repo)), self.errors(repo))
+            if text.startswith("recommended"):
+                self.assertIn("recommended: V1 - V0 loses on K1\n",
+                              read(os.path.join(ddir, "decision.md")))
 
     def test_conclude_names_a_recommendation_still_waiting_for_the_owner(self):
         repo = self.repo()

@@ -3949,7 +3949,10 @@ class AskPolicy(unittest.TestCase):
                      "Which variant should ship, V1 or V4?",
                      "instagram-ai-social hattını kapatayım mı?",
                      "Hattı `.staging` altında başka bir klasörde açayım mı?",
-                     "Shall I proceed with the other session's line closed?"):
+                     "Shall I proceed with the other session's line closed?",
+                     "Shall I proceed with closing the research line?",
+                     "Shall I proceed with a workaround for the gate refusal?",
+                     "Seçenek A mı B mi, hangisiyle başlayayım?"):
             self.assertIsNone(ti.needless_ask(text, self.NONE), text)
         # the order of steps stays process, however its options are labelled
         for text in ("Başlayayım mı?", "Shall I proceed?", "Devam edeyim mi, durayım mı?",

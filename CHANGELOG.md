@@ -21,8 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A research line records the owner's pick apart from its own.** A rules-9
   line writes its pick as `recommended:` in `decision.md`. A `chosen:` line
   needs the owner's words, which `tezgah-research choose <slug> <decision>
-  <variant> --ack "<words>"` writes. `conclude` says when a recommendation still
-  waits for the owner (`hooks/tezgah_research.py`).
+  <variant> --ack "<words>"` writes. The line's rules judge its own pick, never
+  the owner's, so an owner may take a dominated variant. `conclude` says when a
+  recommendation still waits for the owner (`hooks/tezgah_research.py`).
 
 - **A line in flight no longer blocks `init --allow-open`.** A line whose only
   `check` errors are pending verdicts is in flight, not broken. Both `init`
