@@ -503,6 +503,18 @@ class Generation(AgentsBase):
         self.assertIn("one narrower re-brief of the same role", orch)
         self.assertIn("only a second miss is restarted on tezgah-frontier", orch)
 
+    def test_an_owner_question_goes_back_as_escalate_owner_on_every_tier(self):
+        # plan 136: a worker, frontier included, never settles a choice only the
+        # owner can make, and the orchestrator hands it to the user
+        import tezgah_agents
+        for tier in ("cheap", "standard", "frontier"):
+            body = " ".join(tezgah_agents._worker_body(tier)("claude").split())
+            for need in ("`ESCALATE: owner`", "a way around a tezgah refusal",
+                         "another session's work", "a recommended default"):
+                self.assertIn(need, body, (tier, need))
+        orch = " ".join(tezgah_agents._orch_body(["tezgah-standard"]).split())
+        self.assertIn("An `ESCALATE: owner` is neither", orch)
+
     def test_every_copy_of_the_routing_rule_has_the_recall_hop(self):
         # six hand-kept copies; a merge that reverts one passes every other test
         import tezgah_policy

@@ -3323,6 +3323,24 @@ class WorkspaceGate(TempHome):
         self.touch(os.path.join(self.home, ".config", "tezgah", "workspace-off"))
         self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
             self.repo, "plans", "x.md"), "content": "x"}))
+        # the same switch lifts the hidden-research-dir refusal
+        self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+            self.repo, ".tezgah", "research", ".staging", "x", "state.json"),
+            "content": "{}"}))
+
+    def test_a_hidden_dir_under_research_is_refused(self):
+        # plan 136: a line run under `.tezgah/research/.staging/` is invisible to
+        # status and check; the line layouts and a dot file beside them pass
+        research = os.path.join(self.repo, ".tezgah", "research")
+        reason = self.decide("Write", {"file_path": os.path.join(
+            research, ".staging", "x", "state.json"), "content": "{}"})
+        self.assertIn("refusal goes to the owner", reason or "")
+        self.assertIsNotNone(self.decide(
+            "Bash", {"command": "echo x > .tezgah/research/.staging/a"}))
+        for rel in (("open", "x", "state.json"), ("done", "x", "state.json"),
+                    (".gitkeep",)):
+            self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
+                research, *rel), "content": "{}"}), rel)
 
 
 class PlanGate(TempHome):
