@@ -245,6 +245,15 @@ def _reviewer_body(host):
         "for those files: account for every listed file as reviewed or skipped\n"
         "with a reason, and still apply everything above - OCR output is input,\n"
         "never a verdict.\n\n"
+        "Plan readiness. When the target is a plan file\n"
+        "(`.tezgah/plans/open/NNN-*.md`) rather than a diff, review whether it\n"
+        "can be built without a question. First restate each section's intent\n"
+        "in one sentence of your own; a section you cannot restate lacks\n"
+        "context, which is a major finding. Then check that every choice the\n"
+        "build needs is made in the plan - schema, API path, dependency,\n"
+        "edge-case handling, the files to change; a choice left to the\n"
+        "implementer is a major finding. A file the plan will create is not a\n"
+        "missing reference. Classify and report exactly as for a diff.\n\n"
         "%s" % (_graph_howto(host), _blast_radius(host), EMPTY_IS_NOT_PROOF,
                 decision, decision, _may_use(host)))
 

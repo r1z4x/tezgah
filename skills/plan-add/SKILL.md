@@ -97,7 +97,11 @@ Input: `$ARGUMENTS` (free text describing the work). Run these steps in order.
    is refused while the tree is dirty, because the phase starts by recording
    `checkpoint:` - the commit the work returns to - and uncommitted work has none
    to record. Make the checkpoint commit it prints, then run the phase move
-   again and the sha is written. Move the phase yourself as the work reaches it
+   again and the sha is written. Before `implementation`, spawn one
+   tezgah-reviewer in plan-readiness mode over the plan file. Fix each major
+   finding in the plan, or ask the owner when only the owner can decide, then
+   move the phase. A plan of one small task may skip this review; say so in
+   one line. Move the phase yourself as the work reaches it
    (`~/.config/tezgah/bin/tezgah-task phase implementation`, then `verification`); when a write is
    refused for its path and the plan's work genuinely reaches that file, widen
    the scope with `~/.config/tezgah/bin/tezgah-task allow <glob> ... --why "<reason>"`, which records the reason. Never retype the record:
