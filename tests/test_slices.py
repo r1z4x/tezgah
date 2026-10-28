@@ -706,9 +706,35 @@ class Cli(Journal):
         # the old record names no slice of this plan: only the missing record refuses
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertNotIn("rev0", refused.stdout)
-        self.assertIn("no review slice record names tezgah-reviewer", refused.stdout)
+        self.assertIn("no finished review slice names tezgah-reviewer", refused.stdout)
         self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
                                    "--no-slice", "fixture").returncode, 0)
+
+    def test_a_readiness_review_or_a_resumed_record_is_not_this_review(self):
+        # review of plan 137: a plan-readiness review finished before the
+        # checkpoint, or a review stopped and resumed with no re-run, read
+        # nothing of the diff, so neither lets the approve through
+        tt.open_slice(self.repo, "ready", agent="tezgah-reviewer", host="claude",
+                      brief="plan readiness")
+        tt.close_slice(self.repo, "ready", "done", "")
+        old = self.record("ready")
+        old["updated"] = "2026-01-01T00:00:00Z"
+        tt._write_record(self.repo, old)
+        self.plan_at_head()
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("no finished review slice names tezgah-reviewer", refused.stdout)
+        self.task("slice", "open", "--id", "rev1", "--agent", "tezgah-reviewer",
+                  "--host", "claude", "--brief", "review the diff")
+        self.task("slice", "stop", "rev1", "--class", "quota")
+        self.assertEqual(self.task("slice", "resume", "rev1").returncode, 0)
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.task("slice", "open", "--id", "rev2", "--agent", "tezgah-reviewer",
+                  "--host", "claude", "--brief", "review the diff, re-run")
+        self.task("slice", "done", "rev2")
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer",
+                                   "approve").returncode, 0)
 
     def task_as(self, session, *args):
         return support.run([CLI] + list(args), cwd=self.repo,
@@ -763,7 +789,7 @@ class Cli(Journal):
         tt._write_record(self.repo, other)
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertNotIn("revX", refused.stdout)
-        self.assertIn("no review slice record names tezgah-reviewer", refused.stdout)
+        self.assertIn("no finished review slice names tezgah-reviewer", refused.stdout)
         # this plan's review whose end nobody saw blocks like a stopped one
         tt.open_slice(self.repo, "revS", agent="tezgah-reviewer", host="codex",
                       brief="s")

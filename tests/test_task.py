@@ -1412,7 +1412,7 @@ class Cli(TempHome):
         # and the refusal names the way out for a host that keeps no journal
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertEqual(refused.returncode, 1, refused.stderr)
-        self.assertIn("no review slice record names tezgah-reviewer", refused.stdout)
+        self.assertIn("no finished review slice names tezgah-reviewer", refused.stdout)
         self.assertIn("--no-slice", refused.stdout)
         self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
                                    "--no-slice", "").returncode, 2)

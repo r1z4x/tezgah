@@ -1082,7 +1082,7 @@ def budget_spent(path, ident):
             % (path, REVIEW_ROUNDS, ident, say()["decision"], ident))
 
 
-def unfinished_review(root, reviewer, plan="", since=0, no_slice=""):
+def unfinished_review(root, reviewer, plan="", since=0, no_slice="", ran_since=0):
     """The refusal of an `approve` while a slice journal record whose id or agent
     is `reviewer` is open, stopped or stale: a review slice that died on a
     provider limit had its approve recorded anyway, and a NameError it would have
@@ -1097,9 +1097,11 @@ def unfinished_review(root, reviewer, plan="", since=0, no_slice=""):
     `tt.open_slice`) counts too. Under TEZGAH_SESSION only this session's
     records and unowned ones count, by id, agent or name alike: another
     session's review is not this approve's. The refusal names the exact id,
-    which `slice resume` and `slice done` take from any session. No record at
-    all refuses too: a requested reviewer with no status did not run, unless
-    `no_slice` says why the reviewer ran outside the journal."""
+    which `slice resume` and `slice done` take from any session. No finished
+    record changed at or after `ran_since` refuses too: a requested reviewer with
+    no status did not run, and a plan-readiness review before the checkpoint, an
+    earlier round's review or a `resumed` record with no re-run is not this
+    review - unless `no_slice` says why the reviewer ran outside the journal."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
@@ -1124,12 +1126,17 @@ def unfinished_review(root, reviewer, plan="", since=0, no_slice=""):
                    (" (%s)" % rec["failure"]) if rec.get("failure") else "",
                    rec["id"], rec["id"])
                 for rec in found if rec.get("status") in ("open", "stopped", "stale")]
-    if not found and not no_slice:
-        # a requested reviewer with no record is a review that did not run
+    ran = [rec for rec in found if rec.get("status") == "done"
+           and (_stamp(rec.get("updated")) or 0) >= ran_since]
+    if not ran and not refusals and not no_slice:
+        # a requested reviewer with no finished record since the work is a
+        # review that did not run
         refusals.append(
-            "no review slice record names %s for this plan: a reviewer with no "
-            "record did not run. Spawn the fresh reviewer and approve once its "
-            "slice is done; a host that keeps no slice journal records why with "
+            "no finished review slice names %s for this plan since its work began: "
+            "a reviewer with no record did not run, and a readiness review, an "
+            "earlier round or a resumed record is not this review. Spawn the fresh "
+            "reviewer and approve once its slice is done; a host that keeps no "
+            "slice journal records why with "
             "`--no-slice \"<why: the reviewer ran outside the slice journal>\"`"
             % reviewer)
     return refusals
@@ -1162,9 +1169,18 @@ def cmd_review(args):
         mark = (fields.get("checkpoint") or "").split()
         since = (git_out(root, "log", "-1", "--format=%ct", mark[-1])
                  if mark and mark[-1] != tt.CHECKPOINT_PENDING else None)
+        since = int(since) if (since or "").isdigit() else 0
+        # this round's review finished after the work it reads: after the
+        # checkpoint, and in round two after the first commit past the one round
+        # one read - round one's own reviewer finished before that commit
         ident = fields.get("id") or os.path.basename(path).split("-")[0]
-        bad = unfinished_review(root, args[1], ident,
-                                int(since) if (since or "").isdigit() else 0, no_slice)
+        last = fields.get("reviewed_sha") or ""
+        if last:
+            after = (git_out(tt.plan_holders(root).get(ident) or root, "log",
+                             "--reverse", "--format=%ct", last + "..HEAD") or "").split()
+            last = after[0] if after else git_out(root, "log", "-1", "--format=%ct", last)
+        ran_since = max(since, int(last) if (last or "").isdigit() else 0)
+        bad = unfinished_review(root, args[1], ident, since, no_slice, ran_since)
         if bad:
             return problems(bad)
     # a plan held by its own worktree is built on that branch: its HEAD is the

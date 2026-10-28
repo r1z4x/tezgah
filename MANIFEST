@@ -961,6 +961,7 @@ tests/test_lesson_lineage.py
 tests/test_lessons.py
 tests/test_lessons_compile.py
 tests/test_lifecycle_sweep.py
+tests/test_links.py
 tests/test_live_probe.py
 tests/test_mcp_features.py
 tests/test_mcp_server.py

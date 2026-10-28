@@ -247,7 +247,11 @@ class Gate(TempHome):
                      "the file was written by hand",
                      "the plan was authored by the team",
                      "the note was drafted with the owner",
-                     "written with care", "produced using the release script"):
+                     "written with care", "produced using the release script",
+                     # review of plan 137: a tool named mid-sentence is prose
+                     "Pagination built with a cursor", "built with cursor support",
+                     "client built using the OpenAI SDK",
+                     "Paging produced with cursor-based queries"):
             self.assertIsNone(self.decide(
                 "Bash", {"command": 'git commit -m "%s"' % body}), body)
             self.assertIsNone(self.decide(
