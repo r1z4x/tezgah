@@ -1194,7 +1194,7 @@ irreversible calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified
 "done"; never end on a question you can decide - ask only in one batch, each
-with a recommended default; a research/analysis recommendation, a way around a
+with a recommended default; a research/analysis/review recommendation, a way around a
 tezgah refusal and another session's work wait for the owner's answer;
 leftover work is done now, not listed - only a {DECISION}/{ACCESS}/{IRREVERSIBLE}/{ENV}
 blocker with its evidence goes under "{BLOCKERS_HEADING}"; no

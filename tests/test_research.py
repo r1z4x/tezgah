@@ -5655,6 +5655,18 @@ class Standards(Workspace):
                       read(os.path.join(tr.line_dir(repo, "q"), "log.md")))
         self.assertFalse(hit("names no owner choice", self.errors(repo)))
         self.assertEqual(tr.owner_waits(repo, "q"), [])
+        # the owner's pick is the owner's: a dominated V0 is no error of the line,
+        # and the line's own pick stays recommended for its rules to judge
+        self.assertIn("recommended: V1\n", body)
+        self.assertFalse(hit("is dominated", self.errors(repo)), self.errors(repo))
+        # a rules-8 line's unowned `chosen:` survives an owner's choice as its pick
+        repo = self.repo("old")
+        ddir = self.owner_line(repo, tr.EVIDENCE_RULES)
+        self.decide(ddir)
+        self.assertEqual(self.cli(repo, "choose", "q", "d1", "V0", "--ack", "V0").returncode, 0)
+        body = read(os.path.join(ddir, "decision.md"))
+        self.assertIn("recommended: V1\n", body)
+        self.assertIn("chosen: V0\n", body)
 
     def test_conclude_names_a_recommendation_still_waiting_for_the_owner(self):
         repo = self.repo()

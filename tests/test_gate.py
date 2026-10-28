@@ -3337,8 +3337,10 @@ class WorkspaceGate(TempHome):
         self.assertIn("refusal goes to the owner", reason or "")
         self.assertIsNotNone(self.decide(
             "Bash", {"command": "echo x > .tezgah/research/.staging/a"}))
+        self.assertIsNotNone(self.decide("Write", {"file_path": os.path.join(
+            research, "open", ".inbox", "note.md"), "content": "x"}))
         for rel in (("open", "x", "state.json"), ("done", "x", "state.json"),
-                    (".gitkeep",)):
+                    (".gitkeep",), ("open", ".gitkeep"), ("open", "x", ".notes", "a.md")):
             self.assertIsNone(self.decide("Write", {"file_path": os.path.join(
                 research, *rel), "content": "{}"}), rel)
 

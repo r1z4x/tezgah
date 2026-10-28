@@ -3951,7 +3951,11 @@ class AskPolicy(unittest.TestCase):
                      "Hattı `.staging` altında başka bir klasörde açayım mı?",
                      "Shall I proceed with the other session's line closed?"):
             self.assertIsNone(ti.needless_ask(text, self.NONE), text)
-        for text in ("Başlayayım mı?", "Shall I proceed?", "Devam edeyim mi, durayım mı?"):
+        # the order of steps stays process, however its options are labelled
+        for text in ("Başlayayım mı?", "Shall I proceed?", "Devam edeyim mi, durayım mı?",
+                     "Which first, a or b?", "hangisinden başlayayım, 1 mi 2 mi?",
+                     "Önce 1 mi 2 mi yapayım?", "Should I proceed with a or b?",
+                     "Bu araştırma hattını açayım mı?"):
             self.assertTrue(ti.needless_ask(text, self.NONE), text)
 
     def test_the_rendered_core_and_reminder_keep_the_owner_only_items_waiting(self):

@@ -2029,8 +2029,8 @@ RESEARCH_HIDDEN_DENY = (
 
 
 def research_hidden_reason(inp, cwd, base):
-    """A deny reason when this write lands under `.tezgah/research/.<name>/`,
-    else None."""
+    """A deny reason when this write lands under `.tezgah/research/.<name>/` or
+    `.tezgah/research/open|done/.<name>/` (what `stray_dirs` reports), else None."""
     if tezgah_task is None:
         return None
     for path in write_paths(inp):
@@ -2038,7 +2038,9 @@ def research_hidden_reason(inp, cwd, base):
                     tezgah_task.relative(path, cwd, base)):
             parts = (rel or "").casefold().split("/")
             if len(parts) > 3 and parts[:2] == [".tezgah", "research"] \
-                    and parts[2].startswith("."):
+                    and (parts[2].startswith(".") or (
+                        len(parts) > 4 and parts[2] in ("open", "done")
+                        and parts[3].startswith("."))):
                 return RESEARCH_HIDDEN_DENY % path
     return None
 

@@ -269,7 +269,7 @@
    "\\bplan\\w*[^.?!\\n]{0,40}(?:hazır|yazıldı|yazdım|oluşturdum|oluşturuldu|açtım|açıldı|eklendi|uygula\\w*|başla\\w*|kur\\w*)|(?:yazdığım|açtığım|hazırladığım|oluşturduğum) plan\\w*"
   ],
   "owner_choice": [
-   "\\b(?:v\\d+|[a-h]|\\d+|seçenek \\w+|varyant \\w+)(?:'\\w+)? m[ıiuü]\\b,? (?:v\\d+|[a-h]|\\d+|seçenek \\w+|varyant \\w+)(?:'\\w+)? m[ıiuü]\\b|\\bhangi (?:varyant|seçenek|opsiyon|yaklaşım|tasarım)\\w*|\\bhangisini seç\\w*|\\b(?:başka|diğer) (?:bir )?oturum\\w*|\\bhatt[ıi]\\w*|--allow-open|--limit\\b|\\.staging\\b|\\bgizli (?:dizin|klasör)\\w*|\\b(?:başka|farklı) (?:bir )?(?:klasör|dizin)\\w*|\\bred\\w* (?:aş|etrafından)\\w*|\\bengel\\w* (?:aş|etrafından)\\w*"
+   "\\b(?:v\\d+|seçenek \\w+|varyant \\w+)(?:'\\w+)? m[ıiuü]\\b,? (?:v\\d+|seçenek \\w+|varyant \\w+)(?:'\\w+)? m[ıiuü]\\b|\\bhangi (?:varyant|seçenek|opsiyon|yaklaşım|tasarım)\\w*|\\bhangisini seç\\w*|\\b(?:başka|diğer) (?:bir )?oturum\\w*|\\bhatt[ıi]\\w* kapat\\w*|--allow-open|--limit\\b|\\.staging\\b|\\bgizli (?:dizin|klasör)\\w*|\\b(?:başka|farklı) (?:bir )?(?:klasör|dizin)\\w*|\\bred\\w* (?:aş|etrafından)\\w*|\\bengel\\w* (?:aş|etrafından)\\w*"
   ],
   "spend": [
    "ücret\\w*|ödeme\\w*|harca\\w*|bütçe\\w*|maliyet\\w*|\\bpara\\b|dolar\\w*|\\$\\s?\\d"

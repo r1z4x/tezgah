@@ -3290,6 +3290,18 @@ def decision_pick(body):
     return None, None
 
 
+def line_pick(body):
+    """The line's own pick, which the line's rules judge (rejected variants,
+    dominance, post-hoc): `recommended:`, else a `chosen:` with no owner's words.
+    An owner's `chosen:` is the owner's call, so a dominated or post-hoc owner
+    choice is never the line's error."""
+    found = re.search(PICK % "recommended", body)
+    if found:
+        return found.group(1)
+    found = re.search(PICK % "chosen", body)
+    return found.group(1) if found and not OWNER_WORDS.search(body) else None
+
+
 def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
                     concluding):
     label = "decisions/%s" % name
@@ -3382,8 +3394,9 @@ def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
         errors.append("%s: decision.md chosen %s names no owner choice: the line "
                       "writes recommended:, and the owner's pick is recorded with "
                       "tezgah-research choose" % (label, chosen))
+    pick = line_pick(body)
     for vid in produced:
-        if vid == chosen:
+        if vid == pick:
             continue
         lines = [line for line in body.splitlines() if _mentions(vid, line)]
         if not any(_mentions(cid, line) for line in lines for cid in criteria):
@@ -3392,12 +3405,12 @@ def _check_decision(repo, base, name, ddir, need, errors, warnings, strict, git,
     if not re.search(r"(?im)^\W*flip\W*:", body):
         errors.append("%s: decision.md names no `flip:` condition - the result that "
                       "would reverse the choice" % label)
-    if chosen in produced:
-        better = dominated_by(chosen, produced, criteria, cells)
+    if pick in produced:
+        better = dominated_by(pick, produced, criteria, cells)
         if better:
             errors.append("%s: the chosen variant %s is dominated by %s, which is at "
                           "least as good on every criterion and better on one"
-                          % (label, chosen, better))
+                          % (label, pick, better))
 
 
 def _deliverable_path(state):
@@ -4584,7 +4597,7 @@ def _core_rules8(repo, slug, base, state, errors, warnings, strict, git, steps, 
     if git:
         for name, ddir in _decision_dirs(base):
             body = _note_text(os.path.join(ddir, "decision.md"))
-            picked, _field = decision_pick(body)
+            picked = line_pick(body)
             if picked and picked in _post_hoc(repo, ddir) \
                     and "post-hoc" not in body and "post_hoc" not in body:
                 errors.append("decisions/%s: decision.md chooses %s, a variant first "
@@ -5385,8 +5398,13 @@ def choose_line(repo, slug, decision, variant, ack, date=""):
     if variant not in produced:
         return "variant %s is not produced in decisions/%s (produced: %s)" % (
             variant, decision, ", ".join(produced) or "none")
-    kept = [line for line in _note_text(path).splitlines()
-            if not re.match(r"(?i)\W*(chosen|owner)\W*:", line)]
+    body = _note_text(path)
+    pick = line_pick(body)
+    kept = [line for line in body.splitlines()
+            if not re.match(r"(?i)\W*(chosen|owner|recommended)\W*:", line)]
+    # the line's own pick survives the owner's choice as `recommended:`, so the
+    # line's rules still judge what the line chose, not what the owner did
+    kept += ["recommended: %s" % pick] if pick else []
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept + ["chosen: %s" % variant,
