@@ -77,6 +77,10 @@ later does not reach them. So no release goes back below 1.0.0
    `releases/download/...`, so the user installing it needs
    `HOMEBREW_GITHUB_API_TOKEN` with read access to `r1z4x/tezgah`; the formula's
    caveats say so.
+   The tag must point at a commit already on `main`. The workflow's first job,
+   `on-main`, runs `git merge-base --is-ancestor` against `origin/main` and fails
+   the run otherwise, before anything is built or uploaded. Merge first, then
+   tag the merged commit (`--target main` above does that).
    Check both afterwards: `npm view @r1z4x/tezgah version` and the formula's
    `url` in `r1z4x/homebrew-tezgah`. **A client's own cache answers this
    wrongly:** `brew info r1z4x/tezgah/tezgah` read the previous version a minute

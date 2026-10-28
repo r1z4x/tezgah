@@ -66,7 +66,9 @@ conclude from either.
 `.github/workflows/ci.yml` runs on a push to `main` and on a pull request, so
 a branch commit runs once, through its pull request, not twice. A tag push does
 not start it. `release.yml` calls it (`ci.yml:13`) as its `ci` job, so npm and
-brew publish only after CI passed on the release commit. A newer push to the
+brew publish only after CI passed on the release commit. Its first job,
+`on-main`, fails the release when the tag's commit is not on `origin/main`.
+Then no job builds or uploads anything. A newer push to the
 same ref cancels the run it replaces, except on a release (`concurrency`). Every
 job has a `timeout-minutes`, so a hung test cannot hold a runner for six hours.
 No matrix cancels its other legs when one fails (`fail-fast: false`).

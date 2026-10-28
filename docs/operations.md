@@ -687,6 +687,13 @@ The reviewer brief carries the matching rule
 accounts for every listed file as reviewed or skipped with a reason. It still
 applies the rest of its brief.
 
+The reviewer also has a plan-readiness mode for a plan file instead of a diff
+(`hooks/tezgah_agents.py::_reviewer_body`). It restates each section's intent in
+one sentence. A section it cannot restate is a major finding. A build choice the
+plan leaves to the implementer is a major finding too. A file the plan will
+create is not a missing reference. `skills/plan-add/SKILL.md` runs this review
+once before the `implementation` phase.
+
 `tezgah-review-quote --from BASE [--to HEAD] FINDINGS.json` places each finding by
 its quoted code (`bin/tezgah-review-quote::main`). Each finding needs `path` and
 `quote`, and may carry the `start_line` it cites. The tool adds a `status`.
@@ -849,6 +856,10 @@ that was active when it opened, and only that plan's records count. A record
 with no plan counts when it changed after the plan's checkpoint commit. A
 `resumed` record hands the guard to its re-dispatch's own record
 (`bin/tezgah-task::unfinished_review`).
+`tezgah-task review` also refuses an approve with no record of that reviewer for the plan. A
+reviewer with no status did not run. A host that keeps no slice journal passes
+`--no-slice "<why>"`, and the plan's `review:` line keeps that reason
+(`bin/tezgah-task::cmd_review`). A `changes` verdict needs no record.
 The lever map is a closed set. `rate_limit` and `quota` point at the
 `hooks/tezgah_models.py` fallback chain. `cut_off` and `timeout` point at a
 per-slice deadline, `aborted` at the `wip:` commit cadence, a duplicate job at

@@ -741,7 +741,8 @@ class OpenCodePlugin(TempHome):
         for credit in (BY_AI, BY_LLM, BY_CLAUDE, BY_CHATGPT,
                        "Generated with Cursor", "Made with Cursor",
                        "Co-Authored-By: Claude <noreply@anthropic.com>",
-                       "noreply@anthropic.com"):
+                       "noreply@anthropic.com", "Drafted with " + "Claude",
+                       "Written with " + "Claude"):
             body = "change\n\n" + credit
             self.assertTrue(tg.ATTRIB_LINE.search(body), credit)
             self.denied(self.before("write", {"filePath": "CHANGELOG.md",

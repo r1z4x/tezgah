@@ -139,7 +139,7 @@ remedy is one sentence, `hooks/tezgah_integrity.py::PIPED_REMEDY`, which the alw
 
 Trigger, shell: a write command (`hooks/tezgah_gate.py::WRITE_CMD` — `git commit|merge|tag|notes`, `gh api`,
 `gh pr|issue|release create|edit|comment|review|merge|close`) carrying a credit form (`hooks/tezgah_gate.py::ATTRIB` — `co-authored-by:`, `generated with`, `made with`,
-`built by`, `assisted by`, `authored by`, `noreply@anthropic`, a robot emoji). Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py::EDIT_TEXT`)
+a credit verb, `noreply@anthropic`, a robot emoji). A credit verb is `built`, `written`, `drafted` or a like verb, then `by`, `with` or `using`, then a model or vendor name. Trigger, edit/write: one of the content fields `EDIT_TEXT` (`hooks/tezgah_gate.py::EDIT_TEXT`)
 containing a line that *starts* with a credit (`hooks/tezgah_gate.py::ATTRIB_LINE`). Told: remove it and re-run; naming a tool in order to use it is fine, crediting it
 as author is not (`hooks/tezgah_gate.py::ATTRIB_DENY`). Standing. The line anchor is why prose that merely names the banned forms passes (`hooks/tezgah_gate.py::_CREDIT`).
 The same twin as the shortcut rule's: a credit a heredoc writes into a file is refused from the body (`hooks/tezgah_gate.py::decision`), and no command has to be

@@ -290,6 +290,18 @@ class ReleaseWaitsForCi(unittest.TestCase):
             self.assertIn("needs.green.outputs.ok == 'true' || needs.ci.result == 'success'",
                           block, job)
 
+    def test_a_release_off_main_fails_before_anything_is_built(self):
+        # plan 137: a tag cut from a side branch would publish code main never had.
+        # `on-main` checks ancestry on the full history; `green` needs it, so a
+        # failure skips `ci` and both publish jobs, whose `if` then reads false.
+        jobs = self.jobs(self.workflow("release.yml"))
+        gate = jobs.get("on-main", "")
+        self.assertIn("fetch-depth: 0", gate)
+        self.assertIn('git merge-base --is-ancestor "$GITHUB_SHA" origin/main', gate)
+        self.assertIn("exit 1", gate)
+        self.assertRegex(jobs["green"], r"(?m)^    needs: on-main\s*$")
+        self.assertNotIn("needs:", gate)
+
     def test_a_release_skips_only_the_serial_suite_the_shards_already_run(self):
         # The sharded job runs the suite on every push and release; the serial
         # `unittest discover` step it shadowed is gone (2026-10-13, plan 099),
