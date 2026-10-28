@@ -40,6 +40,12 @@ field or judgement, and only a second miss restarts the task on `tezgah-frontier
 with the original brief rather than handing the failed trajectory up: continuing a
 cheap trajectory on a frontier model was the most expensive option measured
 (arXiv 2608.24358, Table 1: 1.61 cost units against 0.72 for frontier-only).
+A question only the owner can answer climbs past every tier, frontier included.
+It is choosing a variant or option a research, analysis or review recommends, a
+way around a tezgah refusal, or deciding about another session's work. The
+worker answers `ESCALATE: owner` with the options and a recommended default
+(`hooks/tezgah_agents.py::OWNER_ESCALATE`). The orchestrator puts it to the
+user in the approval batch and does not re-brief it.
 
 ## The table (snapshot 2026-09-30)
 

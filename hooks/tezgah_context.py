@@ -1354,11 +1354,14 @@ def session_of(payload):
 # again on 2026-10-22 (plan 126, second pass): a research ask arms the Research
 # and Product paragraphs (6239 B on Claude, S4Remeasure p08) and the skill hint
 # that names the research skill (about 330 B with its path) was the block given
-# up, so the prompt budget moves to 7000 B. A
+# up, so the prompt budget moves to 7000 B. Moved again on 2026-10-28 (plan
+# 136): the subagent pointer says an owner-only question goes back as
+# `ESCALATE: owner` (+330 B), the fixture's subagent_start reached 5958 B and
+# gave up `consult` (205 B), so subagent_start moves to 6100 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
 CONTEXT_BUDGET = {"session_start": 16000, "post_compact": 16000,
-                  "subagent_start": 5800, "user_prompt": 7000}
+                  "subagent_start": 6100, "user_prompt": 7000}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest
 # value first: text another surface already carries (the plan table lives in the
@@ -2450,7 +2453,12 @@ def context_for(event, cwd, payload=None, with_core=True):
                       "(each tagged DERIVED, you concluded it, or RETRIEVED, "
                       "you read it), Evidence (the path:line or command behind "
                       "each), Confidence, Unresolved, Disconfirming, Conflicts. "
-                      "Full rules: the `tezgah-contract` skill."))
+                      "A question only the owner can answer - choosing a variant "
+                      "or option a research, analysis or review recommends; a way "
+                      "around a tezgah refusal; deciding about another session's "
+                      "work (its line, plan or branch) - is never yours: return "
+                      "`ESCALATE: owner` with the options and a recommended "
+                      "default. Full rules: the `tezgah-contract` skill."))
     else:
         parts.append(("pointer", POINTER_LINE))
     text = budgeted(event, [(key, render(text.strip())) for key, text in parts])

@@ -1591,7 +1591,8 @@ class ContextBudget(ChildCall):
                          "print(json.dumps(tc.context_for('subagent_start', %r,"
                          " {'prompt': 'x'})))\n" % self.repo_with_state())
         for needle in ("Scope", "Findings", "DERIVED", "RETRIEVED", "Evidence",
-                       "Confidence", "Unresolved", "Disconfirming", "Conflicts"):
+                       "Confidence", "Unresolved", "Disconfirming", "Conflicts",
+                       "`ESCALATE: owner`"):
             self.assertIn(needle, out)
         self.assertNotIn("Context budget", out)
         self.assertLess(len(out.encode()), self.budget("subagent_start"))

@@ -2014,6 +2014,35 @@ def workspace_reason(inp, cwd, base):
     return None
 
 
+# What this closes (plan 136): `tezgah-research init` refused a line while
+# another session's line was in flight, and the session ran its whole line under
+# `.tezgah/research/.staging/<slug>/` - a dot dir `slugs()` skips, so `status`
+# and `check` never saw it. A dot dir directly under research/ is refused; the
+# line layouts (`open/`, `done/`) and dot files beside them (`.gitkeep`) are not.
+# Read against the main checkout (a linked worktree's session writes the main
+# checkout's `.tezgah`) and against the session's own root.
+RESEARCH_HIDDEN_DENY = (
+    "Workspace gate: %s is under a hidden dir. A research line lives under "
+    ".tezgah/research/open or done; a hidden dir there is invisible to status and "
+    "check. When `~/.config/tezgah/bin/tezgah-research` refuses a line, that "
+    "refusal goes to the owner - never a way around it.")
+
+
+def research_hidden_reason(inp, cwd, base):
+    """A deny reason when this write lands under `.tezgah/research/.<name>/`,
+    else None."""
+    if tezgah_task is None:
+        return None
+    for path in write_paths(inp):
+        for rel in (tezgah_task.main_relative(path, cwd, base),
+                    tezgah_task.relative(path, cwd, base)):
+            parts = (rel or "").casefold().split("/")
+            if len(parts) > 3 and parts[:2] == [".tezgah", "research"] \
+                    and parts[2].startswith("."):
+                return RESEARCH_HIDDEN_DENY % path
+    return None
+
+
 # --- lesson lineage: a ledger write in a turn that read untrusted text -------
 # What this records (security-08): any session can append a standing constraint
 # to `.tezgah/lessons.md`, and a line written in a turn that read a web page, an
@@ -3705,9 +3734,10 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
             if reason:
                 return _deny(session_id, "task", reason, tool, inp, base)
     # Workspace: tezgah state belongs under .tezgah/, never a root plans/,
-    # research/ or analysis/ the project does not own (see workspace_reason).
+    # research/ or analysis/ the project does not own (see workspace_reason),
+    # nor a hidden dir under .tezgah/research/ (see research_hidden_reason).
     if not off("workspace-off") and t in WRITE_TOOLS + BASH_TOOLS:
-        reason = workspace_reason(inp, cwd, base)
+        reason = workspace_reason(inp, cwd, base) or research_hidden_reason(inp, cwd, base)
         if reason:
             return _deny(session_id, "workspace", reason, tool, inp, base)
     # MCP: a server's effect tool lands text the way a write tool or a `gh`

@@ -207,6 +207,8 @@ checkpoint that is a plain sha (the boundary is already real), a `pending` with 
 
 Trigger: a write tool, or a shell redirect/`tee` (`write_paths`), whose target relative to the repo root starts with `plans/`, `research/` or `analysis/` while the project tracks no file under that directory (`workspace_reason`, `hooks/tezgah_gate.py`). The refusal names `.tezgah/<kind>/` as the place to write. It also names the commit form for the workspace's shape (`hooks/tezgah_research.py::folded`). An own repository gets `git -C .tezgah` (`hooks/tezgah_gate.py::WORKSPACE_OWN`). A folded one the project tracks gets its own `git add`/`git commit` (`hooks/tezgah_gate.py::WORKSPACE_FOLDED`). A directory the project already tracks is its own and passes. `mkdir` and positional shell targets (`cp`, `mv`) are not read - the same ceiling as `write_paths`. Off: `workspace-off`.
 
+A second trigger under the same switch: a write under a dot dir directly below `.tezgah/research/`, such as `.tezgah/research/.staging/x/state.json` (`hooks/tezgah_gate.py::research_hidden_reason`). It is read against the main checkout and against the session's own root. `slugs()` skips dot dirs, so a line there is invisible to `status` and `check`. The refusal says a refused line goes to the owner (`hooks/tezgah_gate.py::RESEARCH_HIDDEN_DENY`). `open/`, `done/` and a dot file directly in `research/` pass.
+
 ### Secret — a credential on its way into a file
 
 Three triggers, one per shape a credential takes on its way into a file (`hooks/tezgah_gate.py::secret_command`, `hooks/tezgah_gate.py::secret_edit`, read at `hooks/tezgah_gate.py::decision`):

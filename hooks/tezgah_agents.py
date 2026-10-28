@@ -265,12 +265,24 @@ def _worker_body(tier):
                 "report what changed and what each check printed, verbatim. Report\n"
                 "progress, but never redefine the work. Never widen or narrow the brief's\n"
                 "scope, budget or question. If the brief cannot be met as written, say\n"
-                "so and stop rather than answering a different question.\n%s\n"
+                "so and stop rather than answering a different question.\n%s\n%s"
                 "A brief that builds or changes UI: read the `design-contract` skill\n"
                 "(and `design-library` for critique) and derive/check with\n"
                 "`~/.config/tezgah/bin/tezgah-design` before editing.\n"
-                "Never spawn subagents.\n%s" % (tier, tier, scope, WORKER_OUTPUT))
+                "Never spawn subagents.\n%s" % (tier, tier, scope, OWNER_ESCALATE,
+                                                WORKER_OUTPUT))
     return body
+
+
+# A question only the owner can answer climbs past every tier to the user: a
+# worker that settles it itself, frontier included, decided for the owner
+# (plan 136: a line ran under a hidden dir and wrote `chosen:` with no owner
+# choice). One text on every tier.
+OWNER_ESCALATE = ("A question only the owner can answer - choosing a variant or option a\n"
+                  "research, analysis or review recommends; a way around a tezgah\n"
+                  "refusal; deciding about another session's work (its line, plan or\n"
+                  "branch) - is never yours to decide, on any tier: stop and answer\n"
+                  "`ESCALATE: owner` with the options and a recommended default.\n")
 
 
 # The report a consumer reads: the orchestrator re-briefs a report missing one
@@ -282,7 +294,8 @@ WORKER_OUTPUT = ("End the report, after any other shape asked for, with `Output 
                  "- commit: the sha\n"
                  "- checks: each command, its exit code and the last lines of its\n"
                  "  output file, verbatim\n"
-                 "- escalate: the `ESCALATE:` reason (always `none` on tezgah-frontier)")
+                 "- escalate: the `ESCALATE:` reason (on tezgah-frontier only\n"
+                 "  `ESCALATE: owner`, else `none`)")
 
 
 # The specialists beside the tier workers: name -> (what it does, the skills it
@@ -483,6 +496,8 @@ def _orch_body(names):
         "or an ESCALATE, gets one narrower re-brief of the same role naming the\n"
         "missing field or the escalated judgement; only a second miss is\n"
         "restarted on tezgah-frontier with the original brief, never continued.\n"
+        "An `ESCALATE: owner` is neither: its options and default go to the user\n"
+        "in the approval batch, and the orchestrator never answers it itself.\n"
         "Never delegate a task a specialist is not\n"
         "listed for, and never let a subagent spawn its own subagents. Verify each\n"
         "returned claim against the code before acting." % (listed, say()["blocker_tokens"]))
