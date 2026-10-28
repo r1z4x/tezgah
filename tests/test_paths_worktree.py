@@ -642,7 +642,8 @@ class BareRepository(TempHome):
             fh.write("x\n")
         git("-C", plan, "add", "src/x.txt")
         git("-C", plan, "commit", "-qm", "feat: x")
-        proc = subprocess.run([sys.executable, TASK, "review", "007", "Rev", "approve"],
+        proc = subprocess.run([sys.executable, TASK, "review", "007", "Rev", "approve",
+                               "--no-slice", "fixture"],
                               cwd=plan, capture_output=True, text=True, env=env)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         git("-C", self.main, "merge", "-q", "--no-ff", "-m", "merge", "plan/007-x")

@@ -1408,13 +1408,24 @@ class Cli(TempHome):
         self.assertEqual(self.task("close", "001", "done").returncode, 1)
         self.assertTrue(os.path.exists(path))
         self.assertEqual(self.task("review", "001", "tezgah-reviewer", "lgtm").returncode, 2)
-        self.task("review", "001", "tezgah-reviewer", "approve")
+        # a requested reviewer with no slice record did not run: refused,
+        # and the refusal names the way out for a host that keeps no journal
+        refused = self.task("review", "001", "tezgah-reviewer", "approve")
+        self.assertEqual(refused.returncode, 1, refused.stderr)
+        self.assertIn("no review slice record names tezgah-reviewer", refused.stdout)
+        self.assertIn("--no-slice", refused.stdout)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
+                                   "--no-slice", "").returncode, 2)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
+                                   "--no-slice", "dsh keeps no journal").returncode, 0)
         proc = self.task("close", "001", "done")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse(os.path.exists(path))
         fields = tt.frontmatter(read(done))
         self.assertEqual(fields["status"], "done")
         self.assertTrue(fields["review"].startswith("tezgah-reviewer approve "))
+        self.assertTrue(fields["review"].endswith(" no-slice: dsh keeps no journal"),
+                        fields["review"])
 
     def approved_plan(self, *items):
         """Plan 001 with these Acceptance lines and an approving review: the
@@ -1422,7 +1433,8 @@ class Cli(TempHome):
         path = self.plan("001-first.md", allowed=["hooks/**"])
         with open(path, "a") as fh:
             fh.write("## Acceptance\n" + "".join(items))
-        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
+                                   "--no-slice", "fixture").returncode, 0)
         return path
 
     def test_close_done_refuses_an_open_acceptance_item_and_names_it(self):
@@ -1498,7 +1510,8 @@ class Cli(TempHome):
             fh.write("work\n")
         self.git("add", "work.txt", cwd=wt)
         self.git("commit", "-q", "-m", "plan work", cwd=wt)
-        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
+                                   "--no-slice", "fixture").returncode, 0)
         reviewed = tt.frontmatter(read(path))["reviewed_sha"]
         self.git("merge", "-q", "--squash", "plan/001-first")
         self.git("commit", "-q", "-m", "squash")
@@ -1525,7 +1538,8 @@ class Cli(TempHome):
             fh.write("work\n")
         self.git("add", "work.txt", cwd=wt)
         self.git("commit", "-q", "-m", "plan work", cwd=wt)
-        self.assertEqual(self.task("review", "003", "tezgah-reviewer", "approve").returncode, 0)
+        self.assertEqual(self.task("review", "003", "tezgah-reviewer", "approve",
+                                   "--no-slice", "fixture").returncode, 0)
         proc = self.task("close", "003", "done")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertNotIn("landed", tt.frontmatter(read(os.path.join(
@@ -1543,7 +1557,8 @@ class Cli(TempHome):
         self.ws("add", "notes.md")
         with open(os.path.join(self.repo, ".tezgah", "plans", "open", "002-x.md"), "w") as fh:
             fh.write("untracked\n")
-        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve").returncode, 0)
+        self.assertEqual(self.task("review", "001", "tezgah-reviewer", "approve",
+                                   "--no-slice", "fixture").returncode, 0)
         proc = self.task("close", "001", "done")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertFalse(os.path.exists(path))
@@ -1719,7 +1734,7 @@ class Cli(TempHome):
     def test_an_approving_round_owes_no_further_round(self):
         self.plan("001-first.md", allowed=["hooks/**"])
         self.task("start", "001", "--phase", "verification")
-        self.task("review", "001", "tezgah-reviewer", "approve")
+        self.task("review", "001", "tezgah-reviewer", "approve", "--no-slice", "fixture")
         out = self.task("status").stdout
         self.assertIn("approved in round 1", out)
         self.assertNotIn("review round 2", out)
@@ -2287,6 +2302,26 @@ class Cli(TempHome):
         self.assertIn("OCR spec skipped: `ocr delegate preview` exited 1", out)
         self.assertNotIn("OCR review spec", out)
         self.assertIn("record its verdict", out)
+
+
+class ReviewRulesInPolicy(unittest.TestCase):
+    """What the `review` guard cannot see is rule text: a verdict with no fresh
+    reviewer, and an author arguing a finding down (plan 137)."""
+
+    def test_core_and_contract_carry_both_review_rules(self):
+        import tezgah_context as tc
+        import tezgah_policy as policy
+        core = " ".join(tc.render(tc.always_on_core()).split())
+        self.assertIn("No fresh subagent, no review verdict: say so and ask", core)
+        self.assertIn("Contest a finding only with a file:line; never lower a severity",
+                      core)
+        full = " ".join(tc.render(policy.EXEC).split())
+        for words in ("No fresh subagent, no review verdict",
+                      "never record a verdict from your own read",
+                      "citing evidence the reviewer could read (file:line)",
+                      "goes to the owner as a question", "never lowers a severity"):
+            self.assertIn(words, full)
+
 
 
 class Acceptance(unittest.TestCase):

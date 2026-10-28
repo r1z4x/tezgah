@@ -208,7 +208,10 @@ default, measured on two research lines with a written flip
 one also gets an OCR review spec: OCR's file selection, its rule groups and a
 refuter pass. The spec is input to the review, never a verdict
 ([operations](operations.md#opt-in-ocr-review-spec-ocr),
-`bin/tezgah-task::print_ocr_spec`).
+`bin/tezgah-task::print_ocr_spec`). A verdict comes only from a fresh
+reviewer. A host that cannot start one says so and asks the owner. The author
+contests a confirmed finding only with a file:line the reviewer could read. It
+never lowers a severity (`hooks/tezgah_policy.py::EXEC`).
 
 ## Composition order of the always-on core
 
