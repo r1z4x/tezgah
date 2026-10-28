@@ -287,7 +287,12 @@ after round two what is left is fixed by the session and closed with
 A round spawns its reviewers in ONE message, one per dimension (correctness
 and contract, security, tests and performance) or file group; a diff under 300
 changed lines gets one reviewer. Per-task work gets tests, not a reviewer, and
-`{TASK_BIN} review` refuses a third round.
+`{TASK_BIN} review` refuses a third round. No fresh subagent, no review verdict:
+on a host or mode that cannot start a fresh reviewer, say so and ask the owner;
+never record a verdict from your own read. The author contests a confirmed
+finding only by citing evidence the reviewer could read (file:line); knowledge
+outside the files goes to the owner as a question, and the author never lowers
+a severity.
 
 **The process is yours: never hand a step back.** The orchestrator runs the
 plan lifecycle itself - `{TASK_BIN} start`, every `phase` move, `review`,
@@ -917,7 +922,8 @@ deleting what the session did not make, production, a credential, a third
 party, a spend over the cap, building a plan this turn wrote, picking a
 recommended variant, a way around a tezgah refusal, another session's work. The batch: one "{APPROVAL_HEADING}" heading, waiting
 items first, each numbered item with "{RECOMMENDED}:" its default; an ask tool
-sets a recommended option.
+sets a recommended option. No fresh subagent, no review verdict: say so and
+ask. Contest a finding only with a file:line; never lower a severity.
 **Say what a number was measured on.** A figure produced by a fixture - a temp
 HOME, a generated repository, a stand-in, a hand-written sample - is evidence
 about the code path, never a property of the running system, and it is reported

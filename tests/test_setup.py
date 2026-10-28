@@ -3331,8 +3331,11 @@ class VersionPrefixIsNotContract(SetupBase):
         # never-default items in short form - a recommended variant, a way
         # around a tezgah refusal, another session's work - and the fork clause
         # no longer covers them (+116 B; the long form pushed the worktree
-        # fixture's session_start over its 16000 B budget).
-        self.assertEqual(13276, band, "the always-on band moved")
+        # fixture's session_start over its 16000 B budget). Re-pinned 2026-10-29
+        # (plan 137): the Ask policy says no fresh subagent means no review
+        # verdict, and a finding is contested only with a file:line (+119 B; the
+        # longer form put the worktree fixture's session_start 41 B over 16000).
+        self.assertEqual(13395, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
     def test_the_rendered_always_on_band_is_unchanged(self):
@@ -3355,8 +3358,9 @@ class VersionPrefixIsNotContract(SetupBase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # Pinned 2026-10-22 (plan 126 review round 1): rendered under
         # HOME=/tezgah-band-pin, language `tr`. Re-pinned 2026-10-28 (plan 136,
-        # +116 B, see the unrendered pin).
-        self.assertEqual(13525, int(proc.stdout), "the rendered band moved")
+        # +116 B, see the unrendered pin). Re-pinned 2026-10-29 (plan 137,
+        # +119 B, see the unrendered pin).
+        self.assertEqual(13644, int(proc.stdout), "the rendered band moved")
 
 
 if __name__ == "__main__":

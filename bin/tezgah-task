@@ -6,7 +6,7 @@
   tezgah-task allow GLOB ... | --any-path --why REASON         replace the allowlist, recording why
   tezgah-task stop                                            deactivate (clear phase)
   tezgah-task status [--json]                                 the active task, then every open plan: progress, what it waits on, what can run at once
-  tezgah-task review <NNN|path> <reviewer> approve|changes    record a fresh review's verdict
+  tezgah-task review <NNN|path> <reviewer> approve|changes [--no-slice WHY]  record a fresh review's verdict; approve needs the reviewer's slice record, or WHY it has none
   tezgah-task close <NNN|path> done|discarded [--resolved TEXT] move a plan to .tezgah/plans/done, deactivate it, remove merged worktrees
   tezgah-task tick <NNN|path> <n> [--undo]                   tick (or untick) Acceptance item n, counted from 1
   tezgah-task note <NNN|path> state|next "<text>"            replace the body of `## State` (the newest one) or `## Next`
@@ -1082,7 +1082,7 @@ def budget_spent(path, ident):
             % (path, REVIEW_ROUNDS, ident, say()["decision"], ident))
 
 
-def unfinished_review(root, reviewer, plan="", since=0):
+def unfinished_review(root, reviewer, plan="", since=0, no_slice=""):
     """The refusal of an `approve` while a slice journal record whose id or agent
     is `reviewer` is open, stopped or stale: a review slice that died on a
     provider limit had its approve recorded anyway, and a NameError it would have
@@ -1097,7 +1097,9 @@ def unfinished_review(root, reviewer, plan="", since=0):
     `tt.open_slice`) counts too. Under TEZGAH_SESSION only this session's
     records and unowned ones count, by id, agent or name alike: another
     session's review is not this approve's. The refusal names the exact id,
-    which `slice resume` and `slice done` take from any session."""
+    which `slice resume` and `slice done` take from any session. No record at
+    all refuses too: a requested reviewer with no status did not run, unless
+    `no_slice` says why the reviewer ran outside the journal."""
     from tezgah_paths import off
     if off("slices-off"):
         return []
@@ -1113,21 +1115,37 @@ def unfinished_review(root, reviewer, plan="", since=0):
             return rec["plan"] == plan
         return (_stamp(rec.get("updated")) or 0) >= since
 
-    return ["review slice %s is %s%s: let it finish, or resume it with `tezgah-task "
-            "slice resume %s` and wait for that run; if the review was finished "
-            "another way, record it with `tezgah-task slice done %s` - an approve "
-            "from a review that did not finish reads nothing"
-            % (rec["id"], rec.get("status"),
-               (" (%s)" % rec["failure"]) if rec.get("failure") else "",
-               rec["id"], rec["id"])
-            for rec in tt.slices(root)
-            if rec.get("status") in ("open", "stopped", "stale")
-            and named(rec) and ours(rec)]
+    found = [rec for rec in tt.slices(root) if named(rec) and ours(rec)]
+    refusals = ["review slice %s is %s%s: let it finish, or resume it with `tezgah-task "
+                "slice resume %s` and wait for that run; if the review was finished "
+                "another way, record it with `tezgah-task slice done %s` - an approve "
+                "from a review that did not finish reads nothing"
+                % (rec["id"], rec.get("status"),
+                   (" (%s)" % rec["failure"]) if rec.get("failure") else "",
+                   rec["id"], rec["id"])
+                for rec in found if rec.get("status") in ("open", "stopped", "stale")]
+    if not found and not no_slice:
+        # a requested reviewer with no record is a review that did not run
+        refusals.append(
+            "no review slice record names %s for this plan: a reviewer with no "
+            "record did not run. Spawn the fresh reviewer and approve once its "
+            "slice is done; a host that keeps no slice journal records why with "
+            "`--no-slice \"<why: the reviewer ran outside the slice journal>\"`"
+            % reviewer)
+    return refusals
 
 
 def cmd_review(args):
+    no_slice = ""
+    if "--no-slice" in args:
+        i = args.index("--no-slice")
+        no_slice = " ".join((args[i + 1:i + 2] or [""])[0].split())
+        args = args[:i] + args[i + 2:]
+        if not no_slice:
+            return misuse("--no-slice takes why the reviewer ran outside the slice journal")
     if len(args) != 3 or args[2] not in VERDICTS:
-        return misuse("review takes <NNN|path> <reviewer> %s" % "|".join(VERDICTS))
+        return misuse("review takes <NNN|path> <reviewer> %s [--no-slice WHY]"
+                      % "|".join(VERDICTS))
     path, problem = open_plan(args[0])
     if problem:
         return problems([problem])
@@ -1146,7 +1164,7 @@ def cmd_review(args):
                  if mark and mark[-1] != tt.CHECKPOINT_PENDING else None)
         ident = fields.get("id") or os.path.basename(path).split("-")[0]
         bad = unfinished_review(root, args[1], ident,
-                                int(since) if (since or "").isdigit() else 0)
+                                int(since) if (since or "").isdigit() else 0, no_slice)
         if bad:
             return problems(bad)
     # a plan held by its own worktree is built on that branch: its HEAD is the
@@ -1154,7 +1172,8 @@ def cmd_review(args):
     ident = fields.get("id") or os.path.basename(path).split("-")[0]
     where = tt.plan_holders(root).get(ident) or root
     sha = (git_out(where, "rev-parse", "HEAD") or "")[:12]
-    record = {"review": "%s %s %s" % (args[1], args[2], today()),
+    record = {"review": "%s %s %s%s" % (args[1], args[2], today(),
+                                        " no-slice: " + no_slice if no_slice else ""),
               "review_round": str(int(prior) + 1 if prior.isdigit() else 1),
               "updated": today()}
     if sha:

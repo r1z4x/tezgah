@@ -121,7 +121,8 @@ deleting what the session did not make, production, a credential, a third
 party, a spend over the cap, building a plan this turn wrote, picking a
 recommended variant, a way around a tezgah refusal, another session's work. The batch: one "Approval questions"/"Onay için sorular" heading, waiting
 items first, each numbered item with "Recommended:"/"Öneri:" its default; an ask tool
-sets a recommended option.
+sets a recommended option. No fresh subagent, no review verdict: say so and
+ask. Contest a finding only with a file:line; never lower a severity.
 **Say what a number was measured on.** A figure produced by a fixture - a temp
 HOME, a generated repository, a stand-in, a hand-written sample - is evidence
 about the code path, never a property of the running system, and it is reported
