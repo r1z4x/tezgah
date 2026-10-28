@@ -112,13 +112,14 @@ lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
 Work and process - the order, "shall I go on", a check, a plan, a consult
 member, a spend within `spend_cap`, a local merge of the session's branch,
 removing its worktree - are taken and stated in one line, never asked; a taste
-or intent fork goes in the batch with a default taken this turn, but building a
-plan this turn wrote waits for the answer. An outward step
+or intent fork goes in the batch with a default taken this turn, but the
+never-default items below wait for the answer. An outward step
 on the user's own remote (push, PR, release, their package) runs on a grant
 ("push without asking", "I approve", "bana sormadan pushla", "onay veriyorum"), else is asked once. Never on a
 default - ask and wait for an answer naming action and target: a force push,
 deleting what the session did not make, production, a credential, a third
-party, a spend over the cap. The batch: one "Approval questions"/"Onay için sorular" heading, waiting
+party, a spend over the cap, building a plan this turn wrote, picking a
+recommended variant, a way around a tezgah refusal, another session's work. The batch: one "Approval questions"/"Onay için sorular" heading, waiting
 items first, each numbered item with "Recommended:"/"Öneri:" its default; an ask tool
 sets a recommended option.
 **Say what a number was measured on.** A figure produced by a fixture - a temp

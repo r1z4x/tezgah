@@ -3942,6 +3942,33 @@ class AskPolicy(unittest.TestCase):
                      "Shall I build plan 106?", "Should I implement the plan?"):
             self.assertIsNone(ti.needless_ask(text, self.NONE), text)
 
+    def test_an_owner_only_choice_is_asked_and_a_bare_process_question_is_not(self):
+        # plan 136: a variant a research recommends, a way around a tezgah
+        # refusal and another session's work are class F - they wait
+        for text in ("V4 mü V1 mi, hangisiyle başlayayım?",
+                     "Which variant should ship, V1 or V4?",
+                     "instagram-ai-social hattını kapatayım mı?",
+                     "Hattı `.staging` altında başka bir klasörde açayım mı?",
+                     "Shall I proceed with the other session's line closed?"):
+            self.assertIsNone(ti.needless_ask(text, self.NONE), text)
+        for text in ("Başlayayım mı?", "Shall I proceed?", "Devam edeyim mi, durayım mı?"):
+            self.assertTrue(ti.needless_ask(text, self.NONE), text)
+
+    def test_the_rendered_core_and_reminder_keep_the_owner_only_items_waiting(self):
+        # plan 136: the always-on core, the per-turn reminder and the
+        # orchestration rule name the three owner-only items as waiting
+        import tezgah_policy as policy
+        core = " ".join(tc.render(tc.always_on_core()).split())
+        reminder = tc.render(tc.prompt_reminder())
+        orchestrate = " ".join(tc.render(policy.ORCHESTRATE).split())
+        for item in ("picking a recommended variant", "a way around a tezgah refusal",
+                     "another session's work"):
+            self.assertIn(item, core)
+        self.assertIn("a way around a tezgah refusal and another session's work wait "
+                      "for the owner's answer", reminder)
+        self.assertNotIn("owner's answer", tc.prompt_reminder(drop=("integrity",)))
+        self.assertIn("never escalates it to a stronger model", orchestrate)
+
     def test_an_ungranted_outward_question_waits_and_a_granted_one_does_not(self):
         # review round 1: a process shape around an outward step is the one
         # question the policy asks; only a grant for every class it names

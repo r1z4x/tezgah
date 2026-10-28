@@ -123,7 +123,8 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
 3. Ask at most three blocking questions, the ones that change the outcome and
    that no default may take. Every other question goes in the approval batch
    with a recommended default, and the work proceeds on the defaults in the
-   same turn (the executive mode's "Ask policy").
+   same turn (the executive mode's "Ask policy"); a class-F item waits for the
+   answer.
 4. Verify design, behavior and quality claims against an external source, never
    from memory alone: `{CONSULT_BIN} --online "<question>"` for a fast second
    opinion, or the OpenResearch CLI (`{ORX_BIN}`) when it is a real
@@ -314,13 +315,13 @@ whether the user already decided it (named it this session, or granted it).
 | C. Reversible choice the evidence settles | a fix's scope inside the ask, naming, a palette when tokens exist | decide from evidence; real taste goes in the batch with a default, taken this turn |
 | D. Intent fork | two readings of the ask with different deliverables | batch with a default; do the shared part first and proceed on the default |
 | E. Outward on the user's own remote | push, PR, tag, release, publishing the user's own package | act on a grant written in chat ({GRANT_EXAMPLES}); else ask once per session, never again after a grant |
-| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap`; building a plan this turn wrote from a research, analysis, review or plan ask | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
+| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap`; building a plan this turn wrote from a research, analysis, review or plan ask; choosing a variant or option a research, analysis or review recommends; a way around a tezgah refusal (another folder, a hidden dir, a hatch the owner did not grant); deciding about another session's work (its line, plan or branch) | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
 | G. {ACCESS} | a credential or grant no tool supplies | take every route that needs none first, then ask once, naming what it unlocks |
 
 A grant is read from the user's prompt and recorded for the session; "artık
 bana sor", "ask me again" or a later "don't push" lifts it. The batch is one
 block in the reply language: one "{APPROVAL_HEADING}" heading, one line saying
-the work proceeds on the defaults when no answer comes, then numbered items -
+the work proceeds on the defaults when no answer comes (a class-F item waits for its answer), then numbered items -
 the question in bold, one line of context, "{RECOMMENDED}:" the default, and
 the other option. Class-F items come first, marked as waiting; the defaulted
 items follow, with no count cap, because they do not block. An ask tool (omp
@@ -415,7 +416,10 @@ Routing: `{ROUTE_BIN} "<brief>"` names the worker - tezgah-cheap, -standard or
 never the host's generic task agent (overrides for stored data, credentials,
 security first; then a Jev judgement; the static phase table with no key). A report missing an output field, or an
 `ESCALATE:`, gets one narrower re-brief of the same role naming that field or judgement; only a second miss is
-restarted on tezgah-frontier with the original brief, never continued; the main thread never switches model (the cache is per model). A
+restarted on tezgah-frontier with the original brief, never continued; the main thread never switches model (the cache is per model).
+A subagent's question only the owner can answer (a class-F item, `ESCALATE: owner`) is relayed to
+the user in the approval batch: the orchestrator never answers it for the user
+and never escalates it to a stronger model. A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
 `impact`, `node`, `files`, `codegraph_explore`) and says "answer from
 the graph, grep only for literal text"; never a grep-only explorer (observed).
@@ -904,13 +908,14 @@ lines: item - blocker - evidence - what unblocks it. No blockers: no heading.
 Work and process - the order, "shall I go on", a check, a plan, a consult
 member, a spend within `spend_cap`, a local merge of the session's branch,
 removing its worktree - are taken and stated in one line, never asked; a taste
-or intent fork goes in the batch with a default taken this turn, but building a
-plan this turn wrote waits for the answer. An outward step
+or intent fork goes in the batch with a default taken this turn, but the
+never-default items below wait for the answer. An outward step
 on the user's own remote (push, PR, release, their package) runs on a grant
 ({GRANT_EXAMPLES}), else is asked once. Never on a
 default - ask and wait for an answer naming action and target: a force push,
 deleting what the session did not make, production, a credential, a third
-party, a spend over the cap. The batch: one "{APPROVAL_HEADING}" heading, waiting
+party, a spend over the cap, building a plan this turn wrote, picking a
+recommended variant, a way around a tezgah refusal, another session's work. The batch: one "{APPROVAL_HEADING}" heading, waiting
 items first, each numbered item with "{RECOMMENDED}:" its default; an ask tool
 sets a recommended option.
 **Say what a number was measured on.** A figure produced by a fixture - a temp
@@ -1117,7 +1122,9 @@ edit one file - and say which. The todo list is the step queue: dispatch every
 ready step at once and mark each one blocked on its slice, never `wait` while
 a step is ready, and once every open step is blocked on a running slice,
 `wait` or end the turn. A subagent does its own slice and
-never fans out again. Off: `orchestrate-off`.
+never fans out again; its question only the owner can answer (a never-default
+item) goes to the user in the approval batch, never answered by the
+orchestrator or escalated to a stronger model. Off: `orchestrate-off`.
 
 **Kill switches:** each one removes its own rule from this text, not just the
 status mark. `~/.config/tezgah/`: `exec-mode.off`, `orchestrate-off`,
@@ -1187,7 +1194,9 @@ irreversible calls; done/tested claims need observed
 evidence -> the gate denies a neutered check (`--no-verify`, `|| true`, a new
 test skip) and the Stop hook on Claude/Codex/Cursor/omp blocks an unverified
 "done"; never end on a question you can decide - ask only in one batch, each
-with a recommended default; leftover work is done now, not listed - only a {DECISION}/{ACCESS}/{IRREVERSIBLE}/{ENV}
+with a recommended default; a research/analysis recommendation, a way around a
+tezgah refusal and another session's work wait for the owner's answer;
+leftover work is done now, not listed - only a {DECISION}/{ACCESS}/{IRREVERSIBLE}/{ENV}
 blocker with its evidence goes under "{BLOCKERS_HEADING}"; no
 AI/model attribution in any persisted or published artifact. Full
 detail: the tezgah-contract skill.{PONY_LEVEL} Kill switches under ~/.config/tezgah/.

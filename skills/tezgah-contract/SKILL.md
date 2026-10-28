@@ -265,7 +265,10 @@ Routing: `~/.config/tezgah/bin/tezgah-route "<brief>"` names the worker - tezgah
 never the host's generic task agent (overrides for stored data, credentials,
 security first; then a Jev judgement; the static phase table with no key). A report missing an output field, or an
 `ESCALATE:`, gets one narrower re-brief of the same role naming that field or judgement; only a second miss is
-restarted on tezgah-frontier with the original brief, never continued; the main thread never switches model (the cache is per model). A
+restarted on tezgah-frontier with the original brief, never continued; the main thread never switches model (the cache is per model).
+A subagent's question only the owner can answer (a class-F item, `ESCALATE: owner`) is relayed to
+the user in the approval batch: the orchestrator never answers it for the user
+and never escalates it to a stronger model. A
 code-discovery brief names codegraph's tools (`codegraph callers`, `callees`,
 `impact`, `node`, `files`, `codegraph_explore`) and says "answer from
 the graph, grep only for literal text"; never a grep-only explorer (observed).
@@ -438,7 +441,8 @@ intuitive". Such a request is NEVER built from a guess. Before any code:
 3. Ask at most three blocking questions, the ones that change the outcome and
    that no default may take. Every other question goes in the approval batch
    with a recommended default, and the work proceeds on the defaults in the
-   same turn (the executive mode's "Ask policy").
+   same turn (the executive mode's "Ask policy"); a class-F item waits for the
+   answer.
 4. Verify design, behavior and quality claims against an external source, never
    from memory alone: `~/.config/tezgah/bin/consult --online "<question>"` for a
    fast second opinion, or the OpenResearch CLI (`orx` on PATH, else
@@ -642,13 +646,13 @@ whether the user already decided it (named it this session, or granted it).
 | C. Reversible choice the evidence settles | a fix's scope inside the ask, naming, a palette when tokens exist | decide from evidence; real taste goes in the batch with a default, taken this turn |
 | D. Intent fork | two readings of the ask with different deliverables | batch with a default; do the shared part first and proceed on the default |
 | E. Outward on the user's own remote | push, PR, tag, release, publishing the user's own package | act on a grant written in chat ("push without asking", "I approve", "bana sormadan pushla", "onay veriyorum"); else ask once per session, never again after a grant |
-| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap` | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
+| F. Never on a default | force push or history rewrite on a shared ref; deleting data the session did not make; production deploy, stop or migration; a credential, account or identity change; sending to a third party; a spend over `spend_cap`; building a plan this turn wrote from a research, analysis, review or plan ask; choosing a variant or option a research, analysis or review recommends; a way around a tezgah refusal (another folder, a hidden dir, a hatch the owner did not grant); deciding about another session's work (its line, plan or branch) | do all other work first, ask, and wait: silence is no consent, and only an answer that names the action and its target clears it |
 | G. ACCESS | a credential or grant no tool supplies | take every route that needs none first, then ask once, naming what it unlocks |
 
 A grant is read from the user's prompt and recorded for the session; "artık
 bana sor", "ask me again" or a later "don't push" lifts it. The batch is one
 block in the reply language: one "Approval questions"/"Onay için sorular" heading, one line saying
-the work proceeds on the defaults when no answer comes, then numbered items -
+the work proceeds on the defaults when no answer comes (a class-F item waits for its answer), then numbered items -
 the question in bold, one line of context, "Recommended:"/"Öneri:" the default, and
 the other option. Class-F items come first, marked as waiting; the defaulted
 items follow, with no count cap, because they do not block. An ask tool (omp
