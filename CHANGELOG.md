@@ -6,6 +6,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Review rules taken from google/elephant-goldfish-model (plan 137).** The
+  owner chose them from research line `egm-lessons`. No EGM file ships:
+  - `tezgah-task review NNN <r> approve` refuses a plan with no review slice
+    record. A host with no slice journal passes `--no-slice "<why>"`, and the
+    reason lands on the review line (`bin/tezgah-task`).
+  - The contract says that no fresh subagent means no review verdict. It also
+    says the author contests a finding only with a file:line and never lowers
+    a severity (`hooks/tezgah_policy.py`).
+  - tezgah-reviewer has a plan-readiness mode for a plan file. A design choice
+    left to the implementer is a major finding, and so is a section it cannot
+    paraphrase. plan-add runs it before `phase implementation`
+    (`hooks/tezgah_agents.py`).
+  - graph-review merges findings with the same file, line and title before its
+    verification cap, and reports `caps.deduplicated`.
+  - `tests/test_links.py` resolves every relative markdown link the repository
+    owns.
+
 ### Changed
 
 - **The gate refuses a credit verb with "with" or "using" too.** The attribution
