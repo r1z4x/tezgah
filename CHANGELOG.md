@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The gate refuses a credit verb with "with" or "using" too.** The attribution
+  rule read `written by` and `built by`, so `Drafted with Claude` passed. The
+  credit verbs now include `drafted`, `produced` and `composed`, and each takes
+  `by`, `with` or `using` before a model or vendor name. Prose such as
+  `drafted with the owner` still passes (`hooks/tezgah_gate.py::_CREDIT`, plan
+  137).
+
+- **A release tag must sit on main.** A new `on-main` job in `release.yml`
+  fails the run on a tag off `origin/main`. Then no job builds or uploads
+  anything (plan 137).
+
 - **An owner-only choice waits for the owner.** Class F now names three more
   steps. One is picking a variant a research, analysis or review recommends.
   The others are a way around a tezgah refusal and deciding about another

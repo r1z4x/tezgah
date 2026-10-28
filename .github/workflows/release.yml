@@ -23,12 +23,36 @@ on:
 permissions: {}
 
 jobs:
+  # A release publishes only a commit that is already on main: a tag cut from a
+  # side branch would ship code main never reviewed. Every other job waits on
+  # this one through `green`, so a failure here builds and uploads nothing.
+  # The full-history checkout brings origin/main; no extra fetch is needed,
+  # and none could run with persist-credentials off.
+  on-main:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse a release whose commit is not on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::release ${GITHUB_REF#refs/tags/} points at $GITHUB_SHA, which is not on origin/main - tag a commit from main and publish again"
+            exit 1
+          fi
+          echo "$GITHUB_SHA is on origin/main"
+
   # A finished, green push run of ci.yml on this exact commit is reused, so a
   # release does not run the same suite twice (~12 min, 2026-10-13). It waits
   # for that run to finish and counts only `success` on the release's own sha:
   # v0.1.2 published while its CI went red because a lookup did not wait. No
   # such run, or any other outcome, runs CI here as before.
   green:
+    needs: on-main
     permissions:
       actions: read
     runs-on: ubuntu-latest
