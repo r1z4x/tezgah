@@ -114,7 +114,18 @@ const unknown = DIMENSIONS.filter((d, i) => !reviewed[i]).map(d => `review:${d.k
 const reviews = reviewed.filter(Boolean)
 
 const rank = { high: 0, medium: 1, low: 2 }
-const all = reviews.flatMap(r => r.findings || []).sort((a, b) => rank[a.severity] - rank[b.severity])
+// two lenses often raise one defect: merge on (file, line, lowercased title), keep the higher severity
+const byKey = new Map()
+let raised = 0
+reviewed.forEach((r, i) => ((r && r.findings) || []).forEach(f => {
+  raised++
+  const key = `${f.file}\u0000${f.line || ''}\u0000${String(f.title).trim().toLowerCase()}`
+  const prev = byKey.get(key)
+  const keep = prev && rank[prev.severity] <= rank[f.severity] ? prev : f
+  byKey.set(key, { ...keep, dimensions: [...new Set([...((prev && prev.dimensions) || []), DIMENSIONS[i].key])] })
+}))
+const all = [...byKey.values()].sort((a, b) => rank[a.severity] - rank[b.severity])
+const caps = { max_verified: MAX_VERIFIED, raised, deduplicated: raised - all.length }
 if (!all.length) {
   const note = !unknown.length ? 'all four dimensions came back clean'
     : !reviews.length ? 'every dimension failed - nothing was reviewed; unknown, not clean'
@@ -124,7 +135,7 @@ if (!all.length) {
 
 const toVerify = all.slice(0, MAX_VERIFIED)
 if (all.length > toVerify.length) {
-  log(`${all.length} findings raised; verifying the ${toVerify.length} most severe. NOT verified (reported as unverified): ${all.slice(MAX_VERIFIED).map(f => f.title).join('; ')}`)
+  log(`${all.length} distinct findings (${caps.deduplicated} duplicates merged); verifying the ${toVerify.length} most severe. NOT verified (reported as unverified): ${all.slice(MAX_VERIFIED).map(f => f.title).join('; ')}`)
 }
 
 phase('Verify')
@@ -167,4 +178,5 @@ return {
   unverified: unsettled.map(v => ({ ...v.finding, verdict: 'UNVERIFIED - every refuter failed' }))
     .concat(all.slice(MAX_VERIFIED).map(f => ({ ...f, verdict: 'UNVERIFIED - budget cap' }))),
   unknown,
+  caps,
 }

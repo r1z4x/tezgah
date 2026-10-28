@@ -66,6 +66,8 @@ is reported as such, and an empty list beside it is not evidence of absence.
 
 `graph-review` splits findings into `confirmed` (no refuter refuted it), `refuted` (do not report as bugs),
 and `unverified` (hit the cap, or every refuter failed - label them as such). Never promote a refuted or unverified finding.
+Before the cap, findings with the same file, line and title merge into one. The merge keeps the higher severity
+and lists every raising lens in `dimensions`; `caps.deduplicated` counts the merges.
 
 `graph-review` is one review round, not a loop: inside a plan it is round one or round two of the
 plan's single review (two rounds at most, `~/.config/tezgah/bin/tezgah-task review` refuses a third), never one run per
