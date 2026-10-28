@@ -711,16 +711,16 @@ class Cli(Journal):
                                    "--no-slice", "fixture").returncode, 0)
 
     def test_a_readiness_review_or_a_resumed_record_is_not_this_review(self):
-        # review of plan 137: a plan-readiness review finished before the
-        # checkpoint, or a review stopped and resumed with no re-run, read
-        # nothing of the diff, so neither lets the approve through
+        # review of plan 137: in plan-add's own order - checkpoint at HEAD, the
+        # plan-readiness review, then the work commits - the readiness record
+        # read nothing of the diff; nor does a review stopped and resumed with
+        # no re-run, so neither lets the approve through
+        self.plan_at_head()
         tt.open_slice(self.repo, "ready", agent="tezgah-reviewer", host="claude",
                       brief="plan readiness")
         tt.close_slice(self.repo, "ready", "done", "")
-        old = self.record("ready")
-        old["updated"] = "2026-01-01T00:00:00Z"
-        tt._write_record(self.repo, old)
-        self.plan_at_head()
+        time.sleep(1.1)  # commit times are whole seconds
+        self.commit_file("work.txt", message="plan work")
         refused = self.task("review", "001", "tezgah-reviewer", "approve")
         self.assertEqual(refused.returncode, 1, refused.stdout)
         self.assertIn("no finished review slice names tezgah-reviewer", refused.stdout)

@@ -190,13 +190,13 @@ const EXPLORE_DENY =
 // as _CREDIT is there. The parity test in tests/test_opencode_plugin.py reads
 // this literal and the Python one and fails if the two alternations differ.
 const ATTRIB =
-  /co-authored-by\s*:|generated with|made with|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+by\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|cursor|gemini|deepseek|openai|anthropic)\b|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+(?:with|using)\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|gemini|deepseek|openai|anthropic)(?:\s+(?:code|cli))?(?=[.!)\]*_`]*(?:[\x22\x27]|\s*(?:\n|$)))|noreply@anthropic|\u{1F916}/iu
+  /co-authored-by\s*:|generated with|made with|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+by\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|cursor|gemini|deepseek|openai|anthropic)\b|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+(?:with|using)\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|gemini|deepseek|openai|anthropic)(?:-[\w.]+)?(?:\s+(?:code|cli))?(?:\s*\([^)\n]*\))?(?=[.!)\]*_`]*(?:[\x22\x27,;]|\s+-\s|\s*(?:\n|$)))|noreply@anthropic|\u{1F916}/iu
 // The same forms anchored to the start of a line, for the text a write/edit
 // tool is about to land. Mirrors hooks/tezgah_gate.py ATTRIB_LINE: a credit owns
 // its line, while prose naming the ban does not, and that anchor is what keeps
 // the rule from denying the documentation that describes it.
 const ATTRIB_LINE =
-  /^[\s>#*/<!+-]*(?:co-authored-by\s*:|generated with|made with|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+by\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|cursor|gemini|deepseek|openai|anthropic)\b|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+(?:with|using)\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|gemini|deepseek|openai|anthropic)(?:\s+(?:code|cli))?(?=[.!)\]*_`]*(?:[\x22\x27]|\s*(?:\n|$)))|noreply@anthropic|\u{1F916})/imu
+  /^[\s>#*/<!+-]*(?:co-authored-by\s*:|generated with|made with|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+by\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|cursor|gemini|deepseek|openai|anthropic)\b|(?:generated|written|authored|built|assisted|drafted|produced|composed)\s+(?:with|using)\s+(?:(?:an?|the)\s+)?(?:ai|llm|claude|chatgpt|gpt|copilot|codex|gemini|deepseek|openai|anthropic)(?:-[\w.]+)?(?:\s+(?:code|cli))?(?:\s*\([^)\n]*\))?(?=[.!)\]*_`]*(?:[\x22\x27,;]|\s+-\s|\s*(?:\n|$)))|noreply@anthropic|\u{1F916})/imu
 const EDIT_TEXT = ["content", "new_string", "newString", "new_str", "file_text",
   "patch", "text"]
 const WRITE_CMD =

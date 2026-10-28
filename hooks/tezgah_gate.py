@@ -206,11 +206,14 @@ BASH_SEARCH = re.compile(r"(?:^|[|;&(]\s*|\s)(?:grep|rg)\s+((?:-\S+\s+)*)(\S+)")
 # path pays nothing for it - `ATTRIB_LINE` anchors, so documentation that merely
 # names a form mid-sentence lands - and splitting the two sets apart was tried
 # and reverted, because the anchored half then missed `-m "Built by GPT"`.
-# A `with`/`using` credit is a signature only when the name ends it ("Drafted
-# with Claude", "Written using Claude Code."): "built with cursor support" or
+# A `with`/`using` credit is a signature only when the name ends its clause
+# ("Drafted with Claude", "Written using Claude Code.", "Generated using GPT-4,
+# reviewed by me", "Written with Claude (Opus)"): "built with cursor support" or
 # "client built using the OpenAI SDK" is prose, so that form takes a name that
-# closes the line or the quoted message, and never the word `cursor` (review of
-# plan 137). `by` keeps every name: "built by Cursor" is a credit.
+# a quote, a comma, a dash or the line's end closes, and never the word `cursor`
+# (review of plan 137). `by` keeps every name: "built by Cursor" is a credit.
+# ponytail: "Drafted with Cursor" passes, and "built using OpenAI, Anthropic and
+# others" is denied once; the deny names the reason, so one rephrase clears it.
 _CREDIT = (
     r"co-authored-by\s*:|generated with|made with|"
     r"(?:generated|written|authored|built|assisted|drafted|produced|composed)"
@@ -220,7 +223,8 @@ _CREDIT = (
     r"(?:generated|written|authored|built|assisted|drafted|produced|composed)"
     r"\s+(?:with|using)\s+(?:(?:an?|the)\s+)?"
     r"(?:ai|llm|claude|chatgpt|gpt|copilot|codex|gemini|deepseek|openai|anthropic)"
-    r"(?:\s+(?:code|cli))?(?=[.!)\]*_`]*(?:[\x22\x27]|\s*(?:\n|$)))|"
+    r"(?:-[\w.]+)?(?:\s+(?:code|cli))?(?:\s*\([^)\n]*\))?"
+    r"(?=[.!)\]*_`]*(?:[\x22\x27,;]|\s+-\s|\s*(?:\n|$)))|"
     r"noreply@anthropic|\U0001F916")
 ATTRIB = re.compile(_CREDIT, re.I)
 # The same forms anchored to the start of a line, for the text a write/edit tool

@@ -1170,16 +1170,19 @@ def cmd_review(args):
         since = (git_out(root, "log", "-1", "--format=%ct", mark[-1])
                  if mark and mark[-1] != tt.CHECKPOINT_PENDING else None)
         since = int(since) if (since or "").isdigit() else 0
-        # this round's review finished after the work it reads: after the
-        # checkpoint, and in round two after the first commit past the one round
-        # one read - round one's own reviewer finished before that commit
+        # this round's review finished after the first commit of the work it
+        # reads: past the checkpoint in round one (a plan-readiness review ran
+        # before it), past the commit round one read in round two (round one's
+        # reviewer finished before it); with no such commit, after the base itself
         ident = fields.get("id") or os.path.basename(path).split("-")[0]
-        last = fields.get("reviewed_sha") or ""
-        if last:
+        base = fields.get("reviewed_sha") or (
+            mark[-1] if mark and mark[-1] != tt.CHECKPOINT_PENDING else "")
+        first = ""
+        if base:
             after = (git_out(tt.plan_holders(root).get(ident) or root, "log",
-                             "--reverse", "--format=%ct", last + "..HEAD") or "").split()
-            last = after[0] if after else git_out(root, "log", "-1", "--format=%ct", last)
-        ran_since = max(since, int(last) if (last or "").isdigit() else 0)
+                             "--reverse", "--format=%ct", base + "..HEAD") or "").split()
+            first = after[0] if after else git_out(root, "log", "-1", "--format=%ct", base)
+        ran_since = max(since, int(first) if (first or "").isdigit() else 0)
         bad = unfinished_review(root, args[1], ident, since, no_slice, ran_since)
         if bad:
             return problems(bad)
