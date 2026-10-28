@@ -3926,7 +3926,8 @@ ASK_NO_DEFAULT = (
     "default (omp `ask`: `recommended`; AskUserQuestion: a \"({RECOMMENDED})\" "
     "option), and the work proceeds on it unless the step waits on the user's "
     "answer by nature (a force push, a delete of what the session did not "
-    "make, production, a credential, a spend over the cap). ")
+    "make, production, a credential, a spend over the cap, a recommended "
+    "variant, a way around a tezgah refusal, another session's work). ")
 ASK_GRANTED = (
     "tezgah: the user already granted %s this session; that step is taken, "
     "not asked again.")

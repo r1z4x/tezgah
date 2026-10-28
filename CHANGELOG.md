@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **An owner-only choice waits for the owner.** Class F now names three more
+  steps: picking a variant a research, analysis or review recommends, a way
+  around a tezgah refusal, and deciding about another session's work. The core
+  Ask policy, the per-turn reminder and the ask warning carry them too. The Stop
+  rule's `needless ask` lets a question that asks the owner to pick between
+  options through (`OWNER_CHOICE`, `hooks/tezgah_integrity.py`). A worker returns
+  such a question as `ESCALATE: owner`, and the orchestrator relays it to the
+  user instead of answering it (plan 136).
+
+- **A research line records the owner's pick apart from its own.** A rules-9
+  line writes its pick as `recommended:` in `decision.md`. A `chosen:` line
+  needs the owner's words, which `tezgah-research choose <slug> <decision>
+  <variant> --ack "<words>"` writes. `conclude` says when a recommendation still
+  waits for the owner (`hooks/tezgah_research.py`).
+
+- **A line in flight no longer blocks `init --allow-open`.** A line whose only
+  `check` errors are pending verdicts is in flight, not broken. Both `init`
+  refusals now say that another session's line goes to the owner.
+
+### Fixed
+
+- **A hidden research dir is no longer invisible.** A dot dir under
+  `.tezgah/research/` is an error in `status` and in `check` with no slug. The
+  gate refuses a write there (`research_hidden_reason`, `hooks/tezgah_gate.py`).
+  A session had run a whole line under `.tezgah/research/.staging/` after an
+  `init` refusal.
+
 ## [1.11.0] - 2026-10-23
 
 ### Added
