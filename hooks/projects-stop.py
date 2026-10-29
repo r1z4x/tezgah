@@ -64,7 +64,8 @@ def main():
     # a core that cannot answer has refused nothing, so the turn ends: the rule
     # never traps a session, and that holds for its own failure too
     reason = safe(session_id, stop_reason, p.get("last_assistant_message"),
-                  session_id, cwd=cwd, after_block=bool(p.get("stop_hook_active")))
+                  session_id, cwd=cwd, after_block=bool(p.get("stop_hook_active")),
+                  mode=p.get("permission_mode"))
     if reason:
         json.dump({"decision": "block", "reason": reason}, sys.stdout)
 

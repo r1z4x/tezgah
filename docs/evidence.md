@@ -319,7 +319,7 @@ while the turn holds no refusal of this rule. That reply gets no refusal and no 
 Stop hook may have blocked. The host's count rules only where the ledger cannot. A session with no
 `turn` row allows one refusal per chain. A Cursor `loop_count` of 2 ends the chain. The opencode
 host has no Stop rule and so no budget. Its plugin API has no end-of-turn hook with an output. The
-`event` hook of `hosts/opencode/plugins/tezgah.js` only observes. Twelve triggers, in order, each naming its reason class (`_stop_block`
+`event` hook of `hosts/opencode/plugins/tezgah.js` only observes. Fifteen triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py::_stop_block`).
 The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_integrity.py::_shape_block`); the rest judge its evidence:
 
@@ -542,6 +542,38 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    The research line counted 33 process questions among 48 question endings in the owner's omp
    transcripts. It refuses once per turn and counts like `residual work`
    (`hooks/tezgah_integrity.py::LIST_BLOCKS`).
+14. **handed step** — a turn that ran a command of its own ends by telling the reader to run
+   one (plan 142). The line names a command in backticks and tells the reader to run it: the
+   packs' `ask.hand_over` shapes, "komutunu sen çalıştır", "çalıştırman gerekiyor", "you can
+   run", "please run" (`hooks/tezgah_integrity.py::handed_steps`). The turn must hold a
+   `run`/`verify*` row (`hooks/tezgah_integrity.py::COMMAND_KINDS`). A turn that ran nothing
+   could not have run this either. That is what a host plan mode leaves behind, and it keeps
+   the class inert on a host that sends no mode. A table row and a quoted line are not the
+   reply speaking, so the class skips them. The line stays the user's when it names an
+   outward step (`hooks/tezgah_integrity.py::outward_classes`), a class-F step
+   (`hooks/tezgah_integrity.py::never_default`), the owner's consent, tezgah's own install or a
+   `brew` step (`hooks/tezgah_integrity.py::OWNER_STEP`), or when it types its own blocker. The
+   refusal says to run each one and report what it printed. `_residual_block` asks it after
+   `needless ask` and before `ready steps`. A handover under a residual label ("Sonraki adım:")
+   belongs to `residual work`, which comes first. This class is the plain sentence that one
+   never saw. It refuses once per turn and counts like `residual work`
+   (`hooks/tezgah_integrity.py::LIST_BLOCKS`). Measured on the owner's top-level omp and Claude
+   transcripts (2026-10-29): of 3306 user turns, 27 replies handed the reader a command. 21 of
+   them were steps the ask policy keeps (consent, publish, release, install, an OTP). No class
+   refused any of them.
+15. **plan claim** — a done/tested claim in a turn the host ran in a read-only mode (plan 142).
+   The host sends the mode with the Stop payload: `permission_mode` on Claude, Command Code,
+   Qwen and Droid, and omp's extension sends `plan` from `ctx.sessionModes`. `plan` and Droid's
+   `spec` are the read-only ones (`hooks/tezgah_integrity.py::READ_ONLY_MODES`). Nothing could
+   run in such a turn, so the claim rests on nothing, and this class is the only one such a
+   turn is refused for. `_stop_block` asks it right after the tamper classes and before the
+   admission, since "doğrulanmadı" repairs an unverified claim and here there was nothing to
+   check. A check that passed in the turn anyway is evidence like any other and clears it. The
+   claim is the one `asserted_claims` reads, so a question or a negation is no claim. It counts
+   as a false completion. The same mode exempts `needless ask`
+   (`hooks/tezgah_integrity.py::_residual_block`): the approval question is what plan mode asks
+   for, and the step it would ask about is one the turn could not take. A host that sends no
+   mode reads as `default`, which is what every rule did before the field.
 
 A past-time temporal spec decides classes 5–10 (`hooks/tezgah_stopspec.py::FORMULAS`,
 plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles

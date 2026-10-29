@@ -187,7 +187,8 @@ def handle(payload):
         # the core may refuse it once more at most (tezgah_integrity, plan 083)
         reason = safe(session_id, stop_reason, payload.get("last_assistant_message"),
                       session_id, cwd=cwd,
-                      after_block=bool(payload.get("stop_hook_active")))
+                      after_block=bool(payload.get("stop_hook_active")),
+                      mode=payload.get("permission_mode"))
         return {"decision": "block", "reason": reason} if reason else {}
     if event == "subagent_stop":
         # record-only (ADR 011): the row lands in the parent's ledger

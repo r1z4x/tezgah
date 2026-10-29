@@ -423,6 +423,23 @@ class OmpHook(TempHome):
                              "last_assistant_message": "Done."})
         self.assertIsNone(out)
 
+    def test_stop_reads_the_plan_mode_the_extension_sends(self):
+        # plan 142: omp's extension sends `permission_mode: "plan"` from
+        # `ctx.sessionModes`, and the python half hands it to the core: the
+        # approval question that mode asks for ends the turn, and a done claim
+        # made in it does not.
+        repo = self.make_repo()
+        asked = "Üç adım var.\n\nDevam edeyim mi?"
+        out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "sp",
+                             "last_assistant_message": asked,
+                             "permission_mode": "plan"})
+        self.assertIsNone(out)
+        out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "sq",
+                             "last_assistant_message": "Bitti, testler geçti.",
+                             "permission_mode": "plan"})
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Plan modunda", out["reason"])
+
     def test_a_forged_pass_after_a_gated_one_blocks_as_evidence_tampered(self):
         # plan 051: the gate's pre_tool_use `began` row pairs with the
         # post_tool_use pass; a pass appended with `python3 -c` has none

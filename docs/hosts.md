@@ -72,6 +72,20 @@ The `attest` row and the `drift` mark are
 `--report` prints the same comparison per host
 (`bin/tezgah-setup::attestation_rows`).
 
+Every Stop adapter hands the core the host's permission mode for the turn
+(`hooks/tezgah_integrity.py::read_only_turn`, plan 142). Claude, Command Code,
+Qwen, Copilot, Gemini, Codex, Goose, Droid and Cursor send it as
+`permission_mode` on the Stop payload (Antigravity's envelope is camelCase,
+`permissionMode`). omp has no such field, so its extension reads
+`ctx.sessionModes.getState().plan` and sends `plan` when it is active
+(`hosts/omp/tezgah-hook.ts.in`). A host that sends nothing reads as `default`.
+Only `plan` and Droid's `spec` change a verdict, and only two of them: the rule
+lets the approval question such a turn ends on through, and refuses a
+done/tested claim in it
+([evidence](evidence.md#the-stop-rule-end-to-end)). Claude's hooks reference
+documents the field on its own Stop payload. Every other adapter reads whatever
+its payload carries.
+
 ## What each host gets, and where it is written
 
 Every host gets the skill symlinks from `SKILLS` (`bin/tezgah-setup::SKILLS`)

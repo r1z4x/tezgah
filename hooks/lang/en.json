@@ -239,6 +239,9 @@
   "cheap_answer": [
    "yes|yep|yeah|ok(?:ay)?|sure|go(?: on| ahead)?|continue|proceed|do it|carry on|keep going|approved"
   ],
+  "hand_over": [
+   "\\byou\\s+(?:can|should|need to|must|may)\\s+(?:then\\s+)?(?:run|execute)\\b|\\bplease\\s+(?:run|execute)\\b|\\b(?:just|now|then)\\s+run\\b|^\\s*(?:run|execute)\\s+(?=`)|\\byour\\s+(?:step|turn)\\b"
+  ],
   "outward": {
    "push": "\\bpush\\w*",
    "release": "\\brelease\\w*|\\btag(?:s|ged|ging)?\\b|version bump|bump the version",
@@ -332,6 +335,8 @@
   "slice_lead": "",
   "ready_lead": "",
   "ask_lead": "",
+  "handed_lead": "",
+  "plan_lead": "",
   "approval_heading": "Approval questions",
   "recommended": "Recommended",
   "grant_examples": "\"push without asking\", \"I approve\""

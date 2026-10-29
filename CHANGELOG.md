@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The Stop rule knows the host's plan mode (plan 142).** Every Stop adapter
+  now passes the host's `permission_mode` to the core
+  (`hooks/projects-stop.py`, `hosts/*/hook.py`). omp's extension sends `plan`
+  from `ctx.sessionModes.getState()`. `plan` and Droid's `spec` are read-only.
+  - In such a turn the rule lets the approval question through. It used to
+    refuse it as a `needless ask` - the one question that mode allows.
+  - A done/tested claim in such a turn is the new `plan claim` class. Nothing
+    could run, so nothing backs it. A check that passed anyway clears it.
+  - The new `handed step` class refuses a reply that tells the reader to run a
+    command, in a turn that ran commands of its own. A step that is outward,
+    that no default may take, the owner's consent, tezgah's own install or a
+    `brew` step stays the user's. So does a line that types its blocker.
+  - Measured on the owner's transcripts: of 3306 user turns, 27 replies handed
+    back a command. 21 were the ask policy's, 6 the session's own. No class
+    refused any of them.
+
 ## [1.12.0] - 2026-10-29
 
 ### Added

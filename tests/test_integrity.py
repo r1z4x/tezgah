@@ -3472,6 +3472,57 @@ class StopHook(TempHome):
         self.turn("temizle")
         self.assertIsNone(self.stop("Prod veritabanındaki eski tabloları sileyim mi?"))
 
+    def test_a_plan_mode_turn_keeps_its_approval_question(self):
+        # plan 142: in the host's plan mode the approval question is what the
+        # mode asks for, and the turn could not have taken the step anyway. The
+        # same reply outside the mode stays a `needless ask`.
+        self.turn("plan modunda: nasıl bölelim?")
+        asked = "Üç adım var.\n\nDevam edeyim mi?"
+        self.assertIsNone(self.stop(asked, permission_mode="plan"))
+        self.turn("plan modunda: nasıl bölelim?")
+        self.assertEqual(self.stop(asked).get("decision"), "block")
+
+    def test_a_done_claim_in_plan_mode_is_refused(self):
+        # plan 142: nothing can run in a read-only mode, so the claim has
+        # nothing behind it - the one class such a turn can be refused for.
+        self.turn("plan modunda: nasıl bölelim?")
+        out = self.stop("Üç adımda böldüm, hepsini test ettim, geçti.",
+                        permission_mode="plan")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Plan modunda hiçbir şey koşmadı.", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: plan claim"])
+        # the plan itself, claiming nothing, ends the turn
+        self.turn("plan modunda: nasıl bölelim?")
+        self.assertIsNone(self.stop(
+            "Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.",
+            permission_mode="plan"))
+
+    def test_a_handed_step_is_refused_once(self):
+        # plan 142: a turn that ran commands of its own ends by telling the
+        # user to run one. Measured on the owner's transcripts: 6 such lines,
+        # none of them refused before the class. A handover under a residual
+        # label ("Sonraki adım:") is the `residual work` class, which is asked
+        # first; this one is the plain sentence that class never saw.
+        self.turn("planı kapat")
+        self.work()
+        out = self.stop("Testler geçti. Planı kapatmak için `tezgah-task close "
+                        "142 done` komutunu sen çalıştır.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu adımı sen çalıştır", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: handed step"])
+        self.assertIsNone(self.stop("Testler geçti.", stop_hook_active=True))
+        # the steps the ask policy keeps are the user's: consent, and an
+        # outward step with no grant
+        self.turn("yayınla")
+        self.work()
+        self.assertIsNone(self.stop(
+            "Testler geçti.\n\nDamga: `bin/tezgah-consent df1643` komutunu sen "
+            "çalıştır; ardından `npm publish` için OTP kodunu söyle."))
+        # a turn that ran no command of its own could not have run this one
+        self.turn("oku")
+        self.assertIsNone(self.stop(
+            "Özet hazır.\n\n`pytest -q` komutunu sen çalıştır."))
+
     def todos(self, *items):
         """One Claude `TodoWrite` call holding these (content, status) items."""
         self.seed("TodoWrite", {"todos": [{"content": c, "status": s}

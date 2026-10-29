@@ -244,7 +244,8 @@ def main():
             text = safe(session_id, last_reply, path)
             if text:
                 reason = safe(session_id, stop_reason, text, session_id, cwd=cwd,
-                              after_block=bool(payload.get("stop_hook_active")))
+                              after_block=bool(payload.get("stop_hook_active")),
+                              mode=payload.get("permission_mode"))
                 if reason:
                     out = {"decision": "block", "reason": reason}
             else:

@@ -131,7 +131,8 @@ def main():
         if not off("verify-off") and root_for(cwd):
             text = payload.get("last_assistant_message")
             if isinstance(text, str) and text.strip():
-                reason = safe(session_id, stop_reason, text, session_id, cwd=cwd)
+                reason = safe(session_id, stop_reason, text, session_id, cwd=cwd,
+                              mode=payload.get("permission_mode"))
                 if reason:
                     out = {"decision": "block", "reason": reason}
             else:

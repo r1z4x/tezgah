@@ -239,7 +239,8 @@ def main():
             if text:
                 # Antigravity has no block counter; the turn's refusal rows
                 # bound the re-asks (tezgah_integrity._record_only)
-                reason = safe(session_id, stop_reason, text, session_id, cwd=cwd)
+                reason = safe(session_id, stop_reason, text, session_id, cwd=cwd,
+                              mode=payload.get("permissionMode"))
                 if reason:
                     out = {"decision": "continue", "reason": reason}
             else:
