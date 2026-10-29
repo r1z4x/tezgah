@@ -1875,16 +1875,32 @@ class DroidHost(SetupBase):
         self.assertTrue(row.startswith("MISS"), row)
         self.assertIn("carries a `hooks` key", row)
 
-    def test_settings_with_comments_get_hooks_json_but_are_never_rewritten(self):
+    def test_settings_with_comments_are_edited_in_place_and_keep_their_comments(self):
+        # the shape Droid itself writes: comments, and the trailer switched on
         path = self.path(".factory", "settings.json")
         os.makedirs(os.path.dirname(path))
         with open(path, "w") as fh:
-            fh.write(self.JSONC)
+            fh.write(self.JSONC.replace('"model": "x",', '"model": "x",\n'
+                                        '  "includeCoAuthoredByDroid": true'))
         proc = self.setup("--install", "--hosts", "droid")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertEqual(self.read_text(path), self.JSONC)
-        self.assertIn("/statusline", proc.stdout)
+        text = self.read_text(path)
+        self.assertIn("// the user's note", text)
+        data = setup_module().read_jsonc(path)
+        self.assertIs(data["includeCoAuthoredByDroid"], False)
+        self.assertIn("tezgah-statusline", data["statusLine"]["command"])
         self.assertIn("Stop", self.hooks())
+        out = self.setup("--hosts", "droid").stdout
+        for label in ("statusLine in settings.json", "includeCoAuthoredByDroid off"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        # a second install changes nothing; the uninstall takes only the line back
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        self.assertEqual(self.read_text(path), text)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "droid").returncode, 0)
+        after = self.read_text(path)
+        self.assertIn("// the user's note", after)
+        self.assertEqual(setup_module().read_jsonc(path),
+                         {"model": "x", "includeCoAuthoredByDroid": False})
 
     def test_the_report_rows_follow_the_written_files(self):
         self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
@@ -1909,8 +1925,9 @@ class DroidHost(SetupBase):
         proc = self.setup("--uninstall", "--hosts", "droid")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.hooks(), {"PreToolUse": [self.MINE]})
-        # settings.json held only tezgah's statusLine: it goes with it
-        self.assertFalse(os.path.exists(self.path(".factory", "settings.json")))
+        # settings.json keeps only the no-attribution switch; tezgah's line is gone
+        self.assertEqual(self.read_json(self.path(".factory", "settings.json")),
+                         {"includeCoAuthoredByDroid": False})
         self.assertFalse(os.path.lexists(self.path(".factory", "skills", "ponytail")))
         self.assertTrue(os.path.islink(other))
         self.assertFalse(os.path.exists(self.path(".factory", "AGENTS.md")))

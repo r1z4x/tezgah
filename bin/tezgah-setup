@@ -777,7 +777,13 @@ def write_json(path, data):
     An unchanged write is not free: it moves a host file's mtime and lays down a
     `.tezgah-bak`, so a command whose whole point is idempotence (a repeated
     --disable) would report a change it never made. Returns True when it wrote."""
-    text = json.dumps(data, indent=2) + "\n"
+    return write_text(path, json.dumps(data, indent=2) + "\n")
+
+
+def write_text(path, text):
+    """write_json's write for text already rendered (a JSON-with-comments file
+    edited in place): unchanged bytes skip it, a backup comes first, and the
+    file keeps its mode. Returns True when it wrote."""
     try:
         with open(path, encoding="utf-8") as fh:
             if fh.read() == text:
@@ -2260,8 +2266,8 @@ JSONC_TOKENS = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.S)
 
 def read_jsonc(path):
     """The object in a JSON-with-comments file (Droid's settings.json), {} when
-    the file is absent, None when it does not parse. Read-only: tezgah never
-    writes such a file back, since a rewrite would drop the user's comments.
+    the file is absent, None when it does not parse. A whole rewrite would drop
+    the user's comments, so the only writers are `jsonc_put`/`jsonc_drop`.
     ponytail: a trailing comma inside a string value is dropped too; the readers
     only ask for top-level keys."""
     try:
@@ -2271,12 +2277,7 @@ def read_jsonc(path):
         return {}
     except OSError:
         return None
-    text = re.sub(r",(\s*[}\]])", r"\1", JSONC_TOKENS.sub(lambda m: m.group(1) or "", text))
-    try:
-        data = json.loads(text)
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+    return jsonc_loads(text)
 
 
 def droid_hooks_blocked():
@@ -2299,13 +2300,68 @@ def droid_statusline():
     return tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --droid"
 
 
+def jsonc_loads(text):
+    """read_jsonc's parse of text already read: the object, or None."""
+    text = re.sub(r",(\s*[}\]])", r"\1", JSONC_TOKENS.sub(lambda m: m.group(1) or "", text))
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+# the object's opening brace, past any comment or string before it
+JSONC_OPEN = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/|(\{)', re.S)
+
+
+def jsonc_put(text, key, value):
+    """`text` (JSON with comments) with the top-level `key` set to `value` and
+    every comment kept, or None when that cannot be done safely: the file does
+    not parse, the key holds an object or list, or the edit would change
+    anything else. An absent key goes in as one line under the opening brace,
+    the shape `jsonc_drop` takes back out."""
+    data = jsonc_loads(text)
+    if data is None:
+        return None
+    want = dict(data, **{key: value})
+    if key in data:
+        if data[key] == value:
+            return text
+        if isinstance(data[key], (dict, list)):
+            return None
+        new = re.sub(r'("%s"\s*:\s*)%s' % (re.escape(key), re.escape(json.dumps(data[key]))),
+                     lambda m: m.group(1) + json.dumps(value), text, count=1)
+    else:
+        brace = next((m for m in JSONC_OPEN.finditer(text) if m.group(2)), None)
+        if brace is None:
+            return None
+        line = "\n  %s: %s%s" % (json.dumps(key), json.dumps(value), "," if data else "")
+        new = text[:brace.end()] + line + text[brace.end():]
+    return new if jsonc_loads(new) == want else None
+
+
+def jsonc_drop(text, key, value):
+    """`text` without the one-line `key: value` member `jsonc_put` inserted, or
+    None when that exact line is not there or its removal changes anything else."""
+    data = jsonc_loads(text)
+    if data is None or data.get(key) != value:
+        return None
+    new = re.sub(r'\n[ \t]*%s: %s,?' % (re.escape(json.dumps(key)), re.escape(json.dumps(value))),
+                 "", text, count=1)
+    rest = dict(data)
+    rest.pop(key)
+    return new if jsonc_loads(new) == rest else None
+
+
 def install_droid():
     """Factory Droid: hook groups in `~/.factory/hooks.json`, the status line in
     `settings.json`, skill links, and the always-on block in `AGENTS.md`.
     hooks.json may hold the user's own groups, so only a group naming tezgah is
     replaced. It is not created while settings.json declares hooks
     (`droid_hooks_blocked`). settings.json is JSON with comments, so the status
-    line goes in only when the file is plain JSON or absent."""
+    line and `includeCoAuthoredByDroid: false` (no co-author trailer: the
+    no-attribution rule) are edited in place with every comment kept
+    (`jsonc_put`); a file that cannot be edited safely is left alone and named."""
     print("\ndroid:")
     path = os.path.join(DROID, "hooks.json")
     why = droid_hooks_blocked()
@@ -2321,15 +2377,28 @@ def install_droid():
             write_json(path, data)
             print("%s %s (hooks)" % (OK, path))
     spath = os.path.join(DROID, "settings.json")
-    settings = read_json(spath, None) if os.path.exists(spath) else {}
-    if isinstance(settings, dict):
-        # the command's stdout is drawn above the input (settings reference)
-        settings["statusLine"] = {"command": droid_statusline()}
-        write_json(spath, settings)
-        print("%s %s (statusLine)" % (OK, spath))
+    try:
+        with open(spath, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        text = "{}\n"
+    except OSError:
+        text = None
+    # the command's stdout is drawn above the input (settings reference)
+    line = {"command": droid_statusline()}
+    old = (jsonc_loads(text) or {}).get("statusLine") if text is not None else None
+    if old != line and "tezgah-statusline" in json.dumps(old or ""):
+        text = jsonc_drop(text, "statusLine", old)  # an earlier install's line
+    new = jsonc_put(text, "statusLine", line) if text is not None else None
+    new = jsonc_put(new, "includeCoAuthoredByDroid", False) if new is not None else None
+    if why:
+        pass  # the install stopped at the user's own `hooks` key: settings stays as it is
+    elif new is not None:
+        write_text(spath, new)
+        print("%s %s (statusLine, includeCoAuthoredByDroid false)" % (OK, spath))
     else:
-        print("%s %s holds comments, which a rewrite would drop: set the status "
-              "line with /statusline to `%s`" % (NO, spath, droid_statusline()))
+        print("%s %s cannot be edited in place: set the status line with /statusline "
+              "to `%s` and `includeCoAuthoredByDroid` to false" % (NO, spath, droid_statusline()))
     for s in SKILLS:
         print(link(os.path.join(HERE, "skills", s), os.path.join(DROID, "skills", s)))
     print("%s %s (always-on contract)" % (OK, write_rules("droid")))
@@ -4317,6 +4386,17 @@ def uninstall_droid():
         cfg.pop("statusLine")
         write_json(spath, cfg)
         print("%s removed tezgah statusLine from %s" % (OK, spath))
+    elif cfg is None and os.path.exists(spath):
+        # JSON with comments: take out the one line install_droid put in, keep
+        # the comments; `includeCoAuthoredByDroid` stays false (the
+        # no-attribution rule is the user's, not tezgah's to undo)
+        with open(spath, encoding="utf-8") as fh:
+            text = fh.read()
+        old = (jsonc_loads(text) or {}).get("statusLine")
+        new = jsonc_drop(text, "statusLine", old) if "tezgah-statusline" in json.dumps(old or "") else None
+        if new is not None:
+            write_text(spath, new)
+            print("%s removed tezgah statusLine from %s" % (OK, spath))
     drop_if_empty(spath)
     strip_managed_md(os.path.join(DROID, "AGENTS.md"))
 
@@ -5814,7 +5894,8 @@ def host_checks_qwen():
 def host_checks_droid():
     path = os.path.join(DROID, "hooks.json")
     why = droid_hooks_blocked()
-    status = (read_jsonc(os.path.join(DROID, "settings.json")) or {}).get("statusLine")
+    settings = read_jsonc(os.path.join(DROID, "settings.json")) or {}
+    status = settings.get("statusLine")
     return [
         ("hooks.json wired" + (" (not written: %s)" % why if why else ""),
          _hooks_has(path, "tezgah-droid-hook", [ev for ev, _m, _t in DROID_HOOK_EVENTS],
@@ -5822,6 +5903,8 @@ def host_checks_droid():
         ("skills linked", skills_linked(os.path.join(DROID, "skills"))),
         ("AGENTS.md carries the contract (matches a fresh render)", rules_current("droid")),
         ("statusLine in settings.json", "tezgah-statusline" in json.dumps(status or {})),
+        ("includeCoAuthoredByDroid off in settings.json",
+         settings.get("includeCoAuthoredByDroid") is False),
         ("droid CLI on PATH", bool(tp.which_user("droid"))),
     ]
 
