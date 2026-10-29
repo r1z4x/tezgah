@@ -264,6 +264,24 @@ def host_stack(host, repo):
         return {"context": [os.path.join(c, "cordis.patch.yml")],
                 "skills": ("first", [os.path.join(c, "skills")]),
                 "hooks": {}, "mcp": [], "scan": [os.path.join(c, "skills")]}
+    if host == "qwen":
+        c = tp.HOST_DIRS["qwen"]
+        user = _json(os.path.join(c, "settings.json"))
+        project = _json(os.path.join(repo, ".qwen", "settings.json"))
+        return {
+            # Qwen 0.21.13 docs (features/memory.md): all of these load
+            "context": [os.path.join(c, "QWEN.md"), os.path.join(repo, "QWEN.md"),
+                        os.path.join(repo, "AGENTS.md"),
+                        os.path.join(repo, ".qwen", "QWEN.local.md")],
+            # features/skills.md lists personal and project dirs and names no winner
+            "skills": ("all", [os.path.join(c, "skills"),
+                               os.path.join(repo, ".qwen", "skills")]),
+            "hooks": merge_hooks(hook_rows(user, "settings.json"),
+                                 hook_rows(project, "project")),
+            "mcp": sorted(user.get("mcpServers") or {})
+            + ["%s (project)" % n for n in sorted(project.get("mcpServers") or {})],
+            "scan": [os.path.join(c, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -280,7 +298,8 @@ def skill_copies(dirs):
 
 def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
-    dirs = [os.path.join(tp.HOST_DIRS[x], "skills") for x in ("codex", "cursor", "opencode", "dsh")]
+    dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
+            for x in ("codex", "cursor", "opencode", "dsh", "qwen")]
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])

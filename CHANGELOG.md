@@ -8,6 +8,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Qwen Code is a host (`qwen`, plan 138 wave 1).** `tezgah-setup --install
+  --hosts qwen` merges tezgah's hook groups into `~/.qwen/settings.json` beside
+  Orca's. Their timeouts are in milliseconds, as Qwen reads them. The install
+  also adds the `ui.statusLine` command, the skill links and the always-on
+  block in `~/.qwen/QWEN.md`. `--uninstall` takes back only tezgah's groups and keys.
+  - `hosts/qwen/hook.py` maps Qwen's tool ids (`run_shell_command`,
+    `write_file`, `edit`, `agent`, `grep_search`) onto the gate. It denies with
+    `permissionDecision: deny` on exit 0, blocks Stop on
+    `last_assistant_message`, briefs a subagent at SubagentStart and records
+    its end at SubagentStop.
+  - `--report` has Qwen rows, and `--report --live` probes the hook command
+    with Qwen's own payload. `tests/e2e_qwen.py` runs the real binary only
+    under `TEZGAH_E2E_SPEND=1`, because it spends a model call.
+  - `tezgah-doctor --stack` and the session attestation know the host. An
+    unknown host no longer crashes the attestation.
+  - A host-file backup is now owner-only, and a rewritten host config keeps
+    its file mode, because Qwen's settings.json holds provider keys.
+
 - **Review rules taken from google/elephant-goldfish-model (plan 137).** The
   owner chose them from research line `egm-lessons`. No EGM file ships:
   - `tezgah-task review NNN <r> approve` refuses a plan with no review slice

@@ -58,6 +58,11 @@ def matcher(host, spec):
     path = spec.get("matcher")
     if not path:
         return lambda name: True
+    if "::" in path:
+        # a host whose manifest is rendered by the installer (qwen): its constant
+        from test_setup import setup_module
+        pattern = getattr(setup_module(), path.split("::", 1)[1])
+        return lambda name: bool(re.fullmatch(pattern, name))
     with open(os.path.join(support.REPO, path), encoding="utf-8") as fh:
         text = fh.read()
     if path.endswith(".ts.in"):
@@ -106,8 +111,9 @@ class GateVectors(TempHome):
                                   "session_id": sid}, env=self.envv)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             return out or None
-        if host in ("claude", "dsh", "codex"):
-            script = support.CODEX_HOOK if host == "codex" else support.PRETOOLUSE
+        if host in ("claude", "dsh", "codex", "qwen"):
+            script = {"codex": support.CODEX_HOOK,
+                      "qwen": support.QWEN_HOOK}.get(host, support.PRETOOLUSE)
             # claude and dsh run the same entry point on the same envelope, so
             # a fresh session's answer is spawned once and read by both
             key = (script, name, json.dumps(inp, sort_keys=True))

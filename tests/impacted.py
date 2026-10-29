@@ -52,9 +52,9 @@ TESTS = os.path.join(REPO, "tests")
 
 # hand-known edges the static scan cannot see
 OVERRIDES = {
-    "tezgah_integrity": ("codex_hook", "cursor_hook", "opencode_plugin",
+    "tezgah_integrity": ("codex_hook", "cursor_hook", "qwen_hook", "opencode_plugin",
                          "dsh_hooks", "gate"),
-    "tezgah_gate": ("codex_hook", "cursor_hook", "opencode_plugin",
+    "tezgah_gate": ("codex_hook", "cursor_hook", "qwen_hook", "opencode_plugin",
                     "dsh_hooks", "integrity", "taste"),
     "tezgah_lang": ("gate",),
     "tezgah_policy": ("skills", "context", "setup"),
@@ -71,7 +71,7 @@ OVERRIDES = {
     # call, and the write note every host's post-tool channel carries
     "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin",
                      "taste_ledger", "codex_hook", "cursor_hook", "omp_hook",
-                     "dsh_hooks"),
+                     "qwen_hook", "dsh_hooks"),
     # the taste ledger the session block, the write note and the CLI read
     "tezgah_taste_ledger": ("taste", "taste_cli", "context"),
     # the SQLite store: the taste tables and the evidence ledger every hook

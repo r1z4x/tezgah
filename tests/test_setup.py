@@ -1707,6 +1707,111 @@ class CursorMatcher(SetupBase):
                          next(e for e in shipped if "matcher" in e)["matcher"])
 
 
+class QwenHost(SetupBase):
+    """Qwen Code keeps its hooks in ~/.qwen/settings.json beside Orca's and the
+    user's provider keys: the install merges tezgah's groups in, the uninstall
+    takes only them out, and a backup of that file is owner-only."""
+
+    ORCA = {"hooks": [{"type": "command",
+                       "command": "sh ~/.orca/agent-hooks/qwen-code-hook.sh"}]}
+
+    def settings(self):
+        return self.read_json(self.path(".qwen", "settings.json"))
+
+    def seed(self):
+        """The shape a real settings.json has: Orca's hook groups and a key."""
+        path = self.path(".qwen", "settings.json")
+        self.write_json(path, {"modelProviders": {"x": {"apiKey": "k"}},
+                               "hooks": {"PreToolUse": [self.ORCA],
+                                         "SessionEnd": [self.ORCA]}})
+        os.chmod(path, 0o600)
+        return path
+
+    def test_install_merges_its_groups_and_keeps_orca_s(self):
+        path = self.seed()
+        proc = self.setup("--install", "--hosts", "qwen")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.settings()
+        self.assertEqual(data["modelProviders"], {"x": {"apiKey": "k"}})
+        self.assertEqual(data["hooks"]["SessionEnd"], [self.ORCA])
+        self.assertEqual(data["hooks"]["PreToolUse"][0], self.ORCA)
+        events = [ev for ev, _m, _t in setup_module().QWEN_HOOK_EVENTS]
+        for ev in events:
+            ours = [g for g in data["hooks"][ev] if "tezgah-qwen-hook" in json.dumps(g)]
+            self.assertEqual(len(ours), 1, ev)
+            # Qwen reads `timeout` in milliseconds
+            self.assertGreaterEqual(ours[0]["hooks"][0]["timeout"], 5000, ev)
+        pre = next(g for g in data["hooks"]["PreToolUse"] if "matcher" in g)
+        for tool in ("run_shell_command", "write_file", "edit", "agent", "mcp__x__y"):
+            self.assertTrue(re.fullmatch(pre["matcher"], tool), tool)
+        self.assertFalse(re.fullmatch(pre["matcher"], "read_file"))
+        self.assertIn("--qwen", data["ui"]["statusLine"]["command"])
+        self.assertTrue(os.path.islink(self.path(".qwen", "skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start", self.read_text(self.path(".qwen", "QWEN.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-qwen-hook")))
+        # the file holds keys: it stays owner-only, and so does its backup
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        baks = glob.glob(self.path(".config", "tezgah", "backups", ".qwen",
+                                   "settings.json.*.tezgah-bak"))
+        self.assertTrue(baks)
+        for bak in baks:
+            self.assertEqual(os.stat(bak).st_mode & 0o777, 0o600, bak)
+        # a second install replaces tezgah's groups, it does not add more
+        self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
+        self.assertEqual(sum("tezgah-qwen-hook" in json.dumps(g)
+                             for g in self.settings()["hooks"]["Stop"]), 1)
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
+        out = self.setup("--hosts", "qwen").stdout
+        for label in ("settings.json hooks wired", "skills linked",
+                      "QWEN.md carries the contract", "statusLine in settings.json ui",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        data = self.settings()
+        del data["hooks"]["Stop"]
+        self.write_json(self.path(".qwen", "settings.json"), data)
+        out = self.setup("--hosts", "qwen").stdout
+        self.assertTrue(self.row(out, "settings.json hooks wired").strip()
+                        .startswith("MISS"), out)
+        self.assertIn("qwen Stop entry removed", out)
+
+    def test_uninstall_removes_only_tezgah_s_wiring(self):
+        self.seed()
+        self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "qwen")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.settings()
+        self.assertEqual(data, {"modelProviders": {"x": {"apiKey": "k"}},
+                                "hooks": {"PreToolUse": [self.ORCA],
+                                          "SessionEnd": [self.ORCA]}})
+        self.assertFalse(os.path.lexists(self.path(".qwen", "skills", "ponytail")))
+        self.assertFalse(os.path.exists(self.path(".qwen", "QWEN.md")))
+        self.assertIn("qwen settings.json unwired", proc.stdout)
+
+    def test_doctor_stack_and_live_report_run_with_qwen_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["qwen"]
+        self.assertIn(self.path(".qwen", "QWEN.md"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "qwen")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live qwen:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live qwen deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
+
+
+
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
         """`--dry-run` is a preview for the uninstall too: the run that the

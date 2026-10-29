@@ -986,7 +986,7 @@ def set_section(path, heading, body):
 # These functions shell out to git; none of them is on the gate's write path.
 
 SLICE_KINDS = ("agent", "job")
-SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh")
+SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh", "qwen")
 # `stale`: an idle background job whose result stays in its parent transcript.
 # An agent with no observed end stays owed as stopped with no failure class.
 SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")

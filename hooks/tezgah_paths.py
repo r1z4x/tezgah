@@ -100,10 +100,13 @@ HOST_DIRS = {
     "opencode": os.path.join(XDG_CONFIG, "opencode"),
     "dsh": os.environ.get("DSH_HOME") or os.path.join(HOME, ".dsh"),
     "omp": os.path.join(HOME, ".omp"),
+    # qwen 0.21.13 reads a relocated home from QWEN_HOME (`getGlobalQwenDir`
+    # in its bundle), the same pattern as CODEX_HOME
+    "qwen": os.environ.get("QWEN_HOME") or os.path.join(HOME, ".qwen"),
 }
 # a host can be installed with no config dir yet (a CLI on PATH is enough)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
-             "dsh": ("dsh",), "omp": ("omp",)}
+             "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",)}
 
 
 def host_installed(name):

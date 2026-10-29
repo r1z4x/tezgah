@@ -166,6 +166,7 @@ DSH_WEB_PATCH = os.path.join(DSH_WEB, "cordis.patch.yml")
 DSH_STATUSLINE = "tezgah-dsh-statusline"
 OMP = tp.HOST_DIRS["omp"]
 OMP_AGENT = os.path.join(OMP, "agent")
+QWEN = tp.HOST_DIRS["qwen"]
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -223,7 +224,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
-ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -324,6 +325,18 @@ CURSOR_HOOK_EVENTS = {
     "afterFileEdit": {"timeout": 10},
     "afterAgentResponse": {"timeout": 5},
 }
+# Qwen Code 0.21.13: a matcher is a regex over the runtime tool id, and a
+# command hook's `timeout` is in MILLISECONDS (60000 by default) - the seconds
+# value the other manifests carry would time every hook out. Stop and
+# SubagentStop run the integrity rule, which may ask a judge, so they get more.
+# Qwen takes MCP tools as `mcp__<server>__<tool>`.
+QWEN_PRETOOL_MATCHER = ("^(run_shell_command|write_file|edit|replace|notebook_edit|"
+                        "agent|grep_search|mcp__.*)$")
+QWEN_HOOK_EVENTS = (("SessionStart", None, 5000), ("UserPromptSubmit", None, 5000),
+                    ("PreToolUse", QWEN_PRETOOL_MATCHER, 5000),
+                    ("PostToolUse", None, 5000), ("PostToolUseFailure", None, 5000),
+                    ("SubagentStart", None, 5000), ("SubagentStop", None, 30000),
+                    ("Stop", None, 30000))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -468,8 +481,9 @@ def hook_entries(hosts):
     what re-arming would change."""
     out = {}
     for h in hosts:
-        if h in ("codex", "cursor"):
-            groups = codex_hook_groups() if h == "codex" else cursor_hook_entries()
+        if h in ("codex", "cursor", "qwen"):
+            groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
+                      "qwen": qwen_hook_groups}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -691,6 +705,8 @@ def write_json(path, data):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)
+    if os.path.exists(path):
+        shutil.copymode(path, tmp)  # an owner-only config stays owner-only
     os.replace(tmp, path)
     return True
 
@@ -727,7 +743,8 @@ def backup_base(path):
 
 def backup(path):
     """Copy `path` to `<backup_base>.<timestamp>.tezgah-bak` before a write
-    changes it.
+    changes it, owner-only: a host config can hold provider keys (Qwen's
+    settings.json does), and a copy must not be readable where the file was not.
 
     The suffix stays `.tezgah-bak`, so managed() and the uninstall cleanup still
     know it; past BACKUP_CAP the middle copies go, never the oldest."""
@@ -743,6 +760,7 @@ def backup(path):
     try:
         mkdirp(os.path.dirname(dst))
         shutil.copy2(path, dst)
+        os.chmod(dst, 0o600)
         d, name = os.path.split(base)
         old = sorted(entry for entry in os.listdir(d or ".")
                      if (m := BACKUP_RE.fullmatch(entry)) and m.group(1) == name)
@@ -1098,6 +1116,7 @@ def install_common(new_roots, hosts):
             ("tezgah-render-table", os.path.join(HERE, "skills", "plan-add", "render_table.py")),
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
+            ("tezgah-qwen-hook", os.path.join(HERE, "hosts", "qwen", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -1613,7 +1632,7 @@ def opencode_contract():
 def contract_artifacts(hosts):
     """{path: (fresh render, writer)} for every always-on contract artifact
     these hosts read: the managed block of each static rules file (Claude,
-    Codex, omp) and opencode's contract and skill routers."""
+    Codex, omp, Qwen) and opencode's contract and skill routers."""
     out = {}
     for h in hosts:
         if h in STATIC_RULES:
@@ -2087,6 +2106,46 @@ def install_cursor():
         restart_hint("cursor", mpath)
 
 
+def qwen_hook_groups():
+    """{event: the group install_qwen writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-qwen-hook"))
+    out = {}
+    for ev, matcher, timeout in QWEN_HOOK_EVENTS:
+        group = {"matcher": matcher} if matcher else {}
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": timeout}]
+        out[ev] = group
+    return out
+
+
+def install_qwen():
+    """Qwen Code: hook groups and the status line in `settings.json`, skill
+    links, and the always-on block in `QWEN.md`. settings.json is shared - Orca
+    writes its own hooks there and the user keeps provider keys in it - so only a
+    group naming tezgah is replaced, the test uninstall drops by, and the backup
+    `write_json` lays down is owner-only (`backup`)."""
+    print("\nqwen:")
+    path = os.path.join(QWEN, "settings.json")
+    data = read_config(path, {})
+    if data is not None:
+        hooks = data.setdefault("hooks", {})
+        for ev, group in qwen_hook_groups().items():
+            arr = hooks.setdefault(ev, [])
+            arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+            arr.append(group)
+        # Qwen's command status line: the session JSON on stdin, ANSI kept
+        data.setdefault("ui", {})["statusLine"] = {
+            "type": "command",
+            "command": tp.hook_command(
+                os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --qwen",
+            "respectUserColors": True,
+        }
+        write_json(path, data)
+        print("%s %s (hooks + ui.statusLine)" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(QWEN, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("qwen")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2471,7 +2530,8 @@ CLAUDE_RULES = os.path.join(CLAUDE, "CLAUDE.md")
 # and where that file is. A lambda per row, because codex_rules() answers from
 # the disk (AGENTS.override.md wins when it exists).
 STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
-                "omp": lambda: os.path.join(OMP_AGENT, "RULES.md")}
+                "omp": lambda: os.path.join(OMP_AGENT, "RULES.md"),
+                "qwen": lambda: os.path.join(QWEN, "QWEN.md")}
 
 
 def rules_block(host):
@@ -2586,7 +2646,7 @@ def install_omp():
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
-              "dsh": install_dsh, "omp": install_omp}
+              "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen}
 
 
 def install_openresearch(hosts):
@@ -3466,6 +3526,13 @@ def verify_uninstall(hosts, full):
         claim("omp skills unlinked",
               [os.path.join(OMP_AGENT, "skills", s) for s in SKILLS
                if os.path.lexists(os.path.join(OMP_AGENT, "skills", s))])
+    if "qwen" in hosts:
+        clean("qwen settings.json unwired", [os.path.join(QWEN, "settings.json")])
+        clean("qwen global QWEN.md block gone", [os.path.join(QWEN, "QWEN.md")],
+              needle="<!-- tezgah:start")
+        claim("qwen skills unlinked",
+              [os.path.join(QWEN, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(QWEN, "skills", s))])
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -3681,6 +3748,23 @@ def uninstall_cursor():
         print("%s removed tezgah statusLine from %s" % (OK, cc))
 
 
+def uninstall_qwen():
+    print("\nqwen:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(QWEN, "skills", s))
+    path = os.path.join(QWEN, "settings.json")
+    drop_managed_hook_entries(path)
+    cfg = read_json(path, None)
+    ui = cfg.get("ui") if isinstance(cfg, dict) else None
+    if isinstance(ui, dict) and "tezgah-statusline" in json.dumps(ui.get("statusLine") or {}):
+        ui.pop("statusLine")
+        if not ui:
+            cfg.pop("ui")
+        write_json(path, cfg)
+        print("%s removed tezgah statusLine from %s" % (OK, path))
+    strip_managed_md(os.path.join(QWEN, "QWEN.md"))
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -3733,7 +3817,7 @@ def uninstall_omp():
 
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
-                "dsh": uninstall_dsh, "omp": uninstall_omp}
+                "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4316,6 +4400,20 @@ def live_plan(host, deny=False):
         if registered is None:
             return plan + ("registration unread: the omp CLI did not answer",)
         return plan
+    if host == "qwen":
+        # the hook command Qwen runs for its shell tool, fed Qwen's own payload;
+        # no qwen binary and no model call (tests/e2e_qwen.py drives the binary)
+        path = os.path.join(QWEN, "settings.json")
+        cmd = _hook_command((read_json(path, {}).get("hooks") or {}).get(event),
+                            "run_shell_command")
+        if not cmd:
+            return ("miss", "no tezgah %s command for run_shell_command in %s"
+                    % (event, path))
+        payload = {"hook_event_name": event, "tool_name": "run_shell_command",
+                   "tool_input": {"command": LIVE_DENY_COMMAND if deny else "true"}}
+        if not deny:
+            payload["tool_response"] = {"llmContent": "", "returnDisplay": ""}
+        return ("shell", cmd, payload, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -4438,7 +4536,8 @@ ARMING_ROWS = ("hooks.json wired", "plugin wired (link or copy)",
                "carries the contract", "contract in instructions",
                "claude-code hooks bridge in cordis.patch.yml",
                "session, prompt, tool and stop hooks wired",
-               "hook registered in omp extensions", "plugin copy current")
+               "hook registered in omp extensions", "plugin copy current",
+               "settings.json hooks wired")
 
 
 def arming_miss(label, good):
@@ -4850,6 +4949,23 @@ def host_checks_cursor():
     ]
 
 
+def host_checks_qwen():
+    path = os.path.join(QWEN, "settings.json")
+    # a relocated home (QWEN_HOME) is named, as codex's is
+    where = " in %s" % QWEN if QWEN != os.path.join(tp.HOME, ".qwen") else ""
+    ui = read_json(path, {}).get("ui")
+    return [
+        ("settings.json hooks wired%s" % where,
+         _hooks_has(path, "tezgah-qwen-hook", [ev for ev, _m, _t in QWEN_HOOK_EVENTS])),
+        ("skills linked%s" % where, skills_linked(os.path.join(QWEN, "skills"))),
+        ("QWEN.md carries the contract (matches a fresh render)", rules_current("qwen")),
+        ("statusLine in settings.json ui",
+         "tezgah-statusline" in json.dumps((ui if isinstance(ui, dict) else {})
+                                           .get("statusLine") or {})),
+        ("qwen CLI on PATH", bool(tp.which_user("qwen"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -4968,7 +5084,7 @@ def host_checks_omp():
 
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
-               "dsh": host_checks_dsh, "omp": host_checks_omp}
+               "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen}
 
 
 def versions_agree():

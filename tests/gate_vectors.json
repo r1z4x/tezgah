@@ -27,7 +27,9 @@
     "omp": {"tools": {"Write": "write", "Edit": "edit", "apply_patch": "apply_patch",
                       "Bash": "bash"},
             "matcher": "hosts/omp/tezgah-hook.ts.in"},
-    "opencode": {"tools": {"Write": "write", "Edit": "edit", "Bash": "bash"}}
+    "opencode": {"tools": {"Write": "write", "Edit": "edit", "Bash": "bash"}},
+    "qwen": {"tools": {"Write": "write_file", "Edit": "edit", "Bash": "run_shell_command"},
+             "matcher": "bin/tezgah-setup::QWEN_PRETOOL_MATCHER"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

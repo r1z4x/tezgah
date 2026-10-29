@@ -43,6 +43,7 @@ CODE_TARGETS = {
     "cursor": (os.path.join("hosts", "cursor", "hook.py"),),
     "opencode": (os.path.join("hosts", "opencode", "plugins", "tezgah.js"),),
     "omp": (os.path.join("hosts", "omp", "hook.py"),),
+    "qwen": (os.path.join("hosts", "qwen", "hook.py"),),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
@@ -109,8 +110,10 @@ def registration(host, root=ROOT):
         path = os.path.join(root, *(("hooks",) if host == "claude"
                                     else ("hosts", "dsh")), "hooks.json")
         return _manifest(path, own=True), [path]
-    if host in ("codex", "cursor"):
-        path = os.path.join(tp.HOST_DIRS[host], "hooks.json")
+    if host in ("codex", "cursor", "qwen"):
+        # Qwen's hooks live in its shared settings.json, beside Orca's
+        path = os.path.join(tp.HOST_DIRS[host],
+                            "settings.json" if host == "qwen" else "hooks.json")
         return _manifest(path, own=False), [path]
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")
@@ -173,7 +176,8 @@ def drift(host, root=ROOT, shas=None):
         if mode & 0o002:
             found.append("%s mode %04o" % (path, mode))
     if entries is None:
-        found.append("%s unreadable or missing" % files[0])
+        # a host `registration` does not know names no file: say so, never IndexError
+        found.append("%s unreadable or missing" % (files[0] if files else host))
     elif host == "omp":
         if entries["bridge"] != omp_bridge(root):
             found.append("omp bridge %s differs from a fresh render" % OMP_BRIDGE)
