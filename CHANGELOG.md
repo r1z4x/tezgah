@@ -14,17 +14,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read-only ones.
   - In such a turn the rule lets the approval question through. It used to
     refuse it as a `needless ask` - the one question that mode allows.
-  - A claim that a check passed, made in such a turn, is the new `plan claim`
-    class. No check could run, so nothing backs it. A check that passed anyway
-    clears it, and a plan's own "`pytest -q` geçince iş bitti" is no claim.
+  - A first-person claim that a command or check ran, made in such a turn, is
+    the new `plan claim` class. Nothing could run, so the claim says what
+    cannot have happened. A check that passed anyway clears it, and a plan's
+    own acceptance line ("Done when all tests pass") is no claim.
   - The new `handed step` class refuses a reply that tells the reader to run a
     command. It asks only of a turn that ran commands of its own, outside plan
     mode. An outward step, one no default may take, the owner's consent,
     tezgah's own install and a `brew` step stay the user's. So does a line that
     types its blocker, and an answer about how a command is run.
   - Measured on the owner's transcripts: of 3307 user turns, 27 replies handed
-    back a command. 21 were the ask policy's and 6 the session's own. No class
-    refused any of them. The shipped shapes refuse 14 turns, 12 a real handover.
+    back a command and no class refused any of them. The shipped shapes refuse
+    9 turns, 8 of them a step the session could have taken.
 
 ## [1.12.0] - 2026-10-29
 

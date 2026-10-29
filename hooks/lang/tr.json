@@ -284,7 +284,10 @@
    "evet|tamam|olur|devam(?: et)?|yap|başla|ilerle|okey|onay(?:lıyorum)?"
   ],
   "hand_over": [
-   "\\b(?:sen|siz)\\b[^.!?\\n]{0,32}?\\bçalıştır(?:ın|ınız)?\\b|\\bçalıştır(?:man|manız)\\w*\\s+gerek\\w*|\\bsenin adımın\\b|\\badım(?:ı)? sende\\b|\\bsıradaki adım(?:ı)? sen\\b"
+   "\\b(?:sen|siz)\\b[^.!?\\n]{0,32}?\\bçalıştır(?:ın|ınız)?\\b|\\bsenin adımın\\b|\\badım(?:ı)? sende\\b|\\bsıradaki adım(?:ı)? sen\\b"
+  ],
+  "ran_it": [
+   "\\b(?:test(?:ler)?i|suite'?i|komutu|kontrolü|denetimi)?\\s*(?:çalıştırdım|koştum|çalıştırdık)\\b|\\btest ettim\\b|\\bdoğruladım\\b|\\bkontrol ettim\\b|\\bdenetledim\\b"
   ],
   "outward": {
    "push": "\\bpush\\w*",

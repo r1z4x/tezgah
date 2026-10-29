@@ -526,7 +526,7 @@ LEDGER_FIELDS = frozenset(("id", "exit", "out_bytes", "fail_class", "workspace",
                            "check", "key", "block", "repo", "empty_run", "cause",
                            "host", "switches", "harness", "authorized", "inflight",
                            "reask", "open", "ready", "blocked", "heads", "residual",
-                           "questions", "defaults", "taken", "partial"))
+                           "questions", "defaults", "taken", "partial", "mode"))
 
 # The row contract's own version, stamped by the writer beside `kind` and `ts` so
 # it is not a caller field. It exists because a row is read back to decide a
@@ -4067,26 +4067,34 @@ NEGATION_BEFORE = re.compile(r"(?:%s)(?:\s+\S+){0,2}\s+\Z" % alts("negation_befo
 QUESTION_PARTICLE = re.compile(r"\s*(?:%s)\b" % alts("question_particle"), re.I)
 CLAUSE_END = re.compile(r"[.!?\n,;:\u2014\u2013()]|\b(?:%s)\b" % alts("clause_join"),
                         re.I)
+# The first-person claim that a command or a check was run ("test ettim", "i
+# ran the suite"): the one claim a read-only turn cannot have earned, read by
+# the `plan claim` class. Narrower than DONE/VERIFIED on purpose - a plan
+# states its acceptance in those words (plan 142, review round 2).
+RAN_IT = re.compile(alts("ask", "ran_it"), re.I)
+
+
+def _asserted(pattern, text):
+    """The first match of `pattern` in `text` that is neither inside a question
+    nor under a negation of its own clause, else None. ponytail: a window of
+    words, not a parser."""
+    t = str(text or "")
+    for m in pattern.finditer(t):
+        before = CLAUSE_END.split(t[max(0, m.start() - 80):m.start()])[-1]
+        end = CLAUSE_END.search(t, m.end())
+        asked = (QUESTION_PARTICLE.match(t, m.end())
+                 or (end and end.group(0) == "?"))
+        if not (NEGATION_BEFORE.search(before) or asked):
+            return m
+    return None
 
 
 def asserted_claims(text):
-    """DONE/VERIFIED, with a claim word inside a question or under a negation of its
-    own clause not counted. Read by `_stop_block` on the no-work path and by
-    `stop_reason` for the claim row; a turn that did work is still judged on its
-    rows. ponytail: a window of words, not a parser."""
-    t = str(text or "")
-
-    def said(pattern):
-        for m in pattern.finditer(t):
-            before = CLAUSE_END.split(t[max(0, m.start() - 80):m.start()])[-1]
-            end = CLAUSE_END.search(t, m.end())
-            asked = (QUESTION_PARTICLE.match(t, m.end())
-                     or (end and end.group(0) == "?"))
-            if not (NEGATION_BEFORE.search(before) or asked):
-                return True
-        return False
-
-    return said(DONE), said(VERIFIED)
+    """DONE/VERIFIED, with a claim word inside a question or under a negation of
+    its own clause not counted (`_asserted`). Read by `_stop_block` on the
+    no-work path and by `stop_reason` for the claim row; a turn that did work is
+    still judged on its rows."""
+    return bool(_asserted(DONE, text)), bool(_asserted(VERIFIED, text))
 
 
 def passing_check(entry):
@@ -5457,21 +5465,19 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None,
         return ("evidence tampered", TAMPERED)
     if (done or verified) and any(r.get(ORPHAN) for r in rows):
         return ("evidence tampered", ORPHANED)
-    # A read-only turn (the host's plan mode) ran no check, so a claim that one
-    # passed rests on nothing - unless a check of its own passed, which is
-    # evidence like any other. Only a check claim: a plan says "Done when
-    # `pytest -q` passes" and names its acceptance in the done vocabulary, so
-    # the trigger is `verified` or a done word that says tested, the pair
-    # `_prose_edit` is read with below. Above `_admitted`: "doğrulanmadı"
-    # repairs an unverified claim, and here there was nothing to check.
+    # A read-only turn (the host's plan mode) ran no check, so a reply that says
+    # it ran one says what cannot have happened - unless a check of its own
+    # passed, which is evidence like any other. The trigger is the first-person
+    # run claim (RAN_IT: "test ettim", "i ran the suite"), never the done or
+    # verified vocabulary: a plan states its acceptance in those words ("Done
+    # when all tests pass", "her adım `pytest -k apps` ile doğrulanır") and
+    # review round 2 of plan 142 caught both refused. Above `_admitted`:
+    # "doğrulanmadı" repairs an unverified claim, and here nothing was checked.
     if read_only and not any(passing_check(r) for r in rows):
-        claimed, checked = asserted_claims(t)
-        tested = next((m for m in DONE.finditer(t)
-                       if claimed and TESTED_WORD.search(m.group(0))), None)
-        if checked or tested:
-            word = tested or VERIFIED.search(t)
-            return ("plan claim", PLAN_CLAIM % cut(
-                " ".join(word.group(0).split()) if word else say()["done_claim"], 64))
+        ran = _asserted(RAN_IT, t)
+        if ran:
+            return ("plan claim",
+                    PLAN_CLAIM % cut(" ".join(ran.group(0).split()), 64))
     fold = _admitted(fold, t)
     # The trigger is the turn's own evidence, not its words. The claim vocabulary
     # below catches a claim-shaped reply; it missed the same unfounded state

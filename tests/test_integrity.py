@@ -3483,22 +3483,27 @@ class StopHook(TempHome):
         self.assertEqual(self.stop(asked).get("decision"), "block")
 
     def test_a_done_claim_in_plan_mode_is_refused(self):
-        # plan 142: no check could run in a read-only mode, so a claim that one
-        # passed has nothing behind it - the class such a turn is refused for.
+        # plan 142: no check could run in a read-only mode, so a reply that
+        # says it ran one says what cannot have happened.
         self.turn("plan modunda: nasıl bölelim?")
         out = self.stop("Üç adımda böldüm, hepsini test ettim, geçti.",
                         permission_mode="plan")
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Plan modunda hiçbir şey koşmadı.", out["reason"])
         self.assertEqual(self.claim_rows(), ["blocked: plan claim"])
-        # the plan itself ends the turn, acceptance wording included: "bitti"
-        # over a command that has not run yet is the plan, not a claim
-        # (review of plan 142, F3)
-        self.turn("plan modunda: nasıl bölelim?")
-        self.assertIsNone(self.stop(
-            "Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.\n"
-            "`pytest -q` geçince iş bitti; planı onaylarsan başlıyorum.",
-            permission_mode="plan"))
+        self.assertEqual([r.get("mode") for r in self.rows("claim")], ["plan"])
+        # the plan's own acceptance wording is no such claim: the done and
+        # verified vocabularies are how a plan states what it will prove
+        # (review of plan 142 round 2, F3)
+        for text in ("Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.\n"
+                     "Kabul: `pytest -q` yeşil olunca iş tamamlandı sayılır.",
+                     "Plan: two steps.\n\nDone when all tests pass under `pytest -q`.",
+                     "Each step is verified by `pytest -k apps`.",
+                     "Not all tests pass on main today. Plan: step 1 is done first.",
+                     "Testleri çalıştırmadım; plan şu: önce parser."):
+            with self.subTest(text=text):
+                self.turn("plan modunda: nasıl bölelim?")
+                self.assertIsNone(self.stop(text, permission_mode="plan"))
 
     def test_a_handed_step_is_refused_once(self):
         # plan 142: a turn that ran commands of its own ends by telling the
@@ -3526,12 +3531,19 @@ class StopHook(TempHome):
         self.assertIsNone(self.stop(
             "Özet hazır.\n\n`pytest -q` komutunu sen çalıştır."))
         # an answer about how something is done is not a handover: the reader
-        # asked, and the command is theirs to run (review of plan 142, F1)
-        self.turn("global git adımı nasıl ayarlarım?")
-        self.work()
-        self.assertIsNone(self.stop(
-            "Şöyle ayarlanır: `git config --global user.name Ali`. "
-            "You can run it from any directory."))
+        # asked, and the command is theirs to run (review of plan 142, rounds
+        # 1 and 2 - the obligation shapes went with round 2)
+        for text in ("Şöyle ayarlanır: `git config --global user.name Ali`. "
+                     "You can run it from any directory.",
+                     "Uygulamayı başlatmak için `make serve` komutunu "
+                     "çalıştırmanız gerekir.",
+                     "Start it with `make serve`; you need to run it from the "
+                     "repo root.",
+                     "If you run this with `--dry-run`, nothing is written."):
+            with self.subTest(text=text):
+                self.turn("nasıl ayarlarım?")
+                self.work()
+                self.assertIsNone(self.stop(text))
         # and a plan-mode turn hands nothing back: every step waits for the
         # approval (review of plan 142, F2)
         self.turn("plan modunda: nasıl bölelim?")

@@ -39,6 +39,8 @@
  "grant-lift": "test_integrity.AskPolicy.test_a_forbidding_complaining_or_asking_sentence_grants_nothing",
  "grant-polarity": "test_integrity.AskPolicy.test_a_forbidding_complaining_or_asking_sentence_grants_nothing",
  "grant-soft-verb": "test_integrity.AskPolicy.test_each_packs_polarity_reads_only_its_own_sentences",
+ "handed-step-capability": "test_integrity.StopHook.test_a_handed_step_is_refused_once",
+ "handed-step-wired": "test_integrity.StopHook.test_a_handed_step_is_refused_once",
  "heredoc-comment-word-start": "test_integrity.BookkeepingCommand.test_a_continuation_joins_words_and_a_mid_word_hash_is_no_comment",
  "heredoc-continuation": "test_gate.ShellCommentRule.test_every_reader_opens_a_comment_where_bash_does",
  "hooks-path": "test_integrity.ShortcutCommand.test_hooks_path_redirect_beside_a_commit_denied",
