@@ -689,6 +689,21 @@ class OmpExtension(TempHome):
                          planMode="inactive")
         self.assertEqual(self.results(out)[0]["decision"], "block")
 
+    def test_the_bridge_sends_the_reply_text_not_the_message_object(self):
+        # plan 143: omp's `session_stop` carries the message object its
+        # `getLastAssistantMessage()` returns. The bridge sends its text
+        # blocks, so the core judges prose with its lines intact; a thinking
+        # block is not the reply. The question in the text is what the
+        # `needless ask` class reads, which only a real last line can carry.
+        message = {"role": "assistant", "content": [
+            {"type": "thinking", "text": "Let me think about this"},
+            {"type": "text", "text": "Üç adım var.\n\nDevam edeyim mi?"}]}
+        out = self.drive([{"event": "session_stop",
+                           "arg": {"last_assistant_message": message}}])
+        res = self.results(out)[0]
+        self.assertEqual(res["decision"], "block")
+        self.assertIn("Devam edeyim mi?", res["reason"])
+
     def test_the_empty_run_literal_is_the_core_s(self):
         # the bridge reads the result's text because it sends the hook a size
         # and never the body; its literal must stay the core's (plan 048 d)

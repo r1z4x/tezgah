@@ -297,6 +297,17 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached
 (`hosts/omp/hook.py::handle`) — all with `{"decision": "block", "reason": …}`, all inert outside a
 [root](glossary.md#root) and under the `verify-off` [kill switch](glossary.md#kill-switch)
 (`hooks/projects-stop.py::main`). Each of these hosts judges the reply after a block again.
+The reply the rule judges is read through `reply_prose`
+(`hooks/tezgah_integrity.py::reply_prose`). A string passes through. A host that hands over
+a message object yields its `text` blocks, joined the way the model wrote them. A thinking
+or tool block is left out. omp's `session_stop` carries `last_assistant_message` as the object
+its `getLastAssistantMessage()` returns, and the bridge passed it through, so the rule judged
+`str(dict)`: one line, no list items, diluted prose. Measured on
+the owner's evidence database (2026-10-29): 1643 of 1656 omp `shape` rows of 45 days carried
+`lines: 1`. Every other host wrote 209 multi-line rows of 231. Of the three days' refusals, 24
+were `reply language` over such a row, and every line-shaped class read a text that had no
+lines. The bridge now sends the text too
+(`hosts/omp/tezgah-hook.ts.in`), but the core is where a host cannot repeat it (plan 143).
 The re-ask budget is the core's (`_record_only`, `hooks/tezgah_integrity.py::_record_only`): at
 most `STOP_REASKS` = 2 refusals in one user turn, and never two for one reason class. The count
 comes from the turn's `blocked:` claim and refusal rows, not from the host's payload. The omp host

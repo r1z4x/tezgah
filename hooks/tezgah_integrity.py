@@ -4097,6 +4097,39 @@ def asserted_claims(text):
     return bool(_asserted(DONE, text)), bool(_asserted(VERIFIED, text))
 
 
+def reply_prose(value):
+    """The reply's prose, whatever the host handed the Stop rule (plan 143).
+
+    omp's `session_stop` carries `last_assistant_message` as the message
+    OBJECT its `getLastAssistantMessage()` returns, not as text, and the bridge
+    passed it through: the rule then judged `str(dict)` - one line, no list
+    items, the prose diluted by the object's own fields. Measured on the
+    owner's ledger, 1643 of 1656 omp `shape` rows of 45 days carried
+    `lines: 1`, against 209 of 231 multi-line on every other host, so every
+    line-shaped class (the list cap, the residual sections, the question the
+    reply ends on, the handed step) read a text that had no lines.
+
+    A string passes through. A message object yields its `text` blocks, joined
+    the way the model wrote them; a thinking or tool block is not the reply.
+    Anything else is no reply at all, which is what the rule already does with
+    a missing one: it never becomes a judgement on a repr.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        blocks = value.get("content")
+        if isinstance(blocks, str):
+            return blocks
+        if isinstance(blocks, list):
+            return "\n".join(
+                block["text"] for block in blocks
+                if isinstance(block, dict) and block.get("type") == "text"
+                and isinstance(block.get("text"), str)).strip()
+        if isinstance(value.get("text"), str):
+            return value["text"]
+    return ""
+
+
 def passing_check(entry):
     """True when this ledger row is evidence that a check passed.
 
@@ -4910,7 +4943,10 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
     the child keeps a ledger of its own (omp's task sessions); the child's own
     rows still judge it. Both return None. A reply counts as
     claiming only with `asserted_claims`: "Testler geçti mi?" leaves no
-    `claim ok` row."""
+    `claim ok` row. `text` is read through `reply_prose`, so a host that hands
+    over a message object rather than its text is judged on the prose (plan
+    143)."""
+    text = reply_prose(text)
     rows, turns = turn_rows(session_id, turns=True)
     chain, rows = (_turn_refusals(session_id, rows) if turns
                    else (list(filter(_blocked, rows)), rows))

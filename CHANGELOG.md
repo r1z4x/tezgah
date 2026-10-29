@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **omp handed the Stop rule a message object, not the reply (plan 143).**
+  omp's `session_stop` carries `last_assistant_message` as the object its
+  `getLastAssistantMessage()` returns. The bridge passed it through, so the
+  rule judged `str(dict)`: one line, no list items, diluted prose.
+  - Every line-shaped class read a text with no lines: the list cap, the
+    residual sections, the question the reply ends on, the handed step. The
+    language check read a share that was not the reply's.
+  - Measured on the owner's evidence database: 1643 of 1656 omp `shape` rows
+    of 45 days carried `lines: 1`. Every other host wrote 209 multi-line of
+    231. Of three days' refusals, 24 were `reply language` over such a row.
+  - `stop_reason` reads every reply through `reply_prose` now, so no host can
+    repeat it. The omp bridge sends the text blocks.
+
 ### Added
 
 - **The Stop rule knows the host's plan mode (plan 142).** Every Stop adapter
