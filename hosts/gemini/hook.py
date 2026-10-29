@@ -201,7 +201,8 @@ def main():
             text = payload.get("prompt_response")
             reason = safe(session_id, stop_reason, text if isinstance(text, str) else "",
                           session_id, cwd=cwd,
-                          after_block=bool(payload.get("stop_hook_active")))
+                          after_block=bool(payload.get("stop_hook_active")),
+                          mode=payload.get("permission_mode"))
             if reason:
                 out = {"decision": "deny", "reason": reason}
         out = status(out, cwd, session_id)

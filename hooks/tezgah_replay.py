@@ -469,6 +469,9 @@ def build_corpus(cutoff, since=None):
                     "live_rule": rule_of(detail) if kind == "deny"
                     else detail.split(":", 1)[1].strip() if kind == "claim"
                     and detail.startswith("blocked:") else None,
+                    # the host's permission mode, written on the row of a
+                    # read-only turn only (plan 142): the verdict depended on it
+                    "mode": row.get("mode"),
                     "tool": row.get("tool"), "join": None}
             if kind == "claim":
                 replies = [{"ts": ts, "text": text, "cwd": where} for ts, text, where in
@@ -586,8 +589,11 @@ def _replay_one(it, prefix, tg, seen, live_events):
 
             ti.events = events
             try:
-                cls, _reason = ti._stop_block(it["text"], it["sid"], rows=turn,
-                                              cwd=it["cwd"])
+                # a plan-mode turn is judged as one (plan 142): the mode rides
+                # the claim row this item came from
+                cls, _reason = ti._stop_block(
+                    it["text"], it["sid"], rows=turn, cwd=it["cwd"],
+                    read_only=ti.read_only_turn(it.get("mode")))
             finally:
                 ti.events = live_events
             out.update(replay="block" if cls else "allow", rule=cls,

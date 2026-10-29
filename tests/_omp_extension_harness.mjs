@@ -61,6 +61,11 @@ try {
       getSessionFile: () => spec.sessionFile,
       getHeader: () => (spec.parentSession ? { parentSession: spec.parentSession } : {}),
     },
+    // omp's built-in modes, an interactive TUI session only: the extension
+    // reads `plan` off it and sends it as the Stop payload's permission mode
+    sessionModes: spec.planMode === undefined ? undefined : {
+      getState: () => ({ plan: spec.planMode }),
+    },
     ui,
     // omp's isolated timers, recorded so a call can tick them: the extension's
     // motion must redraw from what it holds and stop when the agent does

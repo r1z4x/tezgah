@@ -1,6 +1,6 @@
 {
   "CHANGELOG.md": {
-    "long_sentences": 0,
+    "long_sentences": 1,
     "passive": 2,
     "replace_words": 0,
     "semicolons": 0
@@ -30,7 +30,7 @@
     "semicolons": 3
   },
   "docs/evidence.md": {
-    "long_sentences": 108,
+    "long_sentences": 111,
     "passive": 55,
     "replace_words": 1,
     "semicolons": 39
@@ -54,7 +54,7 @@
     "semicolons": 14
   },
   "docs/hosts.md": {
-    "long_sentences": 36,
+    "long_sentences": 38,
     "passive": 19,
     "replace_words": 0,
     "semicolons": 18
@@ -82,6 +82,12 @@
     "passive": 21,
     "replace_words": 3,
     "semicolons": 42
+  },
+  "docs/orca.md": {
+    "long_sentences": 0,
+    "passive": 0,
+    "replace_words": 0,
+    "semicolons": 0
   },
   "docs/research.md": {
     "long_sentences": 105,

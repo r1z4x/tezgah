@@ -3472,6 +3472,86 @@ class StopHook(TempHome):
         self.turn("temizle")
         self.assertIsNone(self.stop("Prod veritabanındaki eski tabloları sileyim mi?"))
 
+    def test_a_plan_mode_turn_keeps_its_approval_question(self):
+        # plan 142: in the host's plan mode the approval question is what the
+        # mode asks for, and the turn could not have taken the step anyway. The
+        # same reply outside the mode stays a `needless ask`.
+        self.turn("plan modunda: nasıl bölelim?")
+        asked = "Üç adım var.\n\nDevam edeyim mi?"
+        self.assertIsNone(self.stop(asked, permission_mode="plan"))
+        self.turn("plan modunda: nasıl bölelim?")
+        self.assertEqual(self.stop(asked).get("decision"), "block")
+
+    def test_a_done_claim_in_plan_mode_is_refused(self):
+        # plan 142: no check could run in a read-only mode, so a reply that
+        # says it ran one says what cannot have happened.
+        self.turn("plan modunda: nasıl bölelim?")
+        out = self.stop("Üç adımda böldüm, hepsini test ettim, geçti.",
+                        permission_mode="plan")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Plan modunda hiçbir şey koşmadı.", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: plan claim"])
+        self.assertEqual([r.get("mode") for r in self.rows("claim")], ["plan"])
+        # the plan's own acceptance wording is no such claim: the done and
+        # verified vocabularies are how a plan states what it will prove
+        # (review of plan 142 round 2, F3)
+        for text in ("Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.\n"
+                     "Kabul: `pytest -q` yeşil olunca iş tamamlandı sayılır.",
+                     "Plan: two steps.\n\nDone when all tests pass under `pytest -q`.",
+                     "Each step is verified by `pytest -k apps`.",
+                     "Not all tests pass on main today. Plan: step 1 is done first.",
+                     "Testleri çalıştırmadım; plan şu: önce parser."):
+            with self.subTest(text=text):
+                self.turn("plan modunda: nasıl bölelim?")
+                self.assertIsNone(self.stop(text, permission_mode="plan"))
+
+    def test_a_handed_step_is_refused_once(self):
+        # plan 142: a turn that ran commands of its own ends by telling the
+        # user to run one. Measured on the owner's transcripts: 6 such lines,
+        # none of them refused before the class. A handover under a residual
+        # label ("Sonraki adım:") is the `residual work` class, which is asked
+        # first; this one is the plain sentence that class never saw.
+        self.turn("planı kapat")
+        self.work()
+        out = self.stop("Testler geçti. Planı kapatmak için `tezgah-task close "
+                        "142 done` komutunu sen çalıştır.")
+        self.assertEqual(out.get("decision"), "block")
+        self.assertIn("Bu adımı sen çalıştır", out["reason"])
+        self.assertEqual(self.claim_rows(), ["blocked: handed step"])
+        self.assertIsNone(self.stop("Testler geçti.", stop_hook_active=True))
+        # the steps the ask policy keeps are the user's: consent, and an
+        # outward step with no grant
+        self.turn("yayınla")
+        self.work()
+        self.assertIsNone(self.stop(
+            "Testler geçti.\n\nDamga: `bin/tezgah-consent df1643` komutunu sen "
+            "çalıştır; ardından `npm publish` için OTP kodunu söyle."))
+        # a turn that ran no command of its own could not have run this one
+        self.turn("oku")
+        self.assertIsNone(self.stop(
+            "Özet hazır.\n\n`pytest -q` komutunu sen çalıştır."))
+        # an answer about how something is done is not a handover: the reader
+        # asked, and the command is theirs to run (review of plan 142, rounds
+        # 1 and 2 - the obligation shapes went with round 2)
+        for text in ("Şöyle ayarlanır: `git config --global user.name Ali`. "
+                     "You can run it from any directory.",
+                     "Uygulamayı başlatmak için `make serve` komutunu "
+                     "çalıştırmanız gerekir.",
+                     "Start it with `make serve`; you need to run it from the "
+                     "repo root.",
+                     "If you run this with `--dry-run`, nothing is written."):
+            with self.subTest(text=text):
+                self.turn("nasıl ayarlarım?")
+                self.work()
+                self.assertIsNone(self.stop(text))
+        # and a plan-mode turn hands nothing back: every step waits for the
+        # approval (review of plan 142, F2)
+        self.turn("plan modunda: nasıl bölelim?")
+        self.work()
+        self.assertIsNone(self.stop(
+            "Plan: önce `hooks/tezgah_apps.py` bölünür, sonra `pytest -q` "
+            "komutunu sen çalıştır.", permission_mode="plan"))
+
     def todos(self, *items):
         """One Claude `TodoWrite` call holding these (content, status) items."""
         self.seed("TodoWrite", {"todos": [{"content": c, "status": s}

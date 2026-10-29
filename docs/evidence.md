@@ -319,7 +319,7 @@ while the turn holds no refusal of this rule. That reply gets no refusal and no 
 Stop hook may have blocked. The host's count rules only where the ledger cannot. A session with no
 `turn` row allows one refusal per chain. A Cursor `loop_count` of 2 ends the chain. The opencode
 host has no Stop rule and so no budget. Its plugin API has no end-of-turn hook with an output. The
-`event` hook of `hosts/opencode/plugins/tezgah.js` only observes. Twelve triggers, in order, each naming its reason class (`_stop_block`
+`event` hook of `hosts/opencode/plugins/tezgah.js` only observes. Fifteen triggers, in order, each naming its reason class (`_stop_block`
 `hooks/tezgah_integrity.py::_stop_block`).
 The first four judge how the reply is written (`_shape_block`, `hooks/tezgah_integrity.py::_shape_block`); the rest judge its evidence:
 
@@ -542,6 +542,54 @@ The four shape classes share their switches with the text they enforce: `adhd-of
    The research line counted 33 process questions among 48 question endings in the owner's omp
    transcripts. It refuses once per turn and counts like `residual work`
    (`hooks/tezgah_integrity.py::LIST_BLOCKS`).
+14. **handed step** — a turn that ran a command of its own ends by telling the reader to run
+   one (plan 142). The line names a command in backticks and addresses the reader as the one
+   who runs it: the packs' `ask.hand_over` shapes, "komutunu sen çalıştır", "çalıştırman
+   gerekiyor", "senin adımın", "please run", "your step:"
+   (`hooks/tezgah_integrity.py::handed_steps`). An answer about how something is done is not
+   one of them. "you can run `git config --global ...`" answers the question the reader
+   asked, and the review of this plan caught the wider wording refusing it. The turn must
+   hold a
+   `run`/`verify*` row (`hooks/tezgah_integrity.py::COMMAND_KINDS`). A turn that ran nothing
+   could not have run this either, which keeps the class inert on a host that sends no mode. A
+   read-only mode closes it outright: there every step waits for the approval. A table row and
+   a quoted line are not the
+   reply speaking, so the class skips them. The line stays the user's when it names an
+   outward step (`hooks/tezgah_integrity.py::outward_classes`), a class-F step
+   (`hooks/tezgah_integrity.py::never_default`), the owner's consent, tezgah's own install or a
+   `brew` step (`hooks/tezgah_integrity.py::OWNER_STEP`), or when it types its own blocker. The
+   refusal says to run each one and report what it printed. `_residual_block` asks it after
+   `needless ask` and before `ready steps`. A handover under a residual label ("Sonraki adım:")
+   belongs to `residual work`, which comes first. This class is the plain sentence that one
+   never saw. It refuses once per turn and counts like `residual work`
+   (`hooks/tezgah_integrity.py::LIST_BLOCKS`). Measured on the owner's top-level omp and Claude
+   transcripts (2026-10-29): of 3307 user turns, 27 replies handed the reader a command and no
+   class refused any of them. The shipped shapes refuse 9 of those turns, 8 of them a step the
+   session could have taken. Those eight are four `tezgah-task phase` moves, a local merge,
+   two "the next step is yours" and a server command that owes an ACCESS line. The ninth
+   quotes the gate's own refusal. The wider wording of the first two review rounds refused 40
+   turns and then 14, an answer about how a command is run among them.
+15. **plan claim** — a first-person claim that a command or check ran, in a turn the host ran
+   in a read-only mode (plan 142).
+   The host sends the mode with the Stop payload: `permission_mode` on Claude, Command Code,
+   Qwen and Droid, and omp's extension sends `plan` from `ctx.sessionModes`. `plan` and Droid's
+   `spec` are the read-only ones (`hooks/tezgah_integrity.py::READ_ONLY_MODES`). Nothing could
+   run in such a turn, so the claim says what cannot have happened. `_stop_block` asks it right
+   after the tamper classes and before the
+   admission, since "doğrulanmadı" repairs an unverified claim and here there was nothing to
+   check. A check that passed in the turn anyway clears it, like any other
+   evidence: a host may allow a read-only command in the mode. The trigger is the packs'
+   `ask.ran_it` vocabulary (`hooks/tezgah_integrity.py::RAN_IT`) - "test ettim", "i ran the
+   suite". It is read through the question and negation filter a claim is read through
+   (`hooks/tezgah_integrity.py::_asserted`). The done and verified vocabularies are not the
+   trigger: a plan states its acceptance in those words ("Done when all tests pass", "testler
+   yeşil olunca"), and the review of this plan caught both refused. It counts
+   as a false completion. The same mode exempts `needless ask` and closes `handed step`
+   (`hooks/tezgah_integrity.py::_residual_block`): the approval question is what plan mode asks
+   for, and every step it names waits for that approval. Every row of such a turn carries
+   `mode`, so a replay judges it as the mode it ran in
+   (`hooks/tezgah_replay.py::build_corpus`). A host that sends no
+   mode reads as `default`, which is what every rule did before the field.
 
 A past-time temporal spec decides classes 5–10 (`hooks/tezgah_stopspec.py::FORMULAS`,
 plan 063). Seven formulas read ten row atoms (`ROW_ATOMS`) and the turn marker. The module compiles

@@ -283,6 +283,12 @@
   "cheap_answer": [
    "evet|tamam|olur|devam(?: et)?|yap|başla|ilerle|okey|onay(?:lıyorum)?"
   ],
+  "hand_over": [
+   "\\b(?:sen|siz)\\b[^.!?\\n]{0,32}?\\bçalıştır(?:ın|ınız)?\\b|\\bsenin adımın\\b|\\badım(?:ı)? sende\\b|\\bsıradaki adım(?:ı)? sen\\b"
+  ],
+  "ran_it": [
+   "\\b(?:test(?:ler)?i|suite'?i|komutu|kontrolü|denetimi)?\\s*(?:çalıştırdım|koştum|çalıştırdık)\\b|\\btest ettim\\b|\\bdoğruladım\\b|\\bkontrol ettim\\b|\\bdenetledim\\b"
+  ],
   "outward": {
    "push": "\\bpush\\w*",
    "release": "versiyon\\w*|sürüm\\w*|\\brelease\\w*|etiket\\w*",
@@ -353,6 +359,8 @@
   "slice_lead": "Durmuş bir dilim var. ",
   "ready_lead": "Hazır adımlar bekliyor. ",
   "ask_lead": "Bu soruyu sorma: kararı ver ya da önerili onay sorusuna çevir. ",
+  "handed_lead": "Bu adımı sen çalıştır, kullanıcıya bırakma. ",
+  "plan_lead": "Plan modunda hiçbir şey koşmadı. ",
   "approval_heading": "Onay için sorular",
   "recommended": "Öneri",
   "grant_examples": "\"bana sormadan pushla\", \"onay veriyorum\""

@@ -253,7 +253,8 @@ def main():
         if not off("verify-off") and root_for(cwd):
             reason = safe(session_id, stop_reason,
                           payload.get("last_assistant_message"), session_id,
-                          cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
+                          cwd=cwd, after_block=bool(payload.get("stop_hook_active")),
+                          mode=payload.get("permission_mode"))
             if reason:
                 out["decision"] = "block"
                 out["reason"] = reason

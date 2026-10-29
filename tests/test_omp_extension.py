@@ -674,6 +674,21 @@ class OmpExtension(TempHome):
         ])
         self.assertIsNone(self.results(out)[1])
 
+    def test_plan_mode_rides_the_stop_payload(self):
+        # plan 142: the extension reads `ctx.sessionModes.getState().plan` and
+        # sends it as `permission_mode`, so the core exempts the approval
+        # question plan mode asks for. Without the mode the same reply is
+        # refused.
+        asked = "Üç adım var.\n\nDevam edeyim mi?"
+        out = self.drive([{"event": "session_stop",
+                           "arg": {"last_assistant_message": asked}}],
+                         planMode="active")
+        self.assertIsNone(self.results(out)[0])
+        out = self.drive([{"event": "session_stop",
+                           "arg": {"last_assistant_message": asked}}],
+                         planMode="inactive")
+        self.assertEqual(self.results(out)[0]["decision"], "block")
+
     def test_the_empty_run_literal_is_the_core_s(self):
         # the bridge reads the result's text because it sends the hook a size
         # and never the body; its literal must stay the core's (plan 048 d)

@@ -1357,10 +1357,13 @@ def session_of(payload):
 # up, so the prompt budget moves to 7000 B. Moved again on 2026-10-28 (plan
 # 136): the subagent pointer says an owner-only question goes back as
 # `ESCALATE: owner` (+330 B), the fixture's subagent_start reached 5958 B and
-# gave up `consult` (205 B), so subagent_start moves to 6100 B. A
+# gave up `consult` (205 B), so subagent_start moves to 6100 B. Moved again on
+# 2026-10-29 (plan 142): the output-shape paragraph says what the host's plan
+# mode changes (+168 B), and the worktree fixture's session_start gave up its
+# worktrees line again, so the session budgets move to 16200 B. A
 # budget in bytes, not tokens: this file has no tokenizer and a wrong estimate
 # would be worse than a bound.
-CONTEXT_BUDGET = {"session_start": 16000, "post_compact": 16000,
+CONTEXT_BUDGET = {"session_start": 16200, "post_compact": 16200,
                   "subagent_start": 6100, "user_prompt": 7000}
 DEFAULT_BUDGET = 13000
 # The blocks in the order they are given up when the budget is exceeded, lowest

@@ -113,6 +113,12 @@ Bad: "Hope that helps. Let me know if you want to dig deeper."
 Bad: "Next: run `npm test` and paste the first failing line." (you can run it)
 Good: "Blockers: the push to `main` - IRREVERSIBLE - `git push origin main` waits - your yes." (tr: "Engeller", GERİ ALINAMAZ)
 
+In the host's plan mode nothing can run. There the plan is the deliverable:
+the approval is the one step that is the reader's, every other step waits for
+it, and nothing is reported as done or tested, because nothing ran. The Stop
+rule reads the mode from the host and holds both ends of that
+(`hooks/tezgah_integrity.py::read_only_turn`).
+
 ### 5. Suppress tangents
 
 A second issue waits until the first is finished, then arrives as its own

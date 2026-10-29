@@ -394,7 +394,11 @@ The reader has to act on the answer, and the friction between "got it" and
    line - never also narrate the plan as prose.
 4. End with the approval questions the Ask policy leaves (the executive mode's
    "Ask policy"), or with nothing when none is left. A step you can take
-   yourself is taken, never handed over.
+   yourself is taken, never handed over: "run `pytest -q` and tell me what it
+   says" is a step you run. In the host's plan mode nothing can run, and there
+   the plan is the deliverable: the approval question is the one question that
+   turn asks, every step waits for it, and nothing is reported as done or
+   tested, because nothing ran.
 5. Suppress tangents: finish the issue in hand, then raise the second as its own
    question. A question the reader raised mid-work is not a tangent - answer it
    and fold the result in.

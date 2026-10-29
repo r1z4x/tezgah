@@ -785,9 +785,18 @@ export default function tezgahOmp(pi: any): void {
   });
 
   pi.on("session_stop", async (event: any, ctx: any) => {
+    // `sessionModes` exists only in an interactive TUI session; its `plan`
+    // state is what every other host sends as `permission_mode`, so the core
+    // reads one field (tezgah_integrity.read_only_turn). A session without it
+    // (print, RPC, a subagent) sends nothing and is judged as `default`.
+    let mode: string | undefined;
+    try {
+      mode = ctx?.sessionModes?.getState?.()?.plan === "active" ? "plan" : undefined;
+    } catch { mode = undefined; }
     const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
                       last_assistant_message: event?.last_assistant_message,
-                      stop_hook_active: event?.stop_hook_active === true });
+                      stop_hook_active: event?.stop_hook_active === true,
+                      permission_mode: mode });
     if (hookError) {
       markBroken(ctx);
       return undefined;  // an unanswerable Stop rule must not block the turn

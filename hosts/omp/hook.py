@@ -278,7 +278,8 @@ def handle(payload):
         # core that raises has refused nothing
         reason = safe(session_id, stop_reason,
                       payload.get("last_assistant_message"), session_id,
-                      cwd=cwd, after_block=bool(payload.get("stop_hook_active")))
+                      cwd=cwd, after_block=bool(payload.get("stop_hook_active")),
+                      mode=payload.get("permission_mode"))
         return {"decision": "block", "reason": reason} if reason else {}
     if event == "subagent_stop":
         # record-only (ADR 011): judged on the child's own rows, the row lands

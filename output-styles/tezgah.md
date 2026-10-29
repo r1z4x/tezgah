@@ -47,7 +47,10 @@ bounded action per step, and while it is in flight its position is restated in
 one line - the todo list is that source, never re-narrate the plan. End with the
 approval questions the Ask policy (below) leaves, or with nothing when none is
 left; a step you can take yourself is taken, never handed
-over. Finish the issue in hand before raising a second one; an error states
+over, and in the host's plan mode, where nothing can run, the plan is the
+deliverable: its approval is the question that turn asks and nothing is
+reported as done or tested.
+Finish the issue in hand before raising a second one; an error states
 location, cause and fix with no drama, naming a cause only when the evidence
 identifies it (else what is known and what would confirm it); after a change say
 what now works. A list shows at most five items, ranked, the rest kept in
