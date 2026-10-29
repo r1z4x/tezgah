@@ -115,7 +115,7 @@ def omp_bridge(root=ROOT):
         with open(os.path.join(root, "hosts", "omp", "tezgah-hook.ts.in"),
                   encoding="utf-8") as fh:
             return fh.read().replace(
-                "@HOOK@", os.path.join(root, "hosts", "omp", "hook.py"))
+                "@HOOK@", js_string(os.path.join(root, "hosts", "omp", "hook.py")))
     except OSError:
         return ""
 
@@ -128,9 +128,16 @@ def amp_plugin(root=ROOT):
         with open(os.path.join(root, "hosts", "amp", "tezgah-plugin.ts.in"),
                   encoding="utf-8") as fh:
             return fh.read().replace(
-                "@HOOK@", os.path.join(root, "hosts", "amp", "hook.py"))
+                "@HOOK@", js_string(os.path.join(root, "hosts", "amp", "hook.py")))
     except OSError:
         return ""
+
+
+def js_string(path):
+    """`path` as the inside of a JS double-quoted string: a Windows checkout's
+    `\\t`, `\\u` or `\\x` would otherwise become a control character or a
+    SyntaxError, and the bridge would not load (review of plan 140)."""
+    return json.dumps(path)[1:-1]
 
 
 def registration(host, root=ROOT):

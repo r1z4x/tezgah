@@ -229,5 +229,14 @@ class CleanReleases(AttestBase):
         self.assert_drift("codex", "p1", "codex hook code changed since install", tree)
 
 
+class BridgeRender(unittest.TestCase):
+    def test_a_windows_hook_path_renders_as_a_valid_js_string(self):
+        # review of plan 140: `\t`, `\u` or `\x` in a raw Windows path broke the
+        # bridge's `const HOOK = "..."` line; the rendered literal must read back
+        import tezgah_attest as ta
+        path = r"C:\Users\tom\x01\new\hook.py"
+        self.assertEqual(json.loads('"%s"' % ta.js_string(path)), path)
+
+
 if __name__ == "__main__":
     unittest.main()
