@@ -169,6 +169,7 @@ OMP_AGENT = os.path.join(OMP, "agent")
 QWEN = tp.HOST_DIRS["qwen"]
 DROID = tp.HOST_DIRS["droid"]
 COMMANDCODE = tp.HOST_DIRS["commandcode"]
+COPILOT = tp.HOST_DIRS["copilot"]
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -227,7 +228,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid",
-             "commandcode"]
+             "commandcode", "copilot"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -355,6 +356,18 @@ COMMANDCODE_PRETOOL_MATCHER = "shell|write|edit"
 COMMANDCODE_HOOK_EVENTS = (("SessionStart", None, 5),
                            ("PreToolUse", COMMANDCODE_PRETOOL_MATCHER, 5),
                            ("PostToolUse", None, 5), ("Stop", None, 30))
+# GitHub Copilot CLI (docs.github.com hooks-reference): tezgah's own file in the
+# user hooks dir, flat entries with `timeoutSec` in seconds. The PascalCase names
+# get snake_case payloads and Claude tool names; `subagentStart` has no PascalCase
+# form, so its camelCase payload names no event and the command passes it. A
+# PascalCase PreToolUse matcher is anchored and tested against the Claude tool
+# name; an MCP tool is `<server>-<tool>`. A timed-out PreToolUse lets the call
+# through, hence 10 s there.
+COPILOT_PRETOOL_MATCHER = "^(?:Bash|Write|Edit|Agent|Task|Grep|.+-.+)$"
+COPILOT_HOOK_EVENTS = (("SessionStart", None, 5), ("UserPromptSubmit", None, 5),
+                       ("PreToolUse", COPILOT_PRETOOL_MATCHER, 10), ("PostToolUse", None, 5),
+                       ("PostToolUseFailure", None, 5), ("subagentStart", None, 5),
+                       ("SubagentStop", None, 30), ("Stop", None, 30))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -499,10 +512,11 @@ def hook_entries(hosts):
     what re-arming would change."""
     out = {}
     for h in hosts:
-        if h in ("codex", "cursor", "qwen", "droid", "commandcode"):
+        if h in ("codex", "cursor", "qwen", "droid", "commandcode", "copilot"):
             groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
                       "qwen": qwen_hook_groups, "droid": droid_hook_groups,
-                      "commandcode": commandcode_hook_groups}[h]()
+                      "commandcode": commandcode_hook_groups,
+                      "copilot": copilot_hook_entries}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -1144,6 +1158,7 @@ def install_common(new_roots, hosts):
             ("tezgah-droid-hook", os.path.join(HERE, "hosts", "droid", "hook.py")),
             ("tezgah-commandcode-hook",
              os.path.join(HERE, "hosts", "commandcode", "hook.py")),
+            ("tezgah-copilot-hook", os.path.join(HERE, "hosts", "copilot", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -2305,6 +2320,57 @@ def install_commandcode():
     print("%s %s (always-on contract)" % (OK, write_rules("commandcode")))
 
 
+def copilot_hook_entries():
+    """{event: the entry install_copilot writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-copilot-hook"))
+    out = {}
+    for ev, matcher, timeout in COPILOT_HOOK_EVENTS:
+        entry = {"type": "command", "timeoutSec": timeout,
+                 # a camelCase payload names no event, so the command does
+                 "command": cmd + " " + ev if ev[0].islower() else cmd}
+        if matcher:
+            entry["matcher"] = matcher
+        out[ev] = entry
+    return out
+
+
+def copilot_statusline():
+    return tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --copilot"
+
+
+def install_copilot():
+    """GitHub Copilot CLI: `$COPILOT_HOME/hooks/tezgah.json`, a hooks file wholly
+    tezgah's (the inline `hooks` key of settings.json is never used: one bad item
+    there rejects every hook in it), the status line and `includeCoAuthoredBy`
+    in settings.json, skill links, and the always-on block in
+    `copilot-instructions.md`. settings.json is JSON with comments, so it is
+    written only while it parses as plain JSON; `includeCoAuthoredBy` (default
+    true, a `Co-authored-by` trailer on the agent's commits) is set false unless
+    the user set it."""
+    print("\ncopilot:")
+    path = os.path.join(COPILOT, "hooks", "tezgah.json")
+    write_json(path, {"version": 1, "hooks": {ev: [e] for ev, e in
+                                              copilot_hook_entries().items()}})
+    print("%s %s (hooks)" % (OK, path))
+    spath = os.path.join(COPILOT, "settings.json")
+    settings = read_json(spath, None) if os.path.exists(spath) else {}
+    if isinstance(settings, dict):
+        settings["statusLine"] = {"type": "command", "command": copilot_statusline()}
+        settings.setdefault("includeCoAuthoredBy", False)
+        write_json(spath, settings)
+        print("%s %s (statusLine + includeCoAuthoredBy)" % (OK, spath))
+        if settings["includeCoAuthoredBy"] is not False:
+            print("%s %s keeps your includeCoAuthoredBy, so commits still carry a "
+                  "co-author trailer" % (NO, spath))
+    else:
+        print("%s %s holds comments, which a rewrite would drop: set `statusLine` to "
+              "`%s` and `includeCoAuthoredBy` to false there" % (NO, spath,
+                                                                  copilot_statusline()))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(COPILOT, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("copilot")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2692,7 +2758,8 @@ STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "omp": lambda: os.path.join(OMP_AGENT, "RULES.md"),
                 "qwen": lambda: os.path.join(QWEN, "QWEN.md"),
                 "droid": lambda: os.path.join(DROID, "AGENTS.md"),
-                "commandcode": lambda: os.path.join(COMMANDCODE, "AGENTS.md")}
+                "commandcode": lambda: os.path.join(COMMANDCODE, "AGENTS.md"),
+                "copilot": lambda: os.path.join(COPILOT, "copilot-instructions.md")}
 
 
 def rules_block(host):
@@ -2808,7 +2875,8 @@ def install_omp():
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
               "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
-              "droid": install_droid, "commandcode": install_commandcode}
+              "droid": install_droid, "commandcode": install_commandcode,
+              "copilot": install_copilot}
 
 
 def install_openresearch(hosts):
@@ -3712,6 +3780,16 @@ def verify_uninstall(hosts, full):
         claim("commandcode skills unlinked",
               [os.path.join(COMMANDCODE, "skills", s) for s in SKILLS
                if os.path.lexists(os.path.join(COMMANDCODE, "skills", s))])
+    if "copilot" in hosts:
+        claim("copilot hooks/tezgah.json gone",
+              [os.path.join(COPILOT, "hooks", "tezgah.json")])
+        clean("copilot settings.json statusLine gone",
+              [os.path.join(COPILOT, "settings.json")], needle="tezgah-statusline")
+        clean("copilot copilot-instructions.md block gone",
+              [os.path.join(COPILOT, "copilot-instructions.md")], needle="<!-- tezgah:start")
+        claim("copilot skills unlinked",
+              [os.path.join(COPILOT, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(COPILOT, "skills", s))])
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -4005,6 +4083,30 @@ def uninstall_commandcode():
     strip_managed_md(os.path.join(COMMANDCODE, "AGENTS.md"))
 
 
+def uninstall_copilot():
+    print("\ncopilot:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(COPILOT, "skills", s))
+    path = os.path.join(COPILOT, "hooks", "tezgah.json")
+    if os.path.exists(path):
+        backup(path)
+        os.remove(path)
+        print("%s removed %s" % (OK, path))
+    spath = os.path.join(COPILOT, "settings.json")
+    cfg = read_json(spath, None)
+    if isinstance(cfg, dict):
+        if "tezgah-statusline" in json.dumps(cfg.get("statusLine") or {}):
+            cfg.pop("statusLine")
+        # the value install wrote; a user's own false cannot be told apart from it
+        if cfg.get("includeCoAuthoredBy") is False:
+            cfg.pop("includeCoAuthoredBy")
+        if write_json(spath, cfg):
+            print("%s removed tezgah's statusLine and includeCoAuthoredBy from %s"
+                  % (OK, spath))
+    drop_if_empty(spath)
+    strip_managed_md(os.path.join(COPILOT, "copilot-instructions.md"))
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -4058,7 +4160,8 @@ def uninstall_omp():
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
                 "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
-                "droid": uninstall_droid, "commandcode": uninstall_commandcode}
+                "droid": uninstall_droid, "commandcode": uninstall_commandcode,
+                "copilot": uninstall_copilot}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4682,6 +4785,21 @@ def live_plan(host, deny=False):
         if not deny:
             payload["tool_response"] = ""
         return ("shell", cmd, payload, {})
+    if host == "copilot":
+        # the hook command Copilot runs for its shell tool (a PascalCase
+        # PreToolUse sees the Claude name Bash), fed its own payload; no binary
+        # and no model call
+        path = os.path.join(COPILOT, "hooks", "tezgah.json")
+        cmd = _hook_command((read_json(path, {}).get("hooks") or {}).get(event), "Bash",
+                            own=True)
+        if not cmd:
+            return ("miss", "no tezgah %s command for Bash in %s" % (event, path))
+        payload = {"hook_event_name": event, "tool_name": "Bash",
+                   "tool_input": {"command": LIVE_DENY_COMMAND if deny else "true"}}
+        if not deny:
+            payload["tool_result"] = {"result_type": "success",
+                                      "text_result_for_llm": "<exited with exit code 0>"}
+        return ("shell", cmd, payload, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -4699,6 +4817,9 @@ def _denied(host, stdout):
         return got.get("block") is True
     if host == "opencode":
         return bool(got.get("threw"))
+    if host == "copilot":
+        # top level, not wrapped (hooks-reference "preToolUse decision control")
+        return got.get("permissionDecision") == "deny"
     return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
 
 
@@ -4805,7 +4926,7 @@ ARMING_ROWS = ("hooks.json wired", "plugin wired (link or copy)",
                "claude-code hooks bridge in cordis.patch.yml",
                "session, prompt, tool and stop hooks wired",
                "hook registered in omp extensions", "plugin copy current",
-               "settings.json hooks wired")
+               "settings.json hooks wired", "hooks/tezgah.json wired")
 
 
 def arming_miss(label, good):
@@ -5267,6 +5388,25 @@ def host_checks_commandcode():
     ]
 
 
+def host_checks_copilot():
+    # a relocated home (COPILOT_HOME) is named, as codex's is
+    where = " in %s" % COPILOT if COPILOT != os.path.join(tp.HOME, ".copilot") else ""
+    settings = read_jsonc(os.path.join(COPILOT, "settings.json")) or {}
+    return [
+        ("hooks/tezgah.json wired%s" % where,
+         _hooks_has(os.path.join(COPILOT, "hooks", "tezgah.json"), "tezgah-copilot-hook",
+                    [ev for ev, _m, _t in COPILOT_HOOK_EVENTS])),
+        ("skills linked%s" % where, skills_linked(os.path.join(COPILOT, "skills"))),
+        ("copilot-instructions.md carries the contract (matches a fresh render)",
+         rules_current("copilot")),
+        ("statusLine in settings.json",
+         "tezgah-statusline" in json.dumps(settings.get("statusLine") or {})),
+        ("includeCoAuthoredBy off in settings.json",
+         settings.get("includeCoAuthoredBy") is False),
+        ("copilot CLI on PATH", bool(tp.which_user("copilot"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5386,7 +5526,8 @@ def host_checks_omp():
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
                "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
-               "droid": host_checks_droid, "commandcode": host_checks_commandcode}
+               "droid": host_checks_droid, "commandcode": host_checks_commandcode,
+               "copilot": host_checks_copilot}
 
 
 def versions_agree():

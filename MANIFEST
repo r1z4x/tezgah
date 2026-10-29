@@ -164,6 +164,7 @@ hooks/tezgah_update.py
 hosts/codex/hook.py
 hosts/codex/hooks.json
 hosts/commandcode/hook.py
+hosts/copilot/hook.py
 hosts/cursor/hook.py
 hosts/cursor/hooks.json
 hosts/droid/hook.py
@@ -928,6 +929,7 @@ tests/test_consult_arena.py
 tests/test_context.py
 tests/test_context_diet.py
 tests/test_control_plane.py
+tests/test_copilot_hook.py
 tests/test_cursor_cap.py
 tests/test_cursor_hook.py
 tests/test_decisions.py

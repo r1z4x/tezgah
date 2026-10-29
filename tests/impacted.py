@@ -53,19 +53,21 @@ TESTS = os.path.join(REPO, "tests")
 # hand-known edges the static scan cannot see
 OVERRIDES = {
     "tezgah_integrity": ("codex_hook", "cursor_hook", "qwen_hook", "droid_hook",
-                         "commandcode_hook", "opencode_plugin", "dsh_hooks", "gate"),
+                         "commandcode_hook", "copilot_hook", "opencode_plugin",
+                         "dsh_hooks", "gate"),
     "tezgah_gate": ("codex_hook", "cursor_hook", "qwen_hook", "droid_hook",
-                    "commandcode_hook", "opencode_plugin", "dsh_hooks", "integrity",
-                    "taste"),
+                    "commandcode_hook", "copilot_hook", "opencode_plugin", "dsh_hooks",
+                    "integrity", "taste"),
     "tezgah_lang": ("gate",),
     "tezgah_policy": ("skills", "context", "setup"),
     # None means FULL. Measured 2026-10-13: 32 test modules import it, and the
     # modules that import it, directly or through another hooks module, map to
     # 97 of 100 - tezgah_store among them, itself FULL
     "tezgah_paths": None,
-    # droid_hook and commandcode_hook read their Stop reply through `_tail_lines`
+    # droid_hook, commandcode_hook and copilot_hook read their Stop reply through
+    # `_tail_lines`
     "tezgah_context": ("gate", "skills", "agents", "taste", "droid_hook",
-                       "commandcode_hook"),
+                       "commandcode_hook", "copilot_hook"),
     # the lessons block and the docs fallback rank through it
     "tezgah_rank": ("context", "docs_router", "embed"),
     # the opt-in fusion both of those call, and the registry rows that probe it
@@ -74,7 +76,8 @@ OVERRIDES = {
     # call, and the write note every host's post-tool channel carries
     "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin",
                      "taste_ledger", "codex_hook", "cursor_hook", "omp_hook",
-                     "qwen_hook", "droid_hook", "commandcode_hook", "dsh_hooks"),
+                     "qwen_hook", "droid_hook", "commandcode_hook", "copilot_hook",
+                     "dsh_hooks"),
     # the taste ledger the session block, the write note and the CLI read
     "tezgah_taste_ledger": ("taste", "taste_cli", "context"),
     # the SQLite store: the taste tables and the evidence ledger every hook

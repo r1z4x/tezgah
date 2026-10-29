@@ -62,8 +62,8 @@ def matcher(host, spec):
         return lambda name: True
     if "::" in path:
         # a host whose manifest is rendered by the installer (qwen, droid,
-        # commandcode): its constant. Command Code tests it against the tool's
-        # display name, case-insensitively (`display`)
+        # commandcode, copilot): its constant. Command Code tests it against the
+        # tool's display name, case-insensitively (`display`)
         from test_setup import setup_module
         pattern = getattr(setup_module(), path.split("::", 1)[1])
         shown = spec.get("display") or {}
@@ -140,6 +140,13 @@ class GateVectors(TempHome):
                                   tool_name=name, tool_input=inp),
                              lambda out: out.get("agent_message")
                              if out.get("permission") == "deny" else None)
+        if host == "copilot":
+            # Copilot's deny is top level, not wrapped; its patch tool is `Edit`
+            return self.hook(support.COPILOT_HOOK,
+                             dict(ids, hook_event_name="PreToolUse",
+                                  tool_name=name, tool_input=inp),
+                             lambda out: out.get("permissionDecisionReason")
+                             if out.get("permissionDecision") == "deny" else None)
         if host == "omp":
             return self.hook(support.OMP_HOOK,
                              dict(ids, event="pre_tool_use", tool=name, input=inp),

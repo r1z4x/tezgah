@@ -329,6 +329,39 @@ def host_stack(host, repo):
                sorted(_json(os.path.join(repo, ".mcp.json")).get("mcpServers") or {})],
             "scan": [os.path.join(c, "skills")],
         }
+    if host == "copilot":
+        c, h = tp.HOST_DIRS["copilot"], tp.HOME
+
+        def hook_files(d, source):
+            # every *.json in a hooks dir is one `{"version": 1, "hooks": ...}` file
+            names = sorted(n for n in os.listdir(d) if n.endswith(".json")) \
+                if os.path.isdir(d) else []
+            return merge_hooks(*(hook_rows(_json(os.path.join(d, n)), "%s %s" % (source, n))
+                                 for n in names))
+        return {
+            # cli-command-reference "Custom instructions locations": all merge
+            "context": [os.path.join(c, "copilot-instructions.md"),
+                        os.path.join(repo, ".github", "copilot-instructions.md"),
+                        os.path.join(repo, "AGENTS.md"), os.path.join(repo, "CLAUDE.md"),
+                        os.path.join(repo, "GEMINI.md")],
+            # cli-command-reference "Skill locations": first found wins
+            "skills": ("first", [os.path.join(repo, ".github", "skills"),
+                                 os.path.join(repo, ".agents", "skills"),
+                                 os.path.join(repo, ".claude", "skills"),
+                                 os.path.join(c, "skills"),
+                                 os.path.join(h, ".agents", "skills")]),
+            # hooks-reference "Hooks locations": every source runs
+            "hooks": merge_hooks(hook_files(os.path.join(repo, ".github", "hooks"), "project"),
+                                 hook_files(os.path.join(c, "hooks"), "hooks"),
+                                 hook_rows(_json(os.path.join(c, "settings.json")),
+                                           "settings.json"),
+                                 hook_rows(_json(os.path.join(repo, ".claude",
+                                                              "settings.json")), "project")),
+            "mcp": sorted(_json(os.path.join(c, "mcp-config.json")).get("mcpServers") or {})
+            + ["%s (project)" % n for n in
+               sorted(_json(os.path.join(repo, ".mcp.json")).get("mcpServers") or {})],
+            "scan": [os.path.join(c, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -346,7 +379,8 @@ def skill_copies(dirs):
 def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
-            for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode")]
+            for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode",
+                      "copilot")]
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])

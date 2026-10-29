@@ -36,6 +36,7 @@ OMP_HOOK = os.path.join(REPO, "hosts", "omp", "hook.py")
 QWEN_HOOK = os.path.join(REPO, "hosts", "qwen", "hook.py")
 DROID_HOOK = os.path.join(REPO, "hosts", "droid", "hook.py")
 COMMANDCODE_HOOK = os.path.join(REPO, "hosts", "commandcode", "hook.py")
+COPILOT_HOOK = os.path.join(REPO, "hosts", "copilot", "hook.py")
 OMP_EXTENSION = os.path.join(REPO, "hosts", "omp", "tezgah-hook.ts.in")
 OMP_HARNESS = os.path.join(TESTS, "_omp_extension_harness.mjs")
 STATUSLINE = os.path.join(REPO, "statusline.py")
@@ -268,7 +269,8 @@ os.environ["TEZGAH_CLAUDE_BIN"] = os.path.join(_SUITE_HOME.name, "no-such-claude
 # carrier pick go too: with OPENROUTER_API_KEY exported, `jev-openrouter`
 # resolved in-process and a "no Jev carrier" case saw one.
 for _name in ("TEZGAH_SESSION", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
-              "CODEX_HOME", "DSH_HOME", "QWEN_HOME", "TEZGAH_OPENCODE_DATA", "ORCA_WORKTREE_ID",
+              "CODEX_HOME", "DSH_HOME", "QWEN_HOME", "COPILOT_HOME", "TEZGAH_OPENCODE_DATA",
+              "ORCA_WORKTREE_ID",
               "ORCA_TERMINAL_HANDLE", "ORCA_PANE_KEY", "ORCA_CLI_COMMAND",
               "ORCA_CLI_BIN_DIR", "OMPCODE", "CLAUDECODE", "OPENCODE", "CURSOR_AGENT",
               "CURSOR_VERSION", "CODEX_THREAD_ID", "TEZGAH_JUDGE_CLI",

@@ -109,13 +109,16 @@ HOST_DIRS = {
     # Command Code resolves ~/.commandcode from HOME alone (docs/settings,
     # "Environment variables"): settings.json, AGENTS.md and skills live there
     "commandcode": os.path.join(HOME, ".commandcode"),
+    # Copilot CLI reads a relocated home from COPILOT_HOME, which replaces the
+    # whole ~/.copilot path (docs.github.com cli-config-dir-reference)
+    "copilot": os.environ.get("COPILOT_HOME") or os.path.join(HOME, ".copilot"),
 }
 # a host can be installed with no config dir yet (a CLI on PATH is enough).
 # Command Code's short alias `cmd` is Windows' own shell there, so only its
 # full name counts (docs/quickstart)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
              "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",),
-             "commandcode": ("command-code",)}
+             "commandcode": ("command-code",), "copilot": ("copilot",)}
 
 
 def host_installed(name):

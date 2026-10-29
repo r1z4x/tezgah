@@ -8,6 +8,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **GitHub Copilot CLI is a host (`copilot`, plan 139 slice 2).** `tezgah-setup
+  --install --hosts copilot` writes `$COPILOT_HOME/hooks/tezgah.json`, a hooks
+  file that is wholly tezgah's. `COPILOT_HOME` defaults to `~/.copilot`. The
+  timeouts are in seconds: PreToolUse 10, Stop and SubagentStop 30, the rest 5.
+  The inline `hooks` key of settings.json is never used, since one bad item
+  there rejects every hook in it. The install sets two keys in settings.json
+  while it is plain JSON. The status line runs `tezgah-statusline --copilot`.
+  `includeCoAuthoredBy` is `false`, so the agent's commits carry no co-author
+  trailer. A value the user set stays. The install links the skills into
+  `$COPILOT_HOME/skills` and writes the always-on block in
+  `copilot-instructions.md`. `--uninstall` deletes tezgah.json and takes back
+  only tezgah's settings keys, links and block.
+  - `hosts/copilot/hook.py` uses the PascalCase events, so payloads carry
+    snake_case fields and Claude tool names. It maps the runtime spellings too.
+    An Edit that names no file but carries a patch reaches the gate as
+    `apply_patch`. An MCP tool's `<server>-<tool>` becomes
+    `mcp__<server>__<tool>` for a server `mcp-config.json` names. It denies
+    with a top-level `permissionDecision: deny` on exit 0.
+  - A PreToolUse hook that times out lets the call through, by Copilot's own
+    rule. One that crashes denies the call. A repo's `.claude/settings.json`
+    hooks run there too.
+  - PostToolUse records a pass and PostToolUseFailure a failure. A shell
+    result's `exit code N` overrides either. Stop carries no reply, so the hook
+    reads the last `assistant.message` from `transcript_path`. A turn end with
+    none there becomes a `reply_unread` row. Copilot drops a command hook's
+    UserPromptSubmit output, so there is no per-turn reminder. The event still
+    writes the turn row. subagentStart gives a delegate the brief. A
+    SubagentStop only records its verdict.
+  - `--report` has Copilot rows, and `--report --live` probes the hook command
+    with Copilot's own payload and deny shape. No run has shown the binary
+    obeying the deny.
 - **Command Code is a host (`commandcode`, plan 139 slice 1).** `tezgah-setup
   --install --hosts commandcode` merges tezgah's hook groups into the `hooks`
   key of `~/.commandcode/settings.json` beside the user's. Their timeouts are in

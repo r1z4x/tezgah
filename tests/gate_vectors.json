@@ -37,7 +37,10 @@
                               "Bash": "shell_command"},
                     "matcher": "bin/tezgah-setup::COMMANDCODE_PRETOOL_MATCHER",
                     "display": {"write_file": "WRITE", "edit_file": "EDIT",
-                                "shell_command": "SHELL"}}
+                                "shell_command": "SHELL"}},
+    "copilot": {"tools": {"Write": "Write", "Edit": "Edit", "apply_patch": "Edit",
+                          "Bash": "Bash"},
+                "matcher": "bin/tezgah-setup::COPILOT_PRETOOL_MATCHER"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

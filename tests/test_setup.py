@@ -2061,6 +2061,133 @@ class CommandCodeHost(SetupBase):
         self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
 
 
+class CopilotHost(SetupBase):
+    """Copilot CLI loads every *.json in $COPILOT_HOME/hooks: the install writes
+    its own `tezgah.json` there, the status line and `includeCoAuthoredBy` into
+    settings.json while it is plain JSON, and the uninstall deletes the file and
+    takes back only tezgah's settings keys."""
+
+    def settings(self):
+        return self.read_json(self.path(".copilot", "settings.json"))
+
+    def test_install_writes_its_own_hooks_file_and_turns_the_trailer_off(self):
+        spath = self.path(".copilot", "settings.json")
+        self.write_json(spath, {"model": "x"})
+        os.chmod(spath, 0o600)
+        proc = self.setup("--install", "--hosts", "copilot")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.read_json(self.path(".copilot", "hooks", "tezgah.json"))
+        self.assertEqual(data["version"], 1)
+        for ev, matcher, timeout in setup_module().COPILOT_HOOK_EVENTS:
+            entry, = data["hooks"][ev]
+            self.assertIn("tezgah-copilot-hook", entry["command"], ev)
+            self.assertEqual(entry["timeoutSec"], timeout, ev)
+            self.assertEqual(entry.get("matcher"), matcher, ev)
+        # the camelCase payload names no event, so the command does
+        self.assertTrue(data["hooks"]["subagentStart"][0]["command"]
+                        .endswith(" subagentStart"))
+        pre = data["hooks"]["PreToolUse"][0]["matcher"]
+        for tool in ("Bash", "Write", "Edit", "Agent", "Task", "Grep", "my-server-fetch"):
+            self.assertTrue(re.fullmatch(pre, tool), tool)
+        self.assertFalse(re.fullmatch(pre, "Read"))
+        self.assertEqual(self.settings()["model"], "x")
+        self.assertIn("tezgah-statusline", self.settings()["statusLine"]["command"])
+        self.assertEqual(self.settings()["statusLine"]["type"], "command")
+        self.assertIs(self.settings()["includeCoAuthoredBy"], False)
+        self.assertEqual(os.stat(spath).st_mode & 0o777, 0o600)
+        self.assertTrue(os.path.islink(self.path(".copilot", "skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start", self.read_text(
+            self.path(".copilot", "copilot-instructions.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-copilot-hook")))
+        # a backup is never laid in the dir Copilot loads every *.json from
+        self.assertEqual(os.listdir(self.path(".copilot", "hooks")), ["tezgah.json"])
+
+    def test_a_commented_settings_file_is_left_alone_and_the_hooks_still_wire(self):
+        spath = self.path(".copilot", "settings.json")
+        os.makedirs(os.path.dirname(spath))
+        mine = '// mine\n{"model": "x"}\n'
+        with open(spath, "w") as fh:
+            fh.write(mine)
+        proc = self.setup("--install", "--hosts", "copilot")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(spath), mine)
+        self.assertIn("holds comments", proc.stdout)
+        self.assertTrue(self.row(self.setup("--hosts", "copilot").stdout,
+                                 "hooks/tezgah.json wired").strip().startswith("ok"))
+
+    def test_a_user_s_own_trailer_choice_is_kept_and_the_row_says_so(self):
+        self.write_json(self.path(".copilot", "settings.json"), {"includeCoAuthoredBy": True})
+        proc = self.setup("--install", "--hosts", "copilot")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIs(self.settings()["includeCoAuthoredBy"], True)
+        self.assertIn("keeps your includeCoAuthoredBy", proc.stdout)
+        row = self.row(self.setup("--hosts", "copilot").stdout,
+                       "includeCoAuthoredBy off").strip()
+        self.assertTrue(row.startswith("MISS"), row)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "copilot").returncode, 0)
+        self.assertEqual(self.settings(), {"includeCoAuthoredBy": True})
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "copilot").returncode, 0)
+        out = self.setup("--hosts", "copilot").stdout
+        for label in ("hooks/tezgah.json wired", "skills linked",
+                      "copilot-instructions.md carries the contract",
+                      "statusLine in settings.json", "includeCoAuthoredBy off",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        path = self.path(".copilot", "hooks", "tezgah.json")
+        data = self.read_json(path)
+        del data["hooks"]["Stop"]
+        self.write_json(path, data)
+        out = self.setup("--hosts", "copilot").stdout
+        self.assertTrue(self.row(out, "hooks/tezgah.json wired").strip()
+                        .startswith("MISS"), out)
+        self.assertIn("copilot Stop entry removed", out)
+
+    def test_uninstall_removes_only_tezgah_s_wiring(self):
+        self.write_json(self.path(".copilot", "settings.json"), {"model": "x"})
+        mine = self.path(".copilot", "hooks", "audit.json")
+        self.write_json(mine, {"version": 1, "hooks": {}})
+        self.assertEqual(self.setup("--install", "--hosts", "copilot").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "copilot")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.settings(), {"model": "x"})
+        self.assertFalse(os.path.exists(self.path(".copilot", "hooks", "tezgah.json")))
+        self.assertTrue(os.path.exists(mine))
+        self.assertFalse(os.path.lexists(self.path(".copilot", "skills", "ponytail")))
+        self.assertFalse(os.path.exists(self.path(".copilot", "copilot-instructions.md")))
+        self.assertIn("copilot hooks/tezgah.json gone", proc.stdout)
+
+    def test_copilot_home_relocates_every_file(self):
+        alt = self.path("alt-copilot")
+        self.env["COPILOT_HOME"] = alt
+        self.assertEqual(self.setup("--install", "--hosts", "copilot").returncode, 0)
+        self.assertTrue(os.path.exists(os.path.join(alt, "hooks", "tezgah.json")))
+        self.assertTrue(os.path.exists(os.path.join(alt, "copilot-instructions.md")))
+        self.assertFalse(os.path.exists(self.path(".copilot")))
+
+    def test_doctor_stack_and_live_report_run_with_copilot_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "copilot").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["copilot"]
+        self.assertIn(self.path(".copilot", "copilot-instructions.md"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "copilot")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live copilot:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live copilot deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
+
+
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
         """`--dry-run` is a preview for the uninstall too: the run that the
