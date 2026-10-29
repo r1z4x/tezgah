@@ -4361,7 +4361,12 @@ class VersionPrefixIsNotContract(SetupBase):
         # (plan 137): the Ask policy says no fresh subagent means no review
         # verdict, and a finding is contested only with a file:line (+119 B; the
         # longer form put the worktree fixture's session_start 41 B over 16000).
-        self.assertEqual(13395, band, "the always-on band moved")
+        # Re-pinned 2026-10-29 (plan 142): the output-shape paragraph says what
+        # the host's plan mode changes - the plan is the deliverable, its
+        # approval is that turn's question and nothing is reported as done
+        # (+168 B, with the session budget moved to 16200 B for the worktree
+        # fixture).
+        self.assertEqual(13563, band, "the always-on band moved")
         self.assertNotIn("tezgah v", module.tezgah_context.always_on_core())
 
     def test_the_rendered_always_on_band_is_unchanged(self):
@@ -4385,8 +4390,9 @@ class VersionPrefixIsNotContract(SetupBase):
         # Pinned 2026-10-22 (plan 126 review round 1): rendered under
         # HOME=/tezgah-band-pin, language `tr`. Re-pinned 2026-10-28 (plan 136,
         # +116 B, see the unrendered pin). Re-pinned 2026-10-29 (plan 137,
-        # +119 B, see the unrendered pin).
-        self.assertEqual(13644, int(proc.stdout), "the rendered band moved")
+        # +119 B, see the unrendered pin). Re-pinned 2026-10-29 (plan 142,
+        # +168 B, see the unrendered pin).
+        self.assertEqual(13812, int(proc.stdout), "the rendered band moved")
 
 
 if __name__ == "__main__":

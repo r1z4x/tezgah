@@ -620,18 +620,21 @@ MUTANTS = (
               "        text, lambda: grants_in_force(session_id))\n",
               "    asked = None\n"),
      "the needless-ask class is asked at the Stop exit"),
-    ("stop-plan-exempt", INTEGRITY,
+    # the two classes' own return sites are generated rows (`stop_mutants`):
+    # `stop-plan-claim` and `stop-handed-step`. These two mutate the conditions
+    # around them, which no return site covers.
+    ("plan-mode-exempt", INTEGRITY,
      anchored("    asked = None if read_only else needless_ask(\n",
               "    asked = needless_ask(\n"),
      "a plan-mode turn's approval question is no needless ask (plan 142)"),
-    ("stop-plan-claim", INTEGRITY,
+    ("plan-mode-claim-guard", INTEGRITY,
      anchored("    if read_only and not any(passing_check(r) for r in rows):\n",
               "    if False:\n"),
-     "a done/tested claim in a read-only turn is refused (plan 142)"),
-    ("stop-handed-step", INTEGRITY,
+     "a done/tested claim in a read-only turn reaches its class (plan 142)"),
+    ("handed-step-wired", INTEGRITY,
      anchored("    passed = handed_steps(text, rows)\n", "    passed = []\n"),
      "the handed-step class is asked at the Stop exit (plan 142)"),
-    ("stop-handed-capability", INTEGRITY,
+    ("handed-step-capability", INTEGRITY,
      anchored("    if not any(str(r.get(\"kind\")) in COMMAND_KINDS for r in rows):\n"
               "        return []\n",
               "    if False:\n        return []\n"),

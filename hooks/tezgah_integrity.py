@@ -6535,10 +6535,9 @@ def needless_ask(text, granted=frozenset):
 
 
 # The "you run it" shape: a line that tells the reader to run something
-# (`ask.hand_over`), beside a command in backticks. The backtick span is also
-# what keeps a fenced command itself out - a fence line carries none.
+# (`ask.hand_over`), beside a command in backticks (CODE_SPAN, the module's
+# own: a fence line carries no backtick span and never qualifies).
 HAND_OVER = re.compile(alts("ask", "hand_over"), re.I)
-CODE_SPAN = re.compile(r"`[^`\n]+`")
 # The steps the owner runs by design, whatever the session can do: tezgah's own
 # consent command, its installation and a machine-level `brew` step (the
 # session-scope rule). An outward or class-F step is read off the line itself
