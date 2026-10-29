@@ -387,7 +387,14 @@ SHAPE_BLOCKS = frozenset(("placating opener", "forbidden closer", "list cap",
 # agent could decide is no false completion. Counted in `blocked_claims` under
 # their own class, kept out of `false_completion`.
 LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice",
-                         "needless ask"))
+                         "needless ask", "handed step"))
+# The host permission modes in which the session can neither write nor run: a
+# plan-mode turn reads and proposes, so the step it names is the user's to
+# approve, not one it could have taken (`read_only_turn`). Claude, Command
+# Code and Qwen spell it `plan`, Droid `spec`; omp's extension sends `plan`
+# from `sessionModes.getState()`. A host that sends no mode reads as `default`,
+# which is what every rule did before the field.
+READ_ONLY_MODES = frozenset(("plan", "spec"))
 
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",

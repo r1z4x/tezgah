@@ -283,6 +283,9 @@
   "cheap_answer": [
    "evet|tamam|olur|devam(?: et)?|yap|başla|ilerle|okey|onay(?:lıyorum)?"
   ],
+  "hand_over": [
+   "\\b(?:sen|siz|sana|size)\\b[^.!?\\n]{0,48}?(?:çalıştır|koştur|dene|kur|başlat)\\w*|\\bçalıştır(?:ın|ırsan|abilirsin|man gerek\\w*|manız gerek\\w*)\\b|\\b(?:şunu|bunu|şu komutu) çalıştır\\w*|\\bsenin adımın\\b|\\bsıradaki adım sende\\b|\\badım(?:ı)? sende\\b"
+  ],
   "outward": {
    "push": "\\bpush\\w*",
    "release": "versiyon\\w*|sürüm\\w*|\\brelease\\w*|etiket\\w*",
