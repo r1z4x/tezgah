@@ -104,6 +104,17 @@ class QwenHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertTrue(out.get("reason"))
 
+    def test_a_started_monitor_is_not_a_passing_check(self):
+        # review of plan 138, round 2: Qwen's PostToolUse for `monitor` fires
+        # at "Monitor started", so a watched pytest must not back a done claim
+        self.shell("ls -la", tool_response={"llmContent": "x", "returnDisplay": "x"})
+        self.send("PostToolUse", tool_name="monitor", tool_use_id="toolu_m",
+                  tool_input={"command": "python3 -m pytest -q", "description": "tests"},
+                  tool_response={"llmContent": "Monitor started. id: m1"})
+        out = self.send("Stop", stop_hook_active=False,
+                        last_assistant_message="Done. Implemented the parser and all tests pass.")
+        self.assertEqual(out.get("decision"), "block")
+
     def test_a_done_claim_backed_by_a_passing_check_ends_the_turn(self):
         self.shell("python3 -m pytest -q",
                    tool_response={"llmContent": "3 passed", "returnDisplay": "3 passed"})

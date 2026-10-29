@@ -109,6 +109,11 @@ def post_tool(payload, cwd, session_id, failed):
     """The ledger row for one finished call, and the notice for the model."""
     tool = gate_name(payload.get("tool_name", ""))
     inp = inp_of(payload)
+    # a `monitor` PostToolUse fires when the watch starts ("Monitor started"),
+    # long before its command ends: it records a run, never a pass (review of
+    # plan 138, round 2); a failed start still arrives as PostToolUseFailure
+    if payload.get("tool_name") == "monitor" and failed is False:
+        failed = None
     safe(session_id, record, session_id, classify(payload))
     if not root_for(cwd):
         return None
