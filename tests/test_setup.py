@@ -2300,6 +2300,147 @@ class GeminiHost(SetupBase):
         self.assertIn("denied `git commit --no-verify -m x`", deny)
 
 
+class AntigravityHost(SetupBase):
+    """Antigravity CLI loads its global hooks from ~/.gemini/config/hooks.json,
+    one top-level name per hook set: the install writes the `tezgah` name beside
+    the user's own, the status line in antigravity-cli/settings.json while it is
+    plain JSON, skill links and the GEMINI.md block it shares with Gemini CLI;
+    the uninstall takes back only those."""
+
+    HOOKS = (".gemini", "config", "hooks.json")
+    SETTINGS = (".gemini", "antigravity-cli", "settings.json")
+
+    def test_install_writes_the_tezgah_name_beside_the_user_s_hooks(self):
+        mine = {"my-linter": {"PostToolUse": [{"matcher": "run_command", "hooks": [
+            {"type": "command", "command": "./lint.sh"}]}]}}
+        self.write_json(self.path(*self.HOOKS), mine)
+        self.write_json(self.path(*self.SETTINGS), {"colorScheme": "x"})
+        proc = self.setup("--install", "--hosts", "antigravity")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.read_json(self.path(*self.HOOKS))
+        self.assertEqual(data["my-linter"], mine["my-linter"])
+        for ev, matcher, timeout in setup_module().ANTIGRAVITY_HOOK_EVENTS:
+            item, = data["tezgah"][ev]
+            handler = item if matcher is None else item["hooks"][0]
+            self.assertEqual(item.get("matcher"), matcher, ev)
+            # the payload names no event, so every command does
+            self.assertTrue(handler["command"].endswith("tezgah-antigravity-hook\" " + ev), ev)
+            self.assertEqual(handler["timeout"], timeout, ev)
+        self.assertEqual(data["tezgah"]["Stop"][0]["timeout"], 30)
+        pre = data["tezgah"]["PreToolUse"][0]["matcher"]
+        for tool in ("run_command", "write_to_file", "replace_file_content",
+                     "multi_replace_file_content", "invoke_subagent", "grep_search"):
+            self.assertTrue(re.fullmatch(pre, tool), tool)
+        self.assertFalse(re.fullmatch(pre, "view_file"))
+        settings = self.read_json(self.path(*self.SETTINGS))
+        self.assertEqual(settings["colorScheme"], "x")
+        self.assertEqual(settings["statusLine"]["type"], "command")
+        self.assertTrue(settings["statusLine"]["command"].endswith(" --antigravity"))
+        self.assertTrue(os.path.islink(self.path(".gemini", "antigravity-cli", "skills",
+                                                 "ponytail")))
+        self.assertIn("<!-- tezgah:start", self.read_text(self.path(".gemini", "GEMINI.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-antigravity-hook")))
+
+    def test_a_settings_file_that_is_not_plain_json_is_left_alone(self):
+        spath = self.path(*self.SETTINGS)
+        os.makedirs(os.path.dirname(spath))
+        mine = '// mine\n{"colorScheme": "x"}\n'
+        with open(spath, "w") as fh:
+            fh.write(mine)
+        proc = self.setup("--install", "--hosts", "antigravity")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(spath), mine)
+        self.assertIn("is not plain JSON", proc.stdout)
+        self.assertTrue(self.row(self.setup("--hosts", "antigravity").stdout,
+                                 "config/hooks.json wired").strip().startswith("ok"))
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "antigravity").returncode, 0)
+        out = self.setup("--hosts", "antigravity").stdout
+        for label in ("config/hooks.json wired", "tezgah hook set left enabled",
+                      "skills linked", "GEMINI.md carries the contract",
+                      "statusLine in antigravity-cli/settings.json",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        path = self.path(*self.HOOKS)
+        data = self.read_json(path)
+        data["tezgah"]["enabled"] = False
+        self.write_json(path, data)
+        out = self.setup("--hosts", "antigravity").stdout
+        self.assertTrue(self.row(out, "tezgah hook set left enabled").strip()
+                        .startswith("MISS"), out)
+        del data["tezgah"]["Stop"]
+        self.write_json(path, data)
+        out = self.setup("--hosts", "antigravity").stdout
+        self.assertTrue(self.row(out, "config/hooks.json wired").strip().startswith("MISS"),
+                        out)
+        self.assertIn("antigravity Stop entry removed", out)
+
+    def test_uninstall_takes_back_only_tezgah_s_entries(self):
+        mine = {"my-linter": {"PostToolUse": [{"matcher": "run_command", "hooks": [
+            {"type": "command", "command": "./lint.sh"}]}]}}
+        self.write_json(self.path(*self.HOOKS), mine)
+        self.write_json(self.path(*self.SETTINGS), {"colorScheme": "x"})
+        self.assertEqual(self.setup("--install", "--hosts", "antigravity").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "antigravity")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_json(self.path(*self.HOOKS)), mine)
+        self.assertEqual(self.read_json(self.path(*self.SETTINGS)), {"colorScheme": "x"})
+        self.assertFalse(os.path.lexists(self.path(".gemini", "antigravity-cli", "skills",
+                                                   "ponytail")))
+        self.assertTrue(os.path.isfile(os.path.join(REPO, "skills", "ponytail", "SKILL.md")))
+        self.assertFalse(os.path.exists(self.path(".gemini", "GEMINI.md")))
+        self.assertIn("antigravity config/hooks.json unwired", proc.stdout)
+
+    def test_files_tezgah_alone_created_are_removed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "antigravity").returncode, 0)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "antigravity").returncode, 0)
+        self.assertFalse(os.path.exists(self.path(*self.HOOKS)))
+        self.assertFalse(os.path.exists(self.path(*self.SETTINGS)))
+
+    def test_the_shared_block_stays_until_the_last_gemini_md_host_leaves(self):
+        self.assertEqual(self.setup("--install", "--hosts", "gemini,antigravity").returncode, 0)
+        rules = self.path(".gemini", "GEMINI.md")
+        proc = self.setup("--uninstall", "--hosts", "antigravity")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("keeps the tezgah block", proc.stdout)
+        self.assertIn("<!-- tezgah:start", self.read_text(rules))
+        proc = self.setup("--uninstall", "--hosts", "gemini")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(rules))
+
+    def test_gemini_cli_home_unshares_the_block(self):
+        # with GEMINI_CLI_HOME, Gemini reads another GEMINI.md, so Antigravity's
+        # uninstall takes its own block even while gemini stays armed
+        self.env["GEMINI_CLI_HOME"] = self.path("alt")
+        self.assertEqual(self.setup("--install", "--hosts", "gemini,antigravity").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "antigravity")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(self.path(".gemini", "GEMINI.md")))
+        self.assertIn("<!-- tezgah:start",
+                      self.read_text(self.path("alt", ".gemini", "GEMINI.md")))
+
+    def test_doctor_stack_and_live_report_run_with_antigravity_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "antigravity").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["antigravity"]
+        self.assertIn(self.path(".gemini", "GEMINI.md"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "antigravity")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live antigravity:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live antigravity deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("denied `git commit --no-verify -m x`", deny)
+
 
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):

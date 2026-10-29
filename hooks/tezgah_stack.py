@@ -389,6 +389,33 @@ def host_stack(host, repo):
             + ["%s (project)" % n for n in sorted(project.get("mcpServers") or {})],
             "scan": [os.path.join(g, "skills"), os.path.join(ext, "tezgah", "skills")],
         }
+    if host == "antigravity":
+        a = tp.HOST_DIRS["antigravity"]
+        g = os.path.dirname(a)
+
+        def named(path, source):
+            # hooks.json maps a hook name to its events; a name set
+            # `enabled: false` loads nothing (docs/hooks "Hook definition fields")
+            data = _json(path)
+            return merge_hooks(*(hook_rows({"hooks": d}, "%s %s" % (source, n))
+                                 for n, d in sorted(data.items())
+                                 if isinstance(d, dict) and d.get("enabled") is not False))
+        return {
+            # docs/rules "Antigravity CLI": global and workspace rules all load
+            "context": [os.path.join(g, "GEMINI.md"), os.path.join(g, "AGENTS.md"),
+                        os.path.join(repo, "GEMINI.md"), os.path.join(repo, "AGENTS.md")],
+            # docs/skills "CLI skill locations" names no winner
+            "skills": ("all", [os.path.join(repo, ".agents", "skills"),
+                               os.path.join(a, "skills")]),
+            # docs/hooks "Antigravity CLI": workspace, global, plugins
+            "hooks": merge_hooks(named(os.path.join(repo, ".agents", "hooks.json"), "project"),
+                                 named(os.path.join(g, "config", "hooks.json"), "hooks.json")),
+            "mcp": sorted(_json(os.path.join(g, "config", "mcp_config.json"))
+                          .get("mcpServers") or {})
+            + ["%s (project)" % n for n in sorted(
+                _json(os.path.join(repo, ".agents", "mcp_config.json")).get("mcpServers") or {})],
+            "scan": [os.path.join(a, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -407,7 +434,7 @@ def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
             for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode",
-                      "copilot")]
+                      "copilot", "antigravity")]
     dirs.append(os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "skills"))
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()

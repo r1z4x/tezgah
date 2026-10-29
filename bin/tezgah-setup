@@ -175,6 +175,10 @@ GEMINI = tp.HOST_DIRS["gemini"]
 # with no `gemini extensions install` (extension-manager.ts reads every subdir;
 # only a non-empty `security.allowedExtensions` asks for install metadata)
 GEMINI_EXT = os.path.join(GEMINI, "extensions", "tezgah")
+ANTIGRAVITY = tp.HOST_DIRS["antigravity"]
+# Antigravity's global hooks file: one top-level name per hook set, and the
+# Antigravity App and IDE load it too (docs/hooks); tezgah owns the `tezgah` name
+AGY_HOOKS = os.path.join(os.path.dirname(ANTIGRAVITY), "config", "hooks.json")
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -233,7 +237,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid",
-             "commandcode", "copilot", "gemini"]
+             "commandcode", "copilot", "gemini", "antigravity"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -383,6 +387,15 @@ GEMINI_PRETOOL_MATCHER = ("^(run_shell_command|write_file|replace|grep_search|"
 GEMINI_HOOK_EVENTS = (("SessionStart", None, 5000), ("BeforeAgent", None, 5000),
                       ("BeforeTool", GEMINI_PRETOOL_MATCHER, 5000),
                       ("AfterTool", None, 5000), ("AfterAgent", None, 30000))
+# Antigravity CLI (docs/hooks): `timeout` in seconds; a tool event is a matcher
+# group (a regex over the tool name, "" for every tool), a lifecycle event a bare
+# handler. The payload names no event, so the command does (argv[1]). An MCP
+# tool's name is undocumented, so none is matched. Stop runs the integrity rule.
+ANTIGRAVITY_PRETOOL_MATCHER = ("^(run_command|write_to_file|replace_file_content|"
+                               "multi_replace_file_content|invoke_subagent|grep_search)$")
+ANTIGRAVITY_HOOK_EVENTS = (("SessionStart", None, 5), ("PreInvocation", None, 5),
+                           ("PreToolUse", ANTIGRAVITY_PRETOOL_MATCHER, 5),
+                           ("PostToolUse", "", 5), ("Stop", None, 30))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -527,11 +540,13 @@ def hook_entries(hosts):
     what re-arming would change."""
     out = {}
     for h in hosts:
-        if h in ("codex", "cursor", "qwen", "droid", "commandcode", "copilot", "gemini"):
+        if h in ("codex", "cursor", "qwen", "droid", "commandcode", "copilot", "gemini",
+                 "antigravity"):
             groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
                       "qwen": qwen_hook_groups, "droid": droid_hook_groups,
                       "commandcode": commandcode_hook_groups,
-                      "copilot": copilot_hook_entries, "gemini": gemini_hook_groups}[h]()
+                      "copilot": copilot_hook_entries, "gemini": gemini_hook_groups,
+                      "antigravity": antigravity_hook_groups}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -1175,6 +1190,8 @@ def install_common(new_roots, hosts):
              os.path.join(HERE, "hosts", "commandcode", "hook.py")),
             ("tezgah-copilot-hook", os.path.join(HERE, "hosts", "copilot", "hook.py")),
             ("tezgah-gemini-hook", os.path.join(HERE, "hosts", "gemini", "hook.py")),
+            ("tezgah-antigravity-hook",
+             os.path.join(HERE, "hosts", "antigravity", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -2416,6 +2433,52 @@ def install_gemini():
     print("%s %s (always-on contract)" % (OK, write_rules("gemini")))
 
 
+def antigravity_hook_groups():
+    """{event: the item install_antigravity writes under hooks.json's `tezgah`
+    name}: a matcher group for a tool event, a bare handler for the others
+    (docs/hooks "Schema and file format"); `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-antigravity-hook"))
+    out = {}
+    for ev, matcher, timeout in ANTIGRAVITY_HOOK_EVENTS:
+        handler = {"type": "command", "command": cmd + " " + ev, "timeout": timeout}
+        out[ev] = handler if matcher is None else {"matcher": matcher, "hooks": [handler]}
+    return out
+
+
+def antigravity_statusline():
+    return tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --antigravity"
+
+
+def install_antigravity():
+    """Antigravity CLI: tezgah's hook set under the top-level `tezgah` name of
+    `~/.gemini/config/hooks.json`, beside the user's other names (hooks in
+    antigravity-cli/settings.json are never loaded, docs/hooks); the Antigravity
+    App and IDE read that file too. The status line in
+    `~/.gemini/antigravity-cli/settings.json`, written only while it is plain
+    JSON; skill links in `antigravity-cli/skills`; the always-on block in the
+    `~/.gemini/GEMINI.md` Gemini CLI shares. Antigravity adds no co-author
+    trailer of its own and no setting names one, so there is nothing to turn off."""
+    print("\nantigravity:")
+    data = read_config(AGY_HOOKS, {})
+    if data is not None:
+        data["tezgah"] = {ev: [g] for ev, g in antigravity_hook_groups().items()}
+        write_json(AGY_HOOKS, data)
+        print("%s %s (hooks; the Antigravity App and IDE load them too)" % (OK, AGY_HOOKS))
+    spath = os.path.join(ANTIGRAVITY, "settings.json")
+    settings = read_json(spath, None) if os.path.exists(spath) else {}
+    if isinstance(settings, dict):
+        settings["statusLine"] = {"type": "command", "command": antigravity_statusline()}
+        write_json(spath, settings)
+        print("%s %s (statusLine)" % (OK, spath))
+    else:
+        print("%s %s is not plain JSON, which a rewrite would lose: set `statusLine` "
+              "to {\"type\": \"command\", \"command\": \"%s\"} there"
+              % (NO, spath, antigravity_statusline()))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(ANTIGRAVITY, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("antigravity")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2805,20 +2868,25 @@ STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "droid": lambda: os.path.join(DROID, "AGENTS.md"),
                 "commandcode": lambda: os.path.join(COMMANDCODE, "AGENTS.md"),
                 "copilot": lambda: os.path.join(COPILOT, "copilot-instructions.md"),
-                "gemini": lambda: os.path.join(GEMINI, "GEMINI.md")}
-# Gemini CLI and Antigravity (plan 139 slice 4) both load ~/.gemini/GEMINI.md,
-# so they share ONE managed block: an uninstall strips it only while no other
-# host of this tuple stays armed (`gemini_md_kept`), and each host's uninstall
-# asks the same question, so the last one out takes the block.
+                "gemini": lambda: os.path.join(GEMINI, "GEMINI.md"),
+                "antigravity": lambda: os.path.join(os.path.dirname(ANTIGRAVITY), "GEMINI.md")}
+# Gemini CLI and Antigravity both load ~/.gemini/GEMINI.md, so they share ONE
+# managed block: an uninstall strips it only while no other host of this tuple
+# that reads the same file stays armed (`gemini_md_kept`; GEMINI_CLI_HOME moves
+# Gemini's copy away), and each host's uninstall asks the same question, so the
+# last one out takes the block.
 GEMINI_MD_HOSTS = ("gemini", "antigravity")
 # the hosts the running uninstall takes out (`uninstall` sets it)
 UNINSTALLING = ()
 
 
-def gemini_md_kept():
-    """True while a GEMINI_MD_HOSTS host this uninstall does not touch is armed."""
+def gemini_md_kept(host):
+    """True while another GEMINI_MD_HOSTS host this uninstall does not touch is
+    armed and reads `host`'s GEMINI.md."""
     armed = tp.config().get("hosts") or []
-    return any(h in armed and h not in UNINSTALLING for h in GEMINI_MD_HOSTS)
+    path = STATIC_RULES[host]()
+    return any(h in armed and h not in UNINSTALLING and STATIC_RULES[h]() == path
+               for h in GEMINI_MD_HOSTS)
 
 
 def rules_block(host):
@@ -2935,7 +3003,8 @@ INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
               "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
               "droid": install_droid, "commandcode": install_commandcode,
-              "copilot": install_copilot, "gemini": install_gemini}
+              "copilot": install_copilot, "gemini": install_gemini,
+              "antigravity": install_antigravity}
 
 
 def install_openresearch(hosts):
@@ -3851,8 +3920,19 @@ def verify_uninstall(hosts, full):
                if os.path.lexists(os.path.join(COPILOT, "skills", s))])
     if "gemini" in hosts:
         claim("gemini extension dir gone", [GEMINI_EXT])
-        if not gemini_md_kept():
+        if not gemini_md_kept("gemini"):
             clean("gemini GEMINI.md block gone", [os.path.join(GEMINI, "GEMINI.md")],
+                  needle="<!-- tezgah:start")
+    if "antigravity" in hosts:
+        clean("antigravity config/hooks.json unwired", [AGY_HOOKS],
+              needle="tezgah-antigravity-hook")
+        clean("antigravity settings.json statusLine gone",
+              [os.path.join(ANTIGRAVITY, "settings.json")], needle="tezgah-statusline")
+        claim("antigravity skills unlinked",
+              [os.path.join(ANTIGRAVITY, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(ANTIGRAVITY, "skills", s))])
+        if not gemini_md_kept("antigravity"):
+            clean("antigravity GEMINI.md block gone", [STATIC_RULES["antigravity"]()],
                   needle="<!-- tezgah:start")
     if "claude" in hosts:
         clean("claude settings.json unwired",
@@ -4180,11 +4260,38 @@ def uninstall_gemini():
             backup(os.path.join(GEMINI_EXT, name))
         shutil.rmtree(GEMINI_EXT)
         print("%s removed %s" % (OK, GEMINI_EXT))
-    if gemini_md_kept():
+    if gemini_md_kept("gemini"):
         print("%s %s keeps the tezgah block: another armed host reads it"
               % (OK, os.path.join(GEMINI, "GEMINI.md")))
     else:
         strip_managed_md(os.path.join(GEMINI, "GEMINI.md"))
+
+
+def uninstall_antigravity():
+    """Take the `tezgah` name out of ~/.gemini/config/hooks.json (the user's
+    other names stay), the statusLine, the skill links, and the GEMINI.md block
+    unless Gemini CLI still reads it."""
+    print("\nantigravity:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(ANTIGRAVITY, "skills", s))
+    data = read_json(AGY_HOOKS, None)
+    if isinstance(data, dict) and "tezgah" in data:
+        data.pop("tezgah")
+        write_json(AGY_HOOKS, data)
+        print("%s removed tezgah's hooks from %s" % (OK, AGY_HOOKS))
+    drop_if_empty(AGY_HOOKS)
+    spath = os.path.join(ANTIGRAVITY, "settings.json")
+    cfg = read_json(spath, None)
+    if isinstance(cfg, dict) and "tezgah-statusline" in json.dumps(cfg.get("statusLine") or {}):
+        cfg.pop("statusLine")
+        write_json(spath, cfg)
+        print("%s removed tezgah's statusLine from %s" % (OK, spath))
+    drop_if_empty(spath)
+    rules = STATIC_RULES["antigravity"]()
+    if gemini_md_kept("antigravity"):
+        print("%s %s keeps the tezgah block: another armed host reads it" % (OK, rules))
+    else:
+        strip_managed_md(rules)
 
 
 def uninstall_dsh():
@@ -4241,7 +4348,8 @@ UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
                 "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
                 "droid": uninstall_droid, "commandcode": uninstall_commandcode,
-                "copilot": uninstall_copilot, "gemini": uninstall_gemini}
+                "copilot": uninstall_copilot, "gemini": uninstall_gemini,
+                "antigravity": uninstall_antigravity}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4898,6 +5006,20 @@ def live_plan(host, deny=False):
             payload["tool_response"] = {"llmContent": "Output: (empty)",
                                         "returnDisplay": ""}
         return ("shell", cmd, payload, {})
+    if host == "antigravity":
+        # the hook command Antigravity runs for run_command, under the `tezgah`
+        # name of ~/.gemini/config/hooks.json; it carries the event as argv[1],
+        # since the camelCase payload names none. No binary and no model call
+        cmd = _hook_command((read_json(AGY_HOOKS, {}).get("tezgah") or {}).get(event),
+                            "run_command", own=True)
+        if not cmd:
+            return ("miss", "no tezgah %s command for run_command in %s" % (event, AGY_HOOKS))
+        payload = {"toolCall": {"name": "run_command", "args": {
+            "CommandLine": LIVE_DENY_COMMAND if deny else "true", "WaitMsBeforeAsync": 5000}},
+            "stepIdx": 0}
+        if not deny:
+            payload["error"] = ""
+        return ("shell", cmd, payload, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -4921,6 +5043,9 @@ def _denied(host, stdout):
     if host == "gemini":
         # top level (hooks reference "BeforeTool"; `block` is its alias)
         return got.get("decision") in ("deny", "block")
+    if host == "antigravity":
+        # top level; `decision` is required, so an allow answers too (docs/hooks)
+        return got.get("decision") == "deny"
     return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
 
 
@@ -4953,7 +5078,10 @@ def live_probe(host, deny=False):
         if plan[0] == "shell":
             _kind, cmd, payload, extra = plan
             env.update(extra)
-            payload = dict(payload, session_id=sid, conversation_id=sid, cwd=root)
+            # Antigravity's envelope is camelCase, with no session_id or cwd
+            payload = (dict(payload, conversationId=sid, workspacePaths=[root])
+                       if host == "antigravity" else
+                       dict(payload, session_id=sid, conversation_id=sid, cwd=root))
             proc = subprocess.run(cmd, shell=True, input=json.dumps(payload),
                                   capture_output=True, text=True, env=env,
                                   cwd=root, timeout=LIVE_TIMEOUT)
@@ -5293,16 +5421,17 @@ def claude_mcp_rows(copies):
     return rows
 
 
-def _hooks_has(path, marker, events=None, bare=False):
+def _hooks_has(path, marker, events=None, bare=False, key="hooks"):
     """True when `marker` is wired under every event in `events`, or under any
     event when `events` is None. `bare`: the file is keyed by event at the top
-    (Droid's hooks.json), not under `hooks`.
+    (Droid's hooks.json); `key`: the top-level name the events sit under
+    (`hooks`, or Antigravity's `tezgah`).
 
     A row that one event can satisfy answers the wrong question: a manifest
     carrying tezgah's command under SessionStart and not under Stop reads as
     wired, and Stop is the integrity refusal."""
     data = read_json(path, {}) or {}
-    hooks = data if bare else data.get("hooks") or {}
+    hooks = data if bare else data.get(key) or {}
     if events is None:
         return any(marker in json.dumps(e) for arr in hooks.values() for e in arr)
     return all(any(marker in json.dumps(e) for e in (hooks.get(ev) or []))
@@ -5528,6 +5657,25 @@ def host_checks_gemini():
     ]
 
 
+def host_checks_antigravity():
+    settings = read_json(os.path.join(ANTIGRAVITY, "settings.json"), {})
+    mine = read_json(AGY_HOOKS, {}).get("tezgah")
+    return [
+        ("config/hooks.json wired (the `tezgah` name)",
+         _hooks_has(AGY_HOOKS, "tezgah-antigravity-hook",
+                    [ev for ev, _m, _t in ANTIGRAVITY_HOOK_EVENTS], key="tezgah")),
+        # `enabled: false` on a hook name loads none of its events (docs/hooks)
+        ("tezgah hook set left enabled in config/hooks.json",
+         not (isinstance(mine, dict) and mine.get("enabled") is False)),
+        ("skills linked", skills_linked(os.path.join(ANTIGRAVITY, "skills"))),
+        ("GEMINI.md carries the contract (matches a fresh render)",
+         rules_current("antigravity")),
+        ("statusLine in antigravity-cli/settings.json",
+         "tezgah-statusline" in json.dumps(settings.get("statusLine") or {})),
+        ("agy CLI on PATH", bool(tp.which_user("agy"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5648,7 +5796,8 @@ HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
                "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
                "droid": host_checks_droid, "commandcode": host_checks_commandcode,
-               "copilot": host_checks_copilot, "gemini": host_checks_gemini}
+               "copilot": host_checks_copilot, "gemini": host_checks_gemini,
+               "antigravity": host_checks_antigravity}
 
 
 def versions_agree():

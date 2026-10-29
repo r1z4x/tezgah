@@ -8,6 +8,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Antigravity CLI is a host (`antigravity`, plan 139 slice 4).**
+  `tezgah-setup --install --hosts antigravity` writes tezgah's hook set under
+  the `tezgah` name of `~/.gemini/config/hooks.json`. The user's other names
+  stay. The Antigravity App and IDE load that file too. The timeouts are in
+  seconds: Stop 30, the rest 5. The status line goes in
+  `~/.gemini/antigravity-cli/settings.json` while it is plain JSON, and the skill
+  links go in `antigravity-cli/skills`. Antigravity adds no co-author
+  trailer of its own, so there is nothing to turn off. The always-on block is
+  the `~/.gemini/GEMINI.md` one Gemini CLI shares. An uninstall now keeps it only
+  while another armed host reads the same file, so with `GEMINI_CLI_HOME` set
+  the two blocks come and go apart.
+  - `hosts/antigravity/hook.py` handles SessionStart, PreInvocation,
+    PreToolUse, PostToolUse and Stop. The payload names no event, so each
+    command passes it as its first argument. `conversationId` is the session
+    and `workspacePaths[0]` the cwd. The adapter renames the PascalCase tool
+    arguments into the gate's fields: `CommandLine`, `TargetFile`, `CodeContent`,
+    `TargetContent`/`ReplacementContent` and `ReplacementChunks`.
+  - PreToolUse denies with a top-level `decision: deny`. An allowed call
+    answers `decision: allow`, since Antigravity requires the field. PostToolUse reads
+    the outcome off `error`: empty is a pass, anything else a failure. The first
+    invocation of a turn writes the turn row and carries the reminder as an
+    `ephemeralMessage`. A loop that a refusal re-entered writes no turn row, so
+    the refusal budget holds.
+  - Stop reads the reply from `transcriptPath`, or writes a `reply_unread` row.
+    It judges only an idle `model_stop`, and `decision: continue` sends the
+    model back into the loop with the reason.
+  - `--report` has Antigravity rows, including one for `enabled: false` on the
+    `tezgah` name. `--report --live` probes the hook command with Antigravity's
+    camelCase payload and deny shape. No run has shown the binary obeying the
+    deny.
 - **Gemini CLI is a host (`gemini`, plan 139 slice 3).** `tezgah-setup
   --install --hosts gemini` writes tezgah's own extension dir,
   `~/.gemini/extensions/tezgah/`. It holds `gemini-extension.json`,

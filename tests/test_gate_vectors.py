@@ -38,6 +38,9 @@ CAMEL = {"file_path": "filePath", "old_string": "oldString",
          "new_string": "newString"}
 # Command Code's edit_file field names in its hooks reference
 CC_FIELDS = {"old_string": "old_value", "new_string": "new_value"}
+# Antigravity's PascalCase tool arguments (docs/hooks "Supported tools")
+AGY_ARGS = {"file_path": "TargetFile", "content": "CodeContent", "command": "CommandLine",
+            "old_string": "TargetContent", "new_string": "ReplacementContent"}
 
 
 def load():
@@ -62,7 +65,7 @@ def matcher(host, spec):
         return lambda name: True
     if "::" in path:
         # a host whose manifest is rendered by the installer (qwen, droid,
-        # commandcode, copilot, gemini): its constant. Command Code tests it against the
+        # commandcode, copilot, gemini, antigravity): its constant. Command Code tests it against the
         # tool's display name, case-insensitively (`display`)
         from test_setup import setup_module
         pattern = getattr(setup_module(), path.split("::", 1)[1])
@@ -154,6 +157,15 @@ class GateVectors(TempHome):
                                   tool_name=name, tool_input=inp),
                              lambda out: out.get("reason")
                              if out.get("decision") == "deny" else None)
+        if host == "antigravity":
+            # camelCase envelope, PascalCase args, the event as argv[1]
+            out, proc = run_json([support.ANTIGRAVITY_HOOK, "PreToolUse"],
+                                 {"conversationId": sid, "workspacePaths": [self.repo],
+                                  "toolCall": {"name": name, "args": {
+                                      AGY_ARGS.get(k, k): v for k, v in inp.items()}}},
+                                 env=self.envv)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return (out or {}).get("reason") if (out or {}).get("decision") == "deny" else None
         if host == "omp":
             return self.hook(support.OMP_HOOK,
                              dict(ids, event="pre_tool_use", tool=name, input=inp),

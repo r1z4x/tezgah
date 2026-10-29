@@ -48,6 +48,7 @@ CODE_TARGETS = {
     "commandcode": (os.path.join("hosts", "commandcode", "hook.py"),),
     "copilot": (os.path.join("hosts", "copilot", "hook.py"),),
     "gemini": (os.path.join("hosts", "gemini", "hook.py"),),
+    "antigravity": (os.path.join("hosts", "antigravity", "hook.py"),),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
@@ -87,11 +88,14 @@ def own_groups(data, own=False):
     return out
 
 
-def _manifest(path, own, bare=False):
-    """`bare`: the file is keyed by event at the top, as Droid's hooks.json is."""
+def _manifest(path, own, bare=False, key=None):
+    """`bare`: the file is keyed by event at the top, as Droid's hooks.json is;
+    `key`: the events sit under that top-level name, as Antigravity's do."""
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
+        if key:
+            data, bare = (data.get(key) if isinstance(data, dict) else None) or {}, True
         return own_groups({"hooks": data} if bare else data, own)
     except (OSError, ValueError):
         return None
@@ -130,6 +134,12 @@ def registration(host, root=ROOT):
         path = os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "hooks",
                             "hooks.json")
         return _manifest(path, own=True), [path]
+    if host == "antigravity":
+        # the shared ~/.gemini/config/hooks.json: every entry under its
+        # top-level `tezgah` name is ours
+        path = os.path.join(os.path.dirname(tp.HOST_DIRS["antigravity"]), "config",
+                            "hooks.json")
+        return _manifest(path, own=True, key="tezgah"), [path]
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")
                  for d in OPENCODE_DIRS)

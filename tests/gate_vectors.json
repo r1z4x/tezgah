@@ -42,7 +42,10 @@
                           "Bash": "Bash"},
                 "matcher": "bin/tezgah-setup::COPILOT_PRETOOL_MATCHER"},
     "gemini": {"tools": {"Write": "write_file", "Edit": "replace", "Bash": "run_shell_command"},
-               "matcher": "bin/tezgah-setup::GEMINI_PRETOOL_MATCHER"}
+               "matcher": "bin/tezgah-setup::GEMINI_PRETOOL_MATCHER"},
+    "antigravity": {"tools": {"Write": "write_to_file", "Edit": "replace_file_content",
+                              "Bash": "run_command"},
+                    "matcher": "bin/tezgah-setup::ANTIGRAVITY_PRETOOL_MATCHER"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

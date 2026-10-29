@@ -161,6 +161,7 @@ hooks/tezgah_taste.py
 hooks/tezgah_taste_ledger.py
 hooks/tezgah_untrusted.py
 hooks/tezgah_update.py
+hosts/antigravity/hook.py
 hosts/codex/hook.py
 hosts/codex/hooks.json
 hosts/commandcode/hook.py
@@ -913,6 +914,7 @@ tests/stop_spec_eval.py
 tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
+tests/test_antigravity_hook.py
 tests/test_apps_registry.py
 tests/test_attest.py
 tests/test_bash_agreement.py

@@ -117,6 +117,10 @@ HOST_DIRS = {
     # survives the sanitizer, so the hook sees it too. Antigravity shares
     # ~/.gemini, so a machine with only Antigravity reads as Gemini-installed.
     "gemini": os.path.join(os.environ.get("GEMINI_CLI_HOME") or HOME, ".gemini"),
+    # Antigravity CLI's own app dir (settings.json, skills); its hooks live in
+    # ~/.gemini/config/hooks.json and its rules in ~/.gemini/GEMINI.md, one level
+    # up. No relocated home is documented (antigravity.google/docs/settings)
+    "antigravity": os.path.join(HOME, ".gemini", "antigravity-cli"),
 }
 # a host can be installed with no config dir yet (a CLI on PATH is enough).
 # Command Code's short alias `cmd` is Windows' own shell there, so only its
@@ -124,7 +128,7 @@ HOST_DIRS = {
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
              "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",),
              "commandcode": ("command-code",), "copilot": ("copilot",),
-             "gemini": ("gemini",)}
+             "gemini": ("gemini",), "antigravity": ("agy",)}
 
 
 def host_installed(name):

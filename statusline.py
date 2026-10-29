@@ -6,6 +6,7 @@
   python3 statusline.py --qwen     # Qwen Code `ui.statusLine` command (same fields read)
   python3 statusline.py --droid    # Factory Droid `statusLine` command (`current_dir`)
   python3 statusline.py --copilot  # Copilot CLI `statusLine` command (fields undocumented)
+  python3 statusline.py --antigravity  # Antigravity CLI `statusLine` command (`workspace`)
 
 Claude Code's statusLine pipes session JSON on stdin; Cursor's spec is aligned
 with it. This wraps Orca's own status line for Claude, then appends the tezgah
@@ -38,7 +39,8 @@ except Exception as exc:
 
 HOME = os.path.expanduser("~")
 ORCA = os.path.join(HOME, ".orca", "agent-hooks", "claude-statusline.sh")
-HOST = next((h for h in ("cursor", "qwen", "droid", "copilot") if "--" + h in sys.argv
+HOST = next((h for h in ("cursor", "qwen", "droid", "copilot", "antigravity")
+             if "--" + h in sys.argv
              or os.environ.get("TEZGAH_STATUS_HOST") == h), "claude")
 
 data = sys.stdin.read()
@@ -123,7 +125,7 @@ def claude_used():
 # camelCase spelling is read too
 session_id = payload.get("session_id") or payload.get("sessionId")
 seen = used_kinds(session_id) if HOST != "claude" else claude_used()
-# Cursor's, Qwen's, Droid's and Copilot's lines read tezgah's store, which sees the tool calls their
+# Cursor's, Qwen's, Droid's, Copilot's and Antigravity's lines read tezgah's store, which sees the tool calls their
 # hook fires on and nothing else; Claude's transcript carries the skill reads too.
 observable = TOOL_USE_MEASURES if HOST != "claude" else None
 segs = health_segments(real or os.getcwd(), session_id,
