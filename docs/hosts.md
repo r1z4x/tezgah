@@ -484,9 +484,10 @@ In order, each step verified by the one below it:
   `hosts/cursor/hooks.json:8` - neither named them until 2026-09-19, so a
   PowerShell call on those two reached no hook at all while the shared rules
   already knew the spelling), and omp's `GATED` list
-  (`hosts/omp/tezgah-hook.ts.in:270-273`). Qwen Code has one shell tool id,
-  `run_shell_command`, which `bin/tezgah-setup::QWEN_PRETOOL_MATCHER` names beside
-  `mcp__.*`. Droid's shell is `Execute`, which `bin/tezgah-setup::DROID_PRETOOL_MATCHER`
+  (`hosts/omp/tezgah-hook.ts.in:270-273`). Qwen Code has two shell tool ids,
+  `run_shell_command` and `monitor`, which `bin/tezgah-setup::QWEN_PRETOOL_MATCHER`
+  names beside `notebook_edit` and `mcp__.*`. Claude's and dsh's `Monitor` runs a
+  shell command too, so their matcher names it. Droid's shell is `Execute`, which `bin/tezgah-setup::DROID_PRETOOL_MATCHER`
   names beside `Create`, `Edit`, `ApplyPatch`, `Task`, `Grep` and `mcp__.*`. The
   adapter hands ApplyPatch's `input` to the gate as `patch`
   (`hosts/droid/hook.py::gate_input`). A host this list does not cover is a host

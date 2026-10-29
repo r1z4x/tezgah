@@ -1742,7 +1742,8 @@ class QwenHost(SetupBase):
             # Qwen reads `timeout` in milliseconds
             self.assertGreaterEqual(ours[0]["hooks"][0]["timeout"], 5000, ev)
         pre = next(g for g in data["hooks"]["PreToolUse"] if "matcher" in g)
-        for tool in ("run_shell_command", "write_file", "edit", "agent", "mcp__x__y"):
+        for tool in ("run_shell_command", "monitor", "write_file", "edit", "notebook_edit",
+                     "agent", "mcp__x__y"):
             self.assertTrue(re.fullmatch(pre["matcher"], tool), tool)
         self.assertFalse(re.fullmatch(pre["matcher"], "read_file"))
         self.assertIn("--qwen", data["ui"]["statusLine"]["command"])
@@ -1789,6 +1790,13 @@ class QwenHost(SetupBase):
         self.assertFalse(os.path.lexists(self.path(".qwen", "skills", "ponytail")))
         self.assertFalse(os.path.exists(self.path(".qwen", "QWEN.md")))
         self.assertIn("qwen settings.json unwired", proc.stdout)
+
+    def test_uninstall_leaves_no_settings_file_it_created(self):
+        # review of plan 138: with no settings.json before the install, the
+        # uninstall must not leave a `{}` the user never had
+        self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "qwen").returncode, 0)
+        self.assertFalse(os.path.exists(self.path(".qwen", "settings.json")))
 
     def test_doctor_stack_and_live_report_run_with_qwen_installed(self):
         self.assertEqual(self.setup("--install", "--hosts", "qwen").returncode, 0)
@@ -1901,7 +1909,8 @@ class DroidHost(SetupBase):
         proc = self.setup("--uninstall", "--hosts", "droid")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(self.hooks(), {"PreToolUse": [self.MINE]})
-        self.assertNotIn("statusLine", self.read_json(self.path(".factory", "settings.json")))
+        # settings.json held only tezgah's statusLine: it goes with it
+        self.assertFalse(os.path.exists(self.path(".factory", "settings.json")))
         self.assertFalse(os.path.lexists(self.path(".factory", "skills", "ponytail")))
         self.assertTrue(os.path.islink(other))
         self.assertFalse(os.path.exists(self.path(".factory", "AGENTS.md")))

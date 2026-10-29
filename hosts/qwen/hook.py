@@ -42,11 +42,15 @@ except Exception as exc:
 # shared gate's vocabulary. `replace` is the edit tool's id in older builds; the
 # 0.21.13 bundle has none, and an unknown id passes the gate untouched. MCP tools
 # arrive as `mcp__<server>__<tool>`, the shared shape, and pass through.
+# `monitor` runs a shell command too (Qwen's headless deny list pairs it with
+# SHELL), and `notebook_edit` writes an .ipynb (review of plan 138).
 GATE_TOOLS = {
     "run_shell_command": "Bash",
+    "monitor": "Bash",
     "write_file": "Write",
     "edit": "Edit",
     "replace": "Edit",
+    "notebook_edit": "NotebookEdit",
     "agent": "Task",
     "grep_search": "Grep",
 }

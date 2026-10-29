@@ -392,8 +392,10 @@ LIST_BLOCKS = frozenset(("residual work", "ready steps", "stopped slice",
 WRITE_TOOLS = ("edit", "write", "multiedit", "notebookedit", "apply_patch",
                "str_replace_editor", "create_file", "str_replace", "edit_file",
                "write_file", "search_replace")
+# `monitor` is Claude's and Qwen's background watch: its `command` is a shell
+# command (review of plan 138), so every shell rule reads it.
 BASH_TOOLS = ("bash", "shell", "command", "exec_command", "run_command",
-              "powershell", "pwsh")
+              "powershell", "pwsh", "monitor")
 # The read/search tools: known calls that do no step of work and that no rule
 # reads a row for, spelled as the hosts send them (Claude/Cursor's capitalized
 # set, omp's lowercase one, codex's `grep`). They are not `unknown` - the ledger

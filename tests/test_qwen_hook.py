@@ -54,6 +54,17 @@ class QwenHook(TempHome):
                                     "content": "API = \"ghp_" + "A1b2C3d4" * 5 + "\"\n"})
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
+    def test_monitor_and_notebook_edit_reach_the_gate(self):
+        # review of plan 138: `monitor` runs a shell command and `notebook_edit`
+        # writes a file; neither may pass the gate under its raw Qwen id
+        out = self.send("PreToolUse", tool_name="monitor",
+                        tool_input={"command": DENIED, "description": "watch"})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+        switch = os.path.join(self.home, ".config", "tezgah", "pretooluse-off")
+        out = self.send("PreToolUse", tool_name="notebook_edit",
+                        tool_input={"notebook_path": switch, "new_source": "x"})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
     def test_both_halves_name_the_shell_call_alike(self):
         # the loop guard denies a third identical failing run only if the
         # PostToolUseFailure rows and the PreToolUse call hash to one id

@@ -184,6 +184,15 @@ class Gate(TempHome):
     def test_attribute_less_commit_passes(self):
         self.assertIsNone(self.decide("Bash", {"command": 'git commit -m "fix: typo"'}))
 
+    def test_a_monitor_command_is_read_as_a_shell_command(self):
+        # review of plan 138: Claude's Monitor runs `command` as a shell script
+        # (its schema: "Shell command or script ... exactly one of command or
+        # ws"), so a credit or a skipped hook inside it is refused like Bash
+        reason = self.decide("Monitor", {"command": 'git commit -m "x\n\nGenerated with Claude Code"',
+                                         "description": "watch"})
+        self.assertIsNotNone(reason)
+        self.assertIn("Attribution", reason)
+
     def test_attribution_forms_deny_a_commit(self):
         for credit in ("Co-Authored-By: Claude <noreply@anthropic.com>",
                        "Generated with Claude Code",

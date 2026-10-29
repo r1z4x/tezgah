@@ -331,7 +331,7 @@ CURSOR_HOOK_EVENTS = {
 # value the other manifests carry would time every hook out. Stop and
 # SubagentStop run the integrity rule, which may ask a judge, so they get more.
 # Qwen takes MCP tools as `mcp__<server>__<tool>`.
-QWEN_PRETOOL_MATCHER = ("^(run_shell_command|write_file|edit|replace|notebook_edit|"
+QWEN_PRETOOL_MATCHER = ("^(run_shell_command|monitor|write_file|edit|replace|notebook_edit|"
                         "agent|grep_search|mcp__.*)$")
 QWEN_HOOK_EVENTS = (("SessionStart", None, 5000), ("UserPromptSubmit", None, 5000),
                     ("PreToolUse", QWEN_PRETOOL_MATCHER, 5000),
@@ -711,9 +711,14 @@ def write_json(path, data):
     mkdirp(os.path.dirname(path))
     backup(path)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
+    existed = os.path.exists(path)
+    # over an existing file the copy is born owner-only, then takes the file's
+    # mode: a settings file holding provider keys is never readable by others,
+    # not even between the write and the mode copy
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if existed else 0o666)
+    with open(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
-    if os.path.exists(path):
+    if existed:
         shutil.copymode(path, tmp)  # an owner-only config stays owner-only
     os.replace(tmp, path)
     return True
@@ -3874,7 +3879,17 @@ def uninstall_qwen():
             cfg.pop("ui")
         write_json(path, cfg)
         print("%s removed tezgah statusLine from %s" % (OK, path))
+    drop_if_empty(path)
     strip_managed_md(os.path.join(QWEN, "QWEN.md"))
+
+
+def drop_if_empty(path):
+    """Remove a host settings file uninstall emptied: tezgah created it to hold
+    its hooks or status line, and a `{}` the user never had is left over."""
+    if read_json(path, None) == {}:
+        backup(path)
+        os.remove(path)
+        print("%s removed %s (empty once tezgah's keys left)" % (OK, path))
 
 
 def uninstall_droid():
@@ -3907,6 +3922,7 @@ def uninstall_droid():
         cfg.pop("statusLine")
         write_json(spath, cfg)
         print("%s removed tezgah statusLine from %s" % (OK, spath))
+    drop_if_empty(spath)
     strip_managed_md(os.path.join(DROID, "AGENTS.md"))
 
 
