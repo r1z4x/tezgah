@@ -186,12 +186,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   --hosts droid` merges tezgah's hook groups into `~/.factory/hooks.json` beside
   the user's. Their timeouts are in seconds, as Droid reads them. The install
   also links the skills into `~/.factory/skills` beside the user's own links.
-  It writes the always-on block in `~/.factory/AGENTS.md`. It adds the
-  `statusLine` command to `settings.json` while that file is plain JSON.
-  `--uninstall` takes back only tezgah's groups, links and keys.
+  It writes the always-on block in `~/.factory/AGENTS.md`. It sets the
+  `statusLine` command and `includeCoAuthoredByDroid: false` in `settings.json`.
+  The install edits a settings.json with comments in place and keeps its
+  comments (plan 141). `--uninstall` takes back only tezgah's groups, links and keys.
   - Droid reads the `hooks` key of settings.json only while hooks.json is
     absent. So the install creates no hooks.json beside such a key, and the
-    report row says why. It never rewrites a settings.json that holds comments.
+    report row says why. Then settings.json stays untouched.
   - `hosts/droid/hook.py` maps Droid's tool ids (`Execute`, `Create`,
     `ApplyPatch`, `FetchUrl`) onto the gate and hands ApplyPatch's `input` over
     as `patch`. It denies with `permissionDecision: deny` on exit 0 and reads a

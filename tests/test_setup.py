@@ -1902,6 +1902,33 @@ class DroidHost(SetupBase):
         self.assertEqual(setup_module().read_jsonc(path),
                          {"model": "x", "includeCoAuthoredByDroid": False})
 
+    def test_an_earlier_plain_json_line_is_refreshed_and_a_user_s_line_kept(self):
+        # review of plan 141: a pre-141 install wrote plain, indented JSON; a
+        # stale interpreter path there is refreshed, not left behind
+        path = self.path(".factory", "settings.json")
+        self.write_json(path, {"model": "x", "statusLine": {
+            "command": '"/old/python3" "/x/tezgah-statusline" --droid'}})
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        data = self.read_json(path)
+        self.assertNotIn("/old/python3", data["statusLine"]["command"])
+        self.assertIs(data["includeCoAuthoredByDroid"], False)
+        # a user's own status line stays, and the trailer switch still goes in
+        with open(path, "w") as fh:
+            fh.write('// mine\n{"statusLine": {"command": "mine"}}\n')
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        data = setup_module().read_jsonc(path)
+        self.assertEqual(data["statusLine"], {"command": "mine"})
+        self.assertIs(data["includeCoAuthoredByDroid"], False)
+
+    def test_an_empty_commented_object_round_trips_without_a_trailing_comma(self):
+        path = self.path(".factory", "settings.json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as fh:
+            fh.write("// n\n{}\n")
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "droid").returncode, 0)
+        self.assertNotRegex(self.read_text(path), r",\s*}")
+
     def test_the_report_rows_follow_the_written_files(self):
         self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
         out = self.setup("--hosts", "droid").stdout
