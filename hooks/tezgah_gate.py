@@ -3635,8 +3635,11 @@ def decision(tool, inp, cwd, session_id=None, record=True, agent=None):
                  check=1 if t in BASH_TOOLS and verify_command(command, cwd) else None)
     # Claude's Task names the agent `subagent_type`; omp's task names it `agent`,
     # on the call (flat shape) or on each `tasks[]` item (batch shape).
-    subs = [inp.get("subagent_type"),
-            (inp.get("args") or {}).get("subagent_type"), inp.get("agent")]
+    # A shell tool's `args` can be a list (Command Code splits argv there): only
+    # a dict carries a subagent type, and a list must not crash the decision,
+    # which the hook's guard would turn into a silent pass (plan 139)
+    args = inp.get("args") if isinstance(inp.get("args"), dict) else {}
+    subs = [inp.get("subagent_type"), args.get("subagent_type"), inp.get("agent")]
     subs += [item.get("agent") for item in inp.get("tasks") or ()
              if isinstance(item, dict)]
     # The body a shell call writes, read once: the three write-tool-only rules

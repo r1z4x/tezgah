@@ -193,6 +193,13 @@ class Gate(TempHome):
         self.assertIsNotNone(reason)
         self.assertIn("Attribution", reason)
 
+    def test_a_shell_call_with_list_args_is_still_decided(self):
+        # plan 139: a list `args` crashed the decision, and the hook's guard
+        # turned the crash into a silent pass on any host that sends one
+        reason = self.decide("Bash", {"command": "git commit --no-verify -m x",
+                                      "args": ["-v"]})
+        self.assertIsNotNone(reason)
+
     def test_attribution_forms_deny_a_commit(self):
         for credit in ("Co-Authored-By: Claude <noreply@anthropic.com>",
                        "Generated with Claude Code",
