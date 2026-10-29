@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-29
+
 ### Added
 
 - **Amp is a host (`amp`, plan 140).** `tezgah-setup --install --hosts amp`
