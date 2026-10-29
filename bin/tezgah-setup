@@ -167,6 +167,7 @@ DSH_STATUSLINE = "tezgah-dsh-statusline"
 OMP = tp.HOST_DIRS["omp"]
 OMP_AGENT = os.path.join(OMP, "agent")
 QWEN = tp.HOST_DIRS["qwen"]
+DROID = tp.HOST_DIRS["droid"]
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -224,7 +225,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
-ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -337,6 +338,13 @@ QWEN_HOOK_EVENTS = (("SessionStart", None, 5000), ("UserPromptSubmit", None, 500
                     ("PostToolUse", None, 5000), ("PostToolUseFailure", None, 5000),
                     ("SubagentStart", None, 5000), ("SubagentStop", None, 30000),
                     ("Stop", None, 30000))
+# Factory Droid 0.251.0 (docs.factory.com harness/hooks): a matcher is a
+# case-sensitive regex over the tool id, and `timeout` is in seconds. Droid has
+# no SubagentStart and no failure event. MCP tools are `mcp__<server>__<tool>`.
+DROID_PRETOOL_MATCHER = "^(Execute|Create|Edit|ApplyPatch|Task|Grep|mcp__.*)$"
+DROID_HOOK_EVENTS = (("SessionStart", None, 5), ("UserPromptSubmit", None, 5),
+                     ("PreToolUse", DROID_PRETOOL_MATCHER, 5), ("PostToolUse", None, 5),
+                     ("SubagentStop", None, 30), ("Stop", None, 30))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -481,9 +489,9 @@ def hook_entries(hosts):
     what re-arming would change."""
     out = {}
     for h in hosts:
-        if h in ("codex", "cursor", "qwen"):
+        if h in ("codex", "cursor", "qwen", "droid"):
             groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
-                      "qwen": qwen_hook_groups}[h]()
+                      "qwen": qwen_hook_groups, "droid": droid_hook_groups}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -1117,6 +1125,7 @@ def install_common(new_roots, hosts):
             ("tezgah-codex-hook", os.path.join(HERE, "hosts", "codex", "hook.py")),
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
             ("tezgah-qwen-hook", os.path.join(HERE, "hosts", "qwen", "hook.py")),
+            ("tezgah-droid-hook", os.path.join(HERE, "hosts", "droid", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -1632,7 +1641,7 @@ def opencode_contract():
 def contract_artifacts(hosts):
     """{path: (fresh render, writer)} for every always-on contract artifact
     these hosts read: the managed block of each static rules file (Claude,
-    Codex, omp, Qwen) and opencode's contract and skill routers."""
+    Codex, omp, Qwen, Droid) and opencode's contract and skill routers."""
     out = {}
     for h in hosts:
         if h in STATIC_RULES:
@@ -2146,6 +2155,98 @@ def install_qwen():
     print("%s %s (always-on contract)" % (OK, write_rules("qwen")))
 
 
+def droid_hook_groups():
+    """{event: the group install_droid writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-droid-hook"))
+    out = {}
+    for ev, matcher, timeout in DROID_HOOK_EVENTS:
+        group = {"matcher": matcher} if matcher else {}
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": timeout}]
+        out[ev] = group
+    return out
+
+
+# a JSON string, kept, or a `//` / `/* */` comment, dropped
+JSONC_TOKENS = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.S)
+
+
+def read_jsonc(path):
+    """The object in a JSON-with-comments file (Droid's settings.json), {} when
+    the file is absent, None when it does not parse. Read-only: tezgah never
+    writes such a file back, since a rewrite would drop the user's comments.
+    ponytail: a trailing comma inside a string value is dropped too; the readers
+    only ask for top-level keys."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return None
+    text = re.sub(r",(\s*[}\]])", r"\1", JSONC_TOKENS.sub(lambda m: m.group(1) or "", text))
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def droid_hooks_blocked():
+    """Why tezgah must not create ~/.factory/hooks.json, or None. Droid reads the
+    `hooks` key of settings.json only while hooks.json is absent, so creating one
+    beside such a key would switch the user's own hooks off."""
+    if os.path.exists(os.path.join(DROID, "hooks.json")):
+        return None
+    path = os.path.join(DROID, "settings.json")
+    data = read_jsonc(path)
+    if data is None:
+        return "%s does not parse, so its `hooks` key cannot be ruled out" % path
+    if "hooks" in data:
+        return ("%s carries a `hooks` key, which Droid ignores once hooks.json "
+                "exists - move those hooks into hooks.json, then re-run --install" % path)
+    return None
+
+
+def droid_statusline():
+    return tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-statusline")) + " --droid"
+
+
+def install_droid():
+    """Factory Droid: hook groups in `~/.factory/hooks.json`, the status line in
+    `settings.json`, skill links, and the always-on block in `AGENTS.md`.
+    hooks.json may hold the user's own groups, so only a group naming tezgah is
+    replaced. It is not created while settings.json declares hooks
+    (`droid_hooks_blocked`). settings.json is JSON with comments, so the status
+    line goes in only when the file is plain JSON or absent."""
+    print("\ndroid:")
+    path = os.path.join(DROID, "hooks.json")
+    why = droid_hooks_blocked()
+    if why:
+        print("%s %s not written: %s" % (NO, path, why))
+    else:
+        data = read_config(path, {})
+        if data is not None:
+            for ev, group in droid_hook_groups().items():
+                arr = data.setdefault(ev, [])
+                arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+                arr.append(group)
+            write_json(path, data)
+            print("%s %s (hooks)" % (OK, path))
+    spath = os.path.join(DROID, "settings.json")
+    settings = read_json(spath, None) if os.path.exists(spath) else {}
+    if isinstance(settings, dict):
+        # the command's stdout is drawn above the input (settings reference)
+        settings["statusLine"] = {"command": droid_statusline()}
+        write_json(spath, settings)
+        print("%s %s (statusLine)" % (OK, spath))
+    else:
+        print("%s %s holds comments, which a rewrite would drop: set the status "
+              "line with /statusline to `%s`" % (NO, spath, droid_statusline()))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(DROID, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("droid")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2531,7 +2632,8 @@ CLAUDE_RULES = os.path.join(CLAUDE, "CLAUDE.md")
 # the disk (AGENTS.override.md wins when it exists).
 STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "omp": lambda: os.path.join(OMP_AGENT, "RULES.md"),
-                "qwen": lambda: os.path.join(QWEN, "QWEN.md")}
+                "qwen": lambda: os.path.join(QWEN, "QWEN.md"),
+                "droid": lambda: os.path.join(DROID, "AGENTS.md")}
 
 
 def rules_block(host):
@@ -2646,7 +2748,8 @@ def install_omp():
 
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
-              "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen}
+              "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
+              "droid": install_droid}
 
 
 def install_openresearch(hosts):
@@ -3533,6 +3636,15 @@ def verify_uninstall(hosts, full):
         claim("qwen skills unlinked",
               [os.path.join(QWEN, "skills", s) for s in SKILLS
                if os.path.lexists(os.path.join(QWEN, "skills", s))])
+    if "droid" in hosts:
+        clean("droid hooks.json unwired", [os.path.join(DROID, "hooks.json")])
+        clean("droid settings.json statusLine gone", [os.path.join(DROID, "settings.json")],
+              needle="tezgah-statusline")
+        clean("droid global AGENTS.md block gone", [os.path.join(DROID, "AGENTS.md")],
+              needle="<!-- tezgah:start")
+        claim("droid skills unlinked",
+              [os.path.join(DROID, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(DROID, "skills", s))])
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -3765,6 +3877,39 @@ def uninstall_qwen():
     strip_managed_md(os.path.join(QWEN, "QWEN.md"))
 
 
+def uninstall_droid():
+    print("\ndroid:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(DROID, "skills", s))
+    path = os.path.join(DROID, "hooks.json")
+    data = read_json(path, None)
+    if isinstance(data, dict):
+        kept = {}
+        for ev, arr in data.items():
+            if isinstance(arr, list):
+                arr = [e for e in arr if "tezgah" not in json.dumps(e)]
+                if not arr:
+                    continue
+            kept[ev] = arr
+        if kept == data:
+            print("%s no tezgah hook entries in %s" % (OK, path))
+        elif kept:
+            write_json(path, kept)
+            print("%s removed tezgah hook entries from %s" % (OK, path))
+        else:
+            # an empty hooks.json would still hide the `hooks` key of settings.json
+            backup(path)
+            os.remove(path)
+            print("%s removed %s (it held only tezgah's hooks)" % (OK, path))
+    spath = os.path.join(DROID, "settings.json")
+    cfg = read_json(spath, None)
+    if isinstance(cfg, dict) and "tezgah-statusline" in json.dumps(cfg.get("statusLine") or {}):
+        cfg.pop("statusLine")
+        write_json(spath, cfg)
+        print("%s removed tezgah statusLine from %s" % (OK, spath))
+    strip_managed_md(os.path.join(DROID, "AGENTS.md"))
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -3817,7 +3962,8 @@ def uninstall_omp():
 
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
-                "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen}
+                "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
+                "droid": uninstall_droid}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4414,6 +4560,19 @@ def live_plan(host, deny=False):
         if not deny:
             payload["tool_response"] = {"llmContent": "", "returnDisplay": ""}
         return ("shell", cmd, payload, {})
+    if host == "droid":
+        # the hook command Droid runs for Execute, fed Droid's own payload; no
+        # droid binary and no model call (tests/e2e_droid.py drives the binary)
+        path = os.path.join(DROID, "hooks.json")
+        cmd = _hook_command(read_json(path, {}).get(event), "Execute")
+        if not cmd:
+            return ("miss", "no tezgah %s command for Execute in %s" % (event, path))
+        payload = {"hook_event_name": event, "tool_name": "Execute",
+                   "permission_mode": "auto-low",
+                   "tool_input": {"command": LIVE_DENY_COMMAND if deny else "true"}}
+        if not deny:
+            payload["tool_response"] = "\n\n[Process exited with code 0]"
+        return ("shell", cmd, payload, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -4803,14 +4962,16 @@ def claude_mcp_rows(copies):
     return rows
 
 
-def _hooks_has(path, marker, events=None):
+def _hooks_has(path, marker, events=None, bare=False):
     """True when `marker` is wired under every event in `events`, or under any
-    event when `events` is None.
+    event when `events` is None. `bare`: the file is keyed by event at the top
+    (Droid's hooks.json), not under `hooks`.
 
     A row that one event can satisfy answers the wrong question: a manifest
     carrying tezgah's command under SessionStart and not under Stop reads as
     wired, and Stop is the integrity refusal."""
-    hooks = (read_json(path, {}) or {}).get("hooks") or {}
+    data = read_json(path, {}) or {}
+    hooks = data if bare else data.get("hooks") or {}
     if events is None:
         return any(marker in json.dumps(e) for arr in hooks.values() for e in arr)
     return all(any(marker in json.dumps(e) for e in (hooks.get(ev) or []))
@@ -4966,6 +5127,21 @@ def host_checks_qwen():
     ]
 
 
+def host_checks_droid():
+    path = os.path.join(DROID, "hooks.json")
+    why = droid_hooks_blocked()
+    status = (read_jsonc(os.path.join(DROID, "settings.json")) or {}).get("statusLine")
+    return [
+        ("hooks.json wired" + (" (not written: %s)" % why if why else ""),
+         _hooks_has(path, "tezgah-droid-hook", [ev for ev, _m, _t in DROID_HOOK_EVENTS],
+                    bare=True)),
+        ("skills linked", skills_linked(os.path.join(DROID, "skills"))),
+        ("AGENTS.md carries the contract (matches a fresh render)", rules_current("droid")),
+        ("statusLine in settings.json", "tezgah-statusline" in json.dumps(status or {})),
+        ("droid CLI on PATH", bool(tp.which_user("droid"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5084,7 +5260,8 @@ def host_checks_omp():
 
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
-               "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen}
+               "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
+               "droid": host_checks_droid}
 
 
 def versions_agree():

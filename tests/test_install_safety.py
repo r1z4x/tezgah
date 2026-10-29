@@ -23,7 +23,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP = os.path.join(REPO, "bin", "tezgah-setup")
 
 # (host, path under HOME, malformed text): the read-then-rewrite sites (plan 047's
-# seven, then Qwen's settings.json, which Qwen itself parses as JSON with comments),
+# seven, then Qwen's settings.json, which Qwen itself parses as JSON with comments,
+# and Droid's hooks.json),
 # alternating the two malformations the plan names.
 TRAILING = '{"keep": "mine",}\n'
 COMMENT = '// mine\n{"keep": "mine"}\n'
@@ -36,6 +37,7 @@ SITES = (
     ("cursor", (".cursor", "cli-config.json"), COMMENT),
     ("omp", (".omp", "agent", "mcp.json"), TRAILING),
     ("qwen", (".qwen", "settings.json"), COMMENT),
+    ("droid", (".factory", "hooks.json"), TRAILING),
 )
 
 

@@ -1811,6 +1811,128 @@ class QwenHost(SetupBase):
         self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
 
 
+class DroidHost(SetupBase):
+    """Factory Droid reads ~/.factory/hooks.json, keyed by event at the top, and
+    the `hooks` key of its JSON-with-comments settings.json only while hooks.json
+    is absent: the install merges tezgah's groups into hooks.json beside the
+    user's, never creates it over a settings.json `hooks` key, and never
+    rewrites a settings.json that holds comments."""
+
+    MINE = {"matcher": "Execute",
+            "hooks": [{"type": "command", "command": "/usr/local/bin/audit.sh"}]}
+    JSONC = '{\n  // the user\'s note\n  "model": "x",\n}\n'
+
+    def hooks(self):
+        return self.read_json(self.path(".factory", "hooks.json"))
+
+    def test_install_merges_its_groups_and_keeps_the_user_s(self):
+        self.write_json(self.path(".factory", "hooks.json"), {"PreToolUse": [self.MINE]})
+        proc = self.setup("--install", "--hosts", "droid")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.hooks()
+        self.assertEqual(data["PreToolUse"][0], self.MINE)
+        m = setup_module()
+        for ev, _m, timeout in m.DROID_HOOK_EVENTS:
+            ours = [g for g in data[ev] if "tezgah-droid-hook" in json.dumps(g)]
+            self.assertEqual(len(ours), 1, ev)
+            # Droid reads `timeout` in seconds
+            self.assertEqual(ours[0]["hooks"][0]["timeout"], timeout, ev)
+            self.assertLessEqual(timeout, 30, ev)
+        pre = next(g for g in data["PreToolUse"] if "tezgah" in json.dumps(g))
+        for tool in ("Execute", "Create", "Edit", "ApplyPatch", "Task", "mcp__x__y"):
+            self.assertTrue(re.fullmatch(pre["matcher"], tool), tool)
+        self.assertFalse(re.fullmatch(pre["matcher"], "Read"))
+        settings = self.read_json(self.path(".factory", "settings.json"))
+        self.assertIn("--droid", settings["statusLine"]["command"])
+        self.assertTrue(os.path.islink(self.path(".factory", "skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start", self.read_text(self.path(".factory", "AGENTS.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-droid-hook")))
+        # a second install replaces tezgah's groups, it does not add more
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        self.assertEqual(sum("tezgah-droid-hook" in json.dumps(g)
+                             for g in self.hooks()["Stop"]), 1)
+
+    def test_a_settings_hooks_key_stops_the_install_and_the_row_says_why(self):
+        path = self.path(".factory", "settings.json")
+        os.makedirs(os.path.dirname(path))
+        text = '{\n  // mine\n  "hooks": {"Stop": []},\n}\n'
+        with open(path, "w") as fh:
+            fh.write(text)
+        proc = self.setup("--install", "--hosts", "droid")
+        self.assertNotEqual(proc.returncode, 0, proc.stdout)
+        self.assertFalse(os.path.exists(self.path(".factory", "hooks.json")))
+        self.assertEqual(self.read_text(path), text)
+        row = self.row(self.setup("--hosts", "droid").stdout, "hooks.json wired").strip()
+        self.assertTrue(row.startswith("MISS"), row)
+        self.assertIn("carries a `hooks` key", row)
+
+    def test_settings_with_comments_get_hooks_json_but_are_never_rewritten(self):
+        path = self.path(".factory", "settings.json")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w") as fh:
+            fh.write(self.JSONC)
+        proc = self.setup("--install", "--hosts", "droid")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(path), self.JSONC)
+        self.assertIn("/statusline", proc.stdout)
+        self.assertIn("Stop", self.hooks())
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        out = self.setup("--hosts", "droid").stdout
+        for label in ("hooks.json wired", "skills linked", "AGENTS.md carries the contract",
+                      "statusLine in settings.json", "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        data = self.hooks()
+        del data["Stop"]
+        self.write_json(self.path(".factory", "hooks.json"), data)
+        out = self.setup("--hosts", "droid").stdout
+        self.assertTrue(self.row(out, "hooks.json wired").strip().startswith("MISS"), out)
+        self.assertIn("droid Stop entry removed", out)
+
+    def test_uninstall_removes_only_tezgah_s_wiring(self):
+        self.write_json(self.path(".factory", "hooks.json"), {"PreToolUse": [self.MINE]})
+        # ~/.factory/skills already holds the user's own skill links
+        other = self.path(".factory", "skills", "orca-cli")
+        os.makedirs(os.path.dirname(other))
+        os.symlink(self.path(".agents", "skills", "orca-cli"), other)
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "droid")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.hooks(), {"PreToolUse": [self.MINE]})
+        self.assertNotIn("statusLine", self.read_json(self.path(".factory", "settings.json")))
+        self.assertFalse(os.path.lexists(self.path(".factory", "skills", "ponytail")))
+        self.assertTrue(os.path.islink(other))
+        self.assertFalse(os.path.exists(self.path(".factory", "AGENTS.md")))
+        self.assertIn("droid hooks.json unwired", proc.stdout)
+
+    def test_uninstall_deletes_a_hooks_json_that_held_only_tezgah_s(self):
+        # an empty hooks.json would still hide settings.json's `hooks` key
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "droid").returncode, 0)
+        self.assertFalse(os.path.exists(self.path(".factory", "hooks.json")))
+
+    def test_doctor_stack_and_live_report_run_with_droid_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["droid"]
+        self.assertIn(self.path(".factory", "AGENTS.md"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "droid")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live droid:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live droid deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
+
 
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):

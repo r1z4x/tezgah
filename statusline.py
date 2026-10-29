@@ -4,6 +4,7 @@
   python3 statusline.py            # Claude Code (or any Claude-format status line)
   python3 statusline.py --cursor   # Cursor CLI (same stdin shape, no Orca passthrough)
   python3 statusline.py --qwen     # Qwen Code `ui.statusLine` command (same fields read)
+  python3 statusline.py --droid    # Factory Droid `statusLine` command (`current_dir`)
 
 Claude Code's statusLine pipes session JSON on stdin; Cursor's spec is aligned
 with it. This wraps Orca's own status line for Claude, then appends the tezgah
@@ -36,7 +37,7 @@ except Exception as exc:
 
 HOME = os.path.expanduser("~")
 ORCA = os.path.join(HOME, ".orca", "agent-hooks", "claude-statusline.sh")
-HOST = next((h for h in ("cursor", "qwen") if "--" + h in sys.argv
+HOST = next((h for h in ("cursor", "qwen", "droid") if "--" + h in sys.argv
              or os.environ.get("TEZGAH_STATUS_HOST") == h), "claude")
 
 data = sys.stdin.read()
@@ -55,8 +56,11 @@ if HOST == "claude" and os.access(ORCA, os.X_OK):
     except Exception:
         orca_out = ""
 
-cwd = ((payload.get("workspace") or {}).get("current_dir")
-       or payload.get("cwd") or "")
+# Droid 0.251.0 sends `current_dir` at the top level (its status line snapshot
+# carries session_id, transcript_path, current_dir, workspace, model)
+workspace = payload.get("workspace")
+cwd = ((workspace if isinstance(workspace, dict) else {}).get("current_dir")
+       or payload.get("current_dir") or payload.get("cwd") or "")
 try:
     real = os.path.realpath(cwd) if cwd else ""
 except OSError:
@@ -115,7 +119,7 @@ def claude_used():
 
 
 seen = used_kinds(payload.get("session_id")) if HOST != "claude" else claude_used()
-# Cursor's and Qwen's lines read tezgah's store, which sees the tool calls their
+# Cursor's, Qwen's and Droid's lines read tezgah's store, which sees the tool calls their
 # hook fires on and nothing else; Claude's transcript carries the skill reads too.
 observable = TOOL_USE_MEASURES if HOST != "claude" else None
 segs = health_segments(real or os.getcwd(), payload.get("session_id"),

@@ -8,6 +8,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Factory Droid is a host (`droid`, plan 138 wave 1).** `tezgah-setup --install
+  --hosts droid` merges tezgah's hook groups into `~/.factory/hooks.json` beside
+  the user's. Their timeouts are in seconds, as Droid reads them. The install
+  also links the skills into `~/.factory/skills` beside the user's own links.
+  It writes the always-on block in `~/.factory/AGENTS.md`. It adds the
+  `statusLine` command to `settings.json` while that file is plain JSON.
+  `--uninstall` takes back only tezgah's groups, links and keys.
+  - Droid reads the `hooks` key of settings.json only while hooks.json is
+    absent. So the install creates no hooks.json beside such a key, and the
+    report row says why. It never rewrites a settings.json that holds comments.
+  - `hosts/droid/hook.py` maps Droid's tool ids (`Execute`, `Create`,
+    `ApplyPatch`, `FetchUrl`) onto the gate and hands ApplyPatch's `input` over
+    as `patch`. It denies with `permissionDecision: deny` on exit 0 and reads a
+    shell call's outcome off its `[Process exited with code N]` line.
+  - Droid's Stop carries no reply, so the hook reads the reply from
+    `transcript_path`. A turn end whose reply is not there yet becomes a
+    `reply_unread` row and is not judged. SubagentStop records `task_result`
+    as a `subagent_end` row.
+  - `--report` has Droid rows, and `--report --live` probes the hook command
+    with Droid's own payload. `tests/e2e_droid.py` runs the real binary only
+    under `TEZGAH_E2E_SPEND=1`, because it spends a model call.
+
 - **Qwen Code is a host (`qwen`, plan 138 wave 1).** `tezgah-setup --install
   --hosts qwen` merges tezgah's hook groups into `~/.qwen/settings.json` beside
   Orca's. Their timeouts are in milliseconds, as Qwen reads them. The install

@@ -44,6 +44,7 @@ CODE_TARGETS = {
     "opencode": (os.path.join("hosts", "opencode", "plugins", "tezgah.js"),),
     "omp": (os.path.join("hosts", "omp", "hook.py"),),
     "qwen": (os.path.join("hosts", "qwen", "hook.py"),),
+    "droid": (os.path.join("hosts", "droid", "hook.py"),),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
@@ -83,10 +84,12 @@ def own_groups(data, own=False):
     return out
 
 
-def _manifest(path, own):
+def _manifest(path, own, bare=False):
+    """`bare`: the file is keyed by event at the top, as Droid's hooks.json is."""
     try:
         with open(path, encoding="utf-8") as fh:
-            return own_groups(json.load(fh), own)
+            data = json.load(fh)
+        return own_groups({"hooks": data} if bare else data, own)
     except (OSError, ValueError):
         return None
 
@@ -110,11 +113,11 @@ def registration(host, root=ROOT):
         path = os.path.join(root, *(("hooks",) if host == "claude"
                                     else ("hosts", "dsh")), "hooks.json")
         return _manifest(path, own=True), [path]
-    if host in ("codex", "cursor", "qwen"):
+    if host in ("codex", "cursor", "qwen", "droid"):
         # Qwen's hooks live in its shared settings.json, beside Orca's
         path = os.path.join(tp.HOST_DIRS[host],
                             "settings.json" if host == "qwen" else "hooks.json")
-        return _manifest(path, own=False), [path]
+        return _manifest(path, own=False, bare=host == "droid"), [path]
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")
                  for d in OPENCODE_DIRS)

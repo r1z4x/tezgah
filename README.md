@@ -35,8 +35,8 @@ reaches every host the same way.
 
 ## What tezgah enforces and records
 
-- **One contract, six hosts.** omp, Claude Code, Codex, Cursor, opencode and
-  dsh see the same rules, because every host is a thin adapter over one shared
+- **One contract, eight hosts.** omp, Claude Code, Codex, Cursor, opencode,
+  dsh, Qwen Code and Factory Droid see the same rules, because every host is a thin adapter over one shared
   core — change a rule once and all of them pick it up.
 - **A done claim needs a passing check on record.** A gate of 15 refusals stops
   the neutered check — `--no-verify`, `|| true`, a test piped into `tail`, a

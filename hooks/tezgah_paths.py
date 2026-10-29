@@ -103,10 +103,13 @@ HOST_DIRS = {
     # qwen 0.21.13 reads a relocated home from QWEN_HOME (`getGlobalQwenDir`
     # in its bundle), the same pattern as CODEX_HOME
     "qwen": os.environ.get("QWEN_HOME") or os.path.join(HOME, ".qwen"),
+    # Factory Droid documents no relocated home: hooks.json, AGENTS.md and skills
+    # live under ~/.factory (docs.factory.com harness/hooks, agents-md, skills)
+    "droid": os.path.join(HOME, ".factory"),
 }
 # a host can be installed with no config dir yet (a CLI on PATH is enough)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
-             "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",)}
+             "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",)}
 
 
 def host_installed(name):

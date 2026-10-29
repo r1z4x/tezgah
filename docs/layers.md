@@ -56,7 +56,7 @@ Must not own the user's rules, the evidence of the turn or the refusal. A
 runtime runs what the model asks; nothing inside it stops the model, which is
 the whole reason tezgah exists ([architecture](architecture.md)).
 
-Here the six hosts are the runtimes, one config dir per host
+Here the eight hosts (claude, codex, cursor, opencode, dsh, omp, qwen, droid) are the runtimes, one config dir per host
 (`hooks/tezgah_paths.py::HOST_DIRS`) with one presence test (`host_installed`
 `hooks/tezgah_paths.py::host_installed`), and the adapter under `hosts/<name>/` holds the
 host's envelope and nothing else ([hosts](hosts.md)). The README's own intro

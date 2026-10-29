@@ -2800,8 +2800,9 @@ CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
 # under `hosts/<host>/` (HOOK_HOSTS); its launchers carry their own names.
 HOOK_ENTRIES = frozenset(("projects-auto-init", "projects-pretooluse",
                           "projects-posttooluse", "projects-stop",
-                          "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-qwen-hook"))
-HOOK_HOSTS = frozenset(("codex", "cursor", "omp", "qwen"))
+                          "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-qwen-hook",
+                          "tezgah-droid-hook"))
+HOOK_HOSTS = frozenset(("codex", "cursor", "omp", "qwen", "droid"))
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
 # `sed`/`perl` count only with an in-place flag. `sqlite3` rewrites the cache
@@ -2930,6 +2931,9 @@ def _registration(real):
               os.path.join(HOST_DIRS["codex"], "config.toml"),
               os.path.join(HOST_DIRS["cursor"], "hooks.json"),
               os.path.join(HOST_DIRS["qwen"], "settings.json"),
+              # Droid reads hooks.json, else the `hooks` key of its settings.json
+              os.path.join(HOST_DIRS["droid"], "hooks.json"),
+              os.path.join(HOST_DIRS["droid"], "settings.json"),
               os.path.join(claude, "plugins", "installed_plugins.json"),
               os.path.join(claude, "plugins", "known_marketplaces.json"))
     if (name in ("settings.json", "settings.local.json")

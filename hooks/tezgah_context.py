@@ -1523,12 +1523,13 @@ GATE_MIN_CALLS = 3
 # The tool names whose every call leaves a PreToolUse row (`began`,
 # tezgah_gate.decision's write and shell branch) and every refused one a `deny`:
 # Claude's write and shell tools, omp's `bash`/`edit`/`write` and Codex's
-# `exec_command`/`apply_patch`. A
+# `exec_command`/`apply_patch`, Droid's `Execute`/`Create`/`ApplyPatch`. A
 # tool the gate may pass without a row (Read, Grep, Task, WebFetch, an MCP
 # call) is not counted, so its absence from the ledger is never read as a
 # disarmed gate.
 GATED_TOOLS = re.compile(r"(?i)^(?:bash|powershell|pwsh|edit|write|multiedit|"
-                         r"notebookedit|exec_command|shell|apply_patch)$")
+                         r"notebookedit|exec_command|shell|apply_patch|"
+                         r"execute|create|applypatch)$")
 GATE_INACTIVE = (
     "tezgah gate inactive on this host: %d gated tool call(s) since this "
     "session's first turn and not one row from the gate, so the shortcut "
@@ -1654,7 +1655,8 @@ def context_nudge(payload, session_id):
 # The ledger kinds a hook other than the tool hooks writes: the prompt hook's
 # turn marker, judge row, lesson rows and disarm row, the Stop hook's claim,
 # refusal, after_block and shape rows and the stop_spec rows of plan 063's shadow
-# (old ledgers only), the subagent-end hook's subagent_end row,
+# (old ledgers only), the subagent-end hook's subagent_end row, Droid's Stop
+# `reply_unread` row (a turn end whose reply the transcript did not yield),
 # compaction, the subagent mark and the `subagent_start` lineage row (both from
 # SubagentStart), the omp fork's `forked` row, the guard's crash
 # row (any hook), the damage row any reader writes and the session start's
@@ -1667,7 +1669,7 @@ NOT_TOOL_HOOK = frozenset((b"turn", b"judge", b"claim", b"refusal",
                            b"after_block", b"subagent_end", b"stop_spec",
                            b"shape", b"compact", b"orch", b"crash", b"route",
                            b"spawned", b"forked", b"lesson", b"disarm", b"ledger_damage",
-                           b"attest", b"subagent_start"))
+                           b"attest", b"subagent_start", b"reply_unread"))
 # The rows PostToolUse writes (`note_tool`): they prove the host ran the call,
 # not that the gate saw it - a PostToolUse hook keeps writing them while a
 # broken PreToolUse hook lets every call through - so they are no proof either.

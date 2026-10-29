@@ -282,6 +282,32 @@ def host_stack(host, repo):
             + ["%s (project)" % n for n in sorted(project.get("mcpServers") or {})],
             "scan": [os.path.join(c, "skills")],
         }
+    if host == "droid":
+        c, h = tp.HOST_DIRS["droid"], tp.HOME
+
+        def droid_hooks(d, source):
+            # hooks.json is keyed by event at the top; only when it is absent does
+            # Droid read the `hooks` key of settings.json (harness/hooks)
+            path = os.path.join(d, "hooks.json")
+            if os.path.exists(path):
+                return hook_rows({"hooks": _json(path)}, source)
+            return hook_rows(_json(os.path.join(d, "settings.json")), source)
+        return {
+            # harness/agents-md: cwd up to the git root and the personal dirs
+            "context": [os.path.join(c, "AGENTS.md"), os.path.join(h, ".agents", "AGENTS.md"),
+                        os.path.join(repo, "AGENTS.md"),
+                        os.path.join(repo, ".factory", "AGENTS.md"),
+                        os.path.join(repo, "CLAUDE.md")],
+            # harness/skills lists the scopes and names no winner
+            "skills": ("all", [os.path.join(c, "skills"),
+                               os.path.join(repo, ".factory", "skills"),
+                               os.path.join(h, ".agents", "skills"),
+                               os.path.join(repo, ".agents", "skills")]),
+            "hooks": merge_hooks(droid_hooks(c, "hooks.json"),
+                                 droid_hooks(os.path.join(repo, ".factory"), "project")),
+            "mcp": sorted(_json(os.path.join(c, "mcp.json")).get("mcpServers") or {}),
+            "scan": [os.path.join(c, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -299,7 +325,7 @@ def skill_copies(dirs):
 def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
-            for x in ("codex", "cursor", "opencode", "dsh", "qwen")]
+            for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid")]
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])
