@@ -632,13 +632,15 @@ MUTANTS = (
               "    if False:\n"),
      "a done/tested claim in a read-only turn reaches its class (plan 142)"),
     ("handed-step-wired", INTEGRITY,
-     anchored("    passed = handed_steps(text, rows)\n", "    passed = []\n"),
+     anchored("    passed = handed_steps(text, rows, read_only)\n",
+              "    passed = []\n"),
      "the handed-step class is asked at the Stop exit (plan 142)"),
     ("handed-step-capability", INTEGRITY,
-     anchored("    if not any(str(r.get(\"kind\")) in COMMAND_KINDS for r in rows):\n"
-              "        return []\n",
+     anchored("    if read_only or not any(str(r.get(\"kind\")) in COMMAND_KINDS"
+              " for r in rows):\n        return []\n",
               "    if False:\n        return []\n"),
-     "a turn that ran no command of its own hands nothing back (plan 142)"),
+     "a plan-mode turn, and one that ran no command of its own, hand nothing"
+     " back (plan 142)"),
     ("grant-polarity", CONTEXT,
      anchored("        if not lift and _refuses(text, start, at, to, stop, *rules):\n",
               "        if False:\n"),
