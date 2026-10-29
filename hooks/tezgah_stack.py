@@ -83,6 +83,26 @@ def yaml_list(text, key):
     return out
 
 
+def yaml_keys(text, key):
+    """The direct child keys of `key:` in a block-style YAML file (Goose's
+    `extensions:` map in config.yaml)."""
+    out, indent = [], None
+    for line in text.splitlines():
+        if indent is None:
+            if re.match(r"^%s:\s*$" % re.escape(key), line):
+                indent = -1
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^(\s+)([\w.-]+):", line)
+        if not m:
+            break
+        indent = len(m.group(1)) if indent < 0 else indent
+        if len(m.group(1)) == indent:
+            out.append(m.group(2))
+    return out
+
+
 def toml_tables(text, prefix):
     """Names of `[prefix.<name>]` tables in a TOML file (Codex's MCP rows)."""
     return sorted({m.group(1) for m in re.finditer(
@@ -416,6 +436,36 @@ def host_stack(host, repo):
                 _json(os.path.join(repo, ".agents", "mcp_config.json")).get("mcpServers") or {})],
             "scan": [os.path.join(a, "skills")],
         }
+    if host == "goose":
+        c, h = tp.HOST_DIRS["goose"], tp.HOME
+        disabled = set(_json(os.path.join(c, "settings.json")).get("disabledPlugins") or [])
+
+        def plugins(base, source):
+            # plugins guide "Plugin Locations"; `disabledPlugins` skips one
+            names = sorted(n for n in os.listdir(base)
+                           if os.path.isdir(os.path.join(base, n))) if os.path.isdir(base) else []
+            return [hook_rows(_json(os.path.join(base, n, "hooks", "hooks.json")),
+                              "%s %s" % (source, n)) for n in names if n not in disabled]
+        return {
+            # goosehints guide: CONTEXT_FILE_NAMES (default AGENTS.md, .goosehints)
+            # global in ~/.config/goose, then the project's; all load
+            "context": [os.path.join(c, "AGENTS.md"), os.path.join(c, ".goosehints"),
+                        os.path.join(repo, "AGENTS.md"), os.path.join(repo, ".goosehints")],
+            # skills guide "Skill Locations" names no winner; a plugin's skills are
+            # namespaced `<plugin>:<name>`, so they collide with none of these
+            "skills": ("all", [os.path.join(h, ".agents", "skills"),
+                               os.path.join(repo, ".agents", "skills"),
+                               os.path.join(repo, ".goose", "skills"),
+                               os.path.join(repo, ".claude", "skills"),
+                               os.path.join(h, ".claude", "skills")]),
+            # hooks guide "Where Hooks Live": user and project plugins
+            "hooks": merge_hooks(*plugins(os.path.join(h, ".agents", "plugins"), "plugin"),
+                                 *plugins(os.path.join(repo, ".agents", "plugins"),
+                                          "project plugin")),
+            # config-files guide: `extensions:` in config.yaml
+            "mcp": yaml_keys(_read(os.path.join(c, "config.yaml")), "extensions"),
+            "scan": [os.path.join(tp.GOOSE_PLUGIN, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -436,6 +486,7 @@ def tezgah_skill_dirs():
             for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode",
                       "copilot", "antigravity")]
     dirs.append(os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "skills"))
+    dirs.append(os.path.join(tp.GOOSE_PLUGIN, "skills"))
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])

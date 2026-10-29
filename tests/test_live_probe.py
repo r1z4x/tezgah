@@ -6,12 +6,13 @@ Per planned host it now sends `git commit --no-verify -m x` through the host's
 own PreToolUse wiring and requires both the host's deny envelope (Claude, Codex,
 dsh, Qwen, Droid and Command Code `permissionDecision: deny` under
 `hookSpecificOutput`, Copilot the same at the top level, Gemini and Antigravity
-a top-level `decision: deny` (Antigravity's event on argv), Cursor `permission: deny`,
-omp `block: true`, opencode a throw) and a deny row in the ledger. `pretooluse-off` and
+a top-level `decision: deny` (Antigravity's event on argv), Goose a top-level
+`decision: block`, Cursor `permission: deny`, omp `block: true`, opencode a
+throw) and a deny row in the ledger. `pretooluse-off` and
 `verify-off` stand that refusal down, so the row is UNVERIFIED and names the
 switch. The omp bridge must also match a fresh render byte for byte.
 
-Twelve hosts are installed into a throwaway HOME from a release-shaped copy of the
+Thirteen hosts are installed into a throwaway HOME from a release-shaped copy of the
 tree, with stub `claude` and `omp` CLIs; no real host CLI or config is touched.
 
 Guards bin/tezgah-setup (`live_plan`, `live_probe`, `omp_bridge`),
@@ -30,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_claude_registration import ClaudeHome  # noqa: E402
 
 HOSTS = ("claude", "codex", "cursor", "dsh", "opencode", "omp", "qwen", "droid",
-         "commandcode", "copilot", "gemini", "antigravity")
+         "commandcode", "copilot", "gemini", "antigravity", "goose")
 
 # An omp CLI that keeps `extensions` in a file: `config get extensions --json`
 # answers it, `config set extensions <json>` replaces it.

@@ -35,8 +35,9 @@ reaches every host the same way.
 
 ## What tezgah enforces and records
 
-- **One contract, eight hosts.** omp, Claude Code, Codex, Cursor, opencode,
-  dsh, Qwen Code and Factory Droid see the same rules, because every host is a thin adapter over one shared
+- **One contract, thirteen hosts.** omp, Claude Code, Codex, Cursor, opencode,
+  dsh, Qwen Code, Factory Droid, Command Code, GitHub Copilot CLI, Gemini CLI,
+  Antigravity CLI and Goose see the same rules, because every host is a thin adapter over one shared
   core — change a rule once and all of them pick it up.
 - **A done claim needs a passing check on record.** A gate of 15 refusals stops
   the neutered check — `--no-verify`, `|| true`, a test piped into `tail`, a
@@ -154,7 +155,7 @@ and the optional integrations are in the [docs](docs/README.md).
 
 ## Supported hosts
 
-**omp** (the primary host, developed and verified against), **Claude Code**, **Codex**, **Cursor**, **opencode**, **dsh** — thin adapters over one shared core.
+**omp** (the primary host, developed and verified against), **Claude Code**, **Codex**, **Cursor**, **opencode**, **dsh**, **Qwen Code**, **Factory Droid**, **Command Code**, **GitHub Copilot CLI**, **Gemini CLI**, **Antigravity CLI**, **Goose** — thin adapters over one shared core. The last five are wired from their vendors' hook docs alone: no run of their binaries has shown them obeying a deny yet ([hosts](docs/hosts.md)).
 
 ## Where the depth lives
 

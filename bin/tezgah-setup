@@ -179,6 +179,9 @@ ANTIGRAVITY = tp.HOST_DIRS["antigravity"]
 # Antigravity's global hooks file: one top-level name per hook set, and the
 # Antigravity App and IDE load it too (docs/hooks); tezgah owns the `tezgah` name
 AGY_HOOKS = os.path.join(os.path.dirname(ANTIGRAVITY), "config", "hooks.json")
+GOOSE = tp.HOST_DIRS["goose"]
+# tezgah's own Goose plugin under ~/.agents/plugins, wholly tezgah's
+GOOSE_PLUGIN = tp.GOOSE_PLUGIN
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -237,7 +240,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid",
-             "commandcode", "copilot", "gemini", "antigravity"]
+             "commandcode", "copilot", "gemini", "antigravity", "goose"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -396,6 +399,15 @@ ANTIGRAVITY_PRETOOL_MATCHER = ("^(run_command|write_to_file|replace_file_content
 ANTIGRAVITY_HOOK_EVENTS = (("SessionStart", None, 5), ("PreInvocation", None, 5),
                            ("PreToolUse", ANTIGRAVITY_PRETOOL_MATCHER, 5),
                            ("PostToolUse", "", 5), ("Stop", None, 30))
+# Goose (docs guides/context-engineering/hooks): `timeout` in seconds, a matcher a
+# regex tested unanchored (so anchored here) against the tool name. The built-in
+# developer tools are bare (`shell`, `write`, `edit`), an extension's tool is
+# `<extension>__<tool>`. Only PreToolUse and Stop can block; Stop runs the
+# integrity rule. `on_failure` is left at its default `allow` (X-D2).
+GOOSE_PRETOOL_MATCHER = "^(shell|write|edit|.+__.+)$"
+GOOSE_HOOK_EVENTS = (("SessionStart", None, 5), ("UserPromptSubmit", None, 5),
+                     ("PreToolUse", GOOSE_PRETOOL_MATCHER, 5), ("PostToolUse", None, 5),
+                     ("PostToolUseFailure", None, 5), ("Stop", None, 30))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -541,12 +553,13 @@ def hook_entries(hosts):
     out = {}
     for h in hosts:
         if h in ("codex", "cursor", "qwen", "droid", "commandcode", "copilot", "gemini",
-                 "antigravity"):
+                 "antigravity", "goose"):
             groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
                       "qwen": qwen_hook_groups, "droid": droid_hook_groups,
                       "commandcode": commandcode_hook_groups,
                       "copilot": copilot_hook_entries, "gemini": gemini_hook_groups,
-                      "antigravity": antigravity_hook_groups}[h]()
+                      "antigravity": antigravity_hook_groups,
+                      "goose": goose_hook_groups}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -1192,6 +1205,7 @@ def install_common(new_roots, hosts):
             ("tezgah-gemini-hook", os.path.join(HERE, "hosts", "gemini", "hook.py")),
             ("tezgah-antigravity-hook",
              os.path.join(HERE, "hosts", "antigravity", "hook.py")),
+            ("tezgah-goose-hook", os.path.join(HERE, "hosts", "goose", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -2479,6 +2493,37 @@ def install_antigravity():
     print("%s %s (always-on contract)" % (OK, write_rules("antigravity")))
 
 
+def goose_hook_groups():
+    """{event: the group install_goose writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-goose-hook"))
+    out = {}
+    for ev, matcher, timeout in GOOSE_HOOK_EVENTS:
+        group = {"matcher": matcher} if matcher else {}
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": timeout}]
+        out[ev] = group
+    return out
+
+
+def install_goose():
+    """Goose: tezgah's own plugin dir, `~/.agents/plugins/tezgah/`, wholly
+    tezgah's - `plugin.json` beside `hooks/hooks.json` and `skills/` links (Goose
+    loads them as `tezgah:<skill>`) - and the always-on block in
+    `~/.config/goose/.goosehints`. The user's other `~/.agents` content is never
+    touched. `on_failure` stays at its default `allow`, so a hook fault lets the
+    call through. Neither Goose's docs nor its system prompt add a co-author
+    trailer or name a setting for one, so there is nothing to turn off."""
+    print("\ngoose:")
+    write_json(os.path.join(GOOSE_PLUGIN, "plugin.json"),
+               {"name": "tezgah", "version": plugin_version(),
+                "description": "tezgah lifecycle hooks and skills"})
+    path = os.path.join(GOOSE_PLUGIN, "hooks", "hooks.json")
+    write_json(path, {"hooks": {ev: [g] for ev, g in goose_hook_groups().items()}})
+    print("%s %s (plugin hooks)" % (OK, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(GOOSE_PLUGIN, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("goose")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2869,7 +2914,8 @@ STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "commandcode": lambda: os.path.join(COMMANDCODE, "AGENTS.md"),
                 "copilot": lambda: os.path.join(COPILOT, "copilot-instructions.md"),
                 "gemini": lambda: os.path.join(GEMINI, "GEMINI.md"),
-                "antigravity": lambda: os.path.join(os.path.dirname(ANTIGRAVITY), "GEMINI.md")}
+                "antigravity": lambda: os.path.join(os.path.dirname(ANTIGRAVITY), "GEMINI.md"),
+                "goose": lambda: os.path.join(GOOSE, ".goosehints")}
 # Gemini CLI and Antigravity both load ~/.gemini/GEMINI.md, so they share ONE
 # managed block: an uninstall strips it only while no other host of this tuple
 # that reads the same file stays armed (`gemini_md_kept`; GEMINI_CLI_HOME moves
@@ -3004,7 +3050,7 @@ INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
               "droid": install_droid, "commandcode": install_commandcode,
               "copilot": install_copilot, "gemini": install_gemini,
-              "antigravity": install_antigravity}
+              "antigravity": install_antigravity, "goose": install_goose}
 
 
 def install_openresearch(hosts):
@@ -3934,6 +3980,10 @@ def verify_uninstall(hosts, full):
         if not gemini_md_kept("antigravity"):
             clean("antigravity GEMINI.md block gone", [STATIC_RULES["antigravity"]()],
                   needle="<!-- tezgah:start")
+    if "goose" in hosts:
+        claim("goose plugin dir gone", [GOOSE_PLUGIN])
+        clean("goose .goosehints block gone", [STATIC_RULES["goose"]()],
+              needle="<!-- tezgah:start")
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -4294,6 +4344,18 @@ def uninstall_antigravity():
         strip_managed_md(rules)
 
 
+def uninstall_goose():
+    """Delete tezgah's plugin dir (its skills are links, unlinked, never
+    followed) and the .goosehints block; the rest of ~/.agents is the user's."""
+    print("\ngoose:")
+    if os.path.lexists(GOOSE_PLUGIN):
+        for name in ("plugin.json", os.path.join("hooks", "hooks.json")):
+            backup(os.path.join(GOOSE_PLUGIN, name))
+        shutil.rmtree(GOOSE_PLUGIN)
+        print("%s removed %s" % (OK, GOOSE_PLUGIN))
+    strip_managed_md(STATIC_RULES["goose"]())
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -4349,7 +4411,7 @@ UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
                 "droid": uninstall_droid, "commandcode": uninstall_commandcode,
                 "copilot": uninstall_copilot, "gemini": uninstall_gemini,
-                "antigravity": uninstall_antigravity}
+                "antigravity": uninstall_antigravity, "goose": uninstall_goose}
 
 
 def uninstall(hosts, dry_run=False):
@@ -5020,6 +5082,19 @@ def live_plan(host, deny=False):
         if not deny:
             payload["error"] = ""
         return ("shell", cmd, payload, {})
+    if host == "goose":
+        # the hook command Goose runs for its `shell` tool, from tezgah's plugin
+        # hooks.json, fed Goose's own payload (the event in `event`, the
+        # directory as `working_dir`); no binary and no model call
+        path = os.path.join(GOOSE_PLUGIN, "hooks", "hooks.json")
+        cmd = _hook_command((read_json(path, {}).get("hooks") or {}).get(event), "shell",
+                            own=True)
+        if not cmd:
+            return ("miss", "no tezgah %s command for shell in %s" % (event, path))
+        return ("shell", cmd, {"event": event, "tool_name": "shell",
+                               "matcher_context": "shell", "tool_call_id": "tezgah-live",
+                               "tool_input": {"command": LIVE_DENY_COMMAND if deny
+                                              else "true"}}, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -5046,6 +5121,9 @@ def _denied(host, stdout):
     if host == "antigravity":
         # top level; `decision` is required, so an allow answers too (docs/hooks)
         return got.get("decision") == "deny"
+    if host == "goose":
+        # top level, stdout starting with `{` (hooks "Blocking a Tool Call")
+        return got.get("decision") == "block"
     return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
 
 
@@ -5078,9 +5156,12 @@ def live_probe(host, deny=False):
         if plan[0] == "shell":
             _kind, cmd, payload, extra = plan
             env.update(extra)
-            # Antigravity's envelope is camelCase, with no session_id or cwd
+            # Antigravity's envelope is camelCase, with no session_id or cwd;
+            # Goose names the directory `working_dir`
             payload = (dict(payload, conversationId=sid, workspacePaths=[root])
                        if host == "antigravity" else
+                       dict(payload, session_id=sid, working_dir=root)
+                       if host == "goose" else
                        dict(payload, session_id=sid, conversation_id=sid, cwd=root))
             proc = subprocess.run(cmd, shell=True, input=json.dumps(payload),
                                   capture_output=True, text=True, env=env,
@@ -5676,6 +5757,23 @@ def host_checks_antigravity():
     ]
 
 
+def host_checks_goose():
+    disabled = read_json(os.path.join(GOOSE, "settings.json"), {}).get("disabledPlugins")
+    return [
+        # the hooks load only from a plugin dir under ~/.agents/plugins
+        ("plugin hooks/hooks.json wired (~/.agents/plugins/tezgah)",
+         _hooks_has(os.path.join(GOOSE_PLUGIN, "hooks", "hooks.json"), "tezgah-goose-hook",
+                    [ev for ev, _m, _t in GOOSE_HOOK_EVENTS])
+         and read_json(os.path.join(GOOSE_PLUGIN, "plugin.json"), {}).get("name") == "tezgah"),
+        # a plugin named in `disabledPlugins` is skipped at discovery (plugins guide)
+        ("tezgah plugin not in disabledPlugins (settings.json)",
+         not (isinstance(disabled, list) and "tezgah" in disabled)),
+        ("skills linked", skills_linked(os.path.join(GOOSE_PLUGIN, "skills"))),
+        (".goosehints carries the contract (matches a fresh render)", rules_current("goose")),
+        ("goose CLI on PATH", bool(tp.which_user("goose"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5797,7 +5895,7 @@ HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
                "droid": host_checks_droid, "commandcode": host_checks_commandcode,
                "copilot": host_checks_copilot, "gemini": host_checks_gemini,
-               "antigravity": host_checks_antigravity}
+               "antigravity": host_checks_antigravity, "goose": host_checks_goose}
 
 
 def versions_agree():

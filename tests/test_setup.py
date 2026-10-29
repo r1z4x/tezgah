@@ -2442,6 +2442,110 @@ class AntigravityHost(SetupBase):
         self.assertIn("denied `git commit --no-verify -m x`", deny)
 
 
+class GooseHost(SetupBase):
+    """Goose loads hooks and skills from plugin dirs under ~/.agents/plugins: the
+    install writes its own `tezgah` plugin there (plugin.json, hooks/hooks.json,
+    skill links) and the block in ~/.config/goose/.goosehints; the uninstall
+    deletes the plugin dir and the block, and leaves the rest of ~/.agents."""
+
+    def plugin(self, *parts):
+        return self.path(".agents", "plugins", "tezgah", *parts)
+
+    def test_install_writes_its_own_plugin(self):
+        proc = self.setup("--install", "--hosts", "goose")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_json(self.plugin("plugin.json"))["name"], "tezgah")
+        data = self.read_json(self.plugin("hooks", "hooks.json"))
+        self.assertEqual(sorted(data["hooks"]),
+                         sorted(ev for ev, _m, _t in setup_module().GOOSE_HOOK_EVENTS))
+        for ev, matcher, timeout in setup_module().GOOSE_HOOK_EVENTS:
+            group, = data["hooks"][ev]
+            entry, = group["hooks"]
+            self.assertIn("tezgah-goose-hook", entry["command"], ev)
+            self.assertEqual(entry["timeout"], timeout, ev)
+            self.assertEqual(group.get("matcher"), matcher, ev)
+            # left at Goose's default `allow`: the gate fails open on a hook fault
+            self.assertNotIn("on_failure", entry, ev)
+        self.assertEqual(data["hooks"]["Stop"][0]["hooks"][0]["timeout"], 30)
+        pre = data["hooks"]["PreToolUse"][0]["matcher"]
+        for tool in ("shell", "write", "edit", "todo__todo_write"):
+            self.assertTrue(re.fullmatch(pre, tool), tool)
+        for tool in ("tree", "read_image", "remote_shell_exec"):
+            self.assertFalse(re.fullmatch(pre, tool), tool)
+        self.assertTrue(os.path.islink(self.plugin("skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start",
+                      self.read_text(self.path(".config", "goose", ".goosehints")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-goose-hook")))
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "goose").returncode, 0)
+        out = self.setup("--hosts", "goose").stdout
+        for label in ("plugin hooks/hooks.json wired", "skills linked",
+                      ".goosehints carries the contract", "not in disabledPlugins",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        self.write_json(self.path(".config", "goose", "settings.json"),
+                        {"disabledPlugins": ["tezgah"]})
+        out = self.setup("--hosts", "goose").stdout
+        self.assertTrue(self.row(out, "not in disabledPlugins").strip().startswith("MISS"),
+                        out)
+        path = self.plugin("hooks", "hooks.json")
+        data = self.read_json(path)
+        del data["hooks"]["Stop"]
+        self.write_json(path, data)
+        out = self.setup("--hosts", "goose").stdout
+        self.assertTrue(self.row(out, "plugin hooks/hooks.json wired").strip()
+                        .startswith("MISS"), out)
+        self.assertIn("goose Stop entry removed", out)
+
+    def test_uninstall_removes_the_plugin_and_the_block_only(self):
+        mine = self.path(".agents", "plugins", "other", "plugin.json")
+        self.write_json(mine, {"name": "other", "version": "1"})
+        skill = self.path(".agents", "skills", "mine", "SKILL.md")
+        os.makedirs(os.path.dirname(skill))
+        with open(skill, "w") as fh:
+            fh.write("mine\n")
+        hints = self.path(".config", "goose", ".goosehints")
+        os.makedirs(os.path.dirname(hints))
+        with open(hints, "w") as fh:
+            fh.write("Always use TypeScript.\n")
+        self.assertEqual(self.setup("--install", "--hosts", "goose").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "goose")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(self.plugin()))
+        self.assertTrue(os.path.exists(mine))
+        self.assertTrue(os.path.exists(skill))
+        self.assertTrue(os.path.isfile(os.path.join(REPO, "skills", "ponytail", "SKILL.md")))
+        self.assertEqual(self.read_text(hints).strip(), "Always use TypeScript.")
+        self.assertIn("goose plugin dir gone", proc.stdout)
+
+    def test_doctor_stack_and_live_report_run_with_goose_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "goose").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        with open(self.path(".config", "goose", "config.yaml"), "w") as fh:
+            fh.write("GOOSE_PROVIDER: openai\nextensions:\n  developer:\n    enabled: true\n"
+                     "  github:\n    type: stdio\nGOOSE_MODEL: x\n")
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["goose"]
+        self.assertIn(self.path(".config", "goose", ".goosehints"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        self.assertEqual(stack["mcp"], ["developer", "github"])
+        proc = self.setup("--report", "--live", "--hosts", "goose")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live goose:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live goose deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("denied `git commit --no-verify -m x`", deny)
+
+
+
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
         """`--dry-run` is a preview for the uninstall too: the run that the

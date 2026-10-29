@@ -8,6 +8,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Goose is a host (`goose`, plan 139 slice 5).** `tezgah-setup --install
+  --hosts goose` writes tezgah's own plugin dir, `~/.agents/plugins/tezgah/`.
+  It holds `plugin.json`, `hooks/hooks.json` and `skills/` links, and it is
+  wholly tezgah's. Goose loads the skills as `tezgah:<skill>`. The timeouts are in seconds: Stop 30, the
+  rest 5. `on_failure` stays at Goose's default `allow`, so the gate fails open
+  on a hook fault. The always-on block goes in `~/.config/goose/.goosehints`.
+  Goose adds no co-author trailer and names no setting for one, so there is
+  nothing to turn off. The uninstall deletes the plugin dir and the block and
+  leaves the rest of `~/.agents` alone.
+  - `hosts/goose/hook.py` handles SessionStart (attestation only),
+    UserPromptSubmit (the turn row only), PreToolUse, PostToolUse,
+    PostToolUseFailure and Stop. The event is the payload's `event`, the cwd its
+    `working_dir`, else the hook's own. `shell`, `write` and `edit` map to Bash,
+    Write and Edit, with `path` as `file_path` and `before`/`after` as
+    `old_string`/`new_string`. `<extension>__<tool>` becomes
+    `mcp__<extension>__<tool>`.
+  - PreToolUse and Stop block with `{"decision": "block", "reason": ...}` on
+    stdout. The outcome is the event: PostToolUse is a pass, PostToolUseFailure
+    a failure. Stop judges `last_assistant_message`, or writes a
+    `reply_unread` row. With no host block count, the turn rows bound the
+    re-asks.
+  - `--report` has Goose rows, including one for `disabledPlugins`. `--report
+    --live` probes the hook command with Goose's payload and block shape.
+    `tezgah-doctor --stack` reads Goose's hints, skills, plugins and the
+    `extensions:` map of `config.yaml`. No run has shown the binary obeying the
+    block. README and docs/layers.md now name all thirteen hosts.
 - **Antigravity CLI is a host (`antigravity`, plan 139 slice 4).**
   `tezgah-setup --install --hosts antigravity` writes tezgah's hook set under
   the `tezgah` name of `~/.gemini/config/hooks.json`. The user's other names

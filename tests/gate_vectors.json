@@ -45,7 +45,9 @@
                "matcher": "bin/tezgah-setup::GEMINI_PRETOOL_MATCHER"},
     "antigravity": {"tools": {"Write": "write_to_file", "Edit": "replace_file_content",
                               "Bash": "run_command"},
-                    "matcher": "bin/tezgah-setup::ANTIGRAVITY_PRETOOL_MATCHER"}
+                    "matcher": "bin/tezgah-setup::ANTIGRAVITY_PRETOOL_MATCHER"},
+    "goose": {"tools": {"Write": "write", "Edit": "edit", "Bash": "shell"},
+              "matcher": "bin/tezgah-setup::GOOSE_PRETOOL_MATCHER"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

@@ -305,7 +305,9 @@ Gemini does the same: an AfterAgent deny comes back through BeforeAgent as the n
 (`hosts/gemini/hook.py::main`). A refusal row stores the key of its text as `reask`. A `turn` row with that key starts no new user
 turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals`). Antigravity's
 `continue` re-enters the loop with no prompt, so its first-invocation hook writes no `turn` row
-while the ledger's last row is that refusal (`hosts/antigravity/hook.py::reentered`). The omp host
+while the ledger's last row is that refusal (`hosts/antigravity/hook.py::reentered`). A Goose Stop
+block keeps the turn going with no new prompt and no host count, so its turn rows alone decide
+(`hosts/goose/hook.py::main`). The omp host
 caps the continuations it starts itself, but never a chain of blocks, so tezgah's count bounds that
 chain. So a reply that fixes the first class but adds a new one gets one more refusal. A blocker
 list with no evidence is such a new class. A reply after a block that is not refused writes one

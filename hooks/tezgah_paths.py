@@ -121,14 +121,23 @@ HOST_DIRS = {
     # ~/.gemini/config/hooks.json and its rules in ~/.gemini/GEMINI.md, one level
     # up. No relocated home is documented (antigravity.google/docs/settings)
     "antigravity": os.path.join(HOME, ".gemini", "antigravity-cli"),
+    # Goose's config dir on macOS and Linux (docs guides/config-files): its
+    # global `.goosehints` lives here. Its hooks and skills come from a plugin
+    # under ~/.agents/plugins (guides/context-engineering/plugins), outside it.
+    # GOOSE_PATH_ROOT is a test/dev override whose effect on the hints file is
+    # undocumented, so it is not followed
+    "goose": os.path.join(HOME, ".config", "goose"),
 }
+# tezgah's own Goose plugin, wholly tezgah's: plugin.json, hooks/hooks.json and
+# skill links (goose docs guides/context-engineering/plugins "Plugin Locations")
+GOOSE_PLUGIN = os.path.join(HOME, ".agents", "plugins", "tezgah")
 # a host can be installed with no config dir yet (a CLI on PATH is enough).
 # Command Code's short alias `cmd` is Windows' own shell there, so only its
 # full name counts (docs/quickstart)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
              "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",),
              "commandcode": ("command-code",), "copilot": ("copilot",),
-             "gemini": ("gemini",), "antigravity": ("agy",)}
+             "gemini": ("gemini",), "antigravity": ("agy",), "goose": ("goose",)}
 
 
 def host_installed(name):

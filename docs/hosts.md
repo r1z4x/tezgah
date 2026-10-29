@@ -1,7 +1,7 @@
 # Hosts
 
-tezgah is one Python core with twelve host adapters around it: `claude`, `codex`,
-`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`, `commandcode`, `copilot`, `gemini`, `antigravity`. This page is for the maintainer wiring a new
+tezgah is one Python core with thirteen host adapters around it: `claude`, `codex`,
+`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`, `commandcode`, `copilot`, `gemini`, `antigravity`, `goose`. This page is for the maintainer wiring a new
 host, adding a mark, or debugging a status line that claims something a host
 cannot see. Read it when a question starts with "does this host get X?" or "can
 this host observe Y?" - the answer is not uniform, and guessing it produces a
@@ -29,6 +29,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 | copilot | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, subagentStart, SubagentStop (record-only, `subagent_end`), Stop (`bin/tezgah-setup::COPILOT_HOOK_EVENTS`), all in tezgah's own `$COPILOT_HOME/hooks/tezgah.json` | the managed block in `$COPILOT_HOME/copilot-instructions.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/copilot/hook.py::rules_carry_core`) | unavailable: Copilot drops a command hook's UserPromptSubmit output; the event still writes the turn row (`hosts/copilot/hook.py::main`) | `statusLine` command in `$COPILOT_HOME/settings.json` -> `tezgah-statusline --copilot`, written only while that file is plain JSON (`bin/tezgah-setup::install_copilot`) | five tool-use (`statusline.py::observable`) |
 | gemini | SessionStart, BeforeAgent, BeforeTool, AfterTool, AfterAgent (`bin/tezgah-setup::GEMINI_HOOK_EVENTS`), all in tezgah's own extension `~/.gemini/extensions/tezgah/hooks/hooks.json` | the managed block in `~/.gemini/GEMINI.md` (`bin/tezgah-setup::STATIC_RULES`), shared with Antigravity; SessionStart drops the core while the block is there (`hosts/gemini/hook.py::rules_carry_core`) | BeforeAgent -> `hookSpecificOutput.additionalContext`, appended to the prompt for that turn (`hosts/gemini/hook.py::main`) | no custom status line (`ui.footer.items` is a closed list) - the segment rides `systemMessage`, plain, at SessionStart and AfterAgent (`hosts/gemini/hook.py::status`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/gemini/hook.py::status`) |
 | antigravity | SessionStart, PreInvocation, PreToolUse, PostToolUse, Stop (`bin/tezgah-setup::ANTIGRAVITY_HOOK_EVENTS`), all under the `tezgah` name of `~/.gemini/config/hooks.json`; the payload names no event, so each command passes it as its first argument | the managed block in `~/.gemini/GEMINI.md` (`bin/tezgah-setup::STATIC_RULES`), shared with Gemini CLI; SessionStart injects the core as a system message while the block is missing (`hosts/antigravity/hook.py::rules_carry_core`) | PreInvocation with `invocationNum` 0 -> an `injectSteps` `ephemeralMessage`; whether that number restarts each user turn is undocumented (`hosts/antigravity/hook.py::main`) | `statusLine` command in `~/.gemini/antigravity-cli/settings.json` -> `tezgah-statusline --antigravity`, written only while that file is plain JSON (`bin/tezgah-setup::install_antigravity`) | five tool-use (`statusline.py::observable`) |
+| goose | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop (`bin/tezgah-setup::GOOSE_HOOK_EVENTS`), all in tezgah's own plugin `~/.agents/plugins/tezgah/hooks/hooks.json`; the payload names the event in `event` | the managed block in `~/.config/goose/.goosehints` (`bin/tezgah-setup::STATIC_RULES`), which Goose adds to the system prompt of every request; no hook can inject it, because SessionStart is observation only | unavailable: Goose ignores UserPromptSubmit output; the event still writes the turn row (`hosts/goose/hook.py::main`) | unavailable: Goose has no status line and shows no hook output to the user | none drawn; the PostToolUse rows still record the five tool-use marks for `tezgah-status` (`hosts/goose/hook.py::post_tool`) |
 
 The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
@@ -59,6 +60,7 @@ the code path there, but no run has shown the host obeying it.
 | copilot | gate, unverified: probed by `--report --live` through the hook command in `$COPILOT_HOME/hooks/tezgah.json`, which answers with a top-level `permissionDecision: deny`, but no run of the binary has shown it obeying the deny. A PreToolUse hook that times out (10 s) lets the call through, by Copilot's own rule; one that crashes denies it. A repo's `.claude/settings.json` hooks run there too | gate, unverified: Stop carries no reply, so the reply is the last `assistant.message` in `transcript_path` (`hosts/copilot/hook.py::last_reply`), and a turn end with none there is a `reply_unread` row, never judged; the host ends the turn anyway after 8 blocks in a row | observe, unverified: a brief at subagentStart, a record-only `subagent_end` row at SubagentStop; the built-in `general-purpose` agent fires neither |
 | gemini | gate, unverified: probed by `--report --live` through the hook command in `~/.gemini/extensions/tezgah/hooks/hooks.json`, which answers with a top-level `decision: deny`, but no run of the binary has shown it obeying the deny, and no run has shown Gemini loading an extension dir written without `gemini extensions install` (its loader reads every subdir; a non-empty `security.allowedExtensions` asks for install metadata tezgah does not write). A hook that crashes or prints bad JSON is a warning and the call goes on | gate, unverified: AfterAgent carries the reply as `prompt_response` and `stop_hook_active` (`hosts/gemini/hook.py::main`); a deny sends the reason back as a new prompt | unavailable: no subagent event; a subagent is a tool call (`codebase_investigator`, `generalist`, `invoke_agent`) the gate sees as `Task` |
 | antigravity | gate, unverified: probed by `--report --live` through the hook command under the `tezgah` name of `~/.gemini/config/hooks.json`, fed Antigravity's camelCase envelope with the event as argv, which answers with a top-level `decision: deny` (an allow answers `decision: allow`, since the field is required), but no run of the binary has shown it obeying the deny. What Antigravity does when a hook crashes or times out is undocumented. The same file arms the Antigravity App and IDE | gate, unverified: Stop carries no reply, so the reply is read from `transcriptPath` (`hosts/antigravity/hook.py::last_reply`), and a turn end with none there is a `reply_unread` row, never judged; only an idle `model_stop` is judged, and `decision: continue` sends the model back into the loop with the reason as a system message. No block counter: the turn's refusal rows bound the re-asks | unavailable: no subagent event; a child conversation keeps its own ledger, and `invoke_subagent` reaches the gate as Task |
+| goose | gate, unverified: probed by `--report --live` through the hook command in `~/.agents/plugins/tezgah/hooks/hooks.json`, which answers `{"decision": "block"}` on stdout, but no run of the binary has shown it obeying the block, nor loading a plugin dir written by hand rather than by `goose plugin install` (the plugins guide says both are discovered). `on_failure` is left at its default `allow`, so a hook that crashes, times out or prints no decision lets the call through: the gate fails open on a hook fault. Only `shell`, `write`, `edit` and `<extension>__<tool>` reach the gate | gate, unverified: Stop carries the reply as `last_assistant_message` (`hosts/goose/hook.py::main`), and a Stop with none is a `reply_unread` row, never judged. It carries no count of earlier blocks, so the turn's own refusal rows bound the re-asks; Goose ends the turn anyway after `GOOSE_STOP_HOOK_BLOCK_CAP` blocks in a row | unavailable: SubagentStart and SubagentStop are not emitted; the subagent tool is not mapped |
 
 Every host also attests its own hook entries once per session
 (`hooks/tezgah_attest.py::run`). Every host but opencode does it at session
@@ -215,6 +217,20 @@ shared config, contract hash and the CLI symlinks every host shell can call
   name, the statusLine and the links. It removes a file that held only
   tezgah's keys. Antigravity gets no subagent roles, MCP rows or orx shim from
   tezgah yet.
+- **goose** - `install_goose` (`bin/tezgah-setup::install_goose`) writes
+  tezgah's own plugin, `~/.agents/plugins/tezgah/`, which is wholly tezgah's.
+  It holds `plugin.json`, `hooks/hooks.json` and `skills/*` links. The hooks
+  file has one group per event of `GOOSE_HOOK_EVENTS`, each `timeout` in
+  seconds. Goose loads the skills as `tezgah:<skill>`. Goose tests a matcher
+  unanchored, so the PreToolUse group carries the anchored
+  `GOOSE_PRETOOL_MATCHER`. No hook sets `on_failure`, so it stays at Goose's
+  default `allow`, and a hook fault lets the call through. The always-on block
+  goes in `~/.config/goose/.goosehints`. Neither Goose's docs nor its system
+  prompt add a co-author trailer or name a setting for one. The uninstall
+  deletes the plugin dir and strips the block. The rest of `~/.agents` is the
+  user's and stays. The install ignores `GOOSE_PATH_ROOT`, since the docs
+  do not say where it puts the hints file. Goose gets no subagent roles, MCP
+  rows or orx shim from tezgah yet.
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -244,6 +260,7 @@ pays for it once.
 | copilot | the managed block in `$COPILOT_HOME/copilot-instructions.md`, Copilot's personal instructions file, applied to every session; its `SessionStart` hook repeats the core only while that block is missing (`hosts/copilot/hook.py::rules_carry_core`) |
 | gemini | the managed block in `~/.gemini/GEMINI.md`, the global context file Gemini puts in the system prompt and Antigravity reads too; its `SessionStart` hook repeats the core only while that block is missing (`hosts/gemini/hook.py::rules_carry_core`) |
 | antigravity | the same managed block in `~/.gemini/GEMINI.md`, a standalone global rule Antigravity keeps always on (24,000-byte file limit); its `SessionStart` hook injects the core as a system message only while that block is missing (`hosts/antigravity/hook.py::rules_carry_core`) |
+| goose | the managed block in `~/.config/goose/.goosehints`, the global hints file Goose adds to the system prompt of every request; no hook repeats it, because no Goose hook output reaches the model outside a block |
 
 An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the
@@ -268,6 +285,7 @@ and drops the later ones.
 | context | copilot | `$COPILOT_HOME/copilot-instructions.md` and `instructions/`, then in the git root and the cwd `.github/copilot-instructions.md`, `.github/instructions/`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.claude/rules/`; all merge | block in the first |
 | context | gemini | `~/.gemini/GEMINI.md`, then from the cwd up to the git root, then subdirectories (`context.fileName` renames the file); all concatenate | block in the first |
 | context | antigravity | `~/.gemini/AGENTS.md` and `GEMINI.md`, `~/.gemini/config/rules/*.md`, `~/.gemini/antigravity-cli/rules/*.md`, then the workspace's `AGENTS.md`, `GEMINI.md` and `.agents/rules/`, and plugin rules; all combine, more specific rules win a conflict, and over 20,000 tokens the largest files become pointers | block in `~/.gemini/GEMINI.md` |
+| context | goose | `CONTEXT_FILE_NAMES` (default `AGENTS.md`, `.goosehints`) in `~/.config/goose/`, then in the project root and each directory goose reads; all load, and a local hint wins over a global one | block in `~/.config/goose/.goosehints` |
 | skills | omp | `skills.customDirectories`, then `.omp/skills` and `~/.omp/agent/skills`, Claude's project dir (user dir opt-in), `.agents/skills` and `~/.agents/skills`; first wins, identical copies collapse, a differing copy is renamed `<namespace>/<name>` | links in `~/.omp/agent/skills` |
 | skills | claude | `.claude/skills`, `~/.claude/skills`; plugin skills are namespaced `tezgah:<name>` | the plugin copy |
 | skills | codex | `.agents/skills` from the cwd up to the repo root, `~/.agents/skills`, `$CODEX_HOME/skills`; one name in two dirs is listed twice, not merged | links in `$CODEX_HOME/skills` |
@@ -279,6 +297,7 @@ and drops the later ones.
 | skills | copilot | `.github/skills`, `.agents/skills`, `.claude/skills`, a parent's `.github/skills`, `$COPILOT_HOME/skills`, `~/.agents/skills`, plugins, `COPILOT_SKILLS_DIRS`, bundled; first wins | links in `$COPILOT_HOME/skills` |
 | skills | gemini | workspace `.agents/skills` and `.gemini/skills`, user `~/.agents/skills` and `~/.gemini/skills`, extension skills, built-in; higher tier wins, `.agents/skills` wins within one | links in the extension's `skills/`, the lowest tier |
 | skills | antigravity | the workspace's `.agents/skills`, `~/.gemini/antigravity-cli/skills`, plugin skills; no documented winner | links in `~/.gemini/antigravity-cli/skills` |
+| skills | goose | `~/.agents/skills`, `.agents/skills`, plugin skills (namespaced `<plugin>:<name>`), then `.goose/skills`, `.claude/skills` and `~/.claude/skills` for backward compatibility; no documented winner | links in the plugin's `skills/`, loaded as `tezgah:<name>` |
 | agents | claude | managed, the `claude --agents` flag, `.claude/agents`, `~/.claude/agents`, plugin agents namespaced `plugin:name`; a dir absent at start is not watched | `~/.claude/agents`, written at install |
 | agents | codex | `$CODEX_HOME/agents`, `/etc/codex/agents`, `.codex/agents` (trusted repos only), read at config load | `$CODEX_HOME/agents`, written at install |
 | agents | cursor | `cursor-agent`: `.cursor/agents`, then `.claude/agents`, `.grok/agents`, plugin agents; first name wins; no user dir; read at process start. The editor's docs add `~/.cursor/agents` and `~/.claude/agents` | `.cursor/agents` per repo at session start, in the CLI's line format (`hooks/tezgah_agents.py::render_md_cursor`) |
@@ -294,7 +313,8 @@ and drops the later ones.
 | hooks | copilot | policy files, then the repo's `.github/hooks/*.json`, user `$COPILOT_HOME/hooks/*.json`, the inline `hooks` of the repo's and the user's settings.json (and the repo's `.claude/settings.json`), then plugins; every entry runs, and any PreToolUse deny blocks | own file `hooks/tezgah.json` |
 | hooks | gemini | project `.gemini/settings.json`, user `~/.gemini/settings.json`, system settings, then extensions' `hooks/hooks.json`; `hooksConfig.enabled: false` runs none | own extension `extensions/tezgah/hooks/hooks.json` |
 | hooks | antigravity | workspace `.agents/hooks.json`, global `~/.gemini/config/hooks.json`, then installed plugins' `hooks.json`; each top-level name is a hook set, and `enabled: false` on a name loads none of it | the `tezgah` name in the global hooks.json |
-| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; commandcode: `settings.json` `mcp.servers`, `~/.commandcode/mcp.json`, the repo's `.mcp.json`; copilot: `$COPILOT_HOME/mcp-config.json`, the repo's `.mcp.json` and `.github/mcp.json`, project first; gemini: `settings.json` `mcpServers` (user, project) and each extension's `gemini-extension.json`, settings.json first; antigravity: `~/.gemini/config/mcp_config.json`, the workspace's `.agents/mcp_config.json` and plugins, the running server keeps a shared name; tezgah writes no row for qwen, droid, commandcode, copilot, gemini or antigravity yet | one `tezgah` and one `codegraph` row per host but qwen, droid, commandcode, copilot, gemini and antigravity |
+| hooks | goose | user `~/.agents/plugins/<name>/hooks/hooks.json`, project `.agents/plugins/<name>/hooks/hooks.json` and installed plugins; a name in `disabledPlugins` of `~/.config/goose/settings.json` loads none of it; any PreToolUse block denies | own plugin `~/.agents/plugins/tezgah/hooks/hooks.json` |
+| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; commandcode: `settings.json` `mcp.servers`, `~/.commandcode/mcp.json`, the repo's `.mcp.json`; copilot: `$COPILOT_HOME/mcp-config.json`, the repo's `.mcp.json` and `.github/mcp.json`, project first; gemini: `settings.json` `mcpServers` (user, project) and each extension's `gemini-extension.json`, settings.json first; antigravity: `~/.gemini/config/mcp_config.json`, the workspace's `.agents/mcp_config.json` and plugins, the running server keeps a shared name; goose: the `extensions:` map of `~/.config/goose/config.yaml`; tezgah writes no row for qwen, droid, commandcode, copilot, gemini, antigravity or goose yet | one `tezgah` and one `codegraph` row per host but qwen, droid, commandcode, copilot, gemini, antigravity and goose |
 
 Orca is a launcher, not a host. It starts omp with its own `--extension`. It
 gives each Codex account its own `CODEX_HOME` under
@@ -343,6 +363,7 @@ three harness configurations while swapping the model inside one harness moved i
 | copilot | not named: tezgah writes no Copilot subagent roles | `unverified`: tezgah has not mapped Copilot's providers to a wire | - |
 | gemini | not named: tezgah writes no Gemini subagent roles | `unverified`: tezgah has not mapped Gemini's providers to a wire | - |
 | antigravity | not named: tezgah writes no Antigravity subagent roles | `unverified`: tezgah has not mapped Antigravity's models to a wire | - |
+| goose | not named: tezgah writes no Goose subagent roles | `unverified`: tezgah has not mapped Goose's providers to a wire | - |
 
 `unverified` is the point of the column rather than a gap in it. A wrong dialect
 here is worse than a blank one: a reader would use it to explain a score, and the
@@ -355,7 +376,7 @@ A skill read is observable only where the host gives a channel that does not cos
 a process per read: Claude parses its transcript (`statusline.py::claude_used`),
 opencode classifies in process (`hosts/opencode/plugins/tezgah.js:2227-2263`),
 omp filters in its embedded runner before it asks python
-(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid, commandcode, copilot, gemini, antigravity and dsh a read is not
+(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid, commandcode, copilot, gemini, antigravity, goose and dsh a read is not
 observable at that price. Their surfaces pass the five tool-use measures as
 `observable`, and the two skill marks render dim (`info`, no glyph) instead of
 claiming the skill was never opened (`hooks/tezgah_context.py::TOOL_USE_MEASURES`, and the
@@ -379,7 +400,7 @@ In order, each step verified by the one below it:
    (`hosts/omp/tezgah-hook.ts.in` rendered at `hooks/tezgah_attest.py::omp_bridge`).
 3. `install_<host>()` writing that host's files, registered in `INSTALLERS`
    (`bin/tezgah-setup::INSTALLERS`), and `uninstall_<host>()` removing only
-   tezgah-managed links and blocks (`bin/tezgah-setup:3331-3463`).
+   tezgah-managed links and blocks, registered in `UNINSTALLERS` (`bin/tezgah-setup::UNINSTALLERS`).
 4. `host_checks_<host>()` returning `(label, bool)` rows over what was actually
    written, registered in `HOST_CHECKS` (`bin/tezgah-setup::HOST_CHECKS`); the
    `--report` output is that list (`bin/tezgah-setup::report`). Give the row a home-qualified
@@ -437,6 +458,8 @@ In order, each step verified by the one below it:
     (`hooks/tezgah_context.py::_transcript_calls`), so a disarmed gate there likely counts 0.
   - **antigravity:** unavailable: its `transcript.jsonl` is not a format the counter
     reads, so the hook does not hand it over. Only a switch armed mid-session shows.
+  - **goose:** unavailable: Goose ignores UserPromptSubmit output, so no reminder
+    carries the counter's warning there.
   - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
     plugin process, so one cannot run without the other.
   - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
@@ -564,7 +587,7 @@ In order, each step verified by the one below it:
   longer. A busy turn with every conditional rule armed measured 10288.
   `fit()` cuts the tail to `CONTEXT_MAX` and marks the cut, so the reminder and
   the first rules arrive (`hosts/cursor/hook.py::fit`, `hosts/cursor/hook.py::CONTEXT_MAX`).
-- **Claude, dsh, omp, codex, cursor, qwen, droid, commandcode, copilot, gemini and antigravity run the gate only for the tool names
+- **Claude, dsh, omp, codex, cursor, qwen, droid, commandcode, copilot, gemini, antigravity and goose run the gate only for the tool names
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.
   `PowerShell` and `pwsh` are both `BASH_TOOLS` members
@@ -611,6 +634,14 @@ In order, each step verified by the one below it:
   `old_string` and `new_string`, and `ReplacementChunks` becomes `edits`. The
   docs name no MCP tool spelling, so the matcher names no MCP tool. It names
   neither `manage_task`'s `send_input` nor `schedule`.
+  Goose tests a matcher unanchored, so `bin/tezgah-setup::GOOSE_PRETOOL_MATCHER`
+  anchors `shell`, `write`, `edit` and `.+__.+`, an extension's
+  `<extension>__<tool>`, which reaches the gate as `mcp__<extension>__<tool>`
+  (`hosts/goose/hook.py::gate_name`). The adapter hands `write`'s and `edit`'s
+  `path` over as `file_path`, and `edit`'s `before`/`after` as
+  `old_string`/`new_string` (`hosts/goose/hook.py::gate_input`). Goose's own
+  `developer`, `analyze`, `summon` and `code_execution` tools other than these
+  three, and its subagent tool, are not named.
   A host this list does not cover is a host whose shell the gate cannot see.
 - **An MCP effect reaches the gate on every host that can route it**. Claude
   and dsh run it through a PreToolUse group of its own in `hooks/hooks.json` and
@@ -656,6 +687,7 @@ In order, each step verified by the one below it:
 - `hosts/copilot/hook.py`
 - `hosts/gemini/hook.py`
 - `hosts/antigravity/hook.py`
+- `hosts/goose/hook.py`
 - `statusline.py`, `bin/tezgah-status`, `hooks/tezgah_context.py`
 - `hooks/tezgah_models.py` - the per-host model surface in `## The model wire`
 - `hooks/tezgah_stack.py`, `bin/tezgah-doctor` `--stack` - the order in `## Precedence`
