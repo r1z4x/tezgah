@@ -2035,6 +2035,13 @@ class CommandCodeHost(SetupBase):
         self.assertFalse(os.path.exists(self.path(".commandcode", "AGENTS.md")))
         self.assertIn("commandcode settings.json unwired", proc.stdout)
 
+    def test_uninstall_drops_tezgah_s_commit_beside_the_user_s_attribution_keys(self):
+        self.seed(attribution={"pr": "mine"})
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        self.assertEqual(self.settings()["attribution"], {"pr": "mine", "commit": ""})
+        self.assertEqual(self.setup("--uninstall", "--hosts", "commandcode").returncode, 0)
+        self.assertEqual(self.settings()["attribution"], {"pr": "mine"})
+
     def test_uninstall_drops_a_settings_file_tezgah_created(self):
         self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
         self.assertEqual(self.setup("--uninstall", "--hosts", "commandcode").returncode, 0)

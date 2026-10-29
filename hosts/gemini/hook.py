@@ -53,10 +53,12 @@ GATE_TOOLS = {
     "read_file": "Read",
 }
 # The shell tool writes `Output: ...` first, then `Exit Code: N` only for a
-# non-zero code (packages/core/src/tools/shell.ts), inside an
-# `<untrusted_context>` wrapper; a background or cancelled run has no Output.
+# non-zero code, or `Signal: NAME` for a killed process
+# (packages/core/src/tools/shell.ts), inside an `<untrusted_context>` wrapper;
+# a background or cancelled run has no Output.
 RAN = re.compile(r"\A(?:<untrusted_context[^>]*>\n)?Output: ")
 EXIT_CODE = re.compile(r"(?m)^Exit Code: (-?\d+)$")
+SIGNAL = re.compile(r"(?m)^Signal: ")
 
 
 def gate_name(name):
@@ -100,8 +102,9 @@ def result_text(resp):
 
 def call_failed(tool, resp, text):
     """`note_tool`'s `failed`: an `error` in the response is a failure; a shell
-    result names a non-zero exit code, or ran to its end with none (a pass).
-    None when the response says neither - a call that RAN, never a pass."""
+    result names a non-zero exit code or a signal (a killed runner), or ran to
+    its end with neither (a pass). None when the response says none of these -
+    a call that RAN, never a pass."""
     if isinstance(resp, dict) and resp.get("error"):
         return True
     if tool != "Bash" or not isinstance(text, str):
@@ -109,6 +112,8 @@ def call_failed(tool, resp, text):
     codes = EXIT_CODE.findall(text)
     if codes:
         return int(codes[-1]) != 0
+    if SIGNAL.search(text):
+        return True
     return False if RAN.match(text) else None
 
 

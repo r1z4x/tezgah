@@ -241,6 +241,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Three new hosts no longer record a check that did not pass as a pass.**
+  Antigravity's PostToolUse has no output. A command that went to the
+  background also ends with an empty `error`. So the hook records each
+  Antigravity shell call as ran, never a pass, and Antigravity can never show
+  a passing check. A Copilot shell success with no `exit code N` text (a
+  background launch) is ran, never a pass. A Gemini result with a `Signal:`
+  line (a runner killed by a signal) is a failure.
+- **The gate guards Gemini's and Goose's hook-off keys.** These are Gemini's
+  `hooksConfig` and Goose's `disabledPlugins`. Claude's `disableAllHooks` had
+  the same guard.
+- **The Command Code uninstall removes tezgah's `attribution.commit: ""`
+  beside the user's other attribution keys**, not only when it stood alone.
+
 - **A hidden research dir is no longer invisible.** A dot dir under
   `.tezgah/research/` is an error in `status` and in `check` with no slug. The
   gate refuses a write there (`research_hidden_reason`, `hooks/tezgah_gate.py`).

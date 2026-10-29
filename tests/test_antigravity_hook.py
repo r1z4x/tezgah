@@ -138,14 +138,18 @@ class AntigravityHook(TempHome):
         self.assertEqual(self.stop(), {"decision": "allow"})
         self.assertIn("reply_unread", [r.get("kind") for r in self.rows()])
 
-    def test_an_empty_error_is_a_passing_check(self):
+    def test_an_empty_error_on_a_shell_call_is_never_a_pass(self):
+        # a command handed to the background also ends with an empty error
         self.send("PreInvocation", invocationNum=0)
         self.send("PostToolUse", toolCall={"name": "write_to_file", "args": {
             "TargetFile": os.path.join(self.repo, "p.py"), "CodeContent": "x = 1\n"}},
             error="")
         self.shell("python3 -m pytest -q", error="")
+        kinds = [r.get("kind") for r in self.rows()]
+        self.assertIn("verify", kinds)
+        self.assertNotIn("verify_ok", kinds)
         self.reply("Done. All tests pass.")
-        self.assertEqual(self.stop(), {"decision": "allow"})
+        self.assertEqual(self.stop().get("decision"), "continue")
 
     def test_an_error_is_a_failed_check(self):
         self.send("PreInvocation", invocationNum=0)

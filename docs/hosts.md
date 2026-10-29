@@ -216,7 +216,11 @@ shared config, contract hash and the CLI symlinks every host shell can call
   (`bin/tezgah-setup::gemini_md_kept`). The uninstall takes out the `tezgah`
   name, the statusLine and the links. It removes a file that held only
   tezgah's keys. Antigravity gets no subagent roles, MCP rows or orx shim from
-  tezgah yet.
+  tezgah yet. Antigravity can never show a passing check. Its PostToolUse
+  carries no output. A shell call that went to the background also ends with an
+  empty `error`. So the hook records each shell call as ran, never a pass
+  (`hosts/antigravity/hook.py::post_tool`). The owner chose this: a done or
+  tested claim there always stops at the Stop rule's `no verify_ok` class.
 - **goose** - `install_goose` (`bin/tezgah-setup::install_goose`) writes
   tezgah's own plugin, `~/.agents/plugins/tezgah/`, which is wholly tezgah's.
   It holds `plugin.json`, `hooks/hooks.json` and `skills/*` links. The hooks

@@ -4267,10 +4267,14 @@ def uninstall_commandcode():
     path = os.path.join(COMMANDCODE, "settings.json")
     drop_managed_hook_entries(path)
     cfg = read_json(path, None)
-    # the value install wrote, alone; as with Claude's, a user's own identical
-    # value cannot be told apart from it
-    if isinstance(cfg, dict) and cfg.get("attribution") == {"commit": ""}:
-        cfg.pop("attribution")
+    attr = cfg.get("attribution") if isinstance(cfg, dict) else None
+    # the value install wrote, beside the user's other attribution keys or
+    # alone; as with Claude's, a user's own identical value cannot be told
+    # apart from it, and dropping it only restores Command Code's default
+    if isinstance(attr, dict) and attr.get("commit") == "":
+        attr.pop("commit")
+        if not attr:
+            cfg.pop("attribution")
         write_json(path, cfg)
         print("%s removed tezgah's attribution.commit from %s" % (OK, path))
     drop_if_empty(path)

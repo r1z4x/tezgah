@@ -2843,9 +2843,9 @@ CONTROL_CACHE = ("evidence", "tezgah.db", "tezgah.db-wal", "tezgah.db-shm", "ses
                  "switches", "gate-inactive", "harness-drift", "import-crash",
                  "workspace-index.json")
 # Top-level keys tezgah writes into Claude's settings (bin/tezgah-setup
-# wire_claude_statusline, wire_claude_attribution), and the one that turns every
-# hook off at once; any other key or entry is tezgah's only when it names tezgah.
-CLAUDE_OWNED = ("statusLine", "attribution", "disableAllHooks")
+# wire_claude_statusline, wire_claude_attribution), and the ones that turn hooks off: Claude's
+# `disableAllHooks`, Gemini's `hooksConfig`, Goose's `disabledPlugins`; other keys count only when they name tezgah.
+OWNED_KEYS = ("statusLine", "attribution", "disableAllHooks", "hooksConfig", "disabledPlugins")
 PATCH_DELETE = re.compile(r"(?m)^\*\*\* Delete File: (\S.*?)\s*$")
 
 
@@ -2934,7 +2934,7 @@ def _registration(real):
               # Droid reads hooks.json, else the `hooks` key of its settings.json
               os.path.join(HOST_DIRS["droid"], "hooks.json"),
               os.path.join(HOST_DIRS["droid"], "settings.json"),
-              os.path.join(HOST_DIRS["commandcode"], "settings.json"), os.path.join(HOST_DIRS["copilot"], "settings.json"), os.path.join(HOST_DIRS["gemini"], "settings.json"), os.path.join(HOST_DIRS["antigravity"], "settings.json"), os.path.join(os.path.dirname(HOST_DIRS["antigravity"]), "config", "hooks.json"),
+              os.path.join(HOST_DIRS["commandcode"], "settings.json"), os.path.join(HOST_DIRS["copilot"], "settings.json"), os.path.join(HOST_DIRS["gemini"], "settings.json"), os.path.join(HOST_DIRS["antigravity"], "settings.json"), os.path.join(os.path.dirname(HOST_DIRS["antigravity"]), "config", "hooks.json"), os.path.join(HOST_DIRS["goose"], "settings.json"),
               os.path.join(claude, "plugins", "installed_plugins.json"),
               os.path.join(claude, "plugins", "known_marketplaces.json"))
     if (name in ("settings.json", "settings.local.json")
@@ -3039,14 +3039,14 @@ def _project(node):
 
 def _owned(node, path=()):
     """The tezgah-owned entries of a parsed JSON document, position-free: the
-    CLAUDE_OWNED top-level keys, any key naming tezgah, and each list item that
+    OWNED_KEYS top-level keys, any key naming tezgah, and each list item that
     names tezgah, projected (`_project`)."""
     def dump(value):
         return json.dumps(value, sort_keys=True)
     if isinstance(node, dict):
         out = []
         for key, value in node.items():
-            if (not path and key in CLAUDE_OWNED) or "tezgah" in key.lower():
+            if (not path and key in OWNED_KEYS) or "tezgah" in key.lower():
                 out.append((path + (key,), dump(value)))
             else:
                 out += _owned(value, path + (key,))

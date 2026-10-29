@@ -121,6 +121,18 @@ class GeminiHook(TempHome):
         self.assertIn("blocked: check failed",
                       [r.get("detail") for r in self.rows() if r.get("kind") == "claim"])
 
+    def test_a_runner_killed_by_a_signal_is_a_failed_check(self):
+        # shell.ts writes `Signal: NAME` and no `Exit Code:` for a killed process
+        text = "Output: 2 passed\nSignal: SIGKILL"
+        self.shell("python3 -m pytest -q", resp={
+            "llmContent": "<untrusted_context>\n%s\n</untrusted_context>" % text,
+            "returnDisplay": text})
+        out = self.send("AfterAgent", stop_hook_active=False,
+                        prompt_response="Done. All tests pass.")
+        self.assertEqual(out.get("decision"), "deny")
+        self.assertIn("blocked: check failed",
+                      [r.get("detail") for r in self.rows() if r.get("kind") == "claim"])
+
     def test_the_retry_prompt_does_not_open_a_new_turn_for_the_budget(self):
         # a deny's reason comes back through BeforeAgent as the next prompt
         # (client.ts sendMessageStream continuation); the same claim again is

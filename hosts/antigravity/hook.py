@@ -19,7 +19,7 @@ new user turn: it writes the turn row and carries the per-turn reminder as an
 `deny` with a reason, else `allow`, which hands the call to the next hook or
 the default policy. PostToolUse carries no tool output, only an `error` string
 (empty when the call succeeded), and has no output channel, so its notices
-reach the ledger only.
+reach the ledger only; a shell call never records a pass (`post_tool`).
 
 Stop carries no reply text, so it reads the last assistant text from
 `transcriptPath` (`last_reply`); none there is a `reply_unread` row, never
@@ -165,7 +165,10 @@ def reentered(session_id):
 
 def post_tool(payload, cwd, session_id):
     """The ledger row for one finished call. `error` is the runtime error, empty
-    when the call succeeded (hooks "PostToolUse"); there is no output text."""
+    when the call succeeded (hooks "PostToolUse"); there is no output text.
+    A shell call with an empty `error` is None (ran, never a pass): a command
+    handed to the background (`WaitMsBeforeAsync`) also ends with no error, and
+    nothing else tells the two apart, so Antigravity never records a pass."""
     name, inp = tool_call(payload)
     tool = gate_name(name)
     safe(session_id, record, session_id,
@@ -174,6 +177,8 @@ def post_tool(payload, cwd, session_id):
     if not root_for(cwd):
         return
     failed = bool(payload.get("error"))
+    if tool == "Bash" and not failed:
+        failed = None
     got = safe(session_id, marks, tool, inp, session_id, None)
     source = (got or (None, None))[0]
     safe(session_id, note_tool, session_id, tool, inp, failed=failed,

@@ -268,6 +268,20 @@ class ControlPlane(unittest.TestCase):
                               "new_string": "true"})
         self.refused("Write", {"file_path": local, "content": "{}"})
 
+    def test_gemini_and_goose_keys_that_turn_hooks_off_are_refused(self):
+        for parts, key, on in (((".gemini",), "hooksConfig", {"enabled": False}),
+                               ((".config", "goose"), "disabledPlugins", ["tezgah"])):
+            settings = os.path.join(self.home, *parts, "settings.json")
+            os.makedirs(os.path.dirname(settings), exist_ok=True)
+            with open(settings, "w") as fh:
+                json.dump({"theme": "dark"}, fh, indent=2)
+            self.addCleanup(os.remove, settings)
+            with self.subTest(key=key):
+                self.refused("Write", {"file_path": settings,
+                                       "content": json.dumps({"theme": "dark", key: on})})
+                self.assertIsNone(self.decide("Write", {
+                    "file_path": settings, "content": json.dumps({"theme": "light"})}))
+
     def test_the_users_own_hook_beside_tezgahs_is_theirs(self):
         # one matcher group holding tezgah's hook and the user's: the user's
         # entry is theirs to edit, tezgah's and the group's matcher are not

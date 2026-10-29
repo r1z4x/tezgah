@@ -136,6 +136,13 @@ class CopilotHook(TempHome):
         self.assertIn("blocked: check failed",
                       [r.get("detail") for r in self.rows() if r.get("kind") == "claim"])
 
+    def test_a_shell_success_with_no_exit_code_is_never_a_pass(self):
+        # a background launch returns before its command ends, with no code
+        self.bash("python3 -m pytest -q", text="started shell 1 in the background")
+        kinds = [r.get("kind") for r in self.rows()]
+        self.assertIn("verify", kinds)
+        self.assertNotIn("verify_ok", kinds)
+
     def test_an_unread_reply_is_recorded_and_not_judged(self):
         self.bash("ls -la", text="x")
         # the log ends on the user's message: no reply written yet

@@ -145,9 +145,14 @@ def result_text(payload):
 
 def call_failed(tool, failed, text):
     """`note_tool`'s `failed`: the event's outcome, unless a shell result names
-    an exit code."""
-    codes = EXIT_CODE.findall(text) if tool == "Bash" and isinstance(text, str) else []
-    return int(codes[-1]) != 0 if codes else failed
+    an exit code. A shell success that names none is None (ran, never a pass):
+    a background launch returns before its command ends, with no code."""
+    if tool != "Bash":
+        return failed
+    codes = EXIT_CODE.findall(text) if isinstance(text, str) else []
+    if codes:
+        return int(codes[-1]) != 0
+    return failed or None
 
 
 def last_reply(path):
