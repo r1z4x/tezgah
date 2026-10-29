@@ -1,7 +1,7 @@
 # Hosts
 
-tezgah is one Python core with eight host adapters around it: `claude`, `codex`,
-`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`. This page is for the maintainer wiring a new
+tezgah is one Python core with nine host adapters around it: `claude`, `codex`,
+`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`, `commandcode`. This page is for the maintainer wiring a new
 host, adding a mark, or debugging a status line that claims something a host
 cannot see. Read it when a question starts with "does this host get X?" or "can
 this host observe Y?" - the answer is not uniform, and guessing it produces a
@@ -25,6 +25,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 | omp | session_start, session_compact, session_switch, turn_end, before_agent_start, tool_call, tool_result, session_stop (`hosts/omp/tezgah-hook.ts.in:596,655,674,679,681,701,720,755`) | both: static `RULES.md` (`bin/tezgah-setup::STATIC_RULES`, `bin/tezgah-setup::rules_block`) and a session payload carrying only what a static file cannot know (`hosts/omp/hook.py::handle`) | before_agent_start returns a hidden message (`hosts/omp/tezgah-hook.ts.in:681-699`) | extension draws `ctx.ui.setWidget` below the editor, `setStatus` as fallback (`hosts/omp/tezgah-hook.ts.in:170-203`); ANSI line from `hosts/omp/hook.py::status_line` | all seven: the embedded runner filters skill reads before asking python (`hosts/omp/tezgah-hook.ts.in:257-264`) and no `observable` is passed (`hosts/omp/hook.py::status_line`) |
 | qwen | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SubagentStart, SubagentStop (record-only, `subagent_end`), Stop (`bin/tezgah-setup::QWEN_HOOK_EVENTS`), all in `~/.qwen/settings.json` beside Orca's rows | the managed block in `~/.qwen/QWEN.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/qwen/hook.py::rules_carry_core`) | UserPromptSubmit -> `additionalContext` (`hosts/qwen/hook.py::main`) | `ui.statusLine` command in `~/.qwen/settings.json` -> `tezgah-statusline --qwen`, ANSI kept by `respectUserColors` (`bin/tezgah-setup::install_qwen`) | five tool-use (`statusline.py::observable`) |
 | droid | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStop (record-only, `subagent_end`), Stop (`bin/tezgah-setup::DROID_HOOK_EVENTS`), all in `~/.factory/hooks.json` | the managed block in `~/.factory/AGENTS.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/droid/hook.py::rules_carry_core`) | UserPromptSubmit -> `additionalContext` (`hosts/droid/hook.py::main`) | `statusLine` command in `~/.factory/settings.json` -> `tezgah-statusline --droid`, written only while that file is plain JSON (`bin/tezgah-setup::install_droid`) | five tool-use (`statusline.py::observable`) |
+| commandcode | SessionStart, PreToolUse (matcher `shell\|write\|edit`), PostToolUse, Stop (`bin/tezgah-setup::COMMANDCODE_HOOK_EVENTS`), all in the `hooks` key of `~/.commandcode/settings.json` | the managed block in `~/.commandcode/AGENTS.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/commandcode/hook.py::rules_carry_core`) | unavailable: Command Code has no prompt event | no custom status line - the segment rides `systemMessage`, plain, TUI only, at SessionStart and Stop (`hosts/commandcode/hook.py::status`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/commandcode/hook.py::status`) |
 
 The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
@@ -51,9 +52,10 @@ the code path there, but no run has shown the host obeying it.
 | omp | gate, probed by `--report --live` (node 22.6+) | gate, unverified (`hosts/omp/hook.py::handle`) | partial, unverified: a brief at a task session's start; `session_stop` does not fire for task sessions |
 | qwen | gate, probed by `--report --live` through the hook command in `~/.qwen/settings.json`; that the qwen binary obeys the deny is unverified until `TEZGAH_E2E_SPEND=1 python3 tests/e2e_qwen.py` runs (it spends a model call) | gate, unverified (`hosts/qwen/hook.py::main`, judged on `last_assistant_message`) | observe, unverified: a brief at SubagentStart, a record-only `subagent_end` row at SubagentStop |
 | droid | gate, probed by `--report --live` through the hook command in `~/.factory/hooks.json`; that the droid binary obeys the deny is unverified until `TEZGAH_E2E_SPEND=1 python3 tests/e2e_droid.py` runs (it spends a model call) | gate, unverified: Droid's Stop carries no reply, so the reply is read from `transcript_path` (`hosts/droid/hook.py::last_reply`), and a turn end whose reply is not there yet is a `reply_unread` row, never judged | partial, unverified: a record-only `subagent_end` row from SubagentStop's `task_result`; no SubagentStart, so no brief |
+| commandcode | gate, unverified: probed by `--report --live` through the hook command in `~/.commandcode/settings.json`, but no run of the binary has shown it obeying the deny; only shell, write and edit reach the hook (read, MCP, subagent and web tools do not), and plan mode skips every hook | gate, unverified: Stop carries no reply, so the reply is read from `transcript_path` (`hosts/commandcode/hook.py::last_reply`) and a turn end with none there is a `reply_unread` row, never judged; the host caps a block at three retries | unavailable: the settings hooks have no subagent event |
 
 Every host also attests its own hook entries once per session
-(`hooks/tezgah_attest.py::run`). Claude, dsh, Codex, Cursor, omp, Qwen and Droid do it at
+(`hooks/tezgah_attest.py::run`). Claude, dsh, Codex, Cursor, omp, Qwen, Droid and Command Code do it at
 session start. opencode does it at the first message, through `oncePerSession`.
 The `attest` row and the `drift` mark are
 [evidence](evidence.md#the-kinds-by-what-reads-them), never a block.
@@ -153,6 +155,17 @@ shared config, contract hash and the CLI symlinks every host shell can call
   hooks.json that held only tezgah's groups. An empty one would still hide
   settings.json's hooks. tezgah writes no subagent roles, MCP rows or orx
   shim for Droid yet.
+- **commandcode** - `install_commandcode` (`bin/tezgah-setup::install_commandcode`)
+  writes into the `hooks` key of `~/.commandcode/settings.json`. It adds one
+  hook group per event of `COMMANDCODE_HOOK_EVENTS`, each `timeout` in seconds.
+  The user's own groups stay, and the backup is owner-only. The PreToolUse group
+  carries `COMMANDCODE_PRETOOL_MATCHER`, which Command Code tests against the
+  tool's display name. The same write sets `attribution.commit` to `""`. That
+  turns off the default `Co-authored-by: CommandCodeBot` commit trailer. A value
+  the user set stays. The uninstall removes the key only while it holds what the
+  install wrote. The install links `skills/*` into `~/.commandcode/skills`. It
+  writes the always-on block in `~/.commandcode/AGENTS.md`. tezgah writes no
+  subagent roles, MCP rows or orx shim for Command Code yet.
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -178,6 +191,7 @@ pays for it once.
 | dsh | the session's own hook context: `hosts/dsh/hooks.json` runs the Claude-family scripts through the bridge, and no dsh file carries the core, so dsh's `SessionStart` row declares nothing and still gets it here (`~/.dsh/cordis.patch.yml` mounts that bridge) |
 | qwen | the managed block in `~/.qwen/QWEN.md`, which Qwen loads into every session; its `SessionStart` hook repeats the core only while that block is missing (`hosts/qwen/hook.py::rules_carry_core`) |
 | droid | the managed block in `~/.factory/AGENTS.md`, which Droid loads as coding guidelines at startup; its `SessionStart` hook repeats the core only while that block is missing (`hosts/droid/hook.py::rules_carry_core`) |
+| commandcode | the managed block in `~/.commandcode/AGENTS.md`, the user memory file Command Code puts in the system prompt; its `SessionStart` hook repeats the core only while that block is missing (`hosts/commandcode/hook.py::rules_carry_core`) |
 
 An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the
@@ -198,6 +212,7 @@ and drops the later ones.
 | context | omp | `SYSTEM.md`, `APPEND_SYSTEM.md`, `RULES.md` (sticky), the repo's `.omp/AGENTS.md`, `AGENTS.md`, `CLAUDE.md`; another host's user files only with `enabledProviders` | block in `RULES.md`, the extension at session start |
 | context | qwen | `~/.qwen/QWEN.md`, the repo's `QWEN.md` and `AGENTS.md`, then `.qwen/QWEN.local.md`; all load | block in the first |
 | context | droid | from the cwd up to the git root, `AGENTS.md` (or `CLAUDE.md`) in each dir and its `.factory/`, `.agents/`, `.agent/`; then `~/.factory/AGENTS.md` and the other personal dirs; project files override personal ones | block in `~/.factory/AGENTS.md` |
+| context | commandcode | `~/.commandcode/AGENTS.md`, the repo's `AGENTS.md` (else `.commandcode/AGENTS.md`), then each subdirectory's; all load | block in the first |
 | skills | omp | `skills.customDirectories`, then `.omp/skills` and `~/.omp/agent/skills`, Claude's project dir (user dir opt-in), `.agents/skills` and `~/.agents/skills`; first wins, identical copies collapse, a differing copy is renamed `<namespace>/<name>` | links in `~/.omp/agent/skills` |
 | skills | claude | `.claude/skills`, `~/.claude/skills`; plugin skills are namespaced `tezgah:<name>` | the plugin copy |
 | skills | codex | `.agents/skills` from the cwd up to the repo root, `~/.agents/skills`, `$CODEX_HOME/skills`; one name in two dirs is listed twice, not merged | links in `$CODEX_HOME/skills` |
@@ -205,6 +220,7 @@ and drops the later ones.
 | skills | opencode | its own skill tool is denied; the router lists `~/.config/opencode/skills`, `~/.claude/skills`, `~/.agents/skills`, first wins (`bin/tezgah-setup::skill_groups`) | links and the router |
 | skills | qwen | `~/.qwen/skills`, `.qwen/skills`, extension and bundled skills; no documented winner | links in `~/.qwen/skills` |
 | skills | droid | `.factory/skills` (project and folder), `~/.factory/skills`, `.agents/skills` and `~/.agents/skills`, plugin and built-in skills; no documented winner | links in `~/.factory/skills`, beside the user's own |
+| skills | commandcode | `.commandcode/skills`, `.agents/skills`, `~/.commandcode/skills`, `~/.agents/skills`, extra locations, bundled; first wins | links in `~/.commandcode/skills` |
 | agents | claude | managed, the `claude --agents` flag, `.claude/agents`, `~/.claude/agents`, plugin agents namespaced `plugin:name`; a dir absent at start is not watched | `~/.claude/agents`, written at install |
 | agents | codex | `$CODEX_HOME/agents`, `/etc/codex/agents`, `.codex/agents` (trusted repos only), read at config load | `$CODEX_HOME/agents`, written at install |
 | agents | cursor | `cursor-agent`: `.cursor/agents`, then `.claude/agents`, `.grok/agents`, plugin agents; first name wins; no user dir; read at process start. The editor's docs add `~/.cursor/agents` and `~/.claude/agents` | `.cursor/agents` per repo at session start, in the CLI's line format (`hooks/tezgah_agents.py::render_md_cursor`) |
@@ -216,7 +232,8 @@ and drops the later ones.
 | hooks | omp | `~/.omp/agent/extensions/` first, then `config.yml` `extensions:`, one load per absolute path; per event in that order, and the first `block` ends a tool call | the bridge in `hooks/pre/` |
 | hooks | qwen | user `settings.json` rows (Orca's and tezgah's), then project `.qwen/settings.json` rows in trusted folders; groups run in parallel unless `sequential` | own rows after Orca's |
 | hooks | droid | org-managed hooks, user `~/.factory/hooks.json`, project `.factory/hooks.json` and enabled plugins' `hooks/hooks.json`, merged with no documented order; a scope's settings.json `hooks` key counts only while its hooks.json is absent | own rows in hooks.json |
-| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; tezgah writes no row for qwen or droid yet | one `tezgah` and one `codegraph` row per host but qwen and droid |
+| hooks | commandcode | project `.commandcode/settings.json` rows, then user `~/.commandcode/settings.json` rows; PreToolUse runs them in order and stops at the first deny, the other events run in parallel | own rows in the user settings.json |
+| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; commandcode: `settings.json` `mcp.servers`, `~/.commandcode/mcp.json`, the repo's `.mcp.json`; tezgah writes no row for qwen, droid or commandcode yet | one `tezgah` and one `codegraph` row per host but qwen, droid and commandcode |
 
 Orca is a launcher, not a host. It starts omp with its own `--extension`. It
 gives each Codex account its own `CODEX_HOME` under
@@ -261,6 +278,7 @@ three harness configurations while swapping the model inside one harness moved i
 | dsh | the Claude-family scripts through the bridge (`hosts/dsh/hooks.json:2-18`); `README.md:27-28` calls it "DeepSeek's dsh harness" | `unverified`: its own `--help` describes it as "an ordered stack of plugin-bundle patch layers" and names no model API, and its profile directory names a provider (DeepSeek) rather than a wire (checked 2026-10-01) | - |
 | qwen | not named: tezgah writes no Qwen subagent roles | the provider `settings.json` `modelProviders` selects, keyed by auth type - `openai` (OpenAI-compatible), `anthropic`, `gemini`, `vertex-ai` - each with its own `baseUrl` (Qwen Code 0.21.13 `configuration/model-providers.md`) | the tool's own documentation |
 | droid | not named: tezgah writes no Droid subagent roles | `unverified`: tezgah has not mapped Droid's providers to a wire | - |
+| commandcode | not named: tezgah writes no Command Code subagent roles | `unverified`: tezgah has not mapped Command Code's providers to a wire | - |
 
 `unverified` is the point of the column rather than a gap in it. A wrong dialect
 here is worse than a blank one: a reader would use it to explain a score, and the
@@ -273,12 +291,12 @@ A skill read is observable only where the host gives a channel that does not cos
 a process per read: Claude parses its transcript (`statusline.py::claude_used`),
 opencode classifies in process (`hosts/opencode/plugins/tezgah.js:2227-2263`),
 omp filters in its embedded runner before it asks python
-(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid and dsh a read is not
+(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid, commandcode and dsh a read is not
 observable at that price. Their surfaces pass the five tool-use measures as
 `observable`, and the two skill marks render dim (`info`, no glyph) instead of
 claiming the skill was never opened (`hooks/tezgah_context.py::TOOL_USE_MEASURES`, and the
 `observable` branch at `hooks/tezgah_context.py::health_segments`). Callers that pass `TOOL_USE_MEASURES`:
-`statusline.py::observable`, `hosts/codex/hook.py::main`,
+`statusline.py::observable`, `hosts/codex/hook.py::main`, `hosts/commandcode/hook.py::status`,
 `hosts/dsh/statusline/lib/index.js:16-19`. A kill switch is observable everywhere
 and still renders `off` (`hooks/tezgah_context.py::health_segments`).
 
@@ -346,6 +364,8 @@ In order, each step verified by the one below it:
     `tool_use` blocks with a `timestamp`, the Claude shape the counter reads, and
     `GATED_TOOLS` names `Execute`, `Create` and `ApplyPatch`
     (`hooks/tezgah_context.py::GATED_TOOLS`).
+  - **commandcode:** unavailable: Command Code has no prompt event, so nothing runs the
+    counter there.
   - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
     plugin process, so one cannot run without the other.
   - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
@@ -473,7 +493,7 @@ In order, each step verified by the one below it:
   longer. A busy turn with every conditional rule armed measured 10288.
   `fit()` cuts the tail to `CONTEXT_MAX` and marks the cut, so the reminder and
   the first rules arrive (`hosts/cursor/hook.py::fit`, `hosts/cursor/hook.py::CONTEXT_MAX`).
-- **Claude, dsh, omp, codex, cursor, qwen and droid run the gate only for the tool names
+- **Claude, dsh, omp, codex, cursor, qwen, droid and commandcode run the gate only for the tool names
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.
   `PowerShell` and `pwsh` are both `BASH_TOOLS` members
@@ -490,8 +510,14 @@ In order, each step verified by the one below it:
   shell command too, so their matcher names it. Droid's shell is `Execute`, which `bin/tezgah-setup::DROID_PRETOOL_MATCHER`
   names beside `Create`, `Edit`, `ApplyPatch`, `Task`, `Grep` and `mcp__.*`. The
   adapter hands ApplyPatch's `input` to the gate as `patch`
-  (`hosts/droid/hook.py::gate_input`). A host this list does not cover is a host
-  whose shell the gate cannot see.
+  (`hosts/droid/hook.py::gate_input`). Command Code's settings hooks see only
+  four tools and test the matcher against their display names (`SHELL`, `READ`,
+  `WRITE`, `EDIT`), so `bin/tezgah-setup::COMMANDCODE_PRETOOL_MATCHER` is
+  `shell|write|edit`. Its read, MCP, subagent and web tools never reach the
+  gate, and plan mode skips every hook. The adapter folds a shell call's `args`
+  into `command` and hands an edit's `old_value`/`new_value` over as
+  `old_string`/`new_string` (`hosts/commandcode/hook.py::gate_input`). A host
+  this list does not cover is a host whose shell the gate cannot see.
 - **An MCP effect reaches the gate on every host that can route it**. Claude
   and dsh run it through a PreToolUse group of its own in `hooks/hooks.json` and
   `hosts/dsh/hooks.json`. That group stays apart from the literal one, because
@@ -532,6 +558,7 @@ In order, each step verified by the one below it:
 - `hosts/opencode/plugins/tezgah.js`, `hosts/opencode/tui/tezgah-tui.tsx`
 - `hosts/qwen/hook.py`, `tests/e2e_qwen.py` (the opt-in run of the real binary)
 - `hosts/droid/hook.py`, `tests/e2e_droid.py` (the opt-in run of the real binary)
+- `hosts/commandcode/hook.py`
 - `statusline.py`, `bin/tezgah-status`, `hooks/tezgah_context.py`
 - `hooks/tezgah_models.py` - the per-host model surface in `## The model wire`
 - `hooks/tezgah_stack.py`, `bin/tezgah-doctor` `--stack` - the order in `## Precedence`

@@ -163,6 +163,7 @@ hooks/tezgah_untrusted.py
 hooks/tezgah_update.py
 hosts/codex/hook.py
 hosts/codex/hooks.json
+hosts/commandcode/hook.py
 hosts/cursor/hook.py
 hosts/cursor/hooks.json
 hosts/droid/hook.py
@@ -920,6 +921,7 @@ tests/test_claude_adapters.py
 tests/test_claude_registration.py
 tests/test_codegen.py
 tests/test_codex_hook.py
+tests/test_commandcode_hook.py
 tests/test_components.py
 tests/test_constraint_pinning.py
 tests/test_consult_arena.py

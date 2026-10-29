@@ -308,6 +308,27 @@ def host_stack(host, repo):
             "mcp": sorted(_json(os.path.join(c, "mcp.json")).get("mcpServers") or {}),
             "scan": [os.path.join(c, "skills")],
         }
+    if host == "commandcode":
+        c, h = tp.HOST_DIRS["commandcode"], tp.HOME
+        user = _json(os.path.join(c, "settings.json"))
+        project = _json(os.path.join(repo, ".commandcode", "settings.json"))
+        return {
+            # docs/memory: user, project, then subdirectory tiers; all load
+            "context": [os.path.join(c, "AGENTS.md"), os.path.join(repo, "AGENTS.md"),
+                        os.path.join(repo, ".commandcode", "AGENTS.md")],
+            # docs/skills "Selection priority": project before user, and within a
+            # level .commandcode/ before .agents/
+            "skills": ("first", [os.path.join(repo, ".commandcode", "skills"),
+                                 os.path.join(repo, ".agents", "skills"),
+                                 os.path.join(c, "skills"),
+                                 os.path.join(h, ".agents", "skills")]),
+            "hooks": merge_hooks(hook_rows(user, "settings.json"),
+                                 hook_rows(project, "project")),
+            "mcp": sorted(_json(os.path.join(c, "mcp.json")).get("mcpServers") or {})
+            + ["%s (project)" % n for n in
+               sorted(_json(os.path.join(repo, ".mcp.json")).get("mcpServers") or {})],
+            "scan": [os.path.join(c, "skills")],
+        }
     raise ValueError(host)
 
 
@@ -325,7 +346,7 @@ def skill_copies(dirs):
 def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
-            for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid")]
+            for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode")]
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])

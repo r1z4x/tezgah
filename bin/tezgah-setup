@@ -168,6 +168,7 @@ OMP = tp.HOST_DIRS["omp"]
 OMP_AGENT = os.path.join(OMP, "agent")
 QWEN = tp.HOST_DIRS["qwen"]
 DROID = tp.HOST_DIRS["droid"]
+COMMANDCODE = tp.HOST_DIRS["commandcode"]
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -225,7 +226,8 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
-ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid"]
+ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid",
+             "commandcode"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -345,6 +347,14 @@ DROID_PRETOOL_MATCHER = "^(Execute|Create|Edit|ApplyPatch|Task|Grep|mcp__.*)$"
 DROID_HOOK_EVENTS = (("SessionStart", None, 5), ("UserPromptSubmit", None, 5),
                      ("PreToolUse", DROID_PRETOOL_MATCHER, 5), ("PostToolUse", None, 5),
                      ("SubagentStop", None, 30), ("Stop", None, 30))
+# Command Code (commandcode.ai/docs/hooks): four events, `timeout` in seconds, and
+# a matcher tested against the tool's display name (SHELL, READ, WRITE, EDIT) -
+# its settings hooks see no other tool, so MCP, subagent and web calls are not
+# gated there. A matcher on SessionStart or Stop stops the hook from firing.
+COMMANDCODE_PRETOOL_MATCHER = "shell|write|edit"
+COMMANDCODE_HOOK_EVENTS = (("SessionStart", None, 5),
+                           ("PreToolUse", COMMANDCODE_PRETOOL_MATCHER, 5),
+                           ("PostToolUse", None, 5), ("Stop", None, 30))
 # The feature selection for THIS run: None means "read config.json['features']",
 # and an absent key there means the registry's declared default, which is what
 # makes a config written before this existed behave exactly as it used to.
@@ -489,9 +499,10 @@ def hook_entries(hosts):
     what re-arming would change."""
     out = {}
     for h in hosts:
-        if h in ("codex", "cursor", "qwen", "droid"):
+        if h in ("codex", "cursor", "qwen", "droid", "commandcode"):
             groups = {"codex": codex_hook_groups, "cursor": cursor_hook_entries,
-                      "qwen": qwen_hook_groups, "droid": droid_hook_groups}[h]()
+                      "qwen": qwen_hook_groups, "droid": droid_hook_groups,
+                      "commandcode": commandcode_hook_groups}[h]()
             out[h] = ta.own_groups({"hooks": {ev: [g] for ev, g in groups.items()}})
         elif h == "opencode":
             src = os.path.join(HERE, "hosts", "opencode", "plugins", "tezgah.js")
@@ -1131,6 +1142,8 @@ def install_common(new_roots, hosts):
             ("tezgah-cursor-hook", os.path.join(HERE, "hosts", "cursor", "hook.py")),
             ("tezgah-qwen-hook", os.path.join(HERE, "hosts", "qwen", "hook.py")),
             ("tezgah-droid-hook", os.path.join(HERE, "hosts", "droid", "hook.py")),
+            ("tezgah-commandcode-hook",
+             os.path.join(HERE, "hosts", "commandcode", "hook.py")),
             ("tezgah-statusline", os.path.join(HERE, "statusline.py")),
             ("tezgah-triage", os.path.join(HERE, "bin", "tezgah-triage")),
             ("tezgah-migrate", os.path.join(HERE, "bin", "tezgah-migrate")),
@@ -2252,6 +2265,46 @@ def install_droid():
     print("%s %s (always-on contract)" % (OK, write_rules("droid")))
 
 
+def commandcode_hook_groups():
+    """{event: the group install_commandcode writes}; `hook_entries` plans from it."""
+    cmd = tp.hook_command(os.path.join(tp.BIN_DIR, "tezgah-commandcode-hook"))
+    out = {}
+    for ev, matcher, timeout in COMMANDCODE_HOOK_EVENTS:
+        group = {"matcher": matcher} if matcher else {}
+        group["hooks"] = [{"type": "command", "command": cmd, "timeout": timeout}]
+        out[ev] = group
+    return out
+
+
+def install_commandcode():
+    """Command Code: hook groups in the `hooks` key of
+    `~/.commandcode/settings.json`, skill links, and the always-on block in
+    `AGENTS.md`. settings.json is the user's file, so only a group naming tezgah
+    is replaced and the backup is owner-only (`backup`). The same write turns
+    off the default `Co-authored-by: CommandCodeBot` commit trailer
+    (`attribution.commit` "", docs/settings) unless the user set a value."""
+    print("\ncommandcode:")
+    path = os.path.join(COMMANDCODE, "settings.json")
+    data = read_config(path, {})
+    if data is not None:
+        hooks = data.setdefault("hooks", {})
+        for ev, group in commandcode_hook_groups().items():
+            arr = hooks.setdefault(ev, [])
+            arr[:] = [e for e in arr if "tezgah" not in json.dumps(e)]
+            arr.append(group)
+        attr = data.setdefault("attribution", {})
+        if isinstance(attr, dict) and "commit" not in attr:
+            attr["commit"] = ""
+        write_json(path, data)
+        print("%s %s (hooks + attribution.commit)" % (OK, path))
+        if not isinstance(attr, dict) or attr.get("commit") != "":
+            print("%s %s keeps your attribution.commit, so commits still carry a "
+                  "co-author trailer" % (NO, path))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(COMMANDCODE, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("commandcode")))
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2638,7 +2691,8 @@ CLAUDE_RULES = os.path.join(CLAUDE, "CLAUDE.md")
 STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "omp": lambda: os.path.join(OMP_AGENT, "RULES.md"),
                 "qwen": lambda: os.path.join(QWEN, "QWEN.md"),
-                "droid": lambda: os.path.join(DROID, "AGENTS.md")}
+                "droid": lambda: os.path.join(DROID, "AGENTS.md"),
+                "commandcode": lambda: os.path.join(COMMANDCODE, "AGENTS.md")}
 
 
 def rules_block(host):
@@ -2754,7 +2808,7 @@ def install_omp():
 INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "opencode": install_opencode, "cursor": install_cursor,
               "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
-              "droid": install_droid}
+              "droid": install_droid, "commandcode": install_commandcode}
 
 
 def install_openresearch(hosts):
@@ -3650,6 +3704,14 @@ def verify_uninstall(hosts, full):
         claim("droid skills unlinked",
               [os.path.join(DROID, "skills", s) for s in SKILLS
                if os.path.lexists(os.path.join(DROID, "skills", s))])
+    if "commandcode" in hosts:
+        clean("commandcode settings.json unwired",
+              [os.path.join(COMMANDCODE, "settings.json")])
+        clean("commandcode global AGENTS.md block gone",
+              [os.path.join(COMMANDCODE, "AGENTS.md")], needle="<!-- tezgah:start")
+        claim("commandcode skills unlinked",
+              [os.path.join(COMMANDCODE, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(COMMANDCODE, "skills", s))])
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -3926,6 +3988,23 @@ def uninstall_droid():
     strip_managed_md(os.path.join(DROID, "AGENTS.md"))
 
 
+def uninstall_commandcode():
+    print("\ncommandcode:")
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(COMMANDCODE, "skills", s))
+    path = os.path.join(COMMANDCODE, "settings.json")
+    drop_managed_hook_entries(path)
+    cfg = read_json(path, None)
+    # the value install wrote, alone; as with Claude's, a user's own identical
+    # value cannot be told apart from it
+    if isinstance(cfg, dict) and cfg.get("attribution") == {"commit": ""}:
+        cfg.pop("attribution")
+        write_json(path, cfg)
+        print("%s removed tezgah's attribution.commit from %s" % (OK, path))
+    drop_if_empty(path)
+    strip_managed_md(os.path.join(COMMANDCODE, "AGENTS.md"))
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -3979,7 +4058,7 @@ def uninstall_omp():
 UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "opencode": uninstall_opencode, "cursor": uninstall_cursor,
                 "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
-                "droid": uninstall_droid}
+                "droid": uninstall_droid, "commandcode": uninstall_commandcode}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4589,6 +4668,20 @@ def live_plan(host, deny=False):
         if not deny:
             payload["tool_response"] = "\n\n[Process exited with code 0]"
         return ("shell", cmd, payload, {})
+    if host == "commandcode":
+        # the hook command Command Code runs for its shell tool (the matcher sees
+        # the display name SHELL, case-insensitively), fed its own payload; no
+        # binary and no model call
+        path = os.path.join(COMMANDCODE, "settings.json")
+        cmd = _hook_command((read_json(path, {}).get("hooks") or {}).get(event), "shell")
+        if not cmd:
+            return ("miss", "no tezgah %s command for shell in %s" % (event, path))
+        payload = {"hook_event_name": event, "tool_name": "shell_command",
+                   "tool_display_name": "SHELL", "permission_mode": "default",
+                   "tool_input": {"command": LIVE_DENY_COMMAND if deny else "true"}}
+        if not deny:
+            payload["tool_response"] = ""
+        return ("shell", cmd, payload, {})
     return ("unverified", "no live probe for this host")
 
 
@@ -5158,6 +5251,22 @@ def host_checks_droid():
     ]
 
 
+def host_checks_commandcode():
+    path = os.path.join(COMMANDCODE, "settings.json")
+    attr = read_json(path, {}).get("attribution")
+    return [
+        ("settings.json hooks wired",
+         _hooks_has(path, "tezgah-commandcode-hook",
+                    [ev for ev, _m, _t in COMMANDCODE_HOOK_EVENTS])),
+        ("skills linked", skills_linked(os.path.join(COMMANDCODE, "skills"))),
+        ("AGENTS.md carries the contract (matches a fresh render)",
+         rules_current("commandcode")),
+        ("attribution.commit off in settings.json",
+         isinstance(attr, dict) and attr.get("commit") == ""),
+        ("command-code CLI on PATH", bool(tp.which_user("command-code"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5277,7 +5386,7 @@ def host_checks_omp():
 HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "opencode": host_checks_opencode, "cursor": host_checks_cursor,
                "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
-               "droid": host_checks_droid}
+               "droid": host_checks_droid, "commandcode": host_checks_commandcode}
 
 
 def versions_agree():

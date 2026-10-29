@@ -36,6 +36,8 @@ FILL = {"{GHP}": "ghp_" + "A1b2C3d4" * 5,
 # opencode's own spelling of the fields its tools carry
 CAMEL = {"file_path": "filePath", "old_string": "oldString",
          "new_string": "newString"}
+# Command Code's edit_file field names in its hooks reference
+CC_FIELDS = {"old_string": "old_value", "new_string": "new_value"}
 
 
 def load():
@@ -59,10 +61,14 @@ def matcher(host, spec):
     if not path:
         return lambda name: True
     if "::" in path:
-        # a host whose manifest is rendered by the installer (qwen, droid): its constant
+        # a host whose manifest is rendered by the installer (qwen, droid,
+        # commandcode): its constant. Command Code tests it against the tool's
+        # display name, case-insensitively (`display`)
         from test_setup import setup_module
         pattern = getattr(setup_module(), path.split("::", 1)[1])
-        return lambda name: bool(re.fullmatch(pattern, name))
+        shown = spec.get("display") or {}
+        return lambda name: bool(re.fullmatch(pattern, shown.get(name, name),
+                                              re.I if shown else 0))
     with open(os.path.join(support.REPO, path), encoding="utf-8") as fh:
         text = fh.read()
     if path.endswith(".ts.in"):
@@ -111,9 +117,13 @@ class GateVectors(TempHome):
                                   "session_id": sid}, env=self.envv)
             self.assertEqual(proc.returncode, 0, proc.stderr)
             return out or None
-        if host in ("claude", "dsh", "codex", "qwen", "droid"):
+        if host == "commandcode":
+            # its edit names the strings old_value/new_value (hooks reference)
+            inp = {CC_FIELDS.get(k, k): v for k, v in inp.items()}
+        if host in ("claude", "dsh", "codex", "qwen", "droid", "commandcode"):
             script = {"codex": support.CODEX_HOOK, "qwen": support.QWEN_HOOK,
-                      "droid": support.DROID_HOOK}.get(host, support.PRETOOLUSE)
+                      "droid": support.DROID_HOOK,
+                      "commandcode": support.COMMANDCODE_HOOK}.get(host, support.PRETOOLUSE)
             # claude and dsh run the same entry point on the same envelope, so
             # a fresh session's answer is spawned once and read by both
             key = (script, name, json.dumps(inp, sort_keys=True))

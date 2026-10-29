@@ -106,10 +106,16 @@ HOST_DIRS = {
     # Factory Droid documents no relocated home: hooks.json, AGENTS.md and skills
     # live under ~/.factory (docs.factory.com harness/hooks, agents-md, skills)
     "droid": os.path.join(HOME, ".factory"),
+    # Command Code resolves ~/.commandcode from HOME alone (docs/settings,
+    # "Environment variables"): settings.json, AGENTS.md and skills live there
+    "commandcode": os.path.join(HOME, ".commandcode"),
 }
-# a host can be installed with no config dir yet (a CLI on PATH is enough)
+# a host can be installed with no config dir yet (a CLI on PATH is enough).
+# Command Code's short alias `cmd` is Windows' own shell there, so only its
+# full name counts (docs/quickstart)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
-             "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",)}
+             "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",),
+             "commandcode": ("command-code",)}
 
 
 def host_installed(name):

@@ -32,7 +32,12 @@
              "matcher": "bin/tezgah-setup::QWEN_PRETOOL_MATCHER"},
     "droid": {"tools": {"Write": "Create", "Edit": "Edit", "apply_patch": "ApplyPatch",
                         "Bash": "Execute"},
-              "matcher": "bin/tezgah-setup::DROID_PRETOOL_MATCHER"}
+              "matcher": "bin/tezgah-setup::DROID_PRETOOL_MATCHER"},
+    "commandcode": {"tools": {"Write": "write_file", "Edit": "edit_file",
+                              "Bash": "shell_command"},
+                    "matcher": "bin/tezgah-setup::COMMANDCODE_PRETOOL_MATCHER",
+                    "display": {"write_file": "WRITE", "edit_file": "EDIT",
+                                "shell_command": "SHELL"}}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

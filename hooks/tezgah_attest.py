@@ -45,6 +45,7 @@ CODE_TARGETS = {
     "omp": (os.path.join("hosts", "omp", "hook.py"),),
     "qwen": (os.path.join("hosts", "qwen", "hook.py"),),
     "droid": (os.path.join("hosts", "droid", "hook.py"),),
+    "commandcode": (os.path.join("hosts", "commandcode", "hook.py"),),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
@@ -113,10 +114,10 @@ def registration(host, root=ROOT):
         path = os.path.join(root, *(("hooks",) if host == "claude"
                                     else ("hosts", "dsh")), "hooks.json")
         return _manifest(path, own=True), [path]
-    if host in ("codex", "cursor", "qwen", "droid"):
-        # Qwen's hooks live in its shared settings.json, beside Orca's
-        path = os.path.join(tp.HOST_DIRS[host],
-                            "settings.json" if host == "qwen" else "hooks.json")
+    if host in ("codex", "cursor", "qwen", "droid", "commandcode"):
+        # Qwen's and Command Code's hooks live in a shared settings.json
+        path = os.path.join(tp.HOST_DIRS[host], "settings.json"
+                            if host in ("qwen", "commandcode") else "hooks.json")
         return _manifest(path, own=False, bare=host == "droid"), [path]
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")

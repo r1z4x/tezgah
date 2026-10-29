@@ -8,6 +8,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Command Code is a host (`commandcode`, plan 139 slice 1).** `tezgah-setup
+  --install --hosts commandcode` merges tezgah's hook groups into the `hooks`
+  key of `~/.commandcode/settings.json` beside the user's. Their timeouts are in
+  seconds. The same write sets `attribution.commit` to `""`, so commits carry no
+  `CommandCodeBot` co-author trailer. A value the user set stays. The install
+  links the skills into `~/.commandcode/skills`. It writes the always-on block
+  in `~/.commandcode/AGENTS.md`. `--uninstall` takes back only tezgah's groups,
+  links and block. It drops the attribution key only while it holds what the
+  install wrote.
+  - Command Code's settings hooks see only shell, read, write and edit. So the
+    PreToolUse matcher is `shell|write|edit`. The gate there never sees read,
+    MCP, subagent or web calls, and plan mode skips every hook.
+  - `hosts/commandcode/hook.py` maps `shell_command`, `write_file` and
+    `edit_file` onto the gate. It folds a shell call's `args` into `command`.
+    It hands `old_value`/`new_value` over as `old_string`/`new_string`. It
+    denies with `permissionDecision: deny` on exit 0. It reads a shell call's
+    outcome off an `exit code N` in its result. A result with no code counts
+    as a run, never a pass.
+  - Stop carries no reply, so the hook reads it from `transcript_path`. A turn
+    end with none there becomes a `reply_unread` row. The status segment rides
+    `systemMessage` at SessionStart and Stop. There is no prompt event, so no
+    per-turn reminder.
+  - `--report` has Command Code rows, and `--report --live` probes the hook
+    command with Command Code's own payload. No run has shown the binary
+    obeying the deny.
 - **Factory Droid is a host (`droid`, plan 138 wave 1).** `tezgah-setup --install
   --hosts droid` merges tezgah's hook groups into `~/.factory/hooks.json` beside
   the user's. Their timeouts are in seconds, as Droid reads them. The install

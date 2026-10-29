@@ -1943,6 +1943,124 @@ class DroidHost(SetupBase):
         self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
 
 
+class CommandCodeHost(SetupBase):
+    """Command Code reads the `hooks` key of ~/.commandcode/settings.json: the
+    install merges tezgah's groups in beside the user's, turns the default
+    co-author commit trailer off unless the user set one, and the uninstall
+    takes only tezgah's entries out."""
+
+    MINE = {"matcher": "shell",
+            "hooks": [{"type": "command", "command": "/usr/local/bin/audit.sh"}]}
+
+    def settings(self):
+        return self.read_json(self.path(".commandcode", "settings.json"))
+
+    def seed(self, **extra):
+        path = self.path(".commandcode", "settings.json")
+        self.write_json(path, dict({"model": "x", "hooks": {"PreToolUse": [self.MINE]}},
+                                   **extra))
+        os.chmod(path, 0o600)
+        return path
+
+    def test_install_merges_its_groups_and_turns_the_trailer_off(self):
+        path = self.seed()
+        proc = self.setup("--install", "--hosts", "commandcode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.settings()
+        self.assertEqual(data["model"], "x")
+        self.assertEqual(data["hooks"]["PreToolUse"][0], self.MINE)
+        self.assertEqual(data["attribution"], {"commit": ""})
+        for ev, matcher, timeout in setup_module().COMMANDCODE_HOOK_EVENTS:
+            ours = [g for g in data["hooks"][ev]
+                    if "tezgah-commandcode-hook" in json.dumps(g)]
+            self.assertEqual(len(ours), 1, ev)
+            # seconds; a matcher on SessionStart or Stop would stop the hook firing
+            self.assertEqual(ours[0]["hooks"][0]["timeout"], timeout, ev)
+            self.assertEqual(ours[0].get("matcher"), matcher, ev)
+        pre = next(g for g in data["hooks"]["PreToolUse"] if "tezgah" in json.dumps(g))
+        # the matcher is tested against the display name
+        for tool in ("SHELL", "WRITE", "EDIT"):
+            self.assertTrue(re.fullmatch(pre["matcher"], tool, re.I), tool)
+        self.assertFalse(re.fullmatch(pre["matcher"], "READ", re.I))
+        self.assertTrue(os.path.islink(self.path(".commandcode", "skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start",
+                      self.read_text(self.path(".commandcode", "AGENTS.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-commandcode-hook")))
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        baks = glob.glob(self.path(".config", "tezgah", "backups", ".commandcode",
+                                   "settings.json.*.tezgah-bak"))
+        self.assertTrue(baks)
+        for bak in baks:
+            self.assertEqual(os.stat(bak).st_mode & 0o777, 0o600, bak)
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        self.assertEqual(sum("tezgah-commandcode-hook" in json.dumps(g)
+                             for g in self.settings()["hooks"]["Stop"]), 1)
+
+    def test_a_user_s_own_trailer_is_kept_and_the_row_says_so(self):
+        own = {"commit": "Co-authored-by: Me <me@example.com>"}
+        self.seed(attribution=own)
+        proc = self.setup("--install", "--hosts", "commandcode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.settings()["attribution"], own)
+        self.assertIn("keeps your attribution.commit", proc.stdout)
+        row = self.row(self.setup("--hosts", "commandcode").stdout,
+                       "attribution.commit off").strip()
+        self.assertTrue(row.startswith("MISS"), row)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "commandcode").returncode, 0)
+        self.assertEqual(self.settings()["attribution"], own)
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        out = self.setup("--hosts", "commandcode").stdout
+        for label in ("settings.json hooks wired", "skills linked",
+                      "AGENTS.md carries the contract", "attribution.commit off",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        data = self.settings()
+        del data["hooks"]["Stop"]
+        self.write_json(self.path(".commandcode", "settings.json"), data)
+        out = self.setup("--hosts", "commandcode").stdout
+        self.assertTrue(self.row(out, "settings.json hooks wired").strip()
+                        .startswith("MISS"), out)
+        self.assertIn("commandcode Stop entry removed", out)
+
+    def test_uninstall_removes_only_tezgah_s_wiring(self):
+        self.seed()
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "commandcode")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.settings(), {"model": "x", "hooks": {"PreToolUse": [self.MINE]}})
+        self.assertFalse(os.path.lexists(self.path(".commandcode", "skills", "ponytail")))
+        self.assertFalse(os.path.exists(self.path(".commandcode", "AGENTS.md")))
+        self.assertIn("commandcode settings.json unwired", proc.stdout)
+
+    def test_uninstall_drops_a_settings_file_tezgah_created(self):
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        self.assertEqual(self.setup("--uninstall", "--hosts", "commandcode").returncode, 0)
+        self.assertFalse(os.path.exists(self.path(".commandcode", "settings.json")))
+
+    def test_doctor_stack_and_live_report_run_with_commandcode_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "commandcode").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["commandcode"]
+        self.assertIn(self.path(".commandcode", "AGENTS.md"), stack["context"])
+        self.assertIn("PreToolUse", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "commandcode")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live commandcode:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live commandcode deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
+
+
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
         """`--dry-run` is a preview for the uninstall too: the run that the
