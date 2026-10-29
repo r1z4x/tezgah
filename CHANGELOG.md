@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-29
+
 ### Fixed
 
 - **omp handed the Stop rule a message object, not the reply (plan 143).**
@@ -1626,7 +1628,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the copy could not find `hooks/` and died on import. It now links into the
   installed tree, and also installs the command as `tezgah`.
 
-[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.10.1...HEAD
+[Unreleased]: https://github.com/r1z4x/tezgah/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.13.0
+[1.12.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.12.0
+[1.11.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.11.0
 [1.10.1]: https://github.com/r1z4x/tezgah/releases/tag/v1.10.1
 [1.10.0]: https://github.com/r1z4x/tezgah/releases/tag/v1.10.0
 [1.9.2]: https://github.com/r1z4x/tezgah/releases/tag/v1.9.2
