@@ -311,6 +311,12 @@ Every other surface reads the store.
   legend on hover, pins it on click (16-19,35,47-52,63-64).
 - **Codex** — hosts/codex/hook.py puts the plain line in `systemMessage`
   (182-184,195-198).
+- **Amp** — the plugin draws the widest plain tier
+  (`hosts/amp/hook.py::status_line`) on Amp's experimental status item
+  (`createStatusItem`, TUI only, plain text). It draws only for the thread the
+  user is looking at. It redraws on `session.start`, `agent.end` and each
+  watched tool result, and shows `hook✗` while the hook fails. A build without
+  the API has no status surface (`hosts/amp/tezgah-plugin.ts.in`).
 
 ## Seeing and debugging the line
 

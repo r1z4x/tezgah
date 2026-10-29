@@ -182,6 +182,12 @@ AGY_HOOKS = os.path.join(os.path.dirname(ANTIGRAVITY), "config", "hooks.json")
 GOOSE = tp.HOST_DIRS["goose"]
 # tezgah's own Goose plugin under ~/.agents/plugins, wholly tezgah's
 GOOSE_PLUGIN = tp.GOOSE_PLUGIN
+AMP = tp.HOST_DIRS["amp"]
+# tezgah's Amp system plugin, one file Amp loads with every other .ts there
+AMP_PLUGIN = tp.AMP_PLUGIN
+# Amp's commit trailers, both on by default (docs cli/settings): the co-author
+# line and the thread link; tezgah turns both off unless the user set them
+AMP_ATTRIBUTION = ("amp.git.commit.coauthor.enabled", "amp.git.commit.ampThread.enabled")
 OMP_MCP_SCHEMA = ("https://raw.githubusercontent.com/can1357/oh-my-pi/main/"
                   "packages/coding-agent/src/config/mcp-schema.json")
 # App-analysis servers omp drops on its own. While its native `browser` (the eval
@@ -240,7 +246,7 @@ OPENCODE_CLI_PLUGIN = os.path.join(OPENCODE, "tui-plugins", "tezgah-cli")
 
 WORKFLOW_FILES = ["graph-map.js", "graph-review.js", "graph-impact.js"]
 ALL_HOSTS = ["claude", "codex", "opencode", "cursor", "dsh", "omp", "qwen", "droid",
-             "commandcode", "copilot", "gemini", "antigravity", "goose"]
+             "commandcode", "copilot", "gemini", "antigravity", "goose", "amp"]
 # orx ships an installable skill shim for four agents; dsh has no orx harness,
 # so research routing there falls back to `orx skill` on the shell. omp has no
 # orx target of its own, and needs none: orx's `codex` target writes its shim to
@@ -566,6 +572,8 @@ def hook_entries(hosts):
             out[h] = {d: src for d in ta.OPENCODE_DIRS}
         elif h == "omp":
             out[h] = {"bridge": omp_bridge()}
+        elif h == "amp":
+            out[h] = {"plugin": ta.amp_plugin(HERE)}
         else:
             out[h] = ta.registration(h, HERE)[0] or {}
     return out
@@ -2524,6 +2532,50 @@ def install_goose():
     print("%s %s (always-on contract)" % (OK, write_rules("goose")))
 
 
+def amp_settings():
+    """(path, settings dict or None): Amp's user settings.json as tezgah may
+    rewrite it - absent reads as {}, and None stands for a file tezgah must not
+    touch: one that is not plain JSON, or a settings.jsonc beside it (which of
+    the two wins is undocumented)."""
+    path = os.path.join(AMP, "settings.json")
+    if os.path.exists(os.path.join(AMP, "settings.jsonc")):
+        return path, None
+    return path, read_json(path, None) if os.path.exists(path) else {}
+
+
+def install_amp():
+    """Amp: one system plugin file, `$XDG_CONFIG_HOME/amp/plugins/tezgah.ts`,
+    rendered from `hosts/amp/tezgah-plugin.ts.in` (Amp loads every .ts there,
+    nothing registers it); skill links in `~/.config/amp/skills`; the always-on
+    block in `~/.config/amp/AGENTS.md`; and Amp's two commit trailers set off
+    in settings.json unless the user set them."""
+    print("\namp:")
+    plugin = ta.amp_plugin(HERE)
+    if not plugin:
+        print("%s %s: this tree has no hosts/amp/tezgah-plugin.ts.in to render"
+              % (NO, AMP_PLUGIN))
+    elif write_if_changed(AMP_PLUGIN, plugin):
+        print("%s %s (plugin: gate + ledger + Stop rule)" % (OK, AMP_PLUGIN))
+        print("%s amp: run `plugins: reload` in a running Amp to load it" % OK)
+    spath, settings = amp_settings()
+    if isinstance(settings, dict):
+        for key in AMP_ATTRIBUTION:
+            settings.setdefault(key, False)
+        write_json(spath, settings)
+        print("%s %s (commit trailers off)" % (OK, spath))
+        for key in AMP_ATTRIBUTION:
+            if settings[key] is not False:
+                print("%s %s keeps your %s, so the agent's commits still carry "
+                      "that trailer" % (NO, spath, key))
+    else:
+        print("%s %s is not plain JSON (or settings.jsonc exists): set %s to false "
+              "there" % (NO, spath, " and ".join("`%s`" % k for k in AMP_ATTRIBUTION)))
+    for s in SKILLS:
+        print(link(os.path.join(HERE, "skills", s), os.path.join(AMP, "skills", s)))
+    print("%s %s (always-on contract)" % (OK, write_rules("amp")))
+
+
+
 def dsh_app_mcp_rows():
     """One dsh-mcp-client row per MCP server tezgah writes into the block.
 
@@ -2915,7 +2967,8 @@ STATIC_RULES = {"claude": lambda: CLAUDE_RULES, "codex": codex_rules,
                 "copilot": lambda: os.path.join(COPILOT, "copilot-instructions.md"),
                 "gemini": lambda: os.path.join(GEMINI, "GEMINI.md"),
                 "antigravity": lambda: os.path.join(os.path.dirname(ANTIGRAVITY), "GEMINI.md"),
-                "goose": lambda: os.path.join(GOOSE, ".goosehints")}
+                "goose": lambda: os.path.join(GOOSE, ".goosehints"),
+                "amp": lambda: os.path.join(AMP, "AGENTS.md")}
 # Gemini CLI and Antigravity both load ~/.gemini/GEMINI.md, so they share ONE
 # managed block: an uninstall strips it only while no other host of this tuple
 # that reads the same file stays armed (`gemini_md_kept`; GEMINI_CLI_HOME moves
@@ -3050,7 +3103,8 @@ INSTALLERS = {"claude": install_claude, "codex": install_codex,
               "dsh": install_dsh, "omp": install_omp, "qwen": install_qwen,
               "droid": install_droid, "commandcode": install_commandcode,
               "copilot": install_copilot, "gemini": install_gemini,
-              "antigravity": install_antigravity, "goose": install_goose}
+              "antigravity": install_antigravity, "goose": install_goose,
+              "amp": install_amp}
 
 
 def install_openresearch(hosts):
@@ -3984,6 +4038,13 @@ def verify_uninstall(hosts, full):
         claim("goose plugin dir gone", [GOOSE_PLUGIN])
         clean("goose .goosehints block gone", [STATIC_RULES["goose"]()],
               needle="<!-- tezgah:start")
+    if "amp" in hosts:
+        claim("amp plugin gone", [AMP_PLUGIN] if amp_plugin_ours() else [])
+        claim("amp skills unlinked",
+              [os.path.join(AMP, "skills", s) for s in SKILLS
+               if os.path.lexists(os.path.join(AMP, "skills", s))])
+        clean("amp AGENTS.md block gone", [STATIC_RULES["amp"]()],
+              needle="<!-- tezgah:start")
     if "claude" in hosts:
         clean("claude settings.json unwired",
               [os.path.join(CLAUDE, "settings.json")])
@@ -4360,6 +4421,41 @@ def uninstall_goose():
     strip_managed_md(STATIC_RULES["goose"]())
 
 
+def amp_plugin_ours():
+    """True when the file at AMP_PLUGIN is tezgah's: a fresh render, or one an
+    older tree rendered (it starts with AMP_HEADER). A user's own plugin of
+    that name is never removed."""
+    try:
+        with open(AMP_PLUGIN, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return text == ta.amp_plugin(HERE) or text.startswith(ta.AMP_HEADER)
+
+
+def uninstall_amp():
+    """Delete tezgah's plugin file (only when it is tezgah's), the skill links,
+    the AGENTS.md block, and each commit-trailer key while it is still false."""
+    print("\namp:")
+    if amp_plugin_ours():
+        backup(AMP_PLUGIN)
+        os.remove(AMP_PLUGIN)
+        print("%s removed %s" % (OK, AMP_PLUGIN))
+    elif os.path.lexists(AMP_PLUGIN):
+        print("%s %s is not tezgah's render: left in place" % (NO, AMP_PLUGIN))
+    for s in SKILLS:
+        unlink_tezgah(os.path.join(AMP, "skills", s))
+    spath, settings = amp_settings()
+    if isinstance(settings, dict) and any(settings.get(k) is False for k in AMP_ATTRIBUTION):
+        for key in AMP_ATTRIBUTION:
+            if settings.get(key) is False:
+                settings.pop(key)
+        write_json(spath, settings)
+        print("%s removed tezgah's commit-trailer keys from %s" % (OK, spath))
+        drop_if_empty(spath)
+    strip_managed_md(STATIC_RULES["amp"]())
+
+
 def uninstall_dsh():
     print("\ndsh:")
     for s in SKILLS:
@@ -4415,7 +4511,8 @@ UNINSTALLERS = {"claude": uninstall_claude, "codex": uninstall_codex,
                 "dsh": uninstall_dsh, "omp": uninstall_omp, "qwen": uninstall_qwen,
                 "droid": uninstall_droid, "commandcode": uninstall_commandcode,
                 "copilot": uninstall_copilot, "gemini": uninstall_gemini,
-                "antigravity": uninstall_antigravity, "goose": uninstall_goose}
+                "antigravity": uninstall_antigravity, "goose": uninstall_goose,
+                "amp": uninstall_amp}
 
 
 def uninstall(hosts, dry_run=False):
@@ -4812,12 +4909,13 @@ def context_budget_report():
 
 LIVE_TIMEOUT = 20
 LIVE_DENY_COMMAND = "git commit --no-verify -m x"
-# The JS half: loads the omp extension (`--experimental-strip-types`, the .ts as
-# omp's bun would) or the opencode plugin (an ES module, as opencode imports
-# it), registers its handlers against inert host objects and fires one handler:
-# the tool-result one, or with a command the tool-call one, printing what it
-# answered (omp) or what it threw (opencode) as JSON. argv: host, module path,
-# root, session id, command ("" for the tool result).
+# The JS half: loads the omp extension or the Amp plugin
+# (`--experimental-strip-types`, the .ts as their bun would) or the opencode
+# plugin (an ES module, as opencode imports it), registers its handlers against
+# inert host objects and fires one handler: the tool-result one, or with a
+# command the tool-call one, printing what it answered (omp, Amp) or what it
+# threw (opencode) as JSON. argv: host, module path, root, session id, command
+# ("" for the tool result).
 LIVE_DRIVER = r"""
 const [host, mod, root, sid, cmd] = process.argv.slice(1);
 const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
@@ -4838,6 +4936,25 @@ const noop = new Proxy(function () {}, { get: () => noop, apply: () => noop });
     }
     await handlers.tool_result({ toolName: "bash", input: { command: "true" },
                                  isError: false, content: "ok" }, ctx);
+  } else if (host === "amp") {
+    // Amp's registry, its two helpers the plugin reads, and a thread context;
+    // no status item (`experimental` absent), so no status spawn either
+    const handlers = {};
+    m.default(new Proxy({ on: (n, fn) => { handlers[n] = fn; }, experimental: undefined,
+                          system: { workspaceRoot: root },
+                          helpers: { filePathFromURI: (u) => String(u),
+                                     shellCommandFromToolCall: (e) => ({ command: e.input.cmd }) } },
+                        { get: (t, k) => (k in t ? t[k] : noop) }));
+    const want = cmd ? "tool.call" : "tool.result";
+    if (!handlers[want]) throw new Error("the plugin registered no " + want + " handler");
+    const ctx = { thread: { id: sid, parentThreadID: async () => null }, ui: noop };
+    const event = { tool: "Bash", input: { cmd: cmd || "true" }, toolUseID: "live",
+                    thread: { id: sid } };
+    if (cmd) {
+      process.stdout.write(JSON.stringify((await handlers[want](event, ctx)) || {}));
+      return;
+    }
+    await handlers[want](Object.assign(event, { status: "done", output: "ok" }), ctx);
   } else {
     const hooks = await (m.Tezgah || m.default)({ directory: root, worktree: root,
                                                   client: noop, $: noop });
@@ -5099,6 +5216,24 @@ def live_plan(host, deny=False):
                                "matcher_context": "shell", "tool_call_id": "tezgah-live",
                                "tool_input": {"command": LIVE_DENY_COMMAND if deny
                                               else "true"}}, {})
+    if host == "amp":
+        # the installed plugin itself, loaded by node through LIVE_DRIVER and fed
+        # Amp's own event shape (`tool`, `input.cmd`, `thread.id`); the hook it
+        # spawns is the one Amp would spawn
+        try:
+            with open(AMP_PLUGIN, encoding="utf-8") as fh:
+                text = fh.read()
+        except OSError:
+            return ("miss", "no plugin at %s" % AMP_PLUGIN)
+        if text != ta.amp_plugin(HERE):
+            return ("miss", "%s differs from a fresh render of this tree's plugin "
+                    "- re-run `tezgah-setup --install --hosts amp`" % AMP_PLUGIN)
+        node = _node_for_ts()
+        if not node:
+            return ("unverified", "no node 22.6+ to load %s" % AMP_PLUGIN)
+        # always unverified: Amp's own Bun loader is not what ran it
+        return ("node", [node, "--experimental-strip-types", "--no-warnings"], AMP_PLUGIN,
+                "Amp's own plugin loader is not driven here")
     return ("unverified", "no live probe for this host")
 
 
@@ -5128,6 +5263,9 @@ def _denied(host, stdout):
     if host == "goose":
         # top level, stdout starting with `{` (hooks "Blocking a Tool Call")
         return got.get("decision") == "block"
+    if host == "amp":
+        # ToolCallResult (plugin-api): the call is refused, the turn goes on
+        return got.get("action") == "reject-and-continue"
     return (got.get("hookSpecificOutput") or {}).get("permissionDecision") == "deny"
 
 
@@ -5240,7 +5378,8 @@ ARMING_ROWS = ("hooks.json wired", "plugin wired (link or copy)",
                "claude-code hooks bridge in cordis.patch.yml",
                "session, prompt, tool and stop hooks wired",
                "hook registered in omp extensions", "plugin copy current",
-               "settings.json hooks wired", "hooks/tezgah.json wired")
+               "settings.json hooks wired", "hooks/tezgah.json wired",
+               "plugin tezgah.ts current")
 
 
 def arming_miss(label, good):
@@ -5778,6 +5917,31 @@ def host_checks_goose():
     ]
 
 
+def host_checks_amp():
+    try:
+        with open(AMP_PLUGIN, encoding="utf-8") as fh:
+            plugin = fh.read()
+    except OSError:
+        plugin = ""
+    # either user settings file; the comment-tolerant reader for both
+    settings = (read_jsonc(os.path.join(AMP, "settings.json")) or {}
+                if not os.path.exists(os.path.join(AMP, "settings.jsonc"))
+                else read_jsonc(os.path.join(AMP, "settings.jsonc")) or {})
+    return [
+        # byte for byte, as omp's bridge row: a hand edit or an older tree's
+        # render is not the wiring this tree arms
+        ("plugin tezgah.ts current (matches a fresh render): %s" % AMP_PLUGIN,
+         bool(plugin) and plugin == ta.amp_plugin(HERE)),
+        ("skills linked", skills_linked(os.path.join(AMP, "skills"))),
+        ("AGENTS.md carries the contract (matches a fresh render)", rules_current("amp")),
+        ("%s off in settings.json" % AMP_ATTRIBUTION[0],
+         settings.get(AMP_ATTRIBUTION[0]) is False),
+        ("%s off in settings.json" % AMP_ATTRIBUTION[1],
+         settings.get(AMP_ATTRIBUTION[1]) is False),
+        ("amp CLI on PATH", bool(tp.which_user("amp"))),
+    ]
+
+
 def host_checks_dsh():
     try:
         with open(DSH_PATCH, encoding="utf-8") as fh:
@@ -5899,7 +6063,8 @@ HOST_CHECKS = {"claude": host_checks_claude, "codex": host_checks_codex,
                "dsh": host_checks_dsh, "omp": host_checks_omp, "qwen": host_checks_qwen,
                "droid": host_checks_droid, "commandcode": host_checks_commandcode,
                "copilot": host_checks_copilot, "gemini": host_checks_gemini,
-               "antigravity": host_checks_antigravity, "goose": host_checks_goose}
+               "antigravity": host_checks_antigravity, "goose": host_checks_goose,
+               "amp": host_checks_amp}
 
 
 def versions_agree():

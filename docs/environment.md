@@ -28,14 +28,14 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_GH` | `packaging/upgrade.sh` | `gh` on PATH | The `gh` that checks the tarball's build provenance (`gh attestation verify`). A path that does not exist reads as no `gh`: the upgrade prints `provenance not checked` and goes on. Tests point it at a stand-in. |
 | `TEZGAH_NO_DEPS` | `bin/tezgah-setup::main` | unset | Any value but empty or `0` is `--no-deps`: the optional tools (codegraph, orx, host CLIs) are not installed. |
 | `TEZGAH_NO_SYMLINK` | `bin/tezgah-setup::symlinks_refused` | unset | Any value but empty or `0` writes the copy layout a machine without symlinks gets, on a machine that has them. |
-| `TEZGAH_PYTHON` | `hooks/tezgah_paths.py::python_cmd`, `bin/tezgah.js`, `bin/tezgah-dsh.cmd`, `hooks/hooks.json`, `hosts/*/hooks.json`, `hosts/omp/tezgah-hook.ts.in`, `hosts/opencode/plugins/tezgah.js`, `packaging/build.sh` | this process's interpreter, then `python3`/`python`/`py` on PATH | The interpreter every host hook and the npm shim start; pin it when the right Python is not first on PATH. |
+| `TEZGAH_PYTHON` | `hooks/tezgah_paths.py::python_cmd`, `bin/tezgah.js`, `bin/tezgah-dsh.cmd`, `hooks/hooks.json`, `hosts/*/hooks.json`, `hosts/omp/tezgah-hook.ts.in`, `hosts/amp/tezgah-plugin.ts.in`, `hosts/opencode/plugins/tezgah.js`, `packaging/build.sh` | this process's interpreter, then `python3`/`python`/`py` on PATH | The interpreter every host hook and the npm shim start; pin it when the right Python is not first on PATH. |
 
 ## Where tezgah and the hosts keep state
 
 | Variable | Read by | Default | Effect |
 |---|---|---|---|
 | `TEZGAH_ROOTS` | `hooks/tezgah_paths.py::roots`, `bin/tezgah-setup`, `hosts/opencode/plugins/tezgah.js` | `roots` in `~/.config/tezgah/config.json`, else `~/Projects` | The directories tezgah is armed over, `os.pathsep`-separated (`;` on Windows, the opencode plugin included); it outranks the config file. |
-| `XDG_CONFIG_HOME` | `hooks/tezgah_paths.py::CONFIG_DIR`, `bin/tezgah-doctor`, `bin/tezgah-dsh.cmd`, `hosts/opencode/plugins/tezgah.js` | `~/.config` | Parent of tezgah's config dir (kill switches, `bin/` links, config) and of opencode's. |
+| `XDG_CONFIG_HOME` | `hooks/tezgah_paths.py::CONFIG_DIR`, `hooks/tezgah_paths.py::AMP_PLUGIN`, `bin/tezgah-doctor`, `bin/tezgah-dsh.cmd`, `hosts/opencode/plugins/tezgah.js` | `~/.config` | Parent of tezgah's config dir (kill switches, `bin/` links, config), of opencode's, and of Amp's system plugin dir (`amp/plugins/tezgah.ts`). |
 | `XDG_DATA_HOME` | `bin/tezgah-setup::default_prefix`, `packaging/install.sh`, `packaging/upgrade.sh` | `~/.local/share` | Parent of the default install prefix. |
 | `XDG_CACHE_HOME` | `hooks/tezgah_apps.py::ARTIFACTS` | `~/.cache` | Parent of the app-analysis artifact dir. |
 | `TEZGAH_DEBUG` | `hooks/tezgah_guard.py` | unset | `1` makes every hook process append one line to `<cache>/debug.log` (host, script, each guarded call's outcome or exception class, elapsed ms; no prompt or tool text), created 0600 and swept by `tezgah-doctor --clean`. Off, it costs one environment read. |
@@ -122,6 +122,7 @@ the kill switches are files, not variables, and live in
 | `TEZGAH_CALL_OUTCOME` | `hooks/projects-posttooluse.py::main`, `hosts/dsh/hooks.json` | unset | `none` (dsh's Task rows) records the call's outcome as unknown instead of as a pass. |
 | `CLAUDE_PROJECT_DIR` | `hooks/projects-auto-init.py::main` | the process cwd | The project dir when the hook payload carries no `cwd`. |
 | `PLAYWRIGHT_BROWSERS_PATH`, `LOCALAPPDATA` | `hooks/tezgah_apps.py::_browser_caches`, `bin/tezgah-setup::default_prefix` (`LOCALAPPDATA` only) | Playwright's own cache dirs | Where `analyze-app` looks for an installed browser before it reports one missing; on Windows `LOCALAPPDATA` is also the parent of the default install prefix. |
+| `AMP_IGNORE_GUIDANCE_FILES` | `hosts/amp/tezgah-plugin.ts.in` | set by the user for Amp | Amp's own list of guidance files to skip; when it is set the plugin asks for the session brief with the core in it, since `~/.config/amp/AGENTS.md` may be skipped. |
 
 ## Test knob
 

@@ -8,6 +8,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Amp is a host (`amp`, plan 140).** `tezgah-setup --install --hosts amp`
+  writes one TypeScript plugin, `tezgah.ts`, into Amp's system plugin dir.
+  That dir is `$XDG_CONFIG_HOME/amp/plugins/`, else `~/.config/amp/plugins/`.
+  The install renders it from `hosts/amp/tezgah-plugin.ts.in`. Amp loads every
+  `.ts` there, and a running Amp needs `plugins: reload`. The install links the
+  skills into `~/.config/amp/skills` and writes the always-on block into
+  `~/.config/amp/AGENTS.md`. It sets Amp's two commit trailers
+  (`amp.git.commit.coauthor.enabled`, `amp.git.commit.ampThread.enabled`) to
+  false in `settings.json` unless the user set them. It writes that file only
+  while it is plain JSON with no `settings.jsonc` beside it. The uninstall
+  removes the plugin only when it is tezgah's render. It drops a trailer key
+  only while that key is still false.
+  - The plugin spawns `hosts/amp/hook.py` without blocking. One plugin process
+    serves many threads, so it keys its state by thread id. A dead, slow or
+    crashing hook allows every call, and the plugin tells each thread once.
+  - `tool.call` refuses with `{action: "reject-and-continue"}`. It asks the gate
+    for `Bash`, `shell_command`, the edit tools, `Task` and MCP effect names. A
+    shell call's text reaches the gate as `command`, also when Amp sends `cmd`.
+  - A tool result counts as passed only with an integer `exitCode` on its
+    output object. `error` and `cancelled` are failures. A bare `done` shell
+    result is a run, never a pass.
+  - `agent.end` judges a `done` turn and continues it with `[tezgah:stop]
+    <reason>`. The plugin never sends that prompt as the user's. So it writes no
+    turn row, grants nothing and cannot reset the re-ask budget. A thread with
+    a parent thread is a subagent. It gets the subagent brief, and its end is a
+    record-only row.
+  - The session brief rides the thread's first `agent.start`. The status line
+    goes on Amp's experimental status item for the active thread.
+  - `--report` has Amp rows. `--report --live` loads the plugin with node and
+    drives its `tool.call` and `tool.result`. The row stays UNVERIFIED, since
+    Amp's own loader did not run it. `tezgah-doctor --stack` reads Amp's
+    guidance files, skills, plugins and `amp.mcpServers`. `read_web_page` is a
+    web channel for the untrusted label. README and docs name all fourteen
+    hosts.
 - **Goose is a host (`goose`, plan 139 slice 5).** `tezgah-setup --install
   --hosts goose` writes tezgah's own plugin dir, `~/.agents/plugins/tezgah/`.
   It holds `plugin.json`, `hooks/hooks.json` and `skills/` links, and it is

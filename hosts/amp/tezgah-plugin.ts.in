@@ -1,0 +1,386 @@
+// tezgah: Amp plugin rendered by tezgah-setup from hosts/amp/tezgah-plugin.ts.in
+import { spawn } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
+import { delimiter, dirname, join } from "node:path";
+
+export const description = "tezgah: the contract, the tool gate, the evidence ledger and the Stop rule";
+
+// tezgah-setup substitutes the absolute path of hosts/amp/hook.py, the python
+// half that owns the contract, the gate and the evidence ledger. This file is
+// only the bridge: Amp's plugin events in (ampcode.com/docs plugin-api), Amp's
+// own results back. No `@ampcode/plugin` import, so node's type stripping
+// loads it as Amp's Bun does.
+const HOOK = "@HOOK@";
+
+// A turn tezgah's own Stop rule started: its prompt is tezgah's reason, never
+// the user's words or a grant, and its end is judged as the re-ask it is.
+const MARK = "[tezgah:stop]";
+// Per hook call: the Stop judgement may read the transcript, so it gets more.
+const HOOK_MS = 10000;
+const STOP_MS = 30000;
+const FAIL = "hook\u2717 tezgah hook failed";
+
+// The interpreter, resolved as hooks/tezgah_paths.python_cmd() does: the
+// override, then the names the platforms ship. Memoised after the first ask.
+let pythonMemo: string | undefined;
+function pythonBin(): string {
+  if (pythonMemo) return pythonMemo;
+  if (process.env.TEZGAH_PYTHON) return (pythonMemo = process.env.TEZGAH_PYTHON);
+  const names = ["python3", "python", "py"];
+  const dirs = String(process.env.PATH || "").split(delimiter);
+  const win = process.platform === "win32";
+  const found = names.find((name) => dirs.some((dir) => {
+    try {
+      return existsSync(join(dir, name)) || (win && existsSync(join(dir, name + ".exe")));
+    } catch { return false; }
+  }));
+  return (pythonMemo = found || names[0]);
+}
+
+// Amp runs one plugin process for many threads at once, so every bit of state
+// is keyed by the thread id - the session id the ledger is written under.
+type ThreadState = {
+  error: string;      // the last hook failure, "" when the hook answered
+  told: boolean;      // the failure was already told on this thread
+  notice: boolean;    // a told failure still owed to the thread's next turn
+  briefed: boolean;   // the session brief already rode a turn
+  parent?: string | null;  // the parent thread, null for a main thread
+  idx?: string;       // the idx glyph the last probed status carried
+};
+const THREADS = new Map<string, ThreadState>();
+function state(thread: string): ThreadState {
+  let st = THREADS.get(thread);
+  if (!st) {
+    st = { error: "", told: false, notice: false, briefed: false };
+    THREADS.set(thread, st);
+  }
+  return st;
+}
+
+// The reason names the hook's last stderr line (a traceback ends on the
+// exception), else what the spawn reported.
+function why(stderr: string, fallback: string): string {
+  const lines = stderr.split("\n").map((line) => line.trim()).filter(Boolean);
+  return (lines.length ? lines[lines.length - 1] : fallback).slice(0, 160) || "no answer";
+}
+
+// One JSON in, one JSON out, spawned asynchronously: one thread's hook never
+// stalls another thread's events. A missing interpreter, a crash, a timeout or
+// bad JSON answers {} - tezgah never turns its own failure into a refusal - and
+// is remembered on the thread instead.
+function ask(thread: string, payload: Record<string, unknown>, ms = HOOK_MS): Promise<any> {
+  const st = state(thread);
+  return new Promise((resolve) => {
+    let out = "";
+    let err = "";
+    let done = false;
+    let timer: any;
+    const finish = (res: any, failure?: string): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (failure) {
+        st.error = failure;
+      } else {
+        st.error = "";
+        st.told = false;
+      }
+      resolve(res);
+    };
+    let child: any;
+    try {
+      child = spawn(pythonBin(), [HOOK], { stdio: ["pipe", "pipe", "pipe"] });
+    } catch (e: any) {
+      finish({}, why("", String(e?.message ?? e)));
+      return;
+    }
+    timer = setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      finish({}, "no answer within " + ms / 1000 + " s");
+    }, ms);
+    child.stdout.on("data", (d: any) => { out += d; });
+    child.stderr.on("data", (d: any) => { err += d; });
+    child.on("error", (e: any) => finish({}, why(err, String(e?.message ?? e))));
+    child.on("close", (code: number) => {
+      if (code !== 0) return finish({}, why(err, "exit " + code));
+      try {
+        finish(out.trim() ? JSON.parse(out) : {});
+      } catch {
+        finish({}, "the hook printed no JSON");
+      }
+    });
+    child.stdin.on("error", () => { /* a hook that died before reading */ });
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+function textOf(output: any): string | undefined {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    return output.filter((p: any) => p?.type === "text" && typeof p.text === "string")
+      .map((p: any) => p.text).join("\n");
+  }
+  if (output && typeof output === "object" && typeof output.output === "string") {
+    return output.output;
+  }
+  return undefined;
+}
+
+// A check's own output saying it ran nothing: the same literal as
+// hooks/tezgah_integrity.py `EMPTY_RUN`, read here because the body never
+// crosses to the hook; only the flag does.
+const EMPTY_RUN = /^[=\s]*(?:collected 0 items|no tests ran|ran 0 tests|no tests found)\b/im;
+const EMPTY_RUN_TAIL = 4096;
+
+// The text of the newest assistant message: the reply the Stop rule reads.
+function lastReply(messages: any): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "assistant") continue;
+    return textOf(m.content);
+  }
+  return undefined;
+}
+
+// The label in front of a result's own content, so the model reads where the
+// text came from while it reads it. An unknown shape stays as Amp produced it.
+function labelled(output: any, label: string): any {
+  const part = { type: "text", text: label };
+  if (typeof output === "string") return label + "\n" + output;
+  if (Array.isArray(output) && output.every((p: any) => p?.type === "text")) {
+    return [part, ...output];
+  }
+  return undefined;
+}
+
+// The tools the gate reads (A-D4): the shells, the edit tools, Task, and an
+// MCP tool whose name carries an effect verb (tezgah_integrity.MCP_VERBS).
+const SHELLS = ["bash", "shell_command"];
+const GATED = ["bash", "shell_command", "edit_file", "create_file", "apply_patch", "task"];
+const MCP_EFFECT = /^mcp__(?:.*[^A-Za-z0-9])?(?:append|cancel|clear|click|close|comment|commit|copy|create|delete|deploy|drag|edit|email|evaluate|exec|execute|fill|insert|install|kill|launch|merge|message|mkdir|move|navigate|notify|patch|pause|post|press|print|publish|push|put|release|remove|rename|replace|reply|resume|review|run|save|send|set|share|skip|start|stop|submit|swipe|tag|tap|terminate|type|uninstall|update|upload|write)(?:[^A-Za-z0-9].*)?$/;
+// The results the ledger records, and the untrusted ones the hook labels.
+const WATCHED = [...GATED, "web_search", "read_web_page", "skill"];
+
+// A read of a shipped tezgah skill is the one read whose result moves a mark
+// (hooks/tezgah_context.skill_read_kind); ordinary reads never spawn python.
+const SKILL_MARKS = ["ponytail", "i-have-adhd"];
+let skillsMemo: string[] | undefined;
+function skillRead(tool: string, input: any): boolean {
+  if (tool.toLowerCase() !== "read") return false;
+  const m = /(?:^|\/)skills\/([^/]+)\/SKILL\.md$/.exec(
+    String(input?.path ?? input?.file_path ?? "").replace(/\\/g, "/"));
+  if (!m) return false;
+  if (!skillsMemo) {
+    const dir = join(dirname(dirname(dirname(HOOK))), "skills");
+    try {
+      skillsMemo = readdirSync(dir).filter((n) => existsSync(join(dir, n, "SKILL.md")));
+    } catch { skillsMemo = []; }
+  }
+  return SKILL_MARKS.includes(m[1]) || skillsMemo.includes(m[1]);
+}
+
+export default function tezgahAmp(amp: any): void {
+  // The workspace the thread runs in, else this process's directory.
+  const cwd = (): string => {
+    try {
+      const root = amp.system?.workspaceRoot;
+      const path = root ? amp.helpers?.filePathFromURI?.(root) : undefined;
+      if (typeof path === "string" && path) return path;
+    } catch { /* no workspace: the process directory */ }
+    return process.cwd();
+  };
+  const threadOf = (event: any, ctx: any): string =>
+    String(event?.thread?.id ?? ctx?.thread?.id ?? "");
+
+  // The status item: experimental, TUI only, plain text; the owner approved
+  // building on it (plan 140 A-D15). One per process, so it shows the thread
+  // the user is looking at and nothing else.
+  let item: any;
+  try { item = amp.experimental?.createStatusItem?.(); } catch { item = undefined; }
+  const active = (thread: string): boolean => {
+    try { return item !== undefined && amp.activeThread?.current?.id === thread; } catch { return false; }
+  };
+  const paint = (thread: string, text: string): void => {
+    if (!active(thread)) return;
+    try { item.update({ text }); } catch { /* cosmetic */ }
+  };
+  const show = (thread: string, res: any): void => {
+    const st = state(thread);
+    if (st.error) return paint(thread, FAIL);
+    if (res?.idx) st.idx = res.idx;
+    if (typeof res?.status === "string" && res.status) paint(thread, res.status);
+  };
+  const refresh = async (thread: string): Promise<void> => {
+    if (!active(thread)) return;
+    show(thread, await ask(thread, { event: "status", cwd: cwd(), session_id: thread }));
+  };
+
+  // A failed hook is told once per thread: a notification now, a hidden line
+  // on the thread's next turn, and the failure mark on the status item.
+  const tell = (thread: string, ctx: any): void => {
+    const st = state(thread);
+    if (!st.error) return;
+    paint(thread, FAIL);
+    if (st.told) return;
+    st.told = true;
+    st.notice = true;
+    try {
+      Promise.resolve(ctx?.ui?.notify?.("tezgah hook failed: " + st.error)).catch(() => {});
+    } catch { /* `amp -x` has no UI */ }
+  };
+  const notice = (thread: string): string | undefined => {
+    const st = state(thread);
+    if (!st.notice) return undefined;
+    st.notice = false;
+    return "tezgah: its Amp hook failed, so the gate, the evidence ledger and the " +
+      "status line are off this thread. Reason: " + st.error + ". Tell the user in " +
+      "one line and carry on with their task; do not debug, reinstall or reconfigure " +
+      "tezgah mid-session (the user can check it with `" + pythonBin() + " " + HOOK +
+      "` or `tezgah-setup --report`).";
+  };
+
+  // A thread created with a parent is a subagent: its brief is the subagent
+  // one, and its end is recorded, never refused. Asked once per thread.
+  const parentOf = async (thread: string, ctx: any): Promise<string | null> => {
+    const st = state(thread);
+    if (st.parent !== undefined) return st.parent;
+    try {
+      const p = await ctx?.thread?.parentThreadID?.();
+      st.parent = typeof p === "string" && p ? p : null;
+    } catch { st.parent = null; }
+    return st.parent;
+  };
+
+  // The shell text in the field the gate reads (`command`), from Amp's own
+  // helper first, else the input's `cmd`; `dir` becomes `cwd`.
+  const gateInput = (event: any): Record<string, unknown> => {
+    const input: Record<string, unknown> = { ...(event?.input ?? {}) };
+    if (!SHELLS.includes(String(event?.tool ?? "").toLowerCase())) return input;
+    let sc: any = null;
+    try { sc = amp.helpers?.shellCommandFromToolCall?.(event); } catch { sc = null; }
+    const command = typeof sc?.command === "string" ? sc.command
+      : typeof input.cmd === "string" ? input.cmd : input.command;
+    if (typeof command === "string") input.command = command;
+    if (typeof sc?.dir === "string" && sc.dir && input.cwd === undefined) input.cwd = sc.dir;
+    return input;
+  };
+
+  amp.on("session.start", async (event: any, ctx: any) => {
+    try {
+      const thread = threadOf(event, ctx);
+      // session.start cannot inject: the brief rides this thread's next turn
+      state(thread).briefed = false;
+      await refresh(thread);
+      tell(thread, ctx);
+    } catch { /* a handler never throws */ }
+  });
+
+  amp.on("agent.start", async (event: any, ctx: any) => {
+    try {
+      const thread = threadOf(event, ctx);
+      const st = state(thread);
+      const parent = await parentOf(thread, ctx);
+      const parts: string[] = [];
+      if (!st.briefed) {
+        const res = await ask(thread, {
+          event: "session_start", cwd: cwd(), session_id: thread,
+          subagent: parent !== null, parent: parent ?? undefined,
+          agent: parent !== null ? thread : undefined, line: active(thread),
+          ignore_guidance: Boolean(process.env.AMP_IGNORE_GUIDANCE_FILES) });
+        if (!st.error) st.briefed = true;
+        if (res.context) parts.push(String(res.context));
+        show(thread, res);
+      }
+      const prompt = String(event?.message ?? "");
+      // tezgah's own continue is not a user prompt: no turn row, no grant
+      if (prompt.trim() && !prompt.startsWith(MARK)) {
+        const res = await ask(thread, { event: "user_prompt", cwd: cwd(), session_id: thread,
+                                        prompt, subagent: parent !== null });
+        if (res.context) parts.push(String(res.context));
+      }
+      tell(thread, ctx);
+      const told = notice(thread);
+      if (told) parts.unshift(told);
+      return parts.length ? { message: { content: parts.join("\n\n"), display: false } } : {};
+    } catch {
+      return {};
+    }
+  });
+
+  amp.on("tool.call", async (event: any, ctx: any) => {
+    try {
+      const tool = String(event?.tool ?? "");
+      if (!GATED.includes(tool.toLowerCase()) && !MCP_EFFECT.test(tool)) {
+        return { action: "allow" };
+      }
+      const thread = threadOf(event, ctx);
+      const res = await ask(thread, { event: "pre_tool_use", cwd: cwd(), session_id: thread,
+                                      tool, input: gateInput(event) });
+      tell(thread, ctx);
+      if (typeof res.deny === "string" && res.deny) {
+        return { action: "reject-and-continue", message: res.deny };
+      }
+    } catch { /* a bridge that cannot answer cannot refuse either */ }
+    return { action: "allow" };
+  });
+
+  amp.on("tool.result", async (event: any, ctx: any) => {
+    try {
+      const tool = String(event?.tool ?? "");
+      const low = tool.toLowerCase();
+      if (!WATCHED.includes(low) && !low.startsWith("mcp__") && !skillRead(tool, event?.input)) {
+        return undefined;
+      }
+      const thread = threadOf(event, ctx);
+      const output = event?.output;
+      const text = textOf(output);
+      // The outcome, tri-state: an exit code only when Amp's output object
+      // carries an integer one; the hook never counts a bare `done` as a pass.
+      const exit = output && typeof output === "object" && !Array.isArray(output)
+        && Number.isInteger(output.exitCode) ? output.exitCode : undefined;
+      const res = await ask(thread, {
+        event: "post_tool_use", cwd: cwd(), session_id: thread, tool,
+        input: gateInput(event), status: event?.status, exit_code: exit,
+        result_len: text === undefined ? undefined : text.length,
+        empty_run: text !== undefined && EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL)) || undefined,
+        idx: state(thread).idx, line: active(thread) });
+      tell(thread, ctx);
+      show(thread, res);
+      if (typeof res.label === "string" && res.label) {
+        const out = labelled(output, res.label);
+        if (out !== undefined) {
+          return event?.status === "done" ? { status: "done", output: out }
+            : { status: event?.status, error: event?.error, output: out };
+        }
+      }
+    } catch { /* the result stays as Amp produced it */ }
+    return undefined;
+  });
+
+  amp.on("agent.end", async (event: any, ctx: any) => {
+    try {
+      const thread = threadOf(event, ctx);
+      const parent = await parentOf(thread, ctx);
+      // an error or cancelled turn claimed nothing: it is not judged
+      if (event?.status !== "done") return undefined;
+      const reply = lastReply(event?.messages);
+      if (parent !== null) {
+        await ask(thread, { event: "subagent_stop", cwd: cwd(), session_id: thread,
+                            parent, agent: thread, last_assistant_message: reply });
+        tell(thread, ctx);
+        return undefined;
+      }
+      const res = await ask(thread, {
+        event: "stop", cwd: cwd(), session_id: thread, last_assistant_message: reply,
+        stop_hook_active: String(event?.message ?? "").startsWith(MARK) }, STOP_MS);
+      tell(thread, ctx);
+      await refresh(thread);
+      if (res.decision === "block" && typeof res.reason === "string" && res.reason) {
+        // Amp's own cap (5 continues in a row) backs up tezgah's re-ask budget
+        return { action: "continue", userMessage: MARK + " " + res.reason };
+      }
+    } catch { /* an unanswerable Stop rule never blocks the turn */ }
+    return undefined;
+  });
+}

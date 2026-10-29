@@ -127,17 +127,24 @@ HOST_DIRS = {
     # GOOSE_PATH_ROOT is a test/dev override whose effect on the hints file is
     # undocumented, so it is not followed
     "goose": os.path.join(HOME, ".config", "goose"),
+    # Amp's user dir: settings.json and AGENTS.md are HOME-literal in its docs
+    # (ampcode.com/docs cli/settings, customize/agents-md); skills under it too
+    "amp": os.path.join(HOME, ".config", "amp"),
 }
 # tezgah's own Goose plugin, wholly tezgah's: plugin.json, hooks/hooks.json and
 # skill links (goose docs guides/context-engineering/plugins "Plugin Locations")
 GOOSE_PLUGIN = os.path.join(HOME, ".agents", "plugins", "tezgah")
+# tezgah's Amp system plugin, one file: Amp follows XDG_CONFIG_HOME for its
+# plugin dir alone (ampcode.com/docs customize/plugins "Plugin Locations")
+AMP_PLUGIN = os.path.join(XDG_CONFIG, "amp", "plugins", "tezgah.ts")
 # a host can be installed with no config dir yet (a CLI on PATH is enough).
 # Command Code's short alias `cmd` is Windows' own shell there, so only its
 # full name counts (docs/quickstart)
 HOST_BINS = {"cursor": ("cursor-agent", "cursor"), "opencode": ("opencode",),
              "dsh": ("dsh",), "omp": ("omp",), "qwen": ("qwen",), "droid": ("droid",),
              "commandcode": ("command-code",), "copilot": ("copilot",),
-             "gemini": ("gemini",), "antigravity": ("agy",), "goose": ("goose",)}
+             "gemini": ("gemini",), "antigravity": ("agy",), "goose": ("goose",),
+             "amp": ("amp",)}
 
 
 def host_installed(name):

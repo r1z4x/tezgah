@@ -2552,6 +2552,138 @@ class GooseHost(SetupBase):
         self.assertIn("denied `git commit --no-verify -m x`", deny)
 
 
+class AmpHost(SetupBase):
+    """Amp loads every .ts in its system plugin dir: the install writes one file,
+    `~/.config/amp/plugins/tezgah.ts` (under XDG_CONFIG_HOME when set), the
+    skill links and the block in ~/.config/amp/AGENTS.md, and sets the two
+    commit trailers off in settings.json unless the user set them. The
+    uninstall removes the plugin only when it is tezgah's render."""
+
+    def plugin(self):
+        return self.path(".config", "amp", "plugins", "tezgah.ts")
+
+    def settings(self):
+        return self.path(".config", "amp", "settings.json")
+
+    def test_install_writes_the_rendered_plugin_and_the_trailer_keys(self):
+        proc = self.setup("--install", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        text = self.read_text(self.plugin())
+        self.assertIn(os.path.join(REPO, "hosts", "amp", "hook.py"), text)
+        self.assertNotIn("@HOOK@", text)
+        self.assertTrue(text.startswith("// tezgah: Amp plugin rendered by tezgah-setup"))
+        self.assertEqual(self.read_json(self.settings()),
+                         {"amp.git.commit.coauthor.enabled": False,
+                          "amp.git.commit.ampThread.enabled": False})
+        self.assertTrue(os.path.islink(self.path(".config", "amp", "skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start",
+                      self.read_text(self.path(".config", "amp", "AGENTS.md")))
+        self.assertIn("plugins: reload", proc.stdout)
+
+    def test_a_users_own_trailer_setting_is_kept_and_reported(self):
+        self.write_json(self.settings(), {"amp.git.commit.coauthor.enabled": True,
+                                          "amp.showCosts": False})
+        proc = self.setup("--install", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        data = self.read_json(self.settings())
+        self.assertIs(data["amp.git.commit.coauthor.enabled"], True)
+        self.assertIs(data["amp.git.commit.ampThread.enabled"], False)
+        self.assertIn("keeps your amp.git.commit.coauthor.enabled", proc.stdout)
+        out = self.setup("--hosts", "amp").stdout
+        self.assertTrue(self.row(out, "coauthor.enabled off").strip().startswith("MISS"), out)
+        self.assertTrue(self.row(out, "ampThread.enabled off").strip().startswith("ok"), out)
+
+    def test_a_settings_jsonc_is_never_rewritten(self):
+        jsonc = self.path(".config", "amp", "settings.jsonc")
+        os.makedirs(os.path.dirname(jsonc))
+        with open(jsonc, "w") as fh:
+            fh.write("{\n  // mine\n  \"amp.showCosts\": true\n}\n")
+        proc = self.setup("--install", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.exists(self.settings()))
+        self.assertIn("// mine", self.read_text(jsonc))
+        self.assertIn("set `amp.git.commit.coauthor.enabled`", proc.stdout)
+
+    def test_the_plugin_follows_xdg_config_home(self):
+        self.env["XDG_CONFIG_HOME"] = self.path("xdg")
+        proc = self.setup("--install", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertTrue(os.path.isfile(self.path("xdg", "amp", "plugins", "tezgah.ts")))
+        # settings and AGENTS.md stay HOME-literal (docs cli/settings, agents-md)
+        self.assertTrue(os.path.isfile(self.settings()))
+        self.assertTrue(os.path.isfile(self.path(".config", "amp", "AGENTS.md")))
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "amp").returncode, 0)
+        out = self.setup("--hosts", "amp").stdout
+        for label in ("plugin tezgah.ts current", "skills linked",
+                      "AGENTS.md carries the contract", "coauthor.enabled off",
+                      "ampThread.enabled off", "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        with open(self.plugin(), "a") as fh:
+            fh.write("\n// edited by hand\n")
+        out = self.setup("--hosts", "amp").stdout
+        self.assertTrue(self.row(out, "plugin tezgah.ts current").strip().startswith("MISS"),
+                        out)
+        self.assertIn("amp plugin %s differs from a fresh render" % self.plugin(), out)
+
+    def test_uninstall_removes_only_tezgahs_files_and_keys(self):
+        mine = self.path(".config", "amp", "plugins", "mine.ts")
+        os.makedirs(os.path.dirname(mine))
+        with open(mine, "w") as fh:
+            fh.write("export default function () {}\n")
+        agents = self.path(".config", "amp", "AGENTS.md")
+        with open(agents, "w") as fh:
+            fh.write("Always use TypeScript.\n")
+        self.write_json(self.settings(), {"amp.showCosts": False})
+        self.assertEqual(self.setup("--install", "--hosts", "amp").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(self.plugin()))
+        self.assertTrue(os.path.exists(mine))
+        self.assertEqual(self.read_json(self.settings()), {"amp.showCosts": False})
+        self.assertEqual(self.read_text(agents).strip(), "Always use TypeScript.")
+        self.assertFalse(os.path.lexists(self.path(".config", "amp", "skills", "ponytail")))
+        self.assertIn("amp plugin gone", proc.stdout)
+
+    def test_uninstall_keeps_a_users_own_file_of_that_name(self):
+        self.assertEqual(self.setup("--install", "--hosts", "amp").returncode, 0)
+        with open(self.plugin(), "w") as fh:
+            fh.write("export default function (amp) { /* the user's own */ }\n")
+        proc = self.setup("--uninstall", "--hosts", "amp")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("the user's own", self.read_text(self.plugin()))
+        self.assertIn("is not tezgah's render", proc.stdout)
+
+    def test_doctor_stack_and_live_report_run_with_amp_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "amp").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        data = self.read_json(self.settings())
+        data["amp.mcpServers"] = {"github": {"command": "gh-mcp"}}
+        self.write_json(self.settings(), data)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["amp"]
+        self.assertIn(self.path(".config", "amp", "AGENTS.md"), stack["context"])
+        self.assertEqual(stack["mcp"], ["github"])
+        self.assertIn("plugin (every event)", stack["hooks"])
+        if not shutil.which("node"):
+            self.skipTest("node is not installed for the live probe")
+        proc = self.setup("--report", "--live", "--hosts", "amp")
+        self.assertNotIn("Traceback", proc.stderr)
+        # the plugin itself, loaded by node: never ok, Amp's Bun loader did not run it
+        self.assertTrue(self.row(proc.stdout, "live amp:").strip().startswith("UNVERIFIED"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live amp deny:").strip()
+        self.assertTrue(deny.startswith("UNVERIFIED"), proc.stdout)
+        self.assertIn("denied `git commit --no-verify -m x` and wrote a deny row", deny)
+
+
+
 
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
@@ -3690,8 +3822,10 @@ class PowershellMatcher(SetupBase):
                 self.assertIsNone(ti.mcp_class("mcp__x__Create_issue"))
                 self.assertFalse(any(self.selects(m, "mcp__x__Create_issue")
                                      for m in matchers))
-        with open(os.path.join(REPO, "hosts", "omp", "tezgah-hook.ts.in")) as fh:
-            self.assertIn("const MCP_EFFECT = /%s/;" % want, fh.read())
+        for path in (("hosts", "omp", "tezgah-hook.ts.in"),
+                     ("hosts", "amp", "tezgah-plugin.ts.in")):
+            with open(os.path.join(REPO, *path)) as fh:
+                self.assertIn("const MCP_EFFECT = /%s/;" % want, fh.read())
 
     def test_the_written_omp_hook_gates_the_shell_name(self):
         self.env["TEZGAH_CODEGRAPH_BIN"] = sys.executable  # as OmpHost.install does

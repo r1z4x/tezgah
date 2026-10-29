@@ -3222,7 +3222,7 @@ def classify(tool, inp, cwd=None):
 # host can put in front of the model; the taint notice that flags a later effect
 # in such a turn is the untrusted module's own, not the gate's.
 WEB_TOOLS = ("web_search", "websearch", "web_fetch", "webfetch", "fetch",
-             "browser", "browse")
+             "browser", "browse", "read_web_page")
 MCP_TOOL = re.compile(r"^mcp__", re.I)
 # The verb classes of an MCP tool, read off its name: what the server is asked to
 # do picks which of the gate's existing content rules read the payload

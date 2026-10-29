@@ -47,7 +47,10 @@
                               "Bash": "run_command"},
                     "matcher": "bin/tezgah-setup::ANTIGRAVITY_PRETOOL_MATCHER"},
     "goose": {"tools": {"Write": "write", "Edit": "edit", "Bash": "shell"},
-              "matcher": "bin/tezgah-setup::GOOSE_PRETOOL_MATCHER"}
+              "matcher": "bin/tezgah-setup::GOOSE_PRETOOL_MATCHER"},
+    "amp": {"tools": {"Write": "create_file", "Edit": "edit_file",
+                      "apply_patch": "apply_patch", "Bash": "Bash"},
+            "matcher": "hosts/amp/tezgah-plugin.ts.in"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

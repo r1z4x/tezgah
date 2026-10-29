@@ -307,7 +307,10 @@ turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals
 `continue` re-enters the loop with no prompt, so its first-invocation hook writes no `turn` row
 while the ledger's last row is that refusal (`hosts/antigravity/hook.py::reentered`). A Goose Stop
 block keeps the turn going with no new prompt and no host count, so its turn rows alone decide
-(`hosts/goose/hook.py::main`). The omp host
+(`hosts/goose/hook.py::main`). Amp's plugin continues a blocked turn with a user message that
+starts with `[tezgah:stop]`. The plugin never sends that prompt as a `user_prompt`. So it writes
+no `turn` row and grants nothing. The Stop rule then judges that turn with `stop_hook_active`
+(`hosts/amp/tezgah-plugin.ts.in`). The omp host
 caps the continuations it starts itself, but never a chain of blocks, so tezgah's count bounds that
 chain. So a reply that fixes the first class but adds a new one gets one more refusal. A blocker
 list with no evidence is such a new class. A reply after a block that is not refused writes one

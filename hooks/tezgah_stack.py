@@ -466,6 +466,35 @@ def host_stack(host, repo):
             "mcp": yaml_keys(_read(os.path.join(c, "config.yaml")), "extensions"),
             "scan": [os.path.join(tp.GOOSE_PLUGIN, "skills")],
         }
+    if host == "amp":
+        c, h = tp.HOST_DIRS["amp"], tp.HOME
+        system = os.path.dirname(tp.AMP_PLUGIN)
+
+        def plugins(base):
+            # plugins guide: a `.ts`/`.js` file or `<name>/index.*` in a plugin dir
+            return sorted(os.path.join(base, n) for n in (
+                os.listdir(base) if os.path.isdir(base) else []) if not n.startswith("."))
+        found = plugins(os.path.join(repo, ".amp", "plugins")) + plugins(system)
+        return {
+            # agents-md guide: the cwd and its parents, then both user files; all load
+            "context": [os.path.join(repo, "AGENTS.md"), os.path.join(c, "AGENTS.md"),
+                        os.path.join(h, ".config", "AGENTS.md")],
+            # skills guide "Skill Sources and Precedence": the first name wins
+            "skills": ("first", [os.path.join(h, ".config", "agents", "skills"),
+                                 os.path.join(h, ".agents", "skills"),
+                                 os.path.join(c, "skills"),
+                                 os.path.join(repo, ".agents", "skills"),
+                                 os.path.join(repo, ".claude", "skills"),
+                                 os.path.join(h, ".claude", "skills")]),
+            # a plugin gets every event; a project plugin wins over a system one
+            # of the same name (plugins guide "Plugin Locations and Precedence")
+            "hooks": {"plugin (every event)": [(owner(p), p, p) for p in found]},
+            # settings guide: `amp.mcpServers`, user then workspace
+            "mcp": sorted(_json(os.path.join(c, "settings.json")).get("amp.mcpServers") or {})
+            + ["%s (project)" % n for n in sorted(
+                _json(os.path.join(repo, ".amp", "settings.json")).get("amp.mcpServers") or {})],
+            "scan": [os.path.join(c, "skills"), system],
+        }
     raise ValueError(host)
 
 
@@ -484,7 +513,7 @@ def tezgah_skill_dirs():
     """The dirs tezgah-setup links its skills into, plus the plugin copy's."""
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
             for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode",
-                      "copilot", "antigravity")]
+                      "copilot", "antigravity", "amp")]
     dirs.append(os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "skills"))
     dirs.append(os.path.join(tp.GOOSE_PLUGIN, "skills"))
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))

@@ -11,8 +11,9 @@ One store, not two: the install record is the per-artifact sha file the contract
 artifacts already use (`contract.sha256`, `bin/tezgah-setup::record_contract`),
 one line per entry under a `hook:<host>:<entry>` key. An entry is one hook event's
 tezgah-owned groups (Claude, dsh, Codex, Cursor - so a removed PreToolUse is named
-while PostToolUse stays), opencode's plugin links, and nothing for omp: its bridge
-is compared to a fresh render, the way `rules_current` compares a rules file. The
+while PostToolUse stays), opencode's plugin links, and nothing for omp and Amp:
+their bridge or plugin is compared to a fresh render, the way `rules_current`
+compares a rules file. The
 code an entry runs is hashed only on a packaged install (a tree with no `.git`):
 a checkout install points into a tree its owner edits on purpose. A hook file
 any user can write (0666) is drift too; group write is left alone, because a
@@ -50,10 +51,15 @@ CODE_TARGETS = {
     "gemini": (os.path.join("hosts", "gemini", "hook.py"),),
     "antigravity": (os.path.join("hosts", "antigravity", "hook.py"),),
     "goose": (os.path.join("hosts", "goose", "hook.py"),),
+    "amp": (os.path.join("hosts", "amp", "hook.py"),
+            os.path.join("hosts", "amp", "tezgah-plugin.ts.in")),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
                           "tezgah-hook.ts")
+# The first line of every Amp plugin tezgah renders: an uninstall removes a
+# file at AMP_PLUGIN only when it equals a fresh render or starts with this.
+AMP_HEADER = "// tezgah: Amp plugin rendered by tezgah-setup"
 
 
 def sha(text):
@@ -114,6 +120,19 @@ def omp_bridge(root=ROOT):
         return ""
 
 
+def amp_plugin(root=ROOT):
+    """The Amp plugin as an install writes it: the template with this tree's
+    hook path, or "" when the template is unreadable. The install, the report
+    row, the live probe and the attestation all compare against this."""
+    try:
+        with open(os.path.join(root, "hosts", "amp", "tezgah-plugin.ts.in"),
+                  encoding="utf-8") as fh:
+            return fh.read().replace(
+                "@HOOK@", os.path.join(root, "hosts", "amp", "hook.py"))
+    except OSError:
+        return ""
+
+
 def registration(host, root=ROOT):
     """({entry: text}, [files]) for the tezgah-owned hook entries this host has
     on disk; the dict is None when the host's file cannot be read."""
@@ -157,6 +176,12 @@ def registration(host, root=ROOT):
                 return {"bridge": fh.read()}, [OMP_BRIDGE]
         except OSError:
             return None, [OMP_BRIDGE]
+    if host == "amp":
+        try:
+            with open(tp.AMP_PLUGIN, encoding="utf-8") as fh:
+                return {"plugin": fh.read()}, [tp.AMP_PLUGIN]
+        except OSError:
+            return None, [tp.AMP_PLUGIN]
     return None, []
 
 
@@ -181,7 +206,7 @@ def record_texts(host, root=ROOT):
     """{key: text} an install records for one host (`bin/tezgah-setup::record_hooks`)."""
     entries, _files = registration(host, root)
     out = {}
-    if host != "omp":
+    if host not in ("omp", "amp"):
         out.update((KEY % (host, name), text)
                    for name, text in (entries or {}).items())
     code = code_text(host, root) if packaged(root) else None
@@ -211,6 +236,9 @@ def drift(host, root=ROOT, shas=None):
     elif host == "omp":
         if entries["bridge"] != omp_bridge(root):
             found.append("omp bridge %s differs from a fresh render" % OMP_BRIDGE)
+    elif host == "amp":
+        if entries["plugin"] != amp_plugin(root):
+            found.append("amp plugin %s differs from a fresh render" % tp.AMP_PLUGIN)
     else:
         names = set(recorded) - {"code"}
         if not names:

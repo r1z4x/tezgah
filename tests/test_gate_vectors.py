@@ -43,6 +43,10 @@ AGY_ARGS = {"file_path": "TargetFile", "content": "CodeContent", "command": "Com
             "old_string": "TargetContent", "new_string": "ReplacementContent"}
 # Goose's developer-tool keys (hooks "Tool Input Keys")
 GOOSE_ARGS = {"file_path": "path", "old_string": "before", "new_string": "after"}
+# Amp's tool keys: `path` for the edit tools, `old_str`/`new_str` for
+# edit_file, and a shell call whose text may arrive as `cmd` alone
+AMP_ARGS = {"file_path": "path", "old_string": "old_str", "new_string": "new_str",
+            "command": "cmd"}
 
 
 def load():
@@ -176,6 +180,12 @@ class GateVectors(TempHome):
                               "tool_input": {GOOSE_ARGS.get(k, k): v for k, v in inp.items()}},
                              lambda out: out.get("reason")
                              if out.get("decision") == "block" else None)
+        if host == "amp":
+            # the plugin's payload: Amp's own tool names and keys, thread id as session
+            return self.hook(support.AMP_HOOK,
+                             dict(ids, event="pre_tool_use", tool=name,
+                                  input={AMP_ARGS.get(k, k): v for k, v in inp.items()}),
+                             lambda out: out.get("deny"))
         if host == "omp":
             return self.hook(support.OMP_HOOK,
                              dict(ids, event="pre_tool_use", tool=name, input=inp),

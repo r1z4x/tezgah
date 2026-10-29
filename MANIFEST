@@ -161,6 +161,8 @@ hooks/tezgah_taste.py
 hooks/tezgah_taste_ledger.py
 hooks/tezgah_untrusted.py
 hooks/tezgah_update.py
+hosts/amp/hook.py
+hosts/amp/tezgah-plugin.ts.in
 hosts/antigravity/hook.py
 hosts/codex/hook.py
 hosts/codex/hooks.json
@@ -837,6 +839,7 @@ skills/rl-env/rl-env-from-description/references/verifiers.md
 skills/tezgah-contract/EVALS.md
 skills/tezgah-contract/SKILL.md
 statusline.py
+tests/_amp_plugin_harness.mjs
 tests/_fuzz_shell_reader.mjs
 tests/_mcp_stdio.py
 tests/_omp_extension_harness.mjs
@@ -915,6 +918,8 @@ tests/stop_spec_eval.py
 tests/support.py
 tests/test_agents.py
 tests/test_ai_research_library.py
+tests/test_amp_hook.py
+tests/test_amp_plugin.py
 tests/test_antigravity_hook.py
 tests/test_apps_registry.py
 tests/test_attest.py
