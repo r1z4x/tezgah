@@ -1923,11 +1923,13 @@ class DroidHost(SetupBase):
     def test_an_empty_commented_object_round_trips_without_a_trailing_comma(self):
         path = self.path(".factory", "settings.json")
         os.makedirs(os.path.dirname(path))
-        with open(path, "w") as fh:
-            fh.write("// n\n{}\n")
-        self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
-        self.assertEqual(self.setup("--uninstall", "--hosts", "droid").returncode, 0)
-        self.assertNotRegex(self.read_text(path), r",\s*}")
+        for text in ("// n\n{}\n", "{}\n// end\n"):
+            with self.subTest(text=text):
+                with open(path, "w") as fh:
+                    fh.write(text)
+                self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)
+                self.assertEqual(self.setup("--uninstall", "--hosts", "droid").returncode, 0)
+                self.assertNotRegex(self.read_text(path), r",\s*}")
 
     def test_the_report_rows_follow_the_written_files(self):
         self.assertEqual(self.setup("--install", "--hosts", "droid").returncode, 0)

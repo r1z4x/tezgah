@@ -2348,9 +2348,11 @@ def jsonc_drop(text, key, value):
         return None
     new = re.sub(r'\n[ \t]*%s: %s,?' % (re.escape(json.dumps(key)), re.escape(json.dumps(value))),
                  "", text, count=1)
-    if not re.search(r",\s*}\s*$", text):
-        # the line's own comma may now sit before the closing brace: take it out
-        new = re.sub(r",(\s*}\s*)$", r"\1", new)
+    # the line's own comma may now sit before the closing brace (comments may
+    # follow it): take it out, unless the file already carried one there
+    tail = r",(\s*}(?:\s|//[^\n]*|/\*.*?\*/)*)$"
+    if not re.search(tail, text, re.S):
+        new = re.sub(tail, r"\1", new, flags=re.S)
     rest = dict(data)
     rest.pop(key)
     return new if jsonc_loads(new) == rest else None
@@ -2397,16 +2399,19 @@ def install_droid():
         pass  # the install stopped at the user's own `hooks` key: settings stays as it is
     elif isinstance(plain, dict):
         # plain JSON (an earlier install wrote it): set both keys and rewrite, as before
-        if "tezgah-statusline" in json.dumps(plain.get("statusLine") or "") or \
-                "statusLine" not in plain:
+        ours = "tezgah-statusline" in json.dumps(plain.get("statusLine") or "")
+        if ours or "statusLine" not in plain:
             plain["statusLine"] = line
         plain["includeCoAuthoredByDroid"] = False
         write_json(spath, plain)
-        print("%s %s (statusLine, includeCoAuthoredByDroid false)" % (OK, spath))
+        print("%s %s (statusLine%s, includeCoAuthoredByDroid false)" % (
+            OK, spath, "" if plain["statusLine"] == line else " left as the user set it"))
     elif text is not None:
         old = (jsonc_loads(text) or {}).get("statusLine")
-        if old != line and "tezgah-statusline" in json.dumps(old or ""):
-            text = jsonc_drop(text, "statusLine", old) or text  # an earlier install's line
+        stale = old != line and "tezgah-statusline" in json.dumps(old or "")
+        if stale:
+            dropped = jsonc_drop(text, "statusLine", old)  # an earlier install's line
+            text, stale = (dropped, False) if dropped is not None else (text, True)
         # each key on its own: a user's own statusLine never blocks the trailer switch
         new = jsonc_put(text, "statusLine", line) or text
         new = jsonc_put(new, "includeCoAuthoredByDroid", False) or new
@@ -2414,8 +2419,10 @@ def install_droid():
             write_text(spath, new)
         done = jsonc_loads(new) or {}
         print("%s %s (statusLine%s, includeCoAuthoredByDroid %s)" % (
-            OK if done.get("includeCoAuthoredByDroid") is False else NO, spath,
-            "" if done.get("statusLine") == line else " left as the user set it",
+            OK if done.get("includeCoAuthoredByDroid") is False and not stale else NO, spath,
+            "" if done.get("statusLine") == line else
+            " from an earlier install could not be refreshed: set it with /statusline to `%s`"
+            % line["command"] if stale else " left as the user set it",
             "false" if done.get("includeCoAuthoredByDroid") is False else "not set: edit by hand"))
     else:
         print("%s %s cannot be read: set the status line with /statusline to `%s` and "
