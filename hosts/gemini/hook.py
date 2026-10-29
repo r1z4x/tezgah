@@ -109,11 +109,12 @@ def call_failed(tool, resp, text):
         return True
     if tool != "Bash" or not isinstance(text, str):
         return None
+    # a signal first: the command's own output may hold an `Exit Code: 0` line
+    if SIGNAL.search(text):
+        return True
     codes = EXIT_CODE.findall(text)
     if codes:
         return int(codes[-1]) != 0
-    if SIGNAL.search(text):
-        return True
     return False if RAN.match(text) else None
 
 

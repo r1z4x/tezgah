@@ -281,6 +281,12 @@ class ControlPlane(unittest.TestCase):
                                        "content": json.dumps({"theme": "dark", key: on})})
                 self.assertIsNone(self.decide("Write", {
                     "file_path": settings, "content": json.dumps({"theme": "light"})}))
+        # disabledPlugins is the user's list: only an entry naming tezgah is owned
+        goose = os.path.join(self.home, ".config", "goose", "settings.json")
+        with open(goose, "w") as fh:
+            json.dump({"disabledPlugins": []}, fh, indent=2)
+        self.assertIsNone(self.decide("Write", {
+            "file_path": goose, "content": json.dumps({"disabledPlugins": ["other"]})}))
 
     def test_the_users_own_hook_beside_tezgahs_is_theirs(self):
         # one matcher group holding tezgah's hook and the user's: the user's

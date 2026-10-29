@@ -2843,9 +2843,9 @@ CONTROL_CACHE = ("evidence", "tezgah.db", "tezgah.db-wal", "tezgah.db-shm", "ses
                  "switches", "gate-inactive", "harness-drift", "import-crash",
                  "workspace-index.json")
 # Top-level keys tezgah writes into Claude's settings (bin/tezgah-setup
-# wire_claude_statusline, wire_claude_attribution), and the ones that turn hooks off: Claude's
-# `disableAllHooks`, Gemini's `hooksConfig`, Goose's `disabledPlugins`; other keys count only when they name tezgah.
-OWNED_KEYS = ("statusLine", "attribution", "disableAllHooks", "hooksConfig", "disabledPlugins")
+# wire_claude_statusline, wire_claude_attribution) and the ones that turn hooks off: Claude's
+# `disableAllHooks`, Gemini's `hooksConfig` (Goose's `disabledPlugins` is owned per tezgah entry).
+OWNED_KEYS = ("statusLine", "attribution", "disableAllHooks", "hooksConfig")
 PATCH_DELETE = re.compile(r"(?m)^\*\*\* Delete File: (\S.*?)\s*$")
 
 
