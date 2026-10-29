@@ -426,8 +426,8 @@ class OmpHook(TempHome):
     def test_stop_reads_the_plan_mode_the_extension_sends(self):
         # plan 142: omp's extension sends `permission_mode: "plan"` from
         # `ctx.sessionModes`, and the python half hands it to the core: the
-        # approval question that mode asks for ends the turn, and a done claim
-        # made in it does not.
+        # approval question that mode asks for ends the turn, and a reply that
+        # says it ran the tests does not.
         repo = self.make_repo()
         asked = "Üç adım var.\n\nDevam edeyim mi?"
         out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "sp",
@@ -435,7 +435,8 @@ class OmpHook(TempHome):
                              "permission_mode": "plan"})
         self.assertIsNone(out)
         out, _ = self.event({"event": "stop", "cwd": repo, "session_id": "sq",
-                             "last_assistant_message": "Bitti, testler geçti.",
+                             "last_assistant_message": "Bitti: testleri "
+                             "çalıştırdım, hepsi geçti.",
                              "permission_mode": "plan"})
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Plan modunda", out["reason"])
