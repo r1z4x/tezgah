@@ -689,12 +689,14 @@ class OmpExtension(TempHome):
                          planMode="inactive")
         self.assertEqual(self.results(out)[0]["decision"], "block")
 
-    def test_the_bridge_sends_the_reply_text_not_the_message_object(self):
+    def test_a_message_object_reaches_the_rule_as_prose(self):
         # plan 143: omp's `session_stop` carries the message object its
-        # `getLastAssistantMessage()` returns. The bridge sends its text
-        # blocks, so the core judges prose with its lines intact; a thinking
-        # block is not the reply. The question in the text is what the
-        # `needless ask` class reads, which only a real last line can carry.
+        # `getLastAssistantMessage()` returns. End to end - bridge, hook,
+        # core - the rule judges its text blocks, so the question the reply
+        # ends on is a last line again and a thinking block is not the reply.
+        # The bridge (`textOf`) and the core (`reply_prose`) each normalize,
+        # so this passes with either alone: it pins the path, not the bridge
+        # (review of plan 143, finding 1).
         message = {"role": "assistant", "content": [
             {"type": "thinking", "text": "Let me think about this"},
             {"type": "text", "text": "Üç adım var.\n\nDevam edeyim mi?"}]}

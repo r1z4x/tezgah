@@ -323,8 +323,10 @@ function textOf(message: any): string | undefined {
   if (typeof message === "string") return message;
   if (typeof message?.content === "string") return message.content;
   if (Array.isArray(message?.content)) {
+    // joined and trimmed exactly as the core does (`reply_prose`), so the two
+    // never hand the rule a different text for one reply
     return message.content.map((p: any) => (p?.type === "text" && typeof p.text === "string"
-                                            ? p.text : "")).filter(Boolean).join("\n");
+                                            ? p.text : "")).join("\n").trim();
   }
   return undefined;
 }
