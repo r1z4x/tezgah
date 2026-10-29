@@ -240,7 +240,7 @@
    "yes|yep|yeah|ok(?:ay)?|sure|go(?: on| ahead)?|continue|proceed|do it|carry on|keep going|approved"
   ],
   "hand_over": [
-   "\\byou\\s+(?:can|should|need to|must|may)\\s+(?:then\\s+)?(?:run|execute)\\b|\\bplease\\s+(?:run|execute)\\b|\\b(?:just|now|then)\\s+run\\b|^\\s*(?:run|execute)\\s+(?=`)|\\byour\\s+(?:step|turn)\\b"
+   "\\bplease\\s+(?:run|execute)\\b|\\byour\\s+(?:step|turn|move)\\b(?=\\s*[:.;,!]|\\s*$)|\\bover to you\\b|\\byou(?:'ll| will)?\\s+(?:need to\\s+)?run (?:it|this|that|the command)\\b"
   ],
   "outward": {
    "push": "\\bpush\\w*",

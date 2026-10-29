@@ -4909,8 +4909,9 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
     refused = [str(entry.get("detail"))[len("blocked: "):] for entry in chain]
     if after_block and not subagent and not refused:
         return None
+    read_only = read_only_turn(mode)
     cls, reason = _stop_block(text, session_id, rows=rows, cwd=cwd,
-                              shape=not subagent, read_only=read_only_turn(mode))
+                              shape=not subagent, read_only=read_only)
     record_only = subagent or bool(
         (refused if turns else after_block)
         and (not reason or _record_only(refused, turns, after_block, cls)))
@@ -4918,7 +4919,11 @@ def stop_reason(text, session_id, cwd=None, after_block=0,
     # Keyed like the claim row, so Cursor's re-run of the handler on a follow-up
     # does not count the same reply twice; above the early return, so a reply
     # with no claim vocabulary still leaves its row.
+    # `mode` rides every row of a read-only turn: the verdict depended on it,
+    # and a replay of the ledger reads it back (`tezgah_replay._replay_one`).
     shape = reply_shape(text)
+    if read_only:
+        shape = dict(shape, mode=str(mode).strip().lower())
     if not record_only and not any(entry.get("kind") == "shape"
                                    and entry.get("id") == key for entry in rows):
         note(session_id, "shape", ",".join(shape_flags(text)) or "ok", id=key,
@@ -5452,14 +5457,19 @@ def _stop_block(text, session_id, rows=None, cwd=None, shape=True, fold=None,
         return ("evidence tampered", TAMPERED)
     if (done or verified) and any(r.get(ORPHAN) for r in rows):
         return ("evidence tampered", ORPHANED)
-    # A read-only turn (the host's plan mode) ran nothing, so a done/tested
-    # claim in it rests on nothing - unless a check of its own passed, which is
-    # evidence like any other. Above `_admitted`: "doğrulanmadı" repairs an
-    # unverified claim, and in this mode there was nothing to verify.
+    # A read-only turn (the host's plan mode) ran no check, so a claim that one
+    # passed rests on nothing - unless a check of its own passed, which is
+    # evidence like any other. Only a check claim: a plan says "Done when
+    # `pytest -q` passes" and names its acceptance in the done vocabulary, so
+    # the trigger is `verified` or a done word that says tested, the pair
+    # `_prose_edit` is read with below. Above `_admitted`: "doğrulanmadı"
+    # repairs an unverified claim, and here there was nothing to check.
     if read_only and not any(passing_check(r) for r in rows):
         claimed, checked = asserted_claims(t)
-        if claimed or checked:
-            word = (DONE if claimed else VERIFIED).search(t)
+        tested = next((m for m in DONE.finditer(t)
+                       if claimed and TESTED_WORD.search(m.group(0))), None)
+        if checked or tested:
+            word = tested or VERIFIED.search(t)
             return ("plan claim", PLAN_CLAIM % cut(
                 " ".join(word.group(0).split()) if word else say()["done_claim"], 64))
     fold = _admitted(fold, t)
@@ -6551,20 +6561,23 @@ def read_only_turn(mode):
     return str(mode or "").strip().lower().replace("_", "-") in READ_ONLY_MODES
 
 
-def handed_steps(text, rows):
+def handed_steps(text, rows, read_only=False):
     """The lines that hand the reader a step this session could have taken.
 
     A line qualifies when it names a command in backticks and tells the reader
-    to run it (HAND_OVER). A table row (TABLE_ROW) and a quoted line are not
+    to run it (HAND_OVER: the reader addressed as the one who runs it, never
+    the "you can run X" of an answer about how something is done). A table row
+    (TABLE_ROW) and a quoted line are not
     the reply speaking: a refusal or a log the reply quotes carries the same
     words. It is kept - the ask policy's, not the agent's - when it names an
     outward step (`outward_classes`), a class-F step
     (`never_default`), the owner's consent or tezgah's own install
     (OWNER_STEP), or when the line types its blocker. The turn must have run a
     command of its own (COMMAND_KINDS): a turn that ran none could not have run
-    this one either, which is what a host plan mode leaves behind, and what
-    keeps the class inert on a host that sends no mode."""
-    if not any(str(r.get("kind")) in COMMAND_KINDS for r in rows):
+    this one either, which keeps the class inert on a host that sends no mode.
+    `read_only` closes it outright: in a plan mode every step waits for the
+    approval, which is what the contract tells the turn to do."""
+    if read_only or not any(str(r.get("kind")) in COMMAND_KINDS for r in rows):
         return []
     out = []
     for line in str(text or "").splitlines():
@@ -6683,7 +6696,7 @@ def _residual_block(text, rows, shape, verdict=(None, None), session_id=None,
         text, lambda: grants_in_force(session_id))
     if asked:
         return ("needless ask", NEEDLESS_ASK % cut(asked, 80))
-    passed = handed_steps(text, rows)
+    passed = handed_steps(text, rows, read_only)
     if passed:
         return ("handed step", HANDED_STEP % (
             len(passed), "; ".join(cut(" ".join(line.split()), 64)

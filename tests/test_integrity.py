@@ -3483,18 +3483,21 @@ class StopHook(TempHome):
         self.assertEqual(self.stop(asked).get("decision"), "block")
 
     def test_a_done_claim_in_plan_mode_is_refused(self):
-        # plan 142: nothing can run in a read-only mode, so the claim has
-        # nothing behind it - the one class such a turn can be refused for.
+        # plan 142: no check could run in a read-only mode, so a claim that one
+        # passed has nothing behind it - the class such a turn is refused for.
         self.turn("plan modunda: nasıl bölelim?")
         out = self.stop("Üç adımda böldüm, hepsini test ettim, geçti.",
                         permission_mode="plan")
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Plan modunda hiçbir şey koşmadı.", out["reason"])
         self.assertEqual(self.claim_rows(), ["blocked: plan claim"])
-        # the plan itself, claiming nothing, ends the turn
+        # the plan itself ends the turn, acceptance wording included: "bitti"
+        # over a command that has not run yet is the plan, not a claim
+        # (review of plan 142, F3)
         self.turn("plan modunda: nasıl bölelim?")
         self.assertIsNone(self.stop(
-            "Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.",
+            "Plan: üç adım.\n\n1. `hooks/tezgah_apps.py` ikiye ayrılır.\n"
+            "`pytest -q` geçince iş bitti; planı onaylarsan başlıyorum.",
             permission_mode="plan"))
 
     def test_a_handed_step_is_refused_once(self):
@@ -3522,6 +3525,20 @@ class StopHook(TempHome):
         self.turn("oku")
         self.assertIsNone(self.stop(
             "Özet hazır.\n\n`pytest -q` komutunu sen çalıştır."))
+        # an answer about how something is done is not a handover: the reader
+        # asked, and the command is theirs to run (review of plan 142, F1)
+        self.turn("global git adımı nasıl ayarlarım?")
+        self.work()
+        self.assertIsNone(self.stop(
+            "Şöyle ayarlanır: `git config --global user.name Ali`. "
+            "You can run it from any directory."))
+        # and a plan-mode turn hands nothing back: every step waits for the
+        # approval (review of plan 142, F2)
+        self.turn("plan modunda: nasıl bölelim?")
+        self.work()
+        self.assertIsNone(self.stop(
+            "Plan: önce `hooks/tezgah_apps.py` bölünür, sonra `pytest -q` "
+            "komutunu sen çalıştır.", permission_mode="plan"))
 
     def todos(self, *items):
         """One Claude `TodoWrite` call holding these (content, status) items."""

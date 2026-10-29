@@ -284,7 +284,7 @@
    "evet|tamam|olur|devam(?: et)?|yap|başla|ilerle|okey|onay(?:lıyorum)?"
   ],
   "hand_over": [
-   "\\b(?:sen|siz|sana|size)\\b[^.!?\\n]{0,32}?\\bçalıştır(?:ın|ınız)?\\b|\\bçalıştır(?:man|manız)\\w*\\s+gerek\\w*|\\b(?:şunu|bunu|şu komutu|aşağıdakini?)\\s+çalıştır(?:ın|ınız)?\\b|\\bsenin adımın\\b|\\badım(?:ı)? sende\\b"
+   "\\b(?:sen|siz)\\b[^.!?\\n]{0,32}?\\bçalıştır(?:ın|ınız)?\\b|\\bçalıştır(?:man|manız)\\w*\\s+gerek\\w*|\\bsenin adımın\\b|\\badım(?:ı)? sende\\b|\\bsıradaki adım(?:ı)? sen\\b"
   ],
   "outward": {
    "push": "\\bpush\\w*",
