@@ -2188,6 +2188,119 @@ class CopilotHost(SetupBase):
         self.assertIn("PreToolUse denied `git commit --no-verify -m x`", deny)
 
 
+class GeminiHost(SetupBase):
+    """Gemini CLI loads every dir under <home>/.gemini/extensions: the install
+    writes its own `tezgah` extension there (manifest, hooks/hooks.json, skill
+    links) and the GEMINI.md block, never settings.json; the uninstall deletes
+    the dir, and keeps the block while Antigravity, which reads the same
+    GEMINI.md, stays armed."""
+
+    def ext(self, *parts):
+        return self.path(".gemini", "extensions", "tezgah", *parts)
+
+    def test_install_writes_its_own_extension_and_never_settings(self):
+        spath = self.path(".gemini", "settings.json")
+        mine = '// keys\n{"security": {"auth": {"selectedType": "x"}}}\n'
+        os.makedirs(os.path.dirname(spath))
+        with open(spath, "w") as fh:
+            fh.write(mine)
+        proc = self.setup("--install", "--hosts", "gemini")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(self.read_text(spath), mine)
+        self.assertEqual(self.read_json(self.ext("gemini-extension.json"))["name"], "tezgah")
+        data = self.read_json(self.ext("hooks", "hooks.json"))
+        for ev, matcher, timeout in setup_module().GEMINI_HOOK_EVENTS:
+            group, = data["hooks"][ev]
+            entry, = group["hooks"]
+            self.assertIn("tezgah-gemini-hook", entry["command"], ev)
+            self.assertEqual(entry["timeout"], timeout, ev)
+            self.assertEqual(group.get("matcher"), matcher, ev)
+        self.assertEqual(data["hooks"]["AfterAgent"][0]["hooks"][0]["timeout"], 30000)
+        pre = data["hooks"]["BeforeTool"][0]["matcher"]
+        for tool in ("run_shell_command", "write_file", "replace", "grep_search",
+                     "codebase_investigator", "generalist", "mcp_github_list_issues"):
+            self.assertTrue(re.fullmatch(pre, tool), tool)
+        self.assertFalse(re.fullmatch(pre, "read_file"))
+        self.assertTrue(os.path.islink(self.ext("skills", "ponytail")))
+        self.assertIn("<!-- tezgah:start", self.read_text(self.path(".gemini", "GEMINI.md")))
+        self.assertTrue(os.path.islink(self.path(".config", "tezgah", "bin",
+                                                 "tezgah-gemini-hook")))
+
+    def test_the_report_rows_follow_the_written_files(self):
+        self.assertEqual(self.setup("--install", "--hosts", "gemini").returncode, 0)
+        out = self.setup("--hosts", "gemini").stdout
+        for label in ("extension hooks/hooks.json wired", "skills linked",
+                      "GEMINI.md carries the contract", "hooks left on in settings.json",
+                      "hook entries match the install record"):
+            self.assertTrue(self.row(out, label).strip().startswith("ok"), (label, out))
+        self.write_json(self.path(".gemini", "settings.json"),
+                        {"hooksConfig": {"enabled": False}})
+        out = self.setup("--hosts", "gemini").stdout
+        self.assertTrue(self.row(out, "hooks left on").strip().startswith("MISS"), out)
+        path = self.ext("hooks", "hooks.json")
+        data = self.read_json(path)
+        del data["hooks"]["AfterAgent"]
+        self.write_json(path, data)
+        out = self.setup("--hosts", "gemini").stdout
+        self.assertTrue(self.row(out, "extension hooks/hooks.json wired").strip()
+                        .startswith("MISS"), out)
+        self.assertIn("gemini AfterAgent entry removed", out)
+
+    def test_uninstall_removes_the_extension_and_the_block(self):
+        mine = self.path(".gemini", "extensions", "other", "gemini-extension.json")
+        self.write_json(mine, {"name": "other", "version": "1"})
+        self.assertEqual(self.setup("--install", "--hosts", "gemini").returncode, 0)
+        proc = self.setup("--uninstall", "--hosts", "gemini")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(self.ext()))
+        self.assertTrue(os.path.exists(mine))
+        self.assertTrue(os.path.isfile(os.path.join(REPO, "skills", "ponytail", "SKILL.md")))
+        self.assertFalse(os.path.exists(self.path(".gemini", "GEMINI.md")))
+        self.assertIn("gemini extension dir gone", proc.stdout)
+
+    def test_the_shared_block_stays_while_antigravity_is_armed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "gemini").returncode, 0)
+        cfg = self.path(".config", "tezgah", "config.json")
+        data = self.read_json(cfg)
+        data["hosts"] = data["hosts"] + ["antigravity"]
+        self.write_json(cfg, data)
+        proc = self.setup("--uninstall", "--hosts", "gemini")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(self.ext()))
+        self.assertIn("<!-- tezgah:start", self.read_text(self.path(".gemini", "GEMINI.md")))
+        self.assertIn("keeps the tezgah block", proc.stdout)
+
+    def test_gemini_cli_home_relocates_every_file(self):
+        alt = self.path("alt")
+        self.env["GEMINI_CLI_HOME"] = alt
+        self.assertEqual(self.setup("--install", "--hosts", "gemini").returncode, 0)
+        self.assertTrue(os.path.exists(os.path.join(
+            alt, ".gemini", "extensions", "tezgah", "hooks", "hooks.json")))
+        self.assertTrue(os.path.exists(os.path.join(alt, ".gemini", "GEMINI.md")))
+        self.assertFalse(os.path.exists(self.path(".gemini")))
+
+    def test_doctor_stack_and_live_report_run_with_gemini_installed(self):
+        self.assertEqual(self.setup("--install", "--hosts", "gemini").returncode, 0)
+        repo = self.path("Projects", "r")
+        os.makedirs(repo)
+        doctor = subprocess.run(
+            [sys.executable, os.path.join(REPO, "bin", "tezgah-doctor"), "--stack",
+             "--json", "--repo", repo], capture_output=True, text=True,
+            env=self.env, timeout=120)
+        self.assertNotIn("Traceback", doctor.stderr)
+        stack = json.loads(doctor.stdout)["gemini"]
+        self.assertIn(self.path(".gemini", "GEMINI.md"), stack["context"])
+        self.assertIn("BeforeTool", stack["hooks"])
+        proc = self.setup("--report", "--live", "--hosts", "gemini")
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertTrue(self.row(proc.stdout, "live gemini:").strip().startswith("ok"),
+                        proc.stdout)
+        deny = self.row(proc.stdout, "live gemini deny:").strip()
+        self.assertTrue(deny.startswith("ok"), proc.stdout)
+        self.assertIn("denied `git commit --no-verify -m x`", deny)
+
+
+
 class Uninstall(SetupBase):
     def test_dry_run_uninstall_writes_nothing(self):
         """`--dry-run` is a preview for the uninstall too: the run that the

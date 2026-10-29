@@ -53,11 +53,11 @@ TESTS = os.path.join(REPO, "tests")
 # hand-known edges the static scan cannot see
 OVERRIDES = {
     "tezgah_integrity": ("codex_hook", "cursor_hook", "qwen_hook", "droid_hook",
-                         "commandcode_hook", "copilot_hook", "opencode_plugin",
-                         "dsh_hooks", "gate"),
+                         "commandcode_hook", "copilot_hook", "gemini_hook",
+                         "opencode_plugin", "dsh_hooks", "gate"),
     "tezgah_gate": ("codex_hook", "cursor_hook", "qwen_hook", "droid_hook",
-                    "commandcode_hook", "copilot_hook", "opencode_plugin", "dsh_hooks",
-                    "integrity", "taste"),
+                    "commandcode_hook", "copilot_hook", "gemini_hook", "opencode_plugin",
+                    "dsh_hooks", "integrity", "taste"),
     "tezgah_lang": ("gate",),
     "tezgah_policy": ("skills", "context", "setup"),
     # None means FULL. Measured 2026-10-13: 32 test modules import it, and the
@@ -77,7 +77,7 @@ OVERRIDES = {
     "tezgah_taste": ("context", "integrity", "snapshot", "opencode_plugin",
                      "taste_ledger", "codex_hook", "cursor_hook", "omp_hook",
                      "qwen_hook", "droid_hook", "commandcode_hook", "copilot_hook",
-                     "dsh_hooks"),
+                     "gemini_hook", "dsh_hooks"),
     # the taste ledger the session block, the write note and the CLI read
     "tezgah_taste_ledger": ("taste", "taste_cli", "context"),
     # the SQLite store: the taste tables and the evidence ledger every hook

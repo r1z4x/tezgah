@@ -987,7 +987,7 @@ def set_section(path, heading, body):
 
 SLICE_KINDS = ("agent", "job")
 SLICE_HOSTS = ("omp", "claude", "codex", "cursor", "opencode", "dsh", "qwen", "droid",
-               "commandcode", "copilot")
+               "commandcode", "copilot", "gemini")
 # `stale`: an idle background job whose result stays in its parent transcript.
 # An agent with no observed end stays owed as stopped with no failure class.
 SLICE_STATUSES = ("open", "done", "stopped", "resumed", "stale")

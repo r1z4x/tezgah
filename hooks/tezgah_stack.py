@@ -362,6 +362,33 @@ def host_stack(host, repo):
                sorted(_json(os.path.join(repo, ".mcp.json")).get("mcpServers") or {})],
             "scan": [os.path.join(c, "skills")],
         }
+    if host == "gemini":
+        g, h = tp.HOST_DIRS["gemini"], tp.HOME
+        ext = os.path.join(g, "extensions")
+        exts = sorted(n for n in os.listdir(ext) if os.path.isdir(os.path.join(ext, n))) \
+            if os.path.isdir(ext) else []
+        user = _json(os.path.join(g, "settings.json"))
+        project = _json(os.path.join(repo, ".gemini", "settings.json"))
+        return {
+            # configuration "Context Files": the global file, then the cwd up to
+            # the git root, then subdirectories; all concatenate
+            "context": [os.path.join(g, "GEMINI.md"), os.path.join(repo, "GEMINI.md")],
+            # cli/skills.md: workspace over user over extension; `.agents/skills`
+            # wins within a tier
+            "skills": ("first", [os.path.join(repo, ".agents", "skills"),
+                                 os.path.join(repo, ".gemini", "skills"),
+                                 os.path.join(h, ".agents", "skills"),
+                                 os.path.join(g, "skills")]
+                       + [os.path.join(ext, n, "skills") for n in exts]),
+            # hooks/index.md "Configuration": project, user, system, extensions
+            "hooks": merge_hooks(hook_rows(project, "project"),
+                                 hook_rows(user, "settings.json"),
+                                 *(hook_rows(_json(os.path.join(ext, n, "hooks", "hooks.json")),
+                                             "extension %s" % n) for n in exts)),
+            "mcp": sorted(user.get("mcpServers") or {})
+            + ["%s (project)" % n for n in sorted(project.get("mcpServers") or {})],
+            "scan": [os.path.join(g, "skills"), os.path.join(ext, "tezgah", "skills")],
+        }
     raise ValueError(host)
 
 
@@ -381,6 +408,7 @@ def tezgah_skill_dirs():
     dirs = [os.path.join(tp.HOST_DIRS[x], "skills")
             for x in ("codex", "cursor", "opencode", "dsh", "qwen", "droid", "commandcode",
                       "copilot")]
+    dirs.append(os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "skills"))
     dirs.append(os.path.join(tp.HOST_DIRS["omp"], "agent", "skills"))
     active, _ = claude_plugin()
     return dirs + ([os.path.join(active, "skills")] if active else [])

@@ -40,7 +40,9 @@
                                 "shell_command": "SHELL"}},
     "copilot": {"tools": {"Write": "Write", "Edit": "Edit", "apply_patch": "Edit",
                           "Bash": "Bash"},
-                "matcher": "bin/tezgah-setup::COPILOT_PRETOOL_MATCHER"}
+                "matcher": "bin/tezgah-setup::COPILOT_PRETOOL_MATCHER"},
+    "gemini": {"tools": {"Write": "write_file", "Edit": "replace", "Bash": "run_shell_command"},
+               "matcher": "bin/tezgah-setup::GEMINI_PRETOOL_MATCHER"}
   },
   "vectors": [
     {"id": "secret-write", "tool": "Write", "expect": "Credential",

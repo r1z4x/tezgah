@@ -172,6 +172,7 @@ hosts/dsh/hooks.json
 hosts/dsh/statusline/lib/client.js
 hosts/dsh/statusline/lib/index.js
 hosts/dsh/statusline/package.json
+hosts/gemini/hook.py
 hosts/omp/hook.py
 hosts/omp/tezgah-hook.ts.in
 hosts/opencode/plugins/tezgah.js
@@ -949,6 +950,7 @@ tests/test_extension.py
 tests/test_fuzz_shell.py
 tests/test_gate.py
 tests/test_gate_vectors.py
+tests/test_gemini_hook.py
 tests/test_graph_verbs.py
 tests/test_graph_workflows.py
 tests/test_guard.py

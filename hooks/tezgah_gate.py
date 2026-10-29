@@ -2801,8 +2801,8 @@ CONTROL_CLIS = {"tezgah-gate": ("decide",), "tezgah-capture": "",
 HOOK_ENTRIES = frozenset(("projects-auto-init", "projects-pretooluse",
                           "projects-posttooluse", "projects-stop",
                           "tezgah-codex-hook", "tezgah-cursor-hook", "tezgah-qwen-hook",
-                          "tezgah-droid-hook", "tezgah-commandcode-hook", "tezgah-copilot-hook"))
-HOOK_HOSTS = frozenset(("codex", "cursor", "omp", "qwen", "droid", "commandcode", "copilot"))
+                          "tezgah-droid-hook", "tezgah-commandcode-hook", "tezgah-copilot-hook", "tezgah-gemini-hook"))
+HOOK_HOSTS = frozenset(("codex", "cursor", "omp", "qwen", "droid", "commandcode", "copilot", "gemini"))
 # Programs that change a path named in their arguments. Every positional is a
 # target, except for the copiers, whose last one is (`cp switch /tmp` reads it).
 # `sed`/`perl` count only with an in-place flag. `sqlite3` rewrites the cache
@@ -2934,7 +2934,7 @@ def _registration(real):
               # Droid reads hooks.json, else the `hooks` key of its settings.json
               os.path.join(HOST_DIRS["droid"], "hooks.json"),
               os.path.join(HOST_DIRS["droid"], "settings.json"),
-              os.path.join(HOST_DIRS["commandcode"], "settings.json"), os.path.join(HOST_DIRS["copilot"], "settings.json"),
+              os.path.join(HOST_DIRS["commandcode"], "settings.json"), os.path.join(HOST_DIRS["copilot"], "settings.json"), os.path.join(HOST_DIRS["gemini"], "settings.json"),
               os.path.join(claude, "plugins", "installed_plugins.json"),
               os.path.join(claude, "plugins", "known_marketplaces.json"))
     if (name in ("settings.json", "settings.local.json")
@@ -2946,7 +2946,7 @@ def _registration(real):
     owned = [os.path.join(HOST_DIRS["opencode"], d, "tezgah.js")
              for d in ("plugins", "plugin")]
     owned += [os.path.join(HOST_DIRS["omp"], "agent", "hooks", "pre", "tezgah-hook.ts"),
-              os.path.join(HOST_DIRS["copilot"], "hooks", "tezgah.json")]
+              os.path.join(HOST_DIRS["copilot"], "hooks", "tezgah.json")] + [os.path.join(HOST_DIRS["gemini"], "extensions", "tezgah", *p) for p in (("gemini-extension.json",), ("hooks", "hooks.json"))]
     cache = os.path.realpath(os.path.join(claude, "plugins", "cache"))
     if real in {_real(p, None) for p in owned} or (
             _under(real, cache) and "tezgah" in real[len(cache):].lower()):

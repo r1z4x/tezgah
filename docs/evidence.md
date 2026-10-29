@@ -300,8 +300,9 @@ The checker is `_stop_block` (`hooks/tezgah_integrity.py::_stop_block`), reached
 The re-ask budget is the core's (`_record_only`, `hooks/tezgah_integrity.py::_record_only`): at
 most `STOP_REASKS` = 2 refusals in one user turn, and never two for one reason class. The count
 comes from the turn's `blocked:` claim and refusal rows, not from the host's payload. The omp host
-hands a block back as a queued message. Its prompt hook writes that text as a new `turn` row. A
-refusal row stores the key of its text as `reask`. A `turn` row with that key starts no new user
+hands a block back as a queued message. Its prompt hook writes that text as a new `turn` row.
+Gemini does the same: an AfterAgent deny comes back through BeforeAgent as the next prompt
+(`hosts/gemini/hook.py::main`). A refusal row stores the key of its text as `reask`. A `turn` row with that key starts no new user
 turn for the count (`_turn_refusals`, `hooks/tezgah_integrity.py::_turn_refusals`). The omp host
 caps the continuations it starts itself, but never a chain of blocks, so tezgah's count bounds that
 chain. So a reply that fixes the first class but adds a new one gets one more refusal. A blocker

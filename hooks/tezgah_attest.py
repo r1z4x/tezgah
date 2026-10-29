@@ -47,6 +47,7 @@ CODE_TARGETS = {
     "droid": (os.path.join("hosts", "droid", "hook.py"),),
     "commandcode": (os.path.join("hosts", "commandcode", "hook.py"),),
     "copilot": (os.path.join("hosts", "copilot", "hook.py"),),
+    "gemini": (os.path.join("hosts", "gemini", "hook.py"),),
 }
 OPENCODE_DIRS = ("plugins", "plugin")
 OMP_BRIDGE = os.path.join(tp.HOST_DIRS["omp"], "agent", "hooks", "pre",
@@ -123,6 +124,11 @@ def registration(host, root=ROOT):
     if host == "copilot":
         # tezgah's own file in Copilot's user hooks dir: every entry is ours
         path = os.path.join(tp.HOST_DIRS["copilot"], "hooks", "tezgah.json")
+        return _manifest(path, own=True), [path]
+    if host == "gemini":
+        # tezgah's own extension: every entry in its hooks.json is ours
+        path = os.path.join(tp.HOST_DIRS["gemini"], "extensions", "tezgah", "hooks",
+                            "hooks.json")
         return _manifest(path, own=True), [path]
     if host == "opencode":
         links = (os.path.join(tp.HOST_DIRS["opencode"], d, "tezgah.js")

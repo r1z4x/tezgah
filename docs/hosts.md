@@ -1,7 +1,7 @@
 # Hosts
 
-tezgah is one Python core with ten host adapters around it: `claude`, `codex`,
-`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`, `commandcode`, `copilot`. This page is for the maintainer wiring a new
+tezgah is one Python core with eleven host adapters around it: `claude`, `codex`,
+`cursor`, `opencode`, `dsh`, `omp`, `qwen`, `droid`, `commandcode`, `copilot`, `gemini`. This page is for the maintainer wiring a new
 host, adding a mark, or debugging a status line that claims something a host
 cannot see. Read it when a question starts with "does this host get X?" or "can
 this host observe Y?" - the answer is not uniform, and guessing it produces a
@@ -27,6 +27,7 @@ surface can honestly report this session; the two skill-read marks (`pony`,
 | droid | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, SubagentStop (record-only, `subagent_end`), Stop (`bin/tezgah-setup::DROID_HOOK_EVENTS`), all in `~/.factory/hooks.json` | the managed block in `~/.factory/AGENTS.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/droid/hook.py::rules_carry_core`) | UserPromptSubmit -> `additionalContext` (`hosts/droid/hook.py::main`) | `statusLine` command in `~/.factory/settings.json` -> `tezgah-statusline --droid`, written only while that file is plain JSON (`bin/tezgah-setup::install_droid`) | five tool-use (`statusline.py::observable`) |
 | commandcode | SessionStart, PreToolUse (matcher `shell\|write\|edit`), PostToolUse, Stop (`bin/tezgah-setup::COMMANDCODE_HOOK_EVENTS`), all in the `hooks` key of `~/.commandcode/settings.json` | the managed block in `~/.commandcode/AGENTS.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/commandcode/hook.py::rules_carry_core`) | unavailable: Command Code has no prompt event | no custom status line - the segment rides `systemMessage`, plain, TUI only, at SessionStart and Stop (`hosts/commandcode/hook.py::status`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/commandcode/hook.py::status`) |
 | copilot | SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, subagentStart, SubagentStop (record-only, `subagent_end`), Stop (`bin/tezgah-setup::COPILOT_HOOK_EVENTS`), all in tezgah's own `$COPILOT_HOME/hooks/tezgah.json` | the managed block in `$COPILOT_HOME/copilot-instructions.md` (`bin/tezgah-setup::STATIC_RULES`); SessionStart drops the core while the block is there (`hosts/copilot/hook.py::rules_carry_core`) | unavailable: Copilot drops a command hook's UserPromptSubmit output; the event still writes the turn row (`hosts/copilot/hook.py::main`) | `statusLine` command in `$COPILOT_HOME/settings.json` -> `tezgah-statusline --copilot`, written only while that file is plain JSON (`bin/tezgah-setup::install_copilot`) | five tool-use (`statusline.py::observable`) |
+| gemini | SessionStart, BeforeAgent, BeforeTool, AfterTool, AfterAgent (`bin/tezgah-setup::GEMINI_HOOK_EVENTS`), all in tezgah's own extension `~/.gemini/extensions/tezgah/hooks/hooks.json` | the managed block in `~/.gemini/GEMINI.md` (`bin/tezgah-setup::STATIC_RULES`), shared with Antigravity; SessionStart drops the core while the block is there (`hosts/gemini/hook.py::rules_carry_core`) | BeforeAgent -> `hookSpecificOutput.additionalContext`, appended to the prompt for that turn (`hosts/gemini/hook.py::main`) | no custom status line (`ui.footer.items` is a closed list) - the segment rides `systemMessage`, plain, at SessionStart and AfterAgent (`hosts/gemini/hook.py::status`) | five tool-use (`TOOL_USE_MEASURES` at `hosts/gemini/hook.py::status`) |
 
 The middle five marks (`consult`, `research`, `graph`, `orch`, `judge`) are tool-use marks:
 any adapter that sees its host's tool calls can light them by calling
@@ -55,10 +56,11 @@ the code path there, but no run has shown the host obeying it.
 | droid | gate, probed by `--report --live` through the hook command in `~/.factory/hooks.json`; that the droid binary obeys the deny is unverified until `TEZGAH_E2E_SPEND=1 python3 tests/e2e_droid.py` runs (it spends a model call) | gate, unverified: Droid's Stop carries no reply, so the reply is read from `transcript_path` (`hosts/droid/hook.py::last_reply`), and a turn end whose reply is not there yet is a `reply_unread` row, never judged | partial, unverified: a record-only `subagent_end` row from SubagentStop's `task_result`; no SubagentStart, so no brief |
 | commandcode | gate, unverified: probed by `--report --live` through the hook command in `~/.commandcode/settings.json`, but no run of the binary has shown it obeying the deny; only shell, write and edit reach the hook (read, MCP, subagent and web tools do not), and plan mode skips every hook | gate, unverified: Stop carries no reply, so the reply is read from `transcript_path` (`hosts/commandcode/hook.py::last_reply`) and a turn end with none there is a `reply_unread` row, never judged; the host caps a block at three retries | unavailable: the settings hooks have no subagent event |
 | copilot | gate, unverified: probed by `--report --live` through the hook command in `$COPILOT_HOME/hooks/tezgah.json`, which answers with a top-level `permissionDecision: deny`, but no run of the binary has shown it obeying the deny. A PreToolUse hook that times out (10 s) lets the call through, by Copilot's own rule; one that crashes denies it. A repo's `.claude/settings.json` hooks run there too | gate, unverified: Stop carries no reply, so the reply is the last `assistant.message` in `transcript_path` (`hosts/copilot/hook.py::last_reply`), and a turn end with none there is a `reply_unread` row, never judged; the host ends the turn anyway after 8 blocks in a row | observe, unverified: a brief at subagentStart, a record-only `subagent_end` row at SubagentStop; the built-in `general-purpose` agent fires neither |
+| gemini | gate, unverified: probed by `--report --live` through the hook command in `~/.gemini/extensions/tezgah/hooks/hooks.json`, which answers with a top-level `decision: deny`, but no run of the binary has shown it obeying the deny, and no run has shown Gemini loading an extension dir written without `gemini extensions install` (its loader reads every subdir; a non-empty `security.allowedExtensions` asks for install metadata tezgah does not write). A hook that crashes or prints bad JSON is a warning and the call goes on | gate, unverified: AfterAgent carries the reply as `prompt_response` and `stop_hook_active` (`hosts/gemini/hook.py::main`); a deny sends the reason back as a new prompt | unavailable: no subagent event; a subagent is a tool call (`codebase_investigator`, `generalist`, `invoke_agent`) the gate sees as `Task` |
 
 Every host also attests its own hook entries once per session
-(`hooks/tezgah_attest.py::run`). Claude, dsh, Codex, Cursor, omp, Qwen, Droid, Command Code and Copilot do it at
-session start. opencode does it at the first message, through `oncePerSession`.
+(`hooks/tezgah_attest.py::run`). Every host but opencode does it at session
+start. opencode does it at the first message, through `oncePerSession`.
 The `attest` row and the `drift` mark are
 [evidence](evidence.md#the-kinds-by-what-reads-them), never a block.
 `--report` prints the same comparison per host
@@ -182,6 +184,19 @@ shared config, contract hash and the CLI symlinks every host shell can call
   `$COPILOT_HOME/copilot-instructions.md`. The uninstall deletes tezgah.json
   and takes back only tezgah's settings keys. tezgah writes no subagent roles,
   MCP rows or orx shim for Copilot yet.
+- **gemini** - `install_gemini` (`bin/tezgah-setup::install_gemini`) writes
+  tezgah's own extension, `~/.gemini/extensions/tezgah/`, which is wholly
+  tezgah's. `GEMINI_CLI_HOME` moves `~/.gemini` under it. The dir holds
+  `gemini-extension.json`, `hooks/hooks.json` with one group per event of
+  `GEMINI_HOOK_EVENTS` (each `timeout` in milliseconds) and `skills/*` links.
+  The BeforeTool group carries `GEMINI_PRETOOL_MATCHER`. settings.json is never
+  written: it is JSON with comments and holds the user's keys. Gemini's default
+  prompt adds no co-author trailer and no setting names one, so there is
+  nothing to turn off. The install writes the always-on block in
+  `~/.gemini/GEMINI.md`, which Antigravity reads too. The uninstall deletes the
+  extension dir. It strips the block only while no other host of
+  `GEMINI_MD_HOSTS` stays armed (`bin/tezgah-setup::gemini_md_kept`). Gemini
+  gets no subagent roles, MCP rows or orx shim from tezgah yet.
 
 An adapter is responsible for its host's **envelope** and its **surface**: it
 translates the host's event and tool names into the shared vocabulary (one call
@@ -209,6 +224,7 @@ pays for it once.
 | droid | the managed block in `~/.factory/AGENTS.md`, which Droid loads as coding guidelines at startup; its `SessionStart` hook repeats the core only while that block is missing (`hosts/droid/hook.py::rules_carry_core`) |
 | commandcode | the managed block in `~/.commandcode/AGENTS.md`, the user memory file Command Code puts in the system prompt; its `SessionStart` hook repeats the core only while that block is missing (`hosts/commandcode/hook.py::rules_carry_core`) |
 | copilot | the managed block in `$COPILOT_HOME/copilot-instructions.md`, Copilot's personal instructions file, applied to every session; its `SessionStart` hook repeats the core only while that block is missing (`hosts/copilot/hook.py::rules_carry_core`) |
+| gemini | the managed block in `~/.gemini/GEMINI.md`, the global context file Gemini puts in the system prompt and Antigravity reads too; its `SessionStart` hook repeats the core only while that block is missing (`hosts/gemini/hook.py::rules_carry_core`) |
 
 An installed host whose core line is missing is a health check's business
 (`host_checks_<host>`), not a second copy: two delivery paths for one host is the
@@ -231,6 +247,7 @@ and drops the later ones.
 | context | droid | from the cwd up to the git root, `AGENTS.md` (or `CLAUDE.md`) in each dir and its `.factory/`, `.agents/`, `.agent/`; then `~/.factory/AGENTS.md` and the other personal dirs; project files override personal ones | block in `~/.factory/AGENTS.md` |
 | context | commandcode | `~/.commandcode/AGENTS.md`, the repo's `AGENTS.md` (else `.commandcode/AGENTS.md`), then each subdirectory's; all load | block in the first |
 | context | copilot | `$COPILOT_HOME/copilot-instructions.md` and `instructions/`, then in the git root and the cwd `.github/copilot-instructions.md`, `.github/instructions/`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.claude/rules/`; all merge | block in the first |
+| context | gemini | `~/.gemini/GEMINI.md`, then from the cwd up to the git root, then subdirectories (`context.fileName` renames the file); all concatenate | block in the first |
 | skills | omp | `skills.customDirectories`, then `.omp/skills` and `~/.omp/agent/skills`, Claude's project dir (user dir opt-in), `.agents/skills` and `~/.agents/skills`; first wins, identical copies collapse, a differing copy is renamed `<namespace>/<name>` | links in `~/.omp/agent/skills` |
 | skills | claude | `.claude/skills`, `~/.claude/skills`; plugin skills are namespaced `tezgah:<name>` | the plugin copy |
 | skills | codex | `.agents/skills` from the cwd up to the repo root, `~/.agents/skills`, `$CODEX_HOME/skills`; one name in two dirs is listed twice, not merged | links in `$CODEX_HOME/skills` |
@@ -240,6 +257,7 @@ and drops the later ones.
 | skills | droid | `.factory/skills` (project and folder), `~/.factory/skills`, `.agents/skills` and `~/.agents/skills`, plugin and built-in skills; no documented winner | links in `~/.factory/skills`, beside the user's own |
 | skills | commandcode | `.commandcode/skills`, `.agents/skills`, `~/.commandcode/skills`, `~/.agents/skills`, extra locations, bundled; first wins | links in `~/.commandcode/skills` |
 | skills | copilot | `.github/skills`, `.agents/skills`, `.claude/skills`, a parent's `.github/skills`, `$COPILOT_HOME/skills`, `~/.agents/skills`, plugins, `COPILOT_SKILLS_DIRS`, bundled; first wins | links in `$COPILOT_HOME/skills` |
+| skills | gemini | workspace `.agents/skills` and `.gemini/skills`, user `~/.agents/skills` and `~/.gemini/skills`, extension skills, built-in; higher tier wins, `.agents/skills` wins within one | links in the extension's `skills/`, the lowest tier |
 | agents | claude | managed, the `claude --agents` flag, `.claude/agents`, `~/.claude/agents`, plugin agents namespaced `plugin:name`; a dir absent at start is not watched | `~/.claude/agents`, written at install |
 | agents | codex | `$CODEX_HOME/agents`, `/etc/codex/agents`, `.codex/agents` (trusted repos only), read at config load | `$CODEX_HOME/agents`, written at install |
 | agents | cursor | `cursor-agent`: `.cursor/agents`, then `.claude/agents`, `.grok/agents`, plugin agents; first name wins; no user dir; read at process start. The editor's docs add `~/.cursor/agents` and `~/.claude/agents` | `.cursor/agents` per repo at session start, in the CLI's line format (`hooks/tezgah_agents.py::render_md_cursor`) |
@@ -253,7 +271,8 @@ and drops the later ones.
 | hooks | droid | org-managed hooks, user `~/.factory/hooks.json`, project `.factory/hooks.json` and enabled plugins' `hooks/hooks.json`, merged with no documented order; a scope's settings.json `hooks` key counts only while its hooks.json is absent | own rows in hooks.json |
 | hooks | commandcode | project `.commandcode/settings.json` rows, then user `~/.commandcode/settings.json` rows; PreToolUse runs them in order and stops at the first deny, the other events run in parallel | own rows in the user settings.json |
 | hooks | copilot | policy files, then the repo's `.github/hooks/*.json`, user `$COPILOT_HOME/hooks/*.json`, the inline `hooks` of the repo's and the user's settings.json (and the repo's `.claude/settings.json`), then plugins; every entry runs, and any PreToolUse deny blocks | own file `hooks/tezgah.json` |
-| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; commandcode: `settings.json` `mcp.servers`, `~/.commandcode/mcp.json`, the repo's `.mcp.json`; copilot: `$COPILOT_HOME/mcp-config.json`, the repo's `.mcp.json` and `.github/mcp.json`, project first; tezgah writes no row for qwen, droid, commandcode or copilot yet | one `tezgah` and one `codegraph` row per host but qwen, droid, commandcode and copilot |
+| hooks | gemini | project `.gemini/settings.json`, user `~/.gemini/settings.json`, system settings, then extensions' `hooks/hooks.json`; `hooksConfig.enabled: false` runs none | own extension `extensions/tezgah/hooks/hooks.json` |
+| mcp | each | omp: project `.omp/mcp.json`, then `~/.omp/agent/mcp.json`, first name wins; claude: `~/.claude.json`, the repo's `.mcp.json`, the plugin's `.mcp.json`; codex: `$CODEX_HOME/config.toml`; cursor: `~/.cursor/mcp.json`; opencode: `opencode.json` `mcp`; qwen: `settings.json` `mcpServers`; droid: `~/.factory/mcp.json`; commandcode: `settings.json` `mcp.servers`, `~/.commandcode/mcp.json`, the repo's `.mcp.json`; copilot: `$COPILOT_HOME/mcp-config.json`, the repo's `.mcp.json` and `.github/mcp.json`, project first; gemini: `settings.json` `mcpServers` (user, project) and each extension's `gemini-extension.json`, settings.json first; tezgah writes no row for qwen, droid, commandcode, copilot or gemini yet | one `tezgah` and one `codegraph` row per host but qwen, droid, commandcode, copilot and gemini |
 
 Orca is a launcher, not a host. It starts omp with its own `--extension`. It
 gives each Codex account its own `CODEX_HOME` under
@@ -300,6 +319,7 @@ three harness configurations while swapping the model inside one harness moved i
 | droid | not named: tezgah writes no Droid subagent roles | `unverified`: tezgah has not mapped Droid's providers to a wire | - |
 | commandcode | not named: tezgah writes no Command Code subagent roles | `unverified`: tezgah has not mapped Command Code's providers to a wire | - |
 | copilot | not named: tezgah writes no Copilot subagent roles | `unverified`: tezgah has not mapped Copilot's providers to a wire | - |
+| gemini | not named: tezgah writes no Gemini subagent roles | `unverified`: tezgah has not mapped Gemini's providers to a wire | - |
 
 `unverified` is the point of the column rather than a gap in it. A wrong dialect
 here is worse than a blank one: a reader would use it to explain a score, and the
@@ -312,7 +332,7 @@ A skill read is observable only where the host gives a channel that does not cos
 a process per read: Claude parses its transcript (`statusline.py::claude_used`),
 opencode classifies in process (`hosts/opencode/plugins/tezgah.js:2227-2263`),
 omp filters in its embedded runner before it asks python
-(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid, commandcode, copilot and dsh a read is not
+(`hosts/omp/tezgah-hook.ts.in:257-264`). On codex, cursor, qwen, droid, commandcode, copilot, gemini and dsh a read is not
 observable at that price. Their surfaces pass the five tool-use measures as
 `observable`, and the two skill marks render dim (`info`, no glyph) instead of
 claiming the skill was never opened (`hooks/tezgah_context.py::TOOL_USE_MEASURES`, and the
@@ -389,6 +409,9 @@ In order, each step verified by the one below it:
     counter there.
   - **copilot:** unavailable: Copilot drops a command hook's UserPromptSubmit output,
     so no reminder carries the counter's warning there.
+  - **gemini:** unverified. BeforeAgent carries `transcript_path`, but Gemini's
+    session file is a format the counter does not read
+    (`hooks/tezgah_context.py::_transcript_calls`), so a disarmed gate there likely counts 0.
   - **omp, opencode:** not applicable: the prompt hook and the gate live in one extension or
     plugin process, so one cannot run without the other.
   - Everywhere: a disarmed PreToolUse beside a working PostToolUse writes rows and is not
@@ -516,7 +539,7 @@ In order, each step verified by the one below it:
   longer. A busy turn with every conditional rule armed measured 10288.
   `fit()` cuts the tail to `CONTEXT_MAX` and marks the cut, so the reminder and
   the first rules arrive (`hosts/cursor/hook.py::fit`, `hosts/cursor/hook.py::CONTEXT_MAX`).
-- **Claude, dsh, omp, codex, cursor, qwen, droid, commandcode and copilot run the gate only for the tool names
+- **Claude, dsh, omp, codex, cursor, qwen, droid, commandcode, copilot and gemini run the gate only for the tool names
   their matcher carries**, so a name the PostToolUse side carries and the
   PreToolUse side does not is recorded in the ledger and never refused.
   `PowerShell` and `pwsh` are both `BASH_TOOLS` members
@@ -547,8 +570,13 @@ In order, each step verified by the one below it:
   `edit`, `apply_patch`, `task`, `grep`, `rg`). An Edit that names no file but
   carries a patch reaches the gate as `apply_patch`. `<server>-<tool>` becomes
   `mcp__<server>__<tool>` for a server `mcp-config.json` names
-  (`hosts/copilot/hook.py::gate_name`). A host this list does not cover is a
-  host whose shell the gate cannot see.
+  (`hosts/copilot/hook.py::gate_name`). Gemini's BeforeTool matcher is a regex
+  over the tool name. `bin/tezgah-setup::GEMINI_PRETOOL_MATCHER` names the
+  shell, write, edit and grep tools, the subagent tools
+  (`codebase_investigator`, `generalist`, `invoke_agent`) and `mcp_.*`. A user's own subagents are not
+  named. `mcp_<server>_<tool>` marks no boundary between server and tool, so it
+  reaches the gate as `mcp__<server>_<tool>` (`hosts/gemini/hook.py::gate_name`).
+  A host this list does not cover is a host whose shell the gate cannot see.
 - **An MCP effect reaches the gate on every host that can route it**. Claude
   and dsh run it through a PreToolUse group of its own in `hooks/hooks.json` and
   `hosts/dsh/hooks.json`. That group stays apart from the literal one, because
@@ -591,6 +619,7 @@ In order, each step verified by the one below it:
 - `hosts/droid/hook.py`, `tests/e2e_droid.py` (the opt-in run of the real binary)
 - `hosts/commandcode/hook.py`
 - `hosts/copilot/hook.py`
+- `hosts/gemini/hook.py`
 - `statusline.py`, `bin/tezgah-status`, `hooks/tezgah_context.py`
 - `hooks/tezgah_models.py` - the per-host model surface in `## The model wire`
 - `hooks/tezgah_stack.py`, `bin/tezgah-doctor` `--stack` - the order in `## Precedence`

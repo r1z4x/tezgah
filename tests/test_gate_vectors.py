@@ -62,7 +62,7 @@ def matcher(host, spec):
         return lambda name: True
     if "::" in path:
         # a host whose manifest is rendered by the installer (qwen, droid,
-        # commandcode, copilot): its constant. Command Code tests it against the
+        # commandcode, copilot, gemini): its constant. Command Code tests it against the
         # tool's display name, case-insensitively (`display`)
         from test_setup import setup_module
         pattern = getattr(setup_module(), path.split("::", 1)[1])
@@ -147,6 +147,13 @@ class GateVectors(TempHome):
                                   tool_name=name, tool_input=inp),
                              lambda out: out.get("permissionDecisionReason")
                              if out.get("permissionDecision") == "deny" else None)
+        if host == "gemini":
+            # Gemini's BeforeTool deny is a top-level decision
+            return self.hook(support.GEMINI_HOOK,
+                             dict(ids, hook_event_name="BeforeTool",
+                                  tool_name=name, tool_input=inp),
+                             lambda out: out.get("reason")
+                             if out.get("decision") == "deny" else None)
         if host == "omp":
             return self.hook(support.OMP_HOOK,
                              dict(ids, event="pre_tool_use", tool=name, input=inp),

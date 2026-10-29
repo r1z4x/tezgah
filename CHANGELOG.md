@@ -8,6 +8,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Gemini CLI is a host (`gemini`, plan 139 slice 3).** `tezgah-setup
+  --install --hosts gemini` writes tezgah's own extension dir,
+  `~/.gemini/extensions/tezgah/`. It holds `gemini-extension.json`,
+  `hooks/hooks.json` and links to the skills.
+  `GEMINI_CLI_HOME` moves `~/.gemini` under it. The timeouts are in
+  milliseconds: AfterAgent 30000, the rest 5000. settings.json is never
+  written, since it is JSON with comments and holds the user's keys. Gemini's
+  default prompt adds no co-author trailer and no setting names one. The
+  always-on block goes in `~/.gemini/GEMINI.md`, which Antigravity reads too.
+  `--uninstall` deletes the extension dir and strips the block only while no
+  other host that reads it stays armed.
+  - `hosts/gemini/hook.py` handles SessionStart, BeforeAgent, BeforeTool,
+    AfterTool and AfterAgent. BeforeAgent writes the turn row and carries the
+    per-turn reminder. BeforeTool maps `run_shell_command`, `write_file`,
+    `replace`, the grep tools and the subagent tools into the gate's names, and
+    `mcp_<server>_<tool>` into `mcp__<server>_<tool>`. It denies with a
+    top-level `decision: deny` on exit 0.
+  - AfterTool reads the outcome off `tool_response`: an `error` is a failure,
+    and a shell result's `Exit Code: N` names a non-zero code. A shell run that
+    printed its `Output:` with no exit-code line is a pass, since Gemini writes
+    that line only for a non-zero code. AfterAgent judges `prompt_response` and
+    denies with `decision: deny`. Gemini sends the reason back through
+    BeforeAgent as the next prompt, and that turn row does not reset the
+    refusal budget. The status segment rides `systemMessage`.
+  - `--report` has Gemini rows, including one for `hooksConfig.enabled: false`
+    in settings.json, which runs no hook at all. `--report --live` probes the
+    hook command with Gemini's own payload and deny shape. No run has shown the
+    binary loading the extension or obeying the deny.
 - **GitHub Copilot CLI is a host (`copilot`, plan 139 slice 2).** `tezgah-setup
   --install --hosts copilot` writes `$COPILOT_HOME/hooks/tezgah.json`, a hooks
   file that is wholly tezgah's. `COPILOT_HOME` defaults to `~/.copilot`. The
