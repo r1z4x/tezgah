@@ -689,6 +689,23 @@ class OmpExtension(TempHome):
                          planMode="inactive")
         self.assertEqual(self.results(out)[0]["decision"], "block")
 
+    def test_a_message_object_reaches_the_rule_as_prose(self):
+        # plan 143: omp's `session_stop` carries the message object its
+        # `getLastAssistantMessage()` returns. End to end - bridge, hook,
+        # core - the rule judges its text blocks, so the question the reply
+        # ends on is a last line again and a thinking block is not the reply.
+        # The bridge (`textOf`) and the core (`reply_prose`) each normalize,
+        # so this passes with either alone: it pins the path, not the bridge
+        # (review of plan 143, finding 1).
+        message = {"role": "assistant", "content": [
+            {"type": "thinking", "text": "Let me think about this"},
+            {"type": "text", "text": "Üç adım var.\n\nDevam edeyim mi?"}]}
+        out = self.drive([{"event": "session_stop",
+                           "arg": {"last_assistant_message": message}}])
+        res = self.results(out)[0]
+        self.assertEqual(res["decision"], "block")
+        self.assertIn("Devam edeyim mi?", res["reason"])
+
     def test_the_empty_run_literal_is_the_core_s(self):
         # the bridge reads the result's text because it sends the hook a size
         # and never the body; its literal must stay the core's (plan 048 d)

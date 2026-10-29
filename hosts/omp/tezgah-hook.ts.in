@@ -315,6 +315,22 @@ function emptyRun(content: any): boolean {
   return EMPTY_RUN.test(text.slice(-EMPTY_RUN_TAIL));
 }
 
+// The text of one assistant message, whatever shape it arrives in: omp hands
+// `session_stop` the message OBJECT its `getLastAssistantMessage()` returns,
+// and the core must judge the prose, never its `str()` (plan 143). A thinking
+// or tool block is not the reply: only `type: "text"` is.
+function textOf(message: any): string | undefined {
+  if (typeof message === "string") return message;
+  if (typeof message?.content === "string") return message.content;
+  if (Array.isArray(message?.content)) {
+    // joined and trimmed exactly as the core does (`reply_prose`), so the two
+    // never hand the rule a different text for one reply
+    return message.content.map((p: any) => (p?.type === "text" && typeof p.text === "string"
+                                            ? p.text : "")).join("\n").trim();
+  }
+  return undefined;
+}
+
 // The text of the newest assistant message in an agent_end `messages` list:
 // the subagent's final report, which the hook reads like a Stop reply.
 function lastReply(messages: any): string | undefined {
@@ -322,11 +338,8 @@ function lastReply(messages: any): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m?.role !== "assistant") continue;
-    if (typeof m.content === "string") return m.content;
-    if (Array.isArray(m.content)) {
-      return m.content.map((p: any) => (p?.type === "text" && typeof p.text === "string"
-                                        ? p.text : "")).join("\n");
-    }
+    const text = textOf(m);
+    if (text !== undefined) return text;
   }
   return undefined;
 }
@@ -794,7 +807,8 @@ export default function tezgahOmp(pi: any): void {
       mode = ctx?.sessionModes?.getState?.()?.plan === "active" ? "plan" : undefined;
     } catch { mode = undefined; }
     const res = ask({ event: "stop", cwd: cwdOf(ctx), session_id: sessionOf(ctx),
-                      last_assistant_message: event?.last_assistant_message,
+                      last_assistant_message: textOf(event?.last_assistant_message)
+                                              ?? lastReply(event?.messages),
                       stop_hook_active: event?.stop_hook_active === true,
                       permission_mode: mode });
     if (hookError) {

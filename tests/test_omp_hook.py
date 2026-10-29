@@ -441,6 +441,31 @@ class OmpHook(TempHome):
         self.assertEqual(out.get("decision"), "block")
         self.assertIn("Plan modunda", out["reason"])
 
+    def shape_rows(self, session):
+        """The session's `shape` rows, read through the integrity probe."""
+        rows, _ = run_json([support.PROBE_INTEGRITY],
+                           {"fn": "events", "session": session}, env=self.env())
+        return [r for r in rows if r.get("kind") == "shape"]
+
+    def test_a_message_object_is_judged_on_its_text(self):
+        # plan 143: omp's `session_stop` carries the message OBJECT its
+        # `getLastAssistantMessage()` returns. Judged as `str(dict)` it is one
+        # line with no list items, and the prose is diluted by the object's
+        # own fields - 1643 of 1656 omp shape rows of 45 days carried
+        # `lines: 1`. The hook reads the text blocks instead, and leaves a
+        # thinking block out.
+        repo = self.make_repo()
+        message = {"role": "assistant", "timestamp": 1,
+                   "content": [{"type": "thinking", "text": "Let me look first"},
+                               {"type": "text", "text": "Durum şu:\n\n- bir\n- iki\n"
+                                                        "- üç\n\nSonuç: tamam."}]}
+        self.event({"event": "stop", "cwd": repo, "session_id": "sobj",
+                    "last_assistant_message": message})
+        shape = self.shape_rows("sobj")[-1]
+        self.assertEqual((shape["lines"], shape["items"]), (7, 3))
+        self.assertGreater(shape["tr_share"], 0.3)
+        self.assertNotIn("Let me look first", str(shape))
+
     def test_a_forged_pass_after_a_gated_one_blocks_as_evidence_tampered(self):
         # plan 051: the gate's pre_tool_use `began` row pairs with the
         # post_tool_use pass; a pass appended with `python3 -c` has none

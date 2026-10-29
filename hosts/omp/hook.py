@@ -276,6 +276,8 @@ def handle(payload):
         # the reply after a block is judged again; the core decides from the
         # turn's ledger whether it may be refused once more (plan 083), and a
         # core that raises has refused nothing
+        # an older installed bridge still sends omp's message object here; the
+        # core reads the prose either way (tezgah_integrity.reply_prose, 143)
         reason = safe(session_id, stop_reason,
                       payload.get("last_assistant_message"), session_id,
                       cwd=cwd, after_block=bool(payload.get("stop_hook_active")),
